@@ -10,6 +10,7 @@ from supabase import Client, create_client
 from analytics import router as analytics_router
 from dice.routes import router as dice_router
 from runtime_policy import initialize_runtime_policy
+from service_health import router as health_router
 from supabase_cache import CachedSupabaseClient, SupabaseTTLCacheStore
 
 RUNTIME_POLICY = initialize_runtime_policy(
@@ -71,10 +72,6 @@ def root():
     return {"service": "cozy-commons-dice", "status": "ok"}
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
+app.include_router(health_router)
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")

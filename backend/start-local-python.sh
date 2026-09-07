@@ -3,12 +3,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${BACKEND_VENV_DIR:-$SCRIPT_DIR/.venv}"
-PYTHON_BIN="/opt/homebrew/bin/python3.13"
+PYTHON_BIN="${DICE_PYTHON_BIN:-}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
 ENABLE_SCHEDULER="${ENABLE_SCHEDULER:-false}"
 NEEDS_INSTALL=0
 SETUP_ONLY=0
+REQUIREMENTS_STAMP="$VENV_DIR/.requirements-checksum"
+REQUIREMENTS_CHECKSUM="$(cksum < "$SCRIPT_DIR/requirements.txt")"
 
 usage() {
   cat <<'EOF'
@@ -52,9 +54,27 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ ! -x "$PYTHON_BIN" ]; then
-  PYTHON_BIN="$(command -v python3)"
+if [ -z "$PYTHON_BIN" ]; then
+  if command -v python3.12 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3.12)"
+  elif command -v python3.13 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3.13)"
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+  else
+    printf 'Python 3.12 or 3.13 is required.\n' >&2
+    exit 1
+  fi
 fi
+
+PYTHON_VERSION="$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+case "$PYTHON_VERSION" in
+  3.12|3.13) ;;
+  *)
+    printf 'Python 3.12 or 3.13 is required; found %s at %s.\n' "$PYTHON_VERSION" "$PYTHON_BIN" >&2
+    exit 1
+    ;;
+esac
 
 if [ ! -d "$VENV_DIR" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
@@ -65,10 +85,15 @@ if ! "$VENV_DIR/bin/python" -c "import uvicorn" >/dev/null 2>&1; then
   NEEDS_INSTALL=1
 fi
 
+if [ ! -f "$REQUIREMENTS_STAMP" ] || [ "$(cat "$REQUIREMENTS_STAMP")" != "$REQUIREMENTS_CHECKSUM" ]; then
+  NEEDS_INSTALL=1
+fi
+
 if [ "$NEEDS_INSTALL" -eq 1 ]; then
   # `python -m pip` remains portable when a bind-mounted venv was originally
   # created at a different absolute workspace path.
   "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
+  printf '%s\n' "$REQUIREMENTS_CHECKSUM" > "$REQUIREMENTS_STAMP"
 fi
 
 if [ "$SETUP_ONLY" -eq 1 ]; then

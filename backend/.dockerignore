@@ -1,0 +1,33 @@
+# Local configuration and credentials must never enter the build context.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.secrets/
+
+# Local environments and generated Python files.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Tests, local tooling, and generated artifacts are not needed at runtime.
+tests/
+scripts/
+*.log
+*.sqlite*
+dist/
+build/
+
+# Editor and OS metadata.
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/

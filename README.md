@@ -13,6 +13,7 @@ Monorepo for Cozy Commons projects. Dice is the first application.
 ## Local development
 
 ```bash
+scripts/dice-dev.sh doctor
 scripts/dice-dev.sh setup
 scripts/dice-dev.sh local
 ```
@@ -22,6 +23,11 @@ The Dice app runs at <http://localhost:8080/dice>.
 Copy the `.env.example` files only for normal direct service runs. The isolated
 Dice harness injects verified loopback credentials and intentionally ignores
 dotenv files.
+
+`doctor` is a non-destructive prerequisite check. `install` installs locked
+dependencies without starting services or resetting data. Before opening a PR,
+run `scripts/dice-dev.sh verify` for the frontend, backend, shell, and migration
+contract checks.
 
 ## Deployment
 

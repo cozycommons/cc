@@ -29,9 +29,11 @@ created an unranked 12–9 match, and reopened its detail page:
 
 ## Start locally
 
-Prerequisites are Docker, PostgreSQL's `psql`, Node.js, and Python 3.12.
+Prerequisites are Docker, PostgreSQL's `psql`, Node.js 22, and Python 3.12 or
+3.13. Production and CI use Python 3.12.
 
 ```bash
+scripts/dice-dev.sh doctor
 scripts/dice-dev.sh setup
 scripts/dice-dev.sh local
 ```
@@ -42,8 +44,17 @@ In a second terminal:
 scripts/dice-dev.sh status
 ```
 
-`setup` installs locked dependencies, starts local Supabase, applies the Dice
-migrations, and loads synthetic fixtures.
+`doctor` checks prerequisites without changing local state. `install` installs
+locked dependencies without starting services or resetting data. `setup` also
+installs dependencies, then starts local Supabase, applies the Dice migrations,
+and loads synthetic fixtures.
+
+Run the repository validation suite without starting services or resetting the
+database:
+
+```bash
+scripts/dice-dev.sh verify
+```
 
 ## Start in GitHub Codespaces
 

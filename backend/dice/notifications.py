@@ -13,7 +13,7 @@ from runtime_policy import RuntimePolicy
 
 logger = logging.getLogger(__name__)
 
-DICE_SITE_URL = os.getenv("DICE_SITE_URL", "http://localhost:8080/dice")
+SITE_URL = os.getenv("SITE_URL", "http://localhost:8080").rstrip("/")
 
 
 def _team_label(game: DiceGame, team: int) -> str:
@@ -27,7 +27,7 @@ def _build_message(game: DiceGame) -> str:
     loser = _team_label(game, loser_team)
     winner_score = game.team1_score if game.winner_team == 1 else game.team2_score
     loser_score = game.team2_score if game.winner_team == 1 else game.team1_score
-    link = f"{DICE_SITE_URL}/game/{game.id}"
+    link = f"{SITE_URL}/dice/game/{game.id}"
     return f"Dice: {winner} beat {loser} {winner_score}-{loser_score}. {link}"
 
 

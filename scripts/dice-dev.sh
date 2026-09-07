@@ -10,6 +10,9 @@ usage() {
 Usage: scripts/dice-dev.sh <command>
 
 Commands:
+  install     Install locked root, frontend, and backend dependencies
+  doctor      Check required tools, versions, and local service ports
+  verify      Run repository checks without starting services or resetting data
   setup       Start local Supabase and rebuild the synthetic Dice database
   local       Run the backend and frontend against local Supabase
   codespace   Run the same harness behind a private Codespaces URL
@@ -18,6 +21,87 @@ Commands:
   stop        Stop the local Supabase stack
   production  Run the frontend against production (requires DICE_ALLOW_PRODUCTION=1)
 EOF
+}
+
+install_dependencies() {
+  cd "$repo_dir"
+  resolve_npm
+  "${npm_command[@]}" ci
+  cd "$repo_dir/frontend"
+  "${npm_command[@]}" ci
+  "$repo_dir/backend/start-local-python.sh" --setup-only
+}
+
+show_doctor() {
+  local failed=false
+  local command_name
+  for command_name in docker psql curl; do
+    if command -v "$command_name" >/dev/null 2>&1; then
+      printf '%-10s %s\n' "$command_name:" "$(command -v "$command_name")"
+    else
+      printf '%-10s missing\n' "$command_name:" >&2
+      failed=true
+    fi
+  done
+  local python_bin=""
+  if command -v python3.12 >/dev/null 2>&1; then
+    python_bin="$(command -v python3.12)"
+  elif command -v python3.13 >/dev/null 2>&1; then
+    python_bin="$(command -v python3.13)"
+  fi
+  if [[ -n "$python_bin" ]]; then
+    printf '%-10s %s (%s)\n' 'python:' "$python_bin" "$("$python_bin" --version 2>&1)"
+  else
+    printf '%-10s missing Python 3.12 or 3.13\n' 'python:' >&2
+    failed=true
+  fi
+  if command -v npm >/dev/null 2>&1 || [[ -x "$mise_bin" ]]; then
+    resolve_npm
+    printf '%-10s %s\n' 'npm:' "$("${npm_command[@]}" --version)"
+    local node_version
+    if command -v node >/dev/null 2>&1; then
+      node_version="$(node --version)"
+    else
+      node_version="$("$mise_bin" exec -- node --version)"
+    fi
+    printf '%-10s %s\n' 'node:' "$node_version"
+    case "$node_version" in
+      v22.*) ;;
+      *)
+        printf 'Node 22 is required for parity with CI and production.\n' >&2
+        failed=true
+        ;;
+    esac
+  else
+    printf '%-10s missing\n' 'npm:' >&2
+    failed=true
+  fi
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    printf 'Docker:    ready\n'
+  else
+    printf 'Docker:    unavailable\n' >&2
+    failed=true
+  fi
+  printf 'Required local ports: 54321-54327, 8000, 8080\n'
+  [[ "$failed" == false ]]
+}
+
+run_verification() {
+  resolve_npm
+  cd "$repo_dir/frontend"
+  "${npm_command[@]}" test -- --run
+  "${npm_command[@]}" run lint
+  "${npm_command[@]}" run build:check
+  cd "$repo_dir"
+  "$repo_dir/scripts/check-dice-migration-contract.sh"
+  bash -n "$repo_dir"/scripts/*.sh "$repo_dir"/backend/*.sh
+  if [[ -x "$repo_dir/backend/.venv/bin/python" ]]; then
+    PYTHONPATH="$repo_dir/backend" \
+      "$repo_dir/backend/.venv/bin/python" -m pytest "$repo_dir/backend/tests" -q
+  else
+    printf 'Backend virtualenv is missing. Run scripts/dice-dev.sh install first.\n' >&2
+    return 1
+  fi
 }
 
 require_command() {
@@ -79,7 +163,18 @@ run_harness() {
   printf 'Supabase Studio:       http://localhost:54323\n'
   printf 'Press Ctrl-C to stop the frontend and backend.\n'
   local wait_status=0
-  wait -n "${pids[@]}" || wait_status=$?
+  local finished_pid=""
+  while [[ -z "$finished_pid" ]]; do
+    local pid
+    for pid in "${pids[@]}"; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        finished_pid="$pid"
+        break
+      fi
+    done
+    [[ -n "$finished_pid" ]] || sleep 1
+  done
+  wait "$finished_pid" || wait_status=$?
   cleanup
   trap - INT TERM
   return "$wait_status"
@@ -135,16 +230,20 @@ EOF
 }
 
 case "${1:-}" in
+  install)
+    install_dependencies
+    ;;
+  doctor)
+    show_doctor
+    ;;
+  verify)
+    run_verification
+    ;;
   setup)
     require_command docker
     require_command psql
     require_command curl
-    cd "$repo_dir"
-    resolve_npm
-    "${npm_command[@]}" ci
-    cd "$repo_dir/frontend"
-    "${npm_command[@]}" ci
-    "$repo_dir/backend/start-local-python.sh" --setup-only
+    install_dependencies
     cd "$repo_dir"
     "${supabase_command[@]}" start
     exec "$repo_dir/scripts/reset-local-dice-db.sh"
