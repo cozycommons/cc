@@ -23,6 +23,14 @@ Run from the repository root unless noted otherwise.
 - Frontend build: `cd frontend && npm run build`
 - Backend tests: `cd backend && source .venv/bin/activate && python -m pytest tests -v`
 
+## Developer-platform compatibility
+
+Developer tooling must work on Ubuntu (including WSL2 and Codespaces) and
+macOS. Shell entry points must use Unix-compatible syntax accepted by Bash 3.2.
+Do not commit Linux-only process or filesystem assumptions such as `/proc`,
+`ss`, or `setsid` in shared scripts. Do not add PowerShell, `cmd.exe`, or
+Windows-path syntax to repository scripts or documented developer commands.
+
 ## Invariants
 
 - Developer tooling must run on Ubuntu and macOS Bash 3.2.

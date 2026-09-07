@@ -26,6 +26,10 @@ if not SUPABASE_SERVICE_KEY:
 logger = logging.getLogger(__name__)
 
 
+def _is_scheduler_enabled() -> bool:
+    return RUNTIME_POLICY.scheduler_enabled
+
+
 def _cors_origins() -> list[str]:
     defaults = ["http://localhost:8080", "http://127.0.0.1:8080"]
     configured = [
