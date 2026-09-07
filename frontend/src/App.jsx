@@ -1,13 +1,14 @@
 import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { SupabaseProvider } from './contexts/SupabaseContext.jsx';
+import CommonsHome from './commons/CommonsHome.jsx';
 import DiceApp from './dice/App.jsx';
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={null} />
+        <Route path="/" element={<CommonsHome />} />
         <Route
           path="/dice/*"
           element={(

@@ -18,10 +18,12 @@ describe('top-level routes', () => {
 
   afterEach(cleanup);
 
-  it('leaves the home page empty', () => {
+  it('serves the Cozy Commons home page', () => {
     const { container } = render(<App />);
 
-    expect(container).toBeEmptyDOMElement();
+    expect(container).not.toBeEmptyDOMElement();
+    expect(screen.getByRole('main')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute('href', '/dice');
   });
 
   it('serves Dice and initializes Supabase under /dice', () => {
