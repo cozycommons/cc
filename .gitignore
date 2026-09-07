@@ -1,0 +1,9 @@
+.DS_Store
+backend/.venv/
+backend/.env.local
+frontend/.env.local
+frontend/public/config.json
+frontend/dist/
+node_modules/
+.dice-dev/
+artifacts/

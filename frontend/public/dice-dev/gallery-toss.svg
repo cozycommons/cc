@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title">
+  <title id="title">Synthetic winning die toss fixture</title>
+  <rect width="1200" height="900" fill="#17203f"/>
+  <circle cx="955" cy="150" r="90" fill="#f8dc72"/>
+  <path d="M0 620 Q250 510 480 610 T940 590 T1200 620 V900 H0Z" fill="#324d63"/>
+  <path d="M140 610 H1060 L1130 850 H70Z" fill="#ad6738" stroke="#e8aa66" stroke-width="16"/>
+  <g transform="translate(600 320) rotate(28)">
+    <rect x="-82" y="-82" width="164" height="164" rx="28" fill="#fff8e6" stroke="#11182c" stroke-width="14"/>
+    <g fill="#11182c">
+      <circle cx="-42" cy="-42" r="14"/><circle cx="42" cy="-42" r="14"/>
+      <circle cx="0" cy="0" r="14"/><circle cx="-42" cy="42" r="14"/><circle cx="42" cy="42" r="14"/>
+    </g>
+  </g>
+</svg>

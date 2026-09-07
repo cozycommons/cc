@@ -1,0 +1,43 @@
+{
+  "name": "Cozy Commons Dice sandbox",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "installDockerBuildx": true,
+      "installDockerComposeSwitch": true
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  },
+  "containerEnv": {
+    "SUPABASE_TELEMETRY_DISABLED": "1",
+    "BACKEND_VENV_DIR": "/home/vscode/.cache/cozy-commons/backend-venv"
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+  "forwardPorts": [
+    8080
+  ],
+  "portsAttributes": {
+    "8080": {
+      "label": "Private Dice sandbox",
+      "onAutoForward": "notify",
+      "visibility": "private"
+    }
+  },
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
+  "postCreateCommand": "npm ci && npm --prefix frontend ci && backend/start-local-python.sh --setup-only",
+  "postStartCommand": "scripts/start-dice-codespace.sh",
+  "remoteUser": "vscode"
+}

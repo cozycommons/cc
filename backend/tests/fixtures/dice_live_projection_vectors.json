@@ -1,0 +1,567 @@
+{
+  "match_snapshot": {"team_order": ["team1", "team2"], "teams": {"team1": ["p1", "p2"], "team2": ["p3", "p4"]}},
+  "rules_snapshot": {
+    "contract_version": 1,
+    "ruleset_version": 1,
+    "scoring_version": 1,
+    "target_score": 3,
+    "win_by": 1,
+    "call_policy": {
+      "low_call_deadline": "before_surface_contact",
+      "low_call_exceptions": [],
+      "short_boundary": "center_line_is_short",
+      "midline_remedy": "consume_attempt",
+      "dispute_authority": "teams_or_designated_referee",
+      "uncertain_call_remedy": "retoss"
+    }
+  },
+  "cases": [
+    {
+      "name": "missed events are reanchored without invented misses",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "k1", "sequence": 2, "kind": "score_checkpoint", "score": [2, 1], "coverage": "partial", "coverage_after": null},
+        {"id": "o2", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "score_delta": [0, 0]},
+        {"id": "done", "sequence": 4, "kind": "completion", "score": [3, 1], "coverage": "partial", "coverage_after": "k1", "termination_reason": "target_reached"}
+      ],
+      "want": {"score": [3, 1], "status": "completed", "termination_reason": "target_reached", "coverage": "partial", "observations": 2, "stats": {"point": 1, "caught": 1}}
+    },
+    {
+      "name": "change entry before checkpoint uses the original slot",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "c1", "sequence": 2, "kind": "correction", "client_command_id": "change-1", "command_index": 0, "target_event_id": "o1", "reason": "mistaken_entry"},
+        {"id": "r1", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "change-1", "command_index": 1, "outcome": "caught", "score_delta": [0, 0], "replacement_for": "o1"},
+        {"id": "k1", "sequence": 4, "kind": "score_checkpoint", "score": [0, 0], "coverage": "complete", "coverage_after": null}
+      ],
+      "want": {"score": [0, 0], "status": "active", "termination_reason": null, "coverage": "complete", "observations": 1, "stats": {"caught": 1}}
+    },
+    {
+      "name": "change entry after checkpoint does not score after it",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "k1", "sequence": 2, "kind": "score_checkpoint", "score": [1, 0], "coverage": "complete", "coverage_after": null},
+        {"id": "c1", "sequence": 3, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o1", "reason": "changed_ruling", "disputed_calls": ["short"], "decision_basis": "teams_agreed"},
+        {"id": "r1", "sequence": 4, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o1"}
+      ],
+      "want": {"score": [1, 0], "status": "active", "termination_reason": null, "coverage": "complete", "observations": 1, "stats": {"invalid": 1}}
+    },
+    {
+      "name": "v1 outcomes derive score from throw and participant roles",
+      "events": [
+        {"id": "miss", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "miss", "score_delta": [0, 0]},
+        {"id": "caught", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "score_delta": [0, 0]},
+        {"id": "point", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "sink", "sequence": 4, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "sink", "score_delta": [1, 0]},
+        {"id": "self", "sequence": 5, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "self_sink", "score_delta": [0, 2]},
+        {"id": "fifa-catch", "sequence": 6, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "fifa", "fifa": {"finish": "kick_catch", "kicker_id": "p3", "catcher_id": "p4"}, "score_delta": [0, 1]},
+        {"id": "fifa-goal", "sequence": 7, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "fifa", "fifa": {"finish": "goal", "kicker_id": "p3"}, "score_delta": [0, 1]},
+        {"id": "fifa-saved", "sequence": 8, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "fifa", "fifa": {"finish": "goal_saved", "kicker_id": "p3", "saver_id": "p2"}, "score_delta": [0, 0]},
+        {"id": "invalid", "sequence": 9, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["short", "low"], "score_delta": [0, 0]}
+      ],
+      "want": {"score": [2, 4], "status": "ready_to_finish", "termination_reason": null, "coverage": "unknown", "observations": 9, "stats": {"miss": 1, "caught": 1, "point": 1, "sink": 1, "self_sink": 1, "fifa": 3, "invalid": 1}}
+    },
+    {
+      "name": "whole throw correction changes point to short and low invalid",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "c", "sequence": 2, "kind": "correction", "client_command_id": "change-throw", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["short", "low"], "decision_basis": "teams_agreed"},
+        {"id": "r", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "change-throw", "command_index": 1, "outcome": "invalid", "characteristics": ["short", "low"], "score_delta": [0, 0], "replacement_for": "o"}
+      ],
+      "want": {"score": [0, 0], "status": "active", "termination_reason": null, "coverage": "unknown", "observations": 1, "stats": {"invalid": 1}}
+    },
+    {
+      "name": "whole throw correction changes sink to blamed self sink",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "sink", "score_delta": [1, 0]},
+        {"id": "c", "sequence": 2, "kind": "correction", "client_command_id": "change-throw", "command_index": 0, "target_event_id": "o", "reason": "mistaken_entry"},
+        {"id": "r", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "change-throw", "command_index": 1, "outcome": "self_sink", "score_delta": [0, 2], "replacement_for": "o"}
+      ],
+      "want": {"score": [0, 2], "status": "active", "termination_reason": null, "coverage": "unknown", "observations": 1, "stats": {"self_sink": 1}}
+    },
+    {
+      "name": "disputed low replay still counts its later point",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o1", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "o2", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0], "replay_of": "c1"},
+        {"id": "done", "sequence": 4, "kind": "completion", "score": [3, 0], "coverage": "unknown", "coverage_after": null, "termination_reason": "target_reached"}
+      ],
+      "want": {"score": [3, 0], "status": "completed", "termination_reason": "target_reached", "coverage": "unknown", "observations": 1, "stats": {"point": 1}}
+    },
+    {
+      "name": "deleting a mistaken replay entry restores the pending decision",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o1", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "o2", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0], "replay_of": "c1"},
+        {"id": "c2", "sequence": 4, "kind": "correction", "target_event_id": "o2", "reason": "mistaken_entry"}
+      ],
+      "want": {"score": [0, 0], "status": "awaiting_replay", "termination_reason": null, "coverage": "unknown", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "a replay granted another replay fulfills the first decision",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o1", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "o2", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replay_of": "c1"},
+        {"id": "c2", "sequence": 4, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o2", "disputed_calls": ["short"], "decision_basis": "teams_agreed"}
+      ],
+      "want": {"score": [0, 0], "status": "awaiting_replay", "termination_reason": null, "coverage": "unknown", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "overturning low still leaves an agreed short call",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["short", "low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 2, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o1", "reason": "changed_ruling", "disputed_calls": ["low"], "decision_basis": "designated_referee"},
+        {"id": "r1", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o1"}
+      ],
+      "want": {"score": [0, 0], "status": "active", "termination_reason": null, "coverage": "unknown", "observations": 1, "stats": {"invalid": 1}}
+    },
+    {
+      "name": "overturning the only low call restores the legal point",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 2, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o1", "reason": "changed_ruling", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "r1", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "point", "score_delta": [1, 0], "replacement_for": "o1"}
+      ],
+      "want": {"score": [1, 0], "status": "active", "termination_reason": null, "coverage": "unknown", "observations": 1, "stats": {"point": 1}}
+    },
+    {
+      "name": "direct retoss decision records no invented official throw",
+      "events": [
+        {"id": "d", "sequence": 1, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "characteristics": ["short"], "disputed_calls": ["short"], "decision_basis": "courtesy"},
+        {"id": "o", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "score_delta": [0, 0], "replay_of": "d"}
+      ],
+      "want": {"score": [0, 0], "status": "active", "termination_reason": null, "coverage": "unknown", "observations": 1, "stats": {"caught": 1}}
+    },
+    {
+      "name": "direct retoss decision waits honestly for its later physical replay",
+      "events": [
+        {"id": "d", "sequence": 1, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "characteristics": ["short"], "disputed_calls": ["short"], "decision_basis": "courtesy"}
+      ],
+      "want": {"score": [0, 0], "status": "awaiting_replay", "termination_reason": null, "coverage": "unknown", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "historical slot correction can occur while awaiting replay",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "o2", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 3, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o2", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "c2", "sequence": 4, "kind": "correction", "client_command_id": "old-slot-fix", "command_index": 0, "target_event_id": "o1", "reason": "mistaken_entry"},
+        {"id": "r1", "sequence": 5, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "old-slot-fix", "command_index": 1, "outcome": "caught", "score_delta": [0, 0], "replacement_for": "o1"},
+        {"id": "o3", "sequence": 6, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0], "replay_of": "c1"}
+      ],
+      "want": {"score": [1, 0], "status": "active", "termination_reason": null, "coverage": "unknown", "observations": 2, "stats": {"caught": 1, "point": 1}}
+    },
+    {
+      "name": "unobserved physical replay resolves through a partial checkpoint",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "k", "sequence": 3, "kind": "score_checkpoint", "score": [1, 0], "coverage": "partial", "coverage_after": null, "replay_resolution_for": "c", "replay_disposition": "unobserved"}
+      ],
+      "want": {"score": [1, 0], "status": "active", "termination_reason": null, "coverage": "partial", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "corrected replay resolution is derived from its active boundary",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "k1", "sequence": 3, "kind": "score_checkpoint", "score": [1, 0], "coverage": "partial", "coverage_after": null, "replay_resolution_for": "c", "replay_disposition": "unobserved"},
+        {"id": "c2", "sequence": 4, "kind": "correction", "client_command_id": "boundary-fix", "command_index": 0, "target_event_id": "k1", "reason": "mistaken_entry"},
+        {"id": "k2", "sequence": 5, "kind": "score_checkpoint", "client_command_id": "boundary-fix", "command_index": 1, "score": [0, 0], "coverage": "partial", "coverage_after": null, "replay_resolution_for": "c", "replay_disposition": "unobserved", "replacement_for": "k1"}
+      ],
+      "want": {"score": [0, 0], "status": "active", "termination_reason": null, "coverage": "partial", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "cancelled replay can end without inventing a physical toss",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "done", "sequence": 3, "kind": "completion", "score": [0, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "mutual_end", "replay_resolution_for": "c", "replay_disposition": "cancelled"}
+      ],
+      "want": {"score": [0, 0], "status": "completed", "termination_reason": "mutual_end", "coverage": "complete", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "explicit mutual end permits an early authoritative final score",
+      "events": [
+        {"id": "done", "sequence": 1, "kind": "completion", "score": [1, 0], "coverage": "partial", "coverage_after": null, "termination_reason": "mutual_end"}
+      ],
+      "want": {"score": [1, 0], "status": "completed", "termination_reason": "mutual_end", "coverage": "partial", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "checkpoint correction preserves its partial coverage boundary",
+      "events": [
+        {"id": "k1", "sequence": 1, "kind": "score_checkpoint", "score": [1, 0], "coverage": "partial", "coverage_after": null},
+        {"id": "c1", "sequence": 2, "kind": "correction", "client_command_id": "boundary-fix", "command_index": 0, "target_event_id": "k1", "reason": "mistaken_entry"},
+        {"id": "k2", "sequence": 3, "kind": "score_checkpoint", "client_command_id": "boundary-fix", "command_index": 1, "score": [1, 1], "coverage": "partial", "coverage_after": null, "replacement_for": "k1"},
+        {"id": "done", "sequence": 4, "kind": "completion", "score": [3, 1], "coverage": "partial", "coverage_after": "k1", "termination_reason": "target_reached"}
+      ],
+      "want": {"score": [3, 1], "status": "completed", "termination_reason": "target_reached", "coverage": "partial", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "complete checkpoint uses the ruling active when it was recorded",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "k", "sequence": 2, "kind": "score_checkpoint", "score": [1, 0], "coverage": "complete", "coverage_after": null},
+        {"id": "c1", "sequence": 3, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["short"], "decision_basis": "teams_agreed"},
+        {"id": "r1", "sequence": 4, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o"},
+        {"id": "c2", "sequence": 5, "kind": "correction", "client_command_id": "ruling-2", "command_index": 0, "target_event_id": "r1", "reason": "changed_ruling", "disputed_calls": ["short"], "decision_basis": "designated_referee"},
+        {"id": "r2", "sequence": 6, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-2", "command_index": 1, "outcome": "point", "score_delta": [1, 0], "replacement_for": "r1"}
+      ],
+      "want": {"score": [1, 0], "status": "active", "termination_reason": null, "coverage": "complete", "observations": 1, "stats": {"point": 1}}
+    },
+    {
+      "name": "replacement boundary reconciles at its own recording version",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "k1", "sequence": 2, "kind": "score_checkpoint", "score": [1, 0], "coverage": "partial", "coverage_after": null},
+        {"id": "c1", "sequence": 3, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["short"], "decision_basis": "teams_agreed"},
+        {"id": "r1", "sequence": 4, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o"},
+        {"id": "c2", "sequence": 5, "kind": "correction", "client_command_id": "boundary-fix", "command_index": 0, "target_event_id": "k1", "reason": "mistaken_entry"},
+        {"id": "k2", "sequence": 6, "kind": "score_checkpoint", "client_command_id": "boundary-fix", "command_index": 1, "score": [0, 0], "coverage": "complete", "coverage_after": null, "replacement_for": "k1"}
+      ],
+      "want": {"score": [0, 0], "status": "active", "termination_reason": null, "coverage": "complete", "observations": 1, "stats": {"invalid": 1}}
+    },
+    {
+      "name": "corrected completion can be replaced without intervening play",
+      "events": [
+        {"id": "done1", "sequence": 1, "kind": "completion", "score": [3, 1], "coverage": "partial", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "c1", "sequence": 2, "kind": "correction", "client_command_id": "final-fix", "command_index": 0, "target_event_id": "done1", "reason": "mistaken_entry"},
+        {"id": "done2", "sequence": 3, "kind": "completion", "client_command_id": "final-fix", "command_index": 1, "score": [3, 2], "coverage": "partial", "coverage_after": null, "termination_reason": "target_reached", "replacement_for": "done1"}
+      ],
+      "want": {"score": [3, 2], "status": "completed", "termination_reason": "target_reached", "coverage": "partial", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "reopening before a score correction is a valid active prefix",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "done1", "sequence": 2, "kind": "completion", "score": [3, 0], "coverage": "partial", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "c2", "sequence": 3, "kind": "correction", "client_command_id": "reopen-final", "command_index": 0, "target_event_id": "done1", "reason": "mistaken_entry"},
+        {"id": "k", "sequence": 4, "kind": "score_checkpoint", "client_command_id": "reopen-final", "command_index": 1, "score": [2, 0], "coverage": "partial", "coverage_after": null, "replacement_for": "done1"},
+        {"id": "c1", "sequence": 5, "kind": "correction", "client_command_id": "ruling-fix", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["short"], "decision_basis": "teams_agreed"},
+        {"id": "r1", "sequence": 6, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-fix", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o"}
+      ],
+      "want": {"score": [2, 0], "status": "active", "termination_reason": null, "coverage": "partial", "observations": 1, "stats": {"invalid": 1}}
+    },
+    {
+      "name": "score-changing ruling after completion reopens and completes again",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "done1", "sequence": 2, "kind": "completion", "score": [3, 0], "coverage": "partial", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "c2", "sequence": 3, "kind": "correction", "client_command_id": "reopen-final", "command_index": 0, "target_event_id": "done1", "reason": "mistaken_entry"},
+        {"id": "k", "sequence": 4, "kind": "score_checkpoint", "client_command_id": "reopen-final", "command_index": 1, "score": [2, 0], "coverage": "partial", "coverage_after": null, "replacement_for": "done1"},
+        {"id": "c1", "sequence": 5, "kind": "correction", "client_command_id": "ruling-fix", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["short"], "decision_basis": "teams_agreed"},
+        {"id": "r1", "sequence": 6, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-fix", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o"},
+        {"id": "done2", "sequence": 7, "kind": "completion", "score": [2, 0], "coverage": "complete", "coverage_after": "done1", "termination_reason": "mutual_end"}
+      ],
+      "want": {"score": [2, 0], "status": "completed", "termination_reason": "mutual_end", "coverage": "partial", "observations": 1, "stats": {"invalid": 1}}
+    },
+    {
+      "name": "play after corrected completion requires a later completion",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "done1", "sequence": 2, "kind": "completion", "score": [3, 1], "coverage": "partial", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "c1", "sequence": 3, "kind": "correction", "client_command_id": "reopen-1", "command_index": 0, "target_event_id": "done1", "reason": "changed_ruling", "disputed_calls": ["other"], "decision_basis": "teams_agreed"},
+        {"id": "k1", "sequence": 4, "kind": "score_checkpoint", "client_command_id": "reopen-1", "command_index": 1, "score": [3, 1], "coverage": "partial", "coverage_after": null, "replacement_for": "done1"},
+        {"id": "o2", "sequence": 5, "kind": "observation", "thrower_id": "p3", "throwing_team_id": "team2", "outcome": "point", "score_delta": [0, 1]},
+        {"id": "done2", "sequence": 6, "kind": "completion", "score": [3, 2], "coverage": "complete", "coverage_after": "done1", "termination_reason": "target_reached"}
+      ],
+      "want": {"score": [3, 2], "status": "completed", "termination_reason": "target_reached", "coverage": "partial", "observations": 2, "stats": {"point": 2}}
+    },
+    {
+      "name": "normal target and win-by becomes ready without completion",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "o2", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "o3", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]}
+      ],
+      "want": {"score": [3, 0], "status": "ready_to_finish", "termination_reason": null, "coverage": "unknown", "observations": 3, "stats": {"point": 3}}
+    },
+    {
+      "name": "team one off-roof is an absolute five point loss",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "k", "sequence": 2, "kind": "score_checkpoint", "score": [2, 1], "coverage": "partial", "coverage_after": null},
+        {"id": "roof", "sequence": 3, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1"}
+      ],
+      "want": {"score": [0, 5], "status": "completed", "termination_reason": "off_roof", "coverage": "partial", "observations": 1, "stats": {"point": 1}}
+    },
+    {
+      "name": "team two off-roof is symmetrically attributed",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p3", "throwing_team_id": "team2", "outcome": "point", "score_delta": [0, 1]},
+        {"id": "roof", "sequence": 2, "kind": "off_roof", "responsible_player_id": "p3", "losing_team_id": "team2"}
+      ],
+      "want": {"score": [5, 0], "status": "completed", "termination_reason": "off_roof", "coverage": "unknown", "observations": 1, "stats": {"point": 1}}
+    },
+    {
+      "name": "hard correction of off-roof restores earlier active projection",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "roof", "sequence": 2, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1"},
+        {"id": "undo", "sequence": 3, "kind": "correction", "target_event_id": "roof", "reason": "mistaken_entry"}
+      ],
+      "want": {"score": [1, 0], "status": "active", "termination_reason": null, "coverage": "unknown", "observations": 1, "stats": {"point": 1}}
+    },
+    {
+      "name": "corrected off-roof preserves earlier partial coverage",
+      "events": [
+        {"id": "k", "sequence": 1, "kind": "score_checkpoint", "score": [2, 1], "coverage": "partial", "coverage_after": null},
+        {"id": "roof", "sequence": 2, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1"},
+        {"id": "undo", "sequence": 3, "kind": "correction", "target_event_id": "roof", "reason": "mistaken_entry"}
+      ],
+      "want": {"score": [2, 1], "status": "active", "termination_reason": null, "coverage": "partial", "observations": 0, "stats": {}}
+    },
+    {
+      "name": "corrected-away retoss has no pending obligation before off-roof",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "decision", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "undo", "sequence": 3, "kind": "correction", "target_event_id": "decision", "reason": "mistaken_entry"},
+        {"id": "roof", "sequence": 4, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1"}
+      ],
+      "want": {"score": [0, 5], "status": "completed", "termination_reason": "off_roof", "coverage": "unknown", "observations": 1, "stats": {"invalid": 1}}
+    }
+  ],
+  "rejects": [
+    {
+      "name": "later correction cannot hide a post-completion append",
+      "events": [
+        {"id": "d", "sequence": 1, "kind": "completion", "score": [0, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "mutual_end"},
+        {"id": "o", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0]},
+        {"id": "c", "sequence": 3, "kind": "correction", "target_event_id": "o", "reason": "mistaken_entry"}
+      ]
+    },
+    {
+      "name": "later correction cannot hide play appended while awaiting replay",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o1", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "o2", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0]},
+        {"id": "c2", "sequence": 4, "kind": "correction", "target_event_id": "o2", "reason": "mistaken_entry"}
+      ]
+    },
+    {
+      "name": "later reopening cannot legalize a replay decision made while completed",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "d1", "sequence": 2, "kind": "completion", "score": [0, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "mutual_end"},
+        {"id": "c1", "sequence": 3, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "c2", "sequence": 4, "kind": "correction", "client_command_id": "reopen-final", "command_index": 0, "target_event_id": "d1", "reason": "mistaken_entry"},
+        {"id": "k", "sequence": 5, "kind": "score_checkpoint", "client_command_id": "reopen-final", "command_index": 1, "score": [0, 0], "coverage": "complete", "coverage_after": null, "replacement_for": "d1"},
+        {"id": "d2", "sequence": 6, "kind": "completion", "score": [0, 0], "coverage": "complete", "coverage_after": "d1", "termination_reason": "mutual_end", "replay_resolution_for": "c1", "replay_disposition": "cancelled"}
+      ]
+    },
+    {
+      "name": "score-bearing event after completion",
+      "events": [
+        {"id": "d", "sequence": 1, "kind": "completion", "score": [3, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "k", "sequence": 2, "kind": "score_checkpoint", "score": [4, 0], "coverage": "complete", "coverage_after": "d"}
+      ]
+    },
+    {
+      "name": "completion replacement after intervening play",
+      "events": [
+        {"id": "d", "sequence": 1, "kind": "completion", "score": [3, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "c", "sequence": 2, "kind": "correction", "client_command_id": "reopen-1", "command_index": 0, "target_event_id": "d", "reason": "changed_ruling", "disputed_calls": ["other"], "decision_basis": "teams_agreed"},
+        {"id": "o", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "r", "sequence": 4, "kind": "score_checkpoint", "client_command_id": "reopen-1", "command_index": 1, "score": [3, 0], "coverage": "complete", "coverage_after": null, "replacement_for": "d"}
+      ]
+    },
+    {
+      "name": "duplicate direct replacement",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "c", "sequence": 2, "kind": "correction", "target_event_id": "o", "reason": "mistaken_entry"},
+        {"id": "r1", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["other"], "score_delta": [0, 0], "replacement_for": "o"},
+        {"id": "r2", "sequence": 4, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0], "replacement_for": "o"}
+      ]
+    },
+    {
+      "name": "replay of non-observation",
+      "events": [
+        {"id": "k", "sequence": 1, "kind": "score_checkpoint", "score": [1, 0], "coverage": "complete", "coverage_after": null},
+        {"id": "c", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "k", "disputed_calls": ["other"], "decision_basis": "teams_agreed"},
+        {"id": "o", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0], "replay_of": "c"}
+      ]
+    },
+    {
+      "name": "observation cannot use the removed no-call outcome",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "no_call", "score_delta": [0, 0]}
+      ]
+    },
+    {
+      "name": "changed observation ruling without replacement",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c", "sequence": 2, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["low"], "decision_basis": "teams_agreed"}
+      ]
+    },
+    {
+      "name": "unlinked observation while awaiting replay",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o1", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "o2", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]}
+      ]
+    },
+    {
+      "name": "replay resolution cannot occupy a boundary slot before the decision",
+      "events": [
+        {"id": "k1", "sequence": 1, "kind": "score_checkpoint", "score": [0, 0], "coverage": "complete", "coverage_after": null},
+        {"id": "o", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "c1", "sequence": 3, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "c2", "sequence": 4, "kind": "correction", "client_command_id": "boundary-fix", "command_index": 0, "target_event_id": "k1", "reason": "mistaken_entry"},
+        {"id": "k2", "sequence": 5, "kind": "score_checkpoint", "client_command_id": "boundary-fix", "command_index": 1, "score": [0, 0], "coverage": "partial", "coverage_after": null, "replay_resolution_for": "c1", "replay_disposition": "unobserved", "replacement_for": "k1"}
+      ]
+    },
+    {
+      "name": "target completion below the saved target",
+      "events": [
+        {"id": "d", "sequence": 1, "kind": "completion", "score": [1, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "target_reached"}
+      ]
+    },
+    {
+      "name": "corrected checkpoint cannot erase earlier partial coverage",
+      "events": [
+        {"id": "k", "sequence": 1, "kind": "score_checkpoint", "score": [1, 0], "coverage": "partial", "coverage_after": null},
+        {"id": "d", "sequence": 2, "kind": "completion", "score": [3, 0], "coverage": "complete", "coverage_after": "k", "termination_reason": "target_reached"},
+        {"id": "c", "sequence": 3, "kind": "correction", "client_command_id": "boundary-fix", "command_index": 0, "target_event_id": "k", "reason": "mistaken_entry"}
+      ]
+    },
+    {
+      "name": "coverage boundaries must form an unbroken root chain",
+      "events": [
+        {"id": "k", "sequence": 1, "kind": "score_checkpoint", "score": [1, 0], "coverage": "partial", "coverage_after": null},
+        {"id": "d", "sequence": 2, "kind": "completion", "score": [3, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "target_reached"}
+      ]
+    },
+    {
+      "name": "physical replay cannot share the retoss decision command",
+      "events": [
+        {"id": "d", "sequence": 1, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "retoss-1", "command_index": 0, "characteristics": ["low"], "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "o", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "retoss-1", "command_index": 1, "outcome": "point", "score_delta": [1, 0], "replay_of": "d"}
+      ]
+    },
+    {
+      "name": "command indexes must be unique and contiguous",
+      "events": [
+        {"id": "o1", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "duplicate-1", "command_index": 0, "outcome": "point", "score_delta": [1, 0]},
+        {"id": "o2", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "duplicate-1", "command_index": 0, "outcome": "caught", "score_delta": [0, 0]}
+      ]
+    },
+    {
+      "name": "ruling cannot erase an undisputed overlapping call",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["short", "low"], "score_delta": [0, 0]},
+        {"id": "c", "sequence": 2, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "r", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "point", "score_delta": [1, 0], "replacement_for": "o"}
+      ]
+    },
+    {
+      "name": "score-changing ruling after completion must reopen the final",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "done", "sequence": 2, "kind": "completion", "score": [3, 0], "coverage": "partial", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "c", "sequence": 3, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["short"], "decision_basis": "teams_agreed"},
+        {"id": "r", "sequence": 4, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o"}
+      ]
+    },
+    {
+      "name": "deleting a mistaken point after completion must reopen the final",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "done", "sequence": 2, "kind": "completion", "score": [3, 0], "coverage": "partial", "coverage_after": null, "termination_reason": "target_reached"},
+        {"id": "c", "sequence": 3, "kind": "correction", "target_event_id": "o", "reason": "mistaken_entry"}
+      ]
+    },
+    {
+      "name": "complete interval cannot hide unexplained score movement",
+      "events": [
+        {"id": "done", "sequence": 1, "kind": "completion", "score": [3, 0], "coverage": "complete", "coverage_after": null, "termination_reason": "target_reached"}
+      ]
+    },
+    {
+      "name": "ruling cannot introduce an undisputed invalid reason",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
+        {"id": "c", "sequence": 2, "kind": "correction", "client_command_id": "ruling-1", "command_index": 0, "target_event_id": "o", "reason": "changed_ruling", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "r", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "client_command_id": "ruling-1", "command_index": 1, "outcome": "invalid", "characteristics": ["short"], "score_delta": [0, 0], "replacement_for": "o"}
+      ]
+    },
+    {
+      "name": "short or low requires invalid outcome",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "sink", "characteristics": ["low"], "score_delta": [1, 0]}
+      ]
+    },
+    {
+      "name": "server-derived score delta cannot be overridden",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [0, 1]}
+      ]
+    },
+    {
+      "name": "fifa kick-catch requires a distinct catcher",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "fifa", "fifa": {"finish": "kick_catch", "kicker_id": "p3"}, "score_delta": [0, 1]}
+      ]
+    },
+    {
+      "name": "fifa goal cannot include a catcher",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "fifa", "fifa": {"finish": "goal", "kicker_id": "p3", "catcher_id": "p4"}, "score_delta": [0, 1]}
+      ]
+    },
+    {
+      "name": "saved fifa goal requires a saver on the throwing team",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "fifa", "fifa": {"finish": "goal_saved", "kicker_id": "p3", "saver_id": "p4"}, "score_delta": [0, 0]}
+      ]
+    },
+    {
+      "name": "off-roof responsible player must be rostered",
+      "events": [
+        {"id": "roof", "sequence": 1, "kind": "off_roof", "responsible_player_id": "unknown", "losing_team_id": "team1"}
+      ]
+    },
+    {
+      "name": "off-roof losing team must match responsible player",
+      "events": [
+        {"id": "roof", "sequence": 1, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team2"}
+      ]
+    },
+    {
+      "name": "retoss cannot target an off-roof event",
+      "events": [
+        {"id": "roof", "sequence": 1, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1"},
+        {"id": "decision", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "roof", "disputed_calls": ["other"], "decision_basis": "teams_agreed"}
+      ]
+    },
+    {
+      "name": "off-roof cannot close a match awaiting replay",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "invalid", "characteristics": ["low"], "score_delta": [0, 0]},
+        {"id": "decision", "sequence": 2, "kind": "retoss_decision", "thrower_id": "p1", "throwing_team_id": "team1", "target_event_id": "o", "disputed_calls": ["low"], "decision_basis": "teams_agreed"},
+        {"id": "roof", "sequence": 3, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1"}
+      ]
+    },
+    {
+      "name": "later correction cannot hide play after off-roof",
+      "events": [
+        {"id": "roof", "sequence": 1, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1"},
+        {"id": "o", "sequence": 2, "kind": "observation", "thrower_id": "p3", "throwing_team_id": "team2", "outcome": "point", "score_delta": [0, 1]},
+        {"id": "undo", "sequence": 3, "kind": "correction", "target_event_id": "o", "reason": "mistaken_entry"}
+      ]
+    },
+    {
+      "name": "off-roof cannot carry a client score",
+      "events": [
+        {"id": "roof", "sequence": 1, "kind": "off_roof", "responsible_player_id": "p1", "losing_team_id": "team1", "score": [0, 5]}
+      ]
+    }
+  ]
+}

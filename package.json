@@ -1,0 +1,7 @@
+{
+  "name": "cozy-commons-dev-tools",
+  "private": true,
+  "devDependencies": {
+    "supabase": "2.109.1"
+  }
+}

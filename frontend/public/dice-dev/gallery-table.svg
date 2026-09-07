@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title">
+  <title id="title">Synthetic Beer Die table fixture</title>
+  <rect width="1200" height="900" fill="#9bd4e5"/>
+  <circle cx="180" cy="160" r="72" fill="#fff0ad"/>
+  <path d="M0 410 Q310 330 590 420 T1200 350 V900 H0Z" fill="#8fc46d"/>
+  <path d="M160 500 H1040 L1140 820 H60Z" fill="#9a5b35" stroke="#4c2b22" stroke-width="18"/>
+  <g fill="#fff8e6" stroke="#422b25" stroke-width="10">
+    <path d="M240 455 H340 L325 650 Q290 680 255 650Z"/>
+    <path d="M860 455 H960 L945 650 Q910 680 875 650Z"/>
+    <rect x="535" y="510" width="130" height="130" rx="24"/>
+  </g>
+  <g fill="#111">
+    <circle cx="570" cy="545" r="12"/><circle cx="630" cy="605" r="12"/><circle cx="600" cy="575" r="12"/>
+  </g>
+</svg>
