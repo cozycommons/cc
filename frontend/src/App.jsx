@@ -5,13 +5,19 @@ import DiceApp from './dice/App.jsx';
 
 export default function App() {
   return (
-    <SupabaseProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/dice/*" element={<DiceApp />} />
-          <Route path="*" element={<Navigate replace to="/dice" />} />
-        </Routes>
-      </BrowserRouter>
-    </SupabaseProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={null} />
+        <Route
+          path="/dice/*"
+          element={(
+            <SupabaseProvider>
+              <DiceApp />
+            </SupabaseProvider>
+          )}
+        />
+        <Route path="*" element={<Navigate replace to="/" />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
