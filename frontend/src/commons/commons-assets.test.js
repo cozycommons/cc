@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getCommonsActorAnimation,
   getCommonsAsset,
+  getCommonsHitbox,
   shouldMirrorCommonsAsset,
 } from './commons-assets.js';
 
@@ -30,5 +31,10 @@ describe('Commons furniture assets', () => {
     });
     expect(getCommonsActorAnimation('maker')?.path).toBe('/commons/assets/maker-walk.png');
     expect(getCommonsActorAnimation('neighbor')?.path).toBe('/commons/assets/neighbor-walk.png');
+  });
+
+  it('keeps interaction zones on the visible base of props and actors', () => {
+    expect(getCommonsHitbox('orange-sofa')).toMatchObject({ y: 0.58, height: 0.34 });
+    expect(getCommonsHitbox('host', 'actor')).toMatchObject({ y: 0.58, height: 0.38 });
   });
 });

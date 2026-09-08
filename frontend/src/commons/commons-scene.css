@@ -21,6 +21,7 @@
   width: 100% !important;
   height: 100% !important;
   image-rendering: pixelated;
+  touch-action: none;
 }
 
 .commons-scene__a11y {

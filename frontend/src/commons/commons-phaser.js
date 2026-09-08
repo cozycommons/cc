@@ -4,10 +4,12 @@ import {
   getCommonsActorAnimation,
   getCommonsAsset,
   getCommonsAssetSize,
+  getCommonsHitbox,
   shouldMirrorCommonsAsset,
 } from './commons-assets.js';
 import {
   COMMONS_GRID,
+  findTilePath,
   getEntityFootprint,
   isTileAvailable,
   normalizeTile,
@@ -22,6 +24,20 @@ const ROOM_WIDTH = COMMONS_GRID.width;
 const ROOM_HEIGHT = COMMONS_GRID.height;
 const ROOM_ASSET = '/commons/cozy-commons-room-tile-base.png';
 const FLOOR_ATLAS = '/commons/commons-floor-atlas.png';
+const AMBIENT_ACTOR_ROUTES = Object.freeze({
+  maker: Object.freeze([
+    { tile_x: 4, tile_y: 7 },
+    { tile_x: 5, tile_y: 8 },
+    { tile_x: 4, tile_y: 9 },
+    { tile_x: 3, tile_y: 8 },
+  ]),
+  neighbor: Object.freeze([
+    { tile_x: 11, tile_y: 4 },
+    { tile_x: 12, tile_y: 5 },
+    { tile_x: 11, tile_y: 6 },
+    { tile_x: 10, tile_y: 5 },
+  ]),
+});
 
 function entitiesFromScene(scene) {
   const objects = Object.values(scene?.state?.objects || {}).map((entity) => ({
@@ -81,6 +97,22 @@ function floorFrame(tileX, tileY) {
   return (tileX * 5 + tileY * 3) % 8;
 }
 
+function entityDepth(entityType, y) {
+  // Actors should win ties with furniture whose anchor lands on the same
+  // isometric row. The fractional bias preserves the integer tile ordering.
+  return y + (entityType === 'actor' ? 0.5 : 0);
+}
+
+function interactionHitArea(Phaser, sprite, entity) {
+  const hitbox = getCommonsHitbox(entity.asset, entity.entityType);
+  return new Phaser.Geom.Rectangle(
+    sprite.width * hitbox.x,
+    sprite.height * hitbox.y,
+    sprite.width * hitbox.width,
+    sprite.height * hitbox.height,
+  );
+}
+
 export function createCommonsPhaserGame({ Phaser, parent, initialScene, callbacks }) {
   class Scene extends Phaser.Scene {
     constructor() {
@@ -97,6 +129,11 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
       this.tileReadout = null;
       this.floorTiles = [];
       this.objectEffects = new Map();
+      this.hoverTileKey = null;
+      this.pathPreviewKey = null;
+      this.localActorWalks = new Map();
+      this.ambientActors = new Map();
+      this.ambientTimers = new Map();
     }
 
     preload() {
@@ -160,6 +197,9 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
 
       this.input.on('pointermove', (pointer) => {
         const tile = pixelToTile(pointer.worldX, pointer.worldY);
+        const nextHoverTileKey = tileKey(tile.tile_x, tile.tile_y);
+        if (!this.drag && this.hoverTileKey === nextHoverTileKey) return;
+        this.hoverTileKey = nextHoverTileKey;
         this.hoverTile = tile;
         this.updateTileReadout(tile);
         const invalid = this.drag
@@ -226,6 +266,7 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
       this.input.on('pointerupoutside', (pointer) => finishObjectDrag(pointer, false));
 
       this.syncState(initialScene);
+      this.startAmbientActors();
     }
 
     updateTileReadout(tile) {
@@ -233,7 +274,9 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
       const host = this.currentEntities?.find((entity) => entity.entityType === 'actor' && entity.id === 'host');
       const hostTile = host ? entityTile(host) : null;
       const distance = hostTile ? ` · ${tileDistance(tile, hostTile)} tiles from host` : '';
-      this.tileReadout.setText(`tile ${tile.tile_x},${tile.tile_y}${distance}`).setVisible(true);
+      const text = `tile ${tile.tile_x},${tile.tile_y}${distance}`;
+      if (this.tileReadout.text !== text) this.tileReadout.setText(text);
+      this.tileReadout.setVisible(true);
     }
 
     drawPathPreview(tile) {
@@ -243,6 +286,13 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
         entity.entityType === 'actor' && entity.id === 'host'
       ));
       if (!host || !this.currentScene) return;
+      const previewKey = [
+        this.currentScene.version,
+        tileKey(entityTile(host).tile_x, entityTile(host).tile_y),
+        tileKey(tile.tile_x, tile.tile_y),
+      ].join('|');
+      if (this.pathPreviewKey === previewKey) return;
+      this.pathPreviewKey = previewKey;
       const path = findTilePath(
         this.currentScene.state,
         entityTile(host),
@@ -321,17 +371,24 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
       const point = tileToPixel(tileX, tileY);
       const positioned = sprite.getData('positioned') === true;
       if (animate && positioned) {
+        this.tweens.killTweensOf(sprite);
         this.tweens.add({
           targets: sprite,
           x: point.x,
           y: point.y,
           duration: 150,
           ease: 'Linear',
+          onUpdate: () => this.updateSpriteDepth(sprite),
         });
       } else {
         sprite.setPosition(point.x, point.y);
       }
-      sprite.setDepth(point.y).setData('positioned', true);
+      this.updateSpriteDepth(sprite, point.y);
+      sprite.setData('positioned', true);
+    }
+
+    updateSpriteDepth(sprite, y = sprite.y) {
+      sprite.setDepth(entityDepth(sprite.getData('entityType'), y));
     }
 
     drawTileOverlay(tile, invalid = false) {
@@ -364,6 +421,7 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
     drawTarget(tile) {
       this.targetTile = tile ? normalizeTile(tile.tile_x, tile.tile_y) : null;
       this.pathOverlay?.clear();
+      this.pathPreviewKey = null;
       if (!this.targetOverlay) return;
       this.targetOverlay.clear();
       if (!this.targetTile) return;
@@ -378,6 +436,8 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
       if (!nextScene || !this.textures.exists('commons-room-base')) return;
       this.currentScene = nextScene;
       this.currentEntities = entitiesFromScene(nextScene);
+      this.pathPreviewKey = null;
+      this.hoverTileKey = null;
       if (this.gridGuide?.visible) this.drawGridGuide();
       const currentIds = new Set(this.currentEntities.map((entity) => `${entity.entityType}:${entity.id}`));
       this.sprites.forEach((sprite, id) => {
@@ -411,11 +471,17 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
             : this.add.image(0, 0, textureKey).setOrigin(0.5, 1);
           sprite.setData('baseWidth', sprite.width);
           sprite.setData('walkAnimation', animation ? actorAnimationKey(entity.asset) : null);
+          sprite.setData('entityType', entity.entityType);
           this.sprites.set(id, sprite);
           if (entity.entityType === 'object' && entity.movable) {
-            sprite.setInteractive({ useHandCursor: true });
-            sprite.on('pointerdown', (pointer) => {
+            sprite.setInteractive(
+              interactionHitArea(Phaser, sprite, entity),
+              Phaser.Geom.Rectangle.Contains,
+            );
+            sprite.input.cursor = 'grab';
+            sprite.on('pointerdown', (pointer, _localX, _localY, event) => {
               pointer.event?.stopPropagation?.();
+              event?.stopPropagation?.();
               if (pointer.button === 2) {
                 callbacks.onObjectRotate?.(entity.id);
                 return;
@@ -435,10 +501,37 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
           ? (entity.orientation || entity.facing) === 'west'
           : shouldMirrorCommonsAsset(entity.asset, entity.orientation || entity.facing || 'south');
         sprite.setFlipX(Boolean(mirrored));
+        const canonicalTileKey = tileKey(tile.tile_x, tile.tile_y);
+        if (entity.entityType === 'actor' && entity.id !== 'host') {
+          const ambient = this.ambientActors.get(entity.id);
+          if (!ambient || ambient.canonicalKey !== canonicalTileKey) {
+            this.ambientActors.set(entity.id, {
+              canonicalKey: canonicalTileKey,
+              tile,
+              routeIndex: 0,
+            });
+          }
+        }
+        const ambientActor = entity.entityType === 'actor' && entity.id !== 'host'
+          ? this.ambientActors.get(entity.id)
+          : null;
+        const localWalk = entity.entityType === 'actor' ? this.localActorWalks.get(entity.id) : null;
+        const preserveLocalPosition = Boolean(localWalk?.expectedKeys.has(canonicalTileKey));
+        const visualTargetMatchesCanonical = entity.entityType === 'actor'
+          && sprite.getData('visualTargetKey') === canonicalTileKey;
+        const preserveAmbientPosition = Boolean(
+          ambientActor && ambientActor.canonicalKey === canonicalTileKey,
+        );
         if (!this.drag || this.drag.objectId !== entity.id) {
-          this.placeSprite(sprite, tile.tile_x, tile.tile_y, {
-            animate: entity.entityType === 'actor',
-          });
+          if (preserveLocalPosition || visualTargetMatchesCanonical) {
+            this.updateSpriteDepth(sprite);
+          } else if (preserveAmbientPosition) {
+            this.placeSprite(sprite, ambientActor.tile.tile_x, ambientActor.tile.tile_y);
+          } else {
+            this.placeSprite(sprite, tile.tile_x, tile.tile_y, {
+              animate: entity.entityType === 'actor',
+            });
+          }
         }
         if (entity.entityType === 'object') {
           this.syncObjectEffect(entity, tile);
@@ -503,6 +596,149 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
       effect.destroy();
       this.objectEffects.delete(id);
     }
+
+    startActorAnimation(sprite) {
+      const animationKey = sprite.getData('walkAnimation');
+      if (animationKey && sprite.anims) {
+        sprite.anims.play({ key: animationKey, repeat: -1 }, true);
+      }
+    }
+
+    startAmbientActors() {
+      if (globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      Object.keys(AMBIENT_ACTOR_ROUTES).forEach((actorId, index) => {
+        this.scheduleAmbientActor(actorId, 1100 + index * 1300);
+      });
+    }
+
+    scheduleAmbientActor(actorId, delay) {
+      const currentTimer = this.ambientTimers.get(actorId);
+      currentTimer?.remove?.();
+      const timer = this.time.delayedCall(delay, () => this.runAmbientActor(actorId));
+      this.ambientTimers.set(actorId, timer);
+    }
+
+    runAmbientActor(actorId) {
+      const route = AMBIENT_ACTOR_ROUTES[actorId];
+      const ambient = this.ambientActors.get(actorId);
+      const actor = this.currentEntities?.find((entity) => entity.entityType === 'actor' && entity.id === actorId);
+      if (!route || !ambient || !actor || !this.currentScene) return;
+
+      const targetIndex = (ambient.routeIndex + 1) % route.length;
+      const pathState = {
+        ...this.currentScene.state,
+        actors: {
+          ...this.currentScene.state.actors,
+          [actorId]: {
+            ...actor,
+            tile_x: ambient.tile.tile_x,
+            tile_y: ambient.tile.tile_y,
+          },
+        },
+      };
+      const path = findTilePath(
+        pathState,
+        ambient.tile,
+        route[targetIndex],
+        { entityType: 'actor', entityId: actorId },
+      );
+      if (!path.length) {
+        this.scheduleAmbientActor(actorId, 1600);
+        return;
+      }
+
+      ambient.routeIndex = targetIndex;
+      this.walkActorPath(actorId, path, { ambient: true });
+      this.time.delayedCall(path.length * 180 + 80, () => {
+        this.finishActorWalk(actorId, true);
+        this.scheduleAmbientActor(actorId, 900 + Phaser.Math.Between(0, 1100));
+      });
+    }
+
+    stopActorAnimation(sprite) {
+      if (!sprite?.active) return;
+      sprite.anims?.stop();
+      sprite.setFrame?.(0);
+    }
+
+    walkActorPath(actorId, path, { ambient = false } = {}) {
+      const id = `actor:${actorId}`;
+      const sprite = this.sprites.get(id);
+      if (!sprite || !path?.length) return;
+      this.cancelActorWalk(actorId, { reconcile: false });
+      const actor = this.currentEntities?.find((entity) => entity.entityType === 'actor' && entity.id === actorId);
+      const ambientActor = ambient ? this.ambientActors.get(actorId) : null;
+      const startTile = ambientActor?.tile || (actor ? entityTile(actor) : null);
+      const expectedKeys = new Set([
+        startTile ? tileKey(startTile.tile_x, startTile.tile_y) : null,
+        ...path.map((tile) => tileKey(tile.tile_x, tile.tile_y)),
+      ].filter(Boolean));
+      const walk = {
+        ambient,
+        expectedKeys,
+        finalTile: path.at(-1),
+        startTile,
+        tween: null,
+        finished: false,
+      };
+      this.localActorWalks.set(actorId, walk);
+
+      const moveNext = (index) => {
+        if (walk.cancelled || index >= path.length) {
+          walk.finished = true;
+          this.stopActorAnimation(sprite);
+          return;
+        }
+        const tile = path[index];
+        const previousTile = index === 0 ? startTile : path[index - 1];
+        const point = tileToPixel(tile.tile_x, tile.tile_y);
+        sprite.setData('visualTargetKey', tileKey(tile.tile_x, tile.tile_y));
+        if (tile.tile_x !== previousTile?.tile_x) sprite.setFlipX(tile.tile_x < previousTile.tile_x);
+        this.startActorAnimation(sprite);
+        walk.tween = this.tweens.add({
+          targets: sprite,
+          x: point.x,
+          y: point.y,
+          duration: 155,
+          ease: 'Sine.easeInOut',
+          onUpdate: () => this.updateSpriteDepth(sprite),
+          onComplete: () => moveNext(index + 1),
+        });
+      };
+      moveNext(0);
+    }
+
+    finishActorWalk(actorId, success) {
+      const walk = this.localActorWalks.get(actorId);
+      if (success) {
+        if (walk?.ambient) {
+          const ambient = this.ambientActors.get(actorId);
+          if (ambient && walk.finalTile) ambient.tile = walk.finalTile;
+        }
+        this.localActorWalks.delete(actorId);
+        return;
+      }
+      this.cancelActorWalk(actorId, { reconcile: true });
+    }
+
+    cancelActorWalk(actorId, { reconcile = true } = {}) {
+      const walk = this.localActorWalks.get(actorId);
+      const sprite = this.sprites.get(`actor:${actorId}`);
+      if (walk) {
+        walk.cancelled = true;
+        if (sprite) this.tweens.killTweensOf(sprite);
+        this.localActorWalks.delete(actorId);
+      }
+      if (!sprite) return;
+      this.stopActorAnimation(sprite);
+      sprite.setData('visualTargetKey', null);
+      if (reconcile) {
+        const ambient = this.ambientActors.get(actorId);
+        const entity = this.currentEntities?.find((item) => item.entityType === 'actor' && item.id === actorId);
+        const tile = ambient?.tile || (entity ? entityTile(entity) : null);
+        if (tile) this.placeSprite(sprite, tile.tile_x, tile.tile_y);
+      }
+    }
   }
 
   const game = new Phaser.Game({
@@ -527,27 +763,8 @@ export function createCommonsPhaserGame({ Phaser, parent, initialScene, callback
   game.syncState = (nextScene) => game.scene.getScene('CommonsTileScene')?.syncState(nextScene);
   game.drawTarget = (tile) => game.scene.getScene('CommonsTileScene')?.drawTarget(tile);
   game.toggleGrid = () => game.scene.getScene('CommonsTileScene')?.toggleGridGuide();
-  game.walkingActor = (actorId) => {
-    const scene = game.scene.getScene('CommonsTileScene');
-    const sprite = scene?.sprites.get(`actor:${actorId}`);
-    if (!sprite) return;
-    const animationKey = sprite.getData('walkAnimation');
-    if (animationKey && sprite.anims) {
-      sprite.anims.play({ key: animationKey, repeat: 1 });
-      scene.time.delayedCall(1050, () => {
-        if (!sprite.active) return;
-        sprite.anims.stop();
-        sprite.setFrame(0);
-      });
-    }
-    scene.tweens.add({
-      targets: sprite,
-      angle: sprite.flipX ? -2 : 2,
-      duration: 90,
-      yoyo: true,
-      repeat: 2,
-      ease: 'Sine.easeInOut',
-    });
-  };
+  game.walkActorPath = (actorId, path, options) => game.scene.getScene('CommonsTileScene')?.walkActorPath(actorId, path, options);
+  game.finishActorWalk = (actorId, success) => game.scene.getScene('CommonsTileScene')?.finishActorWalk(actorId, success);
+  game.cancelActorWalk = (actorId) => game.scene.getScene('CommonsTileScene')?.cancelActorWalk(actorId);
   return game;
 }

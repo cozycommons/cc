@@ -60,6 +60,28 @@ const ASSET_SIZES = Object.freeze({
   neighbor: "12%",
 });
 
+const DEFAULT_OBJECT_HITBOX = Object.freeze({ x: 0.16, y: 0.62, width: 0.68, height: 0.3 });
+const ACTOR_HITBOX = Object.freeze({ x: 0.22, y: 0.58, width: 0.56, height: 0.38 });
+
+// Interaction zones stay close to the visible base of each prop. The source
+// art includes generous transparent padding for isometric overlap, which is
+// useful for rendering but makes the default full-texture Phaser hit area
+// frustrating when objects sit near one another.
+const COMMONS_HITBOXES = Object.freeze({
+  "orange-sofa": Object.freeze({ x: 0.08, y: 0.58, width: 0.84, height: 0.34 }),
+  "green-loveseat": Object.freeze({ x: 0.1, y: 0.58, width: 0.8, height: 0.34 }),
+  "red-armchair": Object.freeze({ x: 0.12, y: 0.58, width: 0.76, height: 0.34 }),
+  "dining-table": Object.freeze({ x: 0.06, y: 0.55, width: 0.88, height: 0.38 }),
+  "dining-chair": Object.freeze({ x: 0.18, y: 0.58, width: 0.64, height: 0.34 }),
+  "record-console": Object.freeze({ x: 0.08, y: 0.54, width: 0.84, height: 0.38 }),
+  "coffee-table": Object.freeze({ x: 0.1, y: 0.55, width: 0.8, height: 0.38 }),
+  "floor-lamp": Object.freeze({ x: 0.26, y: 0.54, width: 0.48, height: 0.4 }),
+  "area-rug": Object.freeze({ x: 0.08, y: 0.24, width: 0.84, height: 0.62 }),
+  topiary: Object.freeze({ x: 0.22, y: 0.48, width: 0.56, height: 0.46 }),
+  palm: Object.freeze({ x: 0.2, y: 0.46, width: 0.6, height: 0.48 }),
+  "bar-stool": Object.freeze({ x: 0.22, y: 0.52, width: 0.56, height: 0.42 }),
+});
+
 export function getCommonsAsset(asset, orientation = "south") {
   return COMMONS_ASSET_ORIENTATIONS[asset]?.[orientation] || COMMONS_ASSETS[asset] || null;
 }
@@ -76,4 +98,9 @@ export function getCommonsAssetSize(asset) {
 
 export function getCommonsActorAnimation(asset) {
   return COMMONS_ACTOR_ANIMATIONS[asset] || null;
+}
+
+export function getCommonsHitbox(asset, entityType = "object") {
+  if (entityType === "actor") return ACTOR_HITBOX;
+  return COMMONS_HITBOXES[asset] || DEFAULT_OBJECT_HITBOX;
 }

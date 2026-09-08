@@ -175,7 +175,6 @@ export default function CommonsScene() {
   function markActorWalking(tile) {
     const target = normalizeTile(tile.tile_x, tile.tile_y);
     gameRef.current?.drawTarget(target);
-    gameRef.current?.walkingActor('host');
   }
 
   function handleWalkTile(tile) {
@@ -195,17 +194,17 @@ export default function CommonsScene() {
     if (!path.length) return;
     markActorWalking(tile);
     walkingRef.current = true;
+    gameRef.current?.walkActorPath('host', path);
+    let completed = false;
     (async () => {
       try {
         for (const step of path) {
           const nextScene = await commit('walk_actor', { actor_id: 'host', ...step });
-          if (!nextScene) break;
-          gameRef.current?.walkingActor('host');
-          if (step !== path[path.length - 1]) {
-            await new Promise((resolve) => window.setTimeout(resolve, 120));
-          }
+          if (!nextScene) return;
         }
+        completed = true;
       } finally {
+        gameRef.current?.finishActorWalk('host', completed);
         walkingRef.current = false;
       }
     })();
