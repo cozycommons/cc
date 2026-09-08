@@ -23,6 +23,7 @@ Run from the repository root unless noted otherwise.
 - Frontend build: `cd frontend && npm run build`
 - Backend tests: `cd backend && source .venv/bin/activate && python -m pytest tests -v`
 - Commons migration check: `scripts/commons-dev.sh check`
+- Commons local migration: `scripts/commons-dev.sh local-migrate`
 
 ## Developer-platform compatibility
 

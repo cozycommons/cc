@@ -9,8 +9,8 @@ def client(monkeypatch):
     app.include_router(routes.router, prefix="/commons")
     app.state.commons_supabase = object()
     monkeypatch.setattr(routes, "read_scene", lambda _client: {
-        "id": "commons-home", "layout_version": 1, "version": 2,
-        "state": {"schema_version": 1, "objects": {}, "actors": {}},
+        "id": "commons-home", "layout_version": 3, "version": 2,
+        "state": {"schema_version": 2, "grid": {"columns": 16, "rows": 16}, "objects": {}, "actors": {}},
         "updated_at": "2026-09-07T12:00:00Z",
     })
     return TestClient(app)
@@ -30,7 +30,7 @@ def test_scene_command_requires_a_strict_command_shape(monkeypatch):
             "client_command_id": "c1",
             "expected_version": 2,
             "kind": "move_object",
-            "payload": {"object_id": "record-player", "x": 0.3, "y": 0.4},
+            "payload": {"object_id": "record-player", "tile_x": 3, "tile_y": 4},
             "unexpected": True,
         },
     )
@@ -48,7 +48,7 @@ def test_stale_scene_command_is_a_conflict(monkeypatch):
         json={
             "client_command_id": "c1", "expected_version": 2,
             "kind": "walk_actor",
-            "payload": {"actor_id": "host", "x": 0.3, "y": 0.4},
+            "payload": {"actor_id": "host", "tile_x": 3, "tile_y": 4},
         },
     )
 

@@ -8,6 +8,39 @@
   touch-action: none;
 }
 
+.commons-scene__phaser {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.commons-scene__phaser canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  image-rendering: pixelated;
+}
+
+.commons-scene__a11y {
+  position: absolute;
+  z-index: 4;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.commons-scene__a11y button {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+}
+
 .commons-scene__world {
   position: absolute;
   z-index: 2;
@@ -16,31 +49,47 @@
 
 .commons-scene__entity {
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -100%);
 }
 
 .commons-scene__object {
-  display: grid;
-  width: 34px;
-  height: 34px;
+  display: block;
+  width: var(--sprite-size, 16%);
+  min-width: 44px;
+  max-width: 42%;
   padding: 0;
-  place-items: center;
-  border: 1px solid rgba(237, 179, 109, 0.82);
-  border-radius: 50%;
-  background: rgba(25, 13, 27, 0.84);
-  box-shadow: 0 0 0 4px rgba(237, 179, 109, 0.12), 0 5px 18px rgba(4, 2, 8, 0.5);
+  border: 0;
+  background: transparent;
   color: var(--commons-amber);
   cursor: grab;
-  font-size: 17px;
-  transition: left 500ms ease, top 500ms ease, background-color 180ms ease, transform 180ms ease;
+  line-height: 0;
+  transition: left 500ms ease, top 500ms ease, filter 180ms ease, transform 180ms ease;
+}
+
+.commons-scene__object img,
+.commons-scene__actor img {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+}
+
+.commons-scene__object img.is-mirrored,
+.commons-scene__actor img.is-mirrored {
+  transform: scaleX(-1);
 }
 
 .commons-scene__object:hover,
-.commons-scene__object:focus-visible,
-.commons-scene__object.is-active {
-  background: rgba(237, 179, 109, 0.24);
+.commons-scene__object:focus-visible {
   outline: none;
-  transform: translate(-50%, -50%) scale(1.1);
+  filter: drop-shadow(0 0 7px rgba(237, 179, 109, 0.92));
+  transform: translate(-50%, -100%) scale(1.025);
+}
+
+.commons-scene__object.is-active {
+  filter: drop-shadow(0 0 8px rgba(237, 179, 109, 0.78));
 }
 
 .commons-scene__object:active {
@@ -48,20 +97,54 @@
 }
 
 .commons-scene__actor {
-  width: 38px;
-  height: 38px;
-  overflow: hidden;
-  border: 2px solid var(--commons-cream);
-  border-radius: 50%;
-  box-shadow: 0 4px 18px rgba(4, 2, 8, 0.54), 0 0 0 4px rgba(237, 179, 109, 0.18);
+  width: var(--sprite-size, 12%);
+  min-width: 44px;
+  max-width: 20%;
   pointer-events: none;
   transition: left 700ms cubic-bezier(0.22, 0.61, 0.36, 1), top 700ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-.commons-scene__actor img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.commons-scene__actor.is-walking img {
+  animation: commons-walk 380ms ease-in-out 2;
+  transform-origin: 50% 100%;
+}
+
+.commons-scene__actor.is-walking img.is-mirrored {
+  animation-name: commons-walk-mirrored;
+}
+
+.commons-scene__walk-target {
+  position: absolute;
+  width: 18px;
+  height: 9px;
+  border: 1px solid rgba(237, 179, 109, 0.8);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 12px rgba(237, 179, 109, 0.55), inset 0 0 8px rgba(237, 179, 109, 0.2);
+  animation: commons-target 900ms ease-out forwards;
+  pointer-events: none;
+}
+
+.commons-scene__controls {
+  padding-left: 7px;
+  border-left: 1px solid rgba(237, 179, 109, 0.2);
+  color: rgba(237, 210, 174, 0.76);
+}
+
+@keyframes commons-walk {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-4px) rotate(1.5deg); }
+}
+
+@keyframes commons-walk-mirrored {
+  0%, 100% { transform: scaleX(-1) translateY(0) rotate(0); }
+  50% { transform: scaleX(-1) translateY(-4px) rotate(1.5deg); }
+}
+
+@keyframes commons-target {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.45); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.45); }
 }
 
 .commons-scene__instructions {
@@ -99,7 +182,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .commons-scene__object,
-  .commons-scene__actor {
+  .commons-scene__actor,
+  .commons-scene__actor.is-walking img,
+  .commons-scene__walk-target {
     transition: none;
+    animation: none;
   }
+}
+
+@media (max-width: 720px) {
+  .commons-scene__controls { display: none; }
 }
