@@ -56,4 +56,7 @@ jobs:
       - name: Build backend container
         run: docker build --tag cozy-commons-backend-ci backend
       - name: Verify backend pre-deployment payload
-        run: docker run --rm cozy-commons-backend-ci sh -c 'test -x /app/apply-shared-migrations.sh && command -v psql'
+        run: >-
+          docker run --rm cozy-commons-backend-ci sh -c
+          'test -x /app/apply-shared-migrations.sh &&
+          test -x /app/apply-commons-migrations.sh && command -v psql'

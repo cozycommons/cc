@@ -78,23 +78,26 @@ container builds, migration family ownership, duplicate migration versions, and
 the migration runners' fresh and existing-database behavior.
 
 Configure the following as a protected, serialized Coolify pre-deploy command
-for the backend:
+for the Commons backend:
 
 ```bash
-bash apply-shared-migrations.sh
+bash apply-commons-migrations.sh
 ```
 
 Give only this command `SUPABASE_DB_URL` (and, when using a direct Supabase
 database hostname, `SUPABASE_DB_POOLER_HOST`); runtime application secrets
-remain in Coolify. The command applies both project migration families and
-verifies their checked-in schema contracts before the new backend starts.
+remain in Coolify. The Commons command applies only the Commons migration
+family and verifies its checked-in schema contract before the new backend
+starts. Dice migrations remain owned by the Dice deployment and its existing
+protected workflow.
 
 ## Supabase provisioning
 
 Before smoke testing the deployment:
 
-1. Apply the checked-in Dice, analytics, and Commons migrations to the new
-   project using the protected backend pre-deploy command above.
+1. Apply the checked-in Commons migrations to the new project using the
+   protected backend pre-deploy command above. Apply Dice and analytics
+   migrations only through the separate Dice deployment workflow.
 2. Create the `dice-profile-photos` and `dice-comment-photos` storage buckets
    and verify their policies.
 3. Configure the frontend URL in Supabase Auth URL configuration and in any

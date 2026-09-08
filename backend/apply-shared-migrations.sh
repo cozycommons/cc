@@ -167,5 +167,10 @@ SQL
   echo "Commons migrations are applied."
 }
 
+if [[ "${COMMONS_ONLY:-0}" == "1" ]]; then
+  apply_commons_migrations
+  exit 0
+fi
+
 apply_dice_migrations
 apply_commons_migrations

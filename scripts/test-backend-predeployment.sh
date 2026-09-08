@@ -40,4 +40,20 @@ if grep -qx 'dice:20' "$PSQL_APPLIED"; then
   exit 1
 fi
 
+export PSQL_LOG="$test_dir/commons-only.log"
+export PSQL_APPLIED="$test_dir/commons-only.applied"
+: > "$PSQL_LOG"
+: > "$PSQL_APPLIED"
+PATH="$test_dir/bin:$PATH" \
+SUPABASE_DB_URL="$direct" \
+SUPABASE_DB_POOLER_HOST="$pooler_host" \
+  bash "$repo_dir/backend/apply-commons-migrations.sh" >/dev/null
+for marker in commons:1 commons:7; do
+  grep -qx "$marker" "$PSQL_APPLIED"
+done
+if grep -q '^dice:' "$PSQL_APPLIED"; then
+  echo 'Commons-only predeployment must not apply Dice migrations.' >&2
+  exit 1
+fi
+
 echo 'Backend predeployment migration tests passed.'
