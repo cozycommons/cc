@@ -1,7 +1,8 @@
-# Dice deployment
+# Cozy Commons deployment
 
-Cozy Commons Dice is deployed from this monorepo as two Coolify applications:
-one static frontend and one FastAPI backend. The existing
+Cozy Commons is deployed from this monorepo as two Coolify applications: one
+static frontend and one FastAPI backend. Dice remains available at `/dice`, but
+the home page and its persistent scene state belong to Commons. The existing
 `jasonkeung.com/dice` deployment remains separate during migration.
 
 ## Coolify resources
@@ -69,21 +70,28 @@ changes do not rebuild the backend and vice versa:
 ## GitHub Actions
 
 The checked-in workflow runs frontend and backend tests. It does not deploy and
-does not require production credentials. It also checks frontend lint, migration
-family ownership, duplicate migration versions, and the migration runner's fresh
-and existing-database behavior.
+does not require production credentials. It also checks frontend lint, both
+container builds, migration family ownership, duplicate migration versions, and
+the migration runners' fresh and existing-database behavior.
 
-Configure `scripts/apply-dice-migrations.sh` as a protected, serialized Coolify
-pre-deploy command for the backend. Give only that command `SUPABASE_DB_URL`;
-runtime application secrets remain in Coolify. The command applies migrations
-and verifies the checked-in schema contract before the new backend starts.
+Configure the following as a protected, serialized Coolify pre-deploy command
+for the backend:
+
+```bash
+bash scripts/apply-dice-migrations.sh && bash scripts/apply-commons-migrations.sh
+```
+
+Give only this command `SUPABASE_DB_URL` (and, when using a direct Supabase
+database hostname, `SUPABASE_DB_POOLER_HOST`); runtime application secrets
+remain in Coolify. The command applies both project migration families and
+verifies their checked-in schema contracts before the new backend starts.
 
 ## Supabase provisioning
 
 Before smoke testing the deployment:
 
-1. Apply the checked-in Dice and analytics migrations to the new project using
-   the production migration gate in `docs/dice-production-migration-gate.md`.
+1. Apply the checked-in Dice, analytics, and Commons migrations to the new
+   project using the protected backend pre-deploy command above.
 2. Create the `dice-profile-photos` and `dice-comment-photos` storage buckets
    and verify their policies.
 3. Configure the frontend URL in Supabase Auth URL configuration and in any

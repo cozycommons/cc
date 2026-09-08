@@ -28,7 +28,8 @@ ENV VITE_API_URL=${VITE_API_URL} \
 
 # Build mode can be overridden with a build argument.
 ARG BUILD_MODE=production
-RUN npm run build -- --mode ${BUILD_MODE}
+RUN npm run build -- --mode ${BUILD_MODE} \
+    && node scripts/check-bundle-size.js
 
 FROM nginx:stable-alpine AS production
 ENV PORT=80
