@@ -97,6 +97,10 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:8000',
           rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),
         },
+        '^/api/commons(?:/|$)': {
+          target: 'http://127.0.0.1:8000',
+          rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),
+        },
         '^/api/health$': {
           target: 'http://127.0.0.1:8000',
           rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),

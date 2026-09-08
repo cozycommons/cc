@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import CommonsScene from './CommonsScene.jsx';
 import './commons-theme.css';
 
 export default function CommonsHome() {
@@ -17,13 +18,7 @@ export default function CommonsHome() {
       </header>
 
       <section className="commons-room" aria-label="The Cozy Commons room">
-        <div className="commons-room__image-wrap">
-          <img
-            className="commons-room__image"
-            src="/cozy-commons-room-empty.png"
-            alt="An empty, warmly lit isometric living room with a kitchen, record player, couches, plants, and bookshelves"
-          />
-        </div>
+        <CommonsScene />
       </section>
 
       <aside className="commons-shelf" aria-labelledby="commons-shelf-title">

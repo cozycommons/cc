@@ -9,8 +9,8 @@ port = 54322
 major_version = 17
 
 [db.seed]
-# Dice migrations and fixtures live in the repository's existing locations and
-# are applied explicitly by scripts/reset-local-dice-db.sh.
+# Project migrations and fixtures live in the repository's project-specific
+# locations and are applied explicitly by their migration scripts.
 enabled = false
 
 [studio]

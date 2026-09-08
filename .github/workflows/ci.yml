@@ -49,6 +49,7 @@ jobs:
         env:
           PYTHONPATH: backend
       - run: scripts/check-dice-migration-contract.sh
+      - run: scripts/check-commons-migration-contract.sh
       - run: scripts/test-supabase-db-url.sh
       - name: Build backend container
         run: docker build backend

@@ -1,0 +1,105 @@
+.commons-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.commons-scene__frame {
+  touch-action: none;
+}
+
+.commons-scene__world {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+}
+
+.commons-scene__entity {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.commons-scene__object {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(237, 179, 109, 0.82);
+  border-radius: 50%;
+  background: rgba(25, 13, 27, 0.84);
+  box-shadow: 0 0 0 4px rgba(237, 179, 109, 0.12), 0 5px 18px rgba(4, 2, 8, 0.5);
+  color: var(--commons-amber);
+  cursor: grab;
+  font-size: 17px;
+  transition: left 500ms ease, top 500ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.commons-scene__object:hover,
+.commons-scene__object:focus-visible,
+.commons-scene__object.is-active {
+  background: rgba(237, 179, 109, 0.24);
+  outline: none;
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.commons-scene__object:active {
+  cursor: grabbing;
+}
+
+.commons-scene__actor {
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  border: 2px solid var(--commons-cream);
+  border-radius: 50%;
+  box-shadow: 0 4px 18px rgba(4, 2, 8, 0.54), 0 0 0 4px rgba(237, 179, 109, 0.18);
+  pointer-events: none;
+  transition: left 700ms cubic-bezier(0.22, 0.61, 0.36, 1), top 700ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.commons-scene__actor img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.commons-scene__instructions {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 1px solid rgba(237, 179, 109, 0.22);
+  border-radius: 3px;
+  background: rgba(13, 9, 21, 0.72);
+  color: var(--commons-muted);
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.commons-scene__status-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--commons-amber);
+  box-shadow: 0 0 10px rgba(237, 179, 109, 0.8);
+}
+
+.commons-scene__version {
+  color: rgba(192, 169, 140, 0.58);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commons-scene__object,
+  .commons-scene__actor {
+    transition: none;
+  }
+}
