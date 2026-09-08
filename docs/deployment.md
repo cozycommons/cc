@@ -23,6 +23,9 @@ Runtime-only environment variables:
 ```dotenv
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_KEY=your-secret-or-service-role-key
+SUPABASE_DB_URL=postgresql://postgres.your-project-ref:your-db-password@your-session-pooler.supabase.com:5432/postgres?sslmode=require
+# Only needed when SUPABASE_DB_URL uses db.your-project-ref.supabase.co:5432.
+SUPABASE_DB_POOLER_HOST=your-session-pooler.supabase.com
 CORS_EXTRA_ORIGINS=https://your-frontend-hostname
 SITE_URL=https://your-frontend-hostname
 ENABLE_SCHEDULER=false
@@ -78,7 +81,7 @@ Configure the following as a protected, serialized Coolify pre-deploy command
 for the backend:
 
 ```bash
-bash scripts/apply-dice-migrations.sh && bash scripts/apply-commons-migrations.sh
+bash apply-shared-migrations.sh
 ```
 
 Give only this command `SUPABASE_DB_URL` (and, when using a direct Supabase

@@ -52,5 +52,8 @@ jobs:
       - run: scripts/check-commons-migration-contract.sh
       - run: scripts/test-supabase-db-url.sh
       - run: scripts/test-commons-migrations.sh
+      - run: scripts/test-backend-predeployment.sh
       - name: Build backend container
-        run: docker build backend
+        run: docker build --tag cozy-commons-backend-ci backend
+      - name: Verify backend pre-deployment payload
+        run: docker run --rm cozy-commons-backend-ci sh -c 'test -x /app/apply-shared-migrations.sh && command -v psql'
