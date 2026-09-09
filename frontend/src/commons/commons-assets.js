@@ -65,26 +65,40 @@ const ASSET_SIZES = Object.freeze({
 // deriving size from whichever transparent padding a source PNG happens to
 // contain. The legacy percentage API remains below for old inspector callers.
 const COMMONS_RENDER_METADATA = Object.freeze({
-  "orange-sofa": Object.freeze({ width: 200, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "green-loveseat": Object.freeze({ width: 138, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "red-armchair": Object.freeze({ width: 108, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "dining-table": Object.freeze({ width: 174, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "dining-chair": Object.freeze({ width: 72, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "record-console": Object.freeze({ width: 179, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "coffee-table": Object.freeze({ width: 92, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "floor-lamp": Object.freeze({ width: 72, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "orange-sofa": Object.freeze({ width: 200, anchor: Object.freeze([0.5, 998 / 1024]), depthOffset: 0 }),
+  "green-loveseat": Object.freeze({ width: 138, anchor: Object.freeze([0.5, 987 / 1024]), depthOffset: 0 }),
+  "red-armchair": Object.freeze({ width: 108, anchor: Object.freeze([0.5, 1036 / 1254]), depthOffset: 0 }),
+  "dining-table": Object.freeze({ width: 174, anchor: Object.freeze([0.5, 956 / 1024]), depthOffset: 0 }),
+  "dining-chair": Object.freeze({ width: 72, anchor: Object.freeze([0.5, 1224 / 1295]), depthOffset: 0 }),
+  "record-console": Object.freeze({ width: 179, anchor: Object.freeze([0.5, 1022 / 1024]), depthOffset: 0 }),
+  "coffee-table": Object.freeze({ width: 92, anchor: Object.freeze([0.5, 871 / 1024]), depthOffset: 0 }),
+  "floor-lamp": Object.freeze({ width: 72, anchor: Object.freeze([0.5, 1255 / 1374]), depthOffset: 0 }),
   "area-rug": Object.freeze({ width: 174, anchor: Object.freeze([0.5, 0.5]), depthOffset: -900, floorDecoration: true }),
-  topiary: Object.freeze({ width: 66, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  palm: Object.freeze({ width: 97, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  "bar-stool": Object.freeze({ width: 56, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  topiary: Object.freeze({ width: 66, anchor: Object.freeze([0.5, 1458 / 1536]), depthOffset: 0 }),
+  palm: Object.freeze({ width: 97, anchor: Object.freeze([0.5, 1182 / 1297]), depthOffset: 0 }),
+  "bar-stool": Object.freeze({ width: 56, anchor: Object.freeze([0.5, 1204 / 1278]), depthOffset: 0 }),
   // The deployed walk strips are 444×889 source pixels per frame. Keep the
-  // resident mannequin at a calibrated 48×96 logical frame and bias equal
-  // ground rows a fraction forward so a person is never hidden by a prop
-  // sharing the same support point.
-  host: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 1]), depthOffset: 1 }),
-  maker: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 1]), depthOffset: 1 }),
-  neighbor: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 1]), depthOffset: 1 }),
+  // resident frame at 48×96 logical units. Sole baselines exclude transparent
+  // padding; all residents use the same ground-depth rules as furniture.
+  host: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 812 / 889]), depthOffset: 0 }),
+  maker: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 817 / 889]), depthOffset: 0 }),
+  neighbor: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 819 / 889]), depthOffset: 0 }),
 });
+
+// Contact baselines measured in the original source images. Dedicated reverse
+// views have different transparent padding and therefore different origins.
+const NORTH_RENDER_METADATA = Object.freeze(Object.fromEntries(
+  Object.entries({
+    "green-loveseat": 988 / 1024,
+    "red-armchair": 1060 / 1165,
+    "dining-chair": 1226 / 1330,
+    "coffee-table": 791 / 1024,
+    "floor-lamp": 1310 / 1536,
+  }).map(([asset, baseline]) => [asset, Object.freeze({
+    ...COMMONS_RENDER_METADATA[asset],
+    anchor: Object.freeze([0.5, baseline]),
+  })]),
+));
 
 const DEFAULT_RENDER_METADATA = Object.freeze({
   width: 82,
@@ -128,7 +142,8 @@ export function getCommonsAssetSize(asset) {
   return ASSET_SIZES[asset] || "16%";
 }
 
-export function getCommonsRenderMetadata(asset) {
+export function getCommonsRenderMetadata(asset, orientation = "south") {
+  if (orientation === "north" && NORTH_RENDER_METADATA[asset]) return NORTH_RENDER_METADATA[asset];
   return COMMONS_RENDER_METADATA[asset] || DEFAULT_RENDER_METADATA;
 }
 
