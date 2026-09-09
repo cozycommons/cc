@@ -20,11 +20,87 @@ import {
 import { evaluateAmbientPose, settleAmbientPose, validateAmbientProgram } from './ambient/timeline.js';
 import { createPresentationClock } from './ambient/clock.js';
 import { depthForGround, projectGround } from './world/geometry.js';
+import { createSnapshotTransition } from './render/snapshot-transition.js';
+import { validateSceneSnapshot } from './world/contracts.js';
 
 const ROOM_WIDTH = COMMONS_GRID.width;
 const ROOM_HEIGHT = COMMONS_GRID.height;
 const ROOM_ASSET = '/commons/cozy-commons-room-tile-base.png';
 const FLOOR_ATLAS = '/commons/commons-floor-atlas.png';
+export const COMMONS_SNAPSHOT_FADE_MS = 200;
+const STATIC_ORIENTATIONS = ['south', 'north'];
+
+function entityOrientation(entity) {
+  return typeof entity?.orientation === 'string' && entity.orientation
+    ? entity.orientation
+    : typeof entity?.facing === 'string' && entity.facing
+      ? entity.facing
+      : 'south';
+}
+
+function textureRequest(key, path, kind = 'image', options = {}) {
+  return {
+    key,
+    path,
+    kind,
+    ...options,
+  };
+}
+
+/**
+ * Return the immutable texture set needed to display a scene. Static assets
+ * can expose an alternate orientation; callers that are preparing a complete
+ * pack can request those too. The renderer only installs a scene after every
+ * returned request is present in Phaser's texture manager.
+ */
+export function getCommonsSnapshotTextureRequests(
+  scene,
+  { includeStaticOrientations = false, inspector = false } = {},
+) {
+  const requests = new Map();
+  const add = (request) => {
+    if (!request?.key || !request.path || requests.has(request.key)) return;
+    requests.set(request.key, request);
+  };
+
+  add(textureRequest('commons-room-base', ROOM_ASSET));
+  if (inspector) {
+    add(textureRequest('commons-floor-atlas', FLOOR_ATLAS, 'spritesheet', {
+      frameWidth: 256,
+      frameHeight: 256,
+    }));
+  }
+
+  entitiesFromScene(scene).forEach((entity) => {
+    const animation = entity.entityType === 'actor'
+      ? getCommonsActorAnimation(entity.asset)
+      : null;
+    if (animation) {
+      add(textureRequest(actorAnimationTextureKey(entity.asset), animation.path, 'spritesheet', {
+        frameWidth: animation.frameWidth,
+        frameHeight: animation.frameHeight,
+      }));
+      return;
+    }
+
+    const selectedOrientation = entityOrientation(entity);
+    const orientations = includeStaticOrientations
+      ? [...new Set([selectedOrientation, ...STATIC_ORIENTATIONS])]
+      : [selectedOrientation];
+    orientations.forEach((orientation) => {
+      add(textureRequest(
+        staticAssetTextureKey(entity.asset, orientation),
+        getCommonsAsset(entity.asset, orientation),
+      ));
+    });
+  });
+
+  return [...requests.values()];
+}
+
+export function validateCommonsSnapshotCandidate(snapshot) {
+  return validateSceneSnapshot(snapshot);
+}
 
 export function sortCommonsEntities(entities) {
   return [...entities].sort((first, second) => {
@@ -222,6 +298,26 @@ export function createCommonsPhaserGame({
         }).setDepth(10002).setVisible(false);
       }
       if (interactive) this.bindInput();
+      this.snapshotTransition = createSnapshotTransition({
+        prepare: async (candidate) => {
+          await this.prepareSnapshot(candidate);
+          this.presentationClock.observe({
+            serverTimeMs: Number(candidate.server_time_ms),
+            midpointMs: candidate.__client_timing?.midpoint_ms ?? Date.now(),
+            uncertaintyMs: candidate.__client_timing?.uncertainty_ms ?? 0,
+          });
+        },
+        needsCorrection: () => Boolean(this.presentationClock.getPendingCorrection()),
+        install: (candidate) => this.installState(candidate),
+        fade: (alpha) => this.fadeSnapshot(alpha),
+        cancelFade: () => this.cancelSnapshotFade(),
+        onError: (error) => callbacks.onAssetError?.(error.message),
+      });
+      this.snapshotTransition.setPolicy(this.motionPolicy);
+      this.events.once('shutdown', () => {
+        this.snapshotTransition.dispose();
+        this.cancelSnapshotLoad?.();
+      });
       this.syncState(initialScene);
     }
 
@@ -282,7 +378,7 @@ export function createCommonsPhaserGame({
     }
 
     update() {
-      if (!this.motionPolicy.animate || !this.currentScene || !this.ambientValid) return;
+      if (this.snapshotTransition?.isTransitioning() || !this.motionPolicy.animate || !this.currentScene || !this.ambientValid) return;
       const ambient = this.currentScene.state?.ambient;
       const now = this.presentationClock.now();
       this.currentEntities
@@ -306,6 +402,7 @@ export function createCommonsPhaserGame({
       merged.animate = nextPolicy.animate
         ?? !(merged.paused || merged.reducedMotion || merged.hidden || merged.stale);
       this.motionPolicy = merged;
+      this.snapshotTransition?.setPolicy(merged);
       if (this.motionPolicy.paused || this.motionPolicy.hidden) return;
       if (this.motionPolicy.reducedMotion) this.renderHomePoses();
       else if (this.motionPolicy.stale) this.renderStalePoses();
@@ -470,7 +567,58 @@ export function createCommonsPhaserGame({
       this.tweens.add({ targets: this.targetOverlay, alpha: 0, duration: 900, ease: 'Cubic.easeOut' });
     }
 
+    async prepareSnapshot(candidate) {
+      const validation = validateCommonsSnapshotCandidate(candidate);
+      if (!validation.valid) throw new Error(validation.error);
+      const requests = getCommonsSnapshotTextureRequests(candidate);
+      const missing = requests.filter(({ key }) => !this.textures.exists(key));
+      if (!missing.length) return;
+      await new Promise((resolve, reject) => {
+        const finish = () => {
+          cleanup();
+          const failed = requests.find(({ key }) => !this.textures.exists(key));
+          if (failed) reject(new Error(`Missing scene texture: ${failed.key}`));
+          else resolve();
+        };
+        const cleanup = () => {
+          this.load.off('complete', finish);
+          this.cancelSnapshotLoad = null;
+        };
+        this.cancelSnapshotLoad = () => { cleanup(); reject(new Error('Scene disposed')); };
+        this.load.once('complete', finish);
+        for (const request of missing) {
+          if (request.kind === 'spritesheet') this.load.spritesheet(request.key, request.path, {
+            frameWidth: request.frameWidth, frameHeight: request.frameHeight,
+          });
+          else this.load.image(request.key, request.path);
+        }
+        this.load.start();
+      });
+    }
+
+    fadeSnapshot(alpha) {
+      return new Promise((resolve) => {
+        this.finishSnapshotFade = resolve;
+        this.snapshotFade = this.tweens.add({
+          targets: this.cameras.main, alpha, duration: COMMONS_SNAPSHOT_FADE_MS,
+          onComplete: () => { this.finishSnapshotFade = null; this.snapshotFade = null; resolve(); },
+        });
+      });
+    }
+
+    cancelSnapshotFade() {
+      this.snapshotFade?.stop();
+      this.snapshotFade = null;
+      this.finishSnapshotFade?.();
+      this.finishSnapshotFade = null;
+      this.cameras.main.setAlpha(1);
+    }
+
     syncState(nextScene) {
+      if (validateCommonsSnapshotCandidate(nextScene).valid) this.snapshotTransition?.submit(nextScene);
+    }
+
+    installState(nextScene) {
       if (!nextScene || !this.textures.exists('commons-room-base')) return;
       if (this.motionPolicy.paused && this.currentScene) return;
       this.currentScene = nextScene;
@@ -480,11 +628,7 @@ export function createCommonsPhaserGame({
       );
       this.pathPreviewKey = null;
       this.hoverTileKey = null;
-      this.presentationClock.observe({
-        serverTimeMs: Number(nextScene.server_time_ms),
-        midpointMs: Number(nextScene.__client_timing?.midpoint_ms || Date.now()),
-        uncertaintyMs: Number(nextScene.__client_timing?.uncertainty_ms),
-      });
+      this.presentationClock.reanchor();
       this.clockUncertaintyMs = Number.isFinite(Number(nextScene.__client_timing?.uncertainty_ms))
         ? Number(nextScene.__client_timing.uncertainty_ms)
         : 0;
@@ -544,7 +688,7 @@ export function createCommonsPhaserGame({
         }
         sprite.setData('depthRank', this.depthRanks.get(id) ?? 0);
 
-        const metadata = getCommonsRenderMetadata(entity.asset);
+        const metadata = getCommonsRenderMetadata(entity.asset, orientation);
         const sourceWidth = Math.max(1, sprite.width);
         const sourceHeight = Math.max(1, sprite.height);
         sprite.setOrigin(...metadata.anchor);
@@ -615,7 +759,7 @@ export function createCommonsPhaserGame({
       }
       effect.setFillStyle?.(color, 0.16);
       effect.setPosition(point.x, point.y - 8);
-      effect.setDepth(point.y + 20);
+      effect.setDepth(-700);
     }
 
     removeObjectEffect(id) {
