@@ -40,48 +40,24 @@ function useMediaPreference(query) {
   return matches;
 }
 
-function readPausePreference() {
-  try {
-    return window.localStorage.getItem('cozy-commons.scene-paused') === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function writePausePreference(paused) {
-  try {
-    window.localStorage.setItem('cozy-commons.scene-paused', String(paused));
-  } catch {
-    // A pause control still works when storage is unavailable.
-  }
-}
-
 export default function CommonsScene() {
   const worldRef = useRef(null);
   const gameRef = useRef(null);
   const sceneRef = useRef(null);
-  const latestSceneRef = useRef(null);
-  const queuedSceneRef = useRef(null);
-  const pausedRef = useRef(false);
   const refreshingRef = useRef(false);
   const [scene, setScene] = useState(null);
-  const [paused, setPaused] = useState(readPausePreference);
   const [hidden, setHidden] = useState(Boolean(globalThis.document?.hidden));
   const [stale, setStale] = useState(false);
-  const [status, setStatus] = useState('connecting to the room');
   const lastUsableRefreshAtRef = useRef(0);
-  const staleRef = useRef(false);
   const reducedMotion = useMediaPreference('(prefers-reduced-motion: reduce)');
   const motionPolicy = useMemo(
-    () => resolveMotionPolicy({ paused, reducedMotion, hidden, stale }),
-    [hidden, paused, reducedMotion, stale],
+    () => resolveMotionPolicy({ reducedMotion, hidden, stale }),
+    [hidden, reducedMotion, stale],
   );
   const initialMotionPolicyRef = useRef(motionPolicy);
   if (!gameRef.current) initialMotionPolicyRef.current = motionPolicy;
   const hasScene = Boolean(scene);
   sceneRef.current = scene;
-  pausedRef.current = paused;
-  staleRef.current = stale;
 
   useEffect(() => {
     let active = true;
@@ -94,7 +70,6 @@ export default function CommonsScene() {
         if (!active) return;
         const validation = validateSceneSnapshot(latest);
         if (!validation.valid) {
-          setStatus('the room sent an unsupported snapshot');
           return;
         }
         const uncertaintyMs = Number(latest.__client_timing?.uncertainty_ms);
@@ -103,23 +78,12 @@ export default function CommonsScene() {
           lastUsableRefreshAtRef.current = Date.now();
           setStale(false);
         }
-        const previous = latestSceneRef.current || sceneRef.current;
-        latestSceneRef.current = latest;
-        if (previous && pausedRef.current) {
-          queuedSceneRef.current = latest;
-          setStatus('a newer room snapshot is waiting');
-          return;
-        }
         sceneRef.current = latest;
         setScene((current) => {
           if (current && latest.version < current.version) return current;
           return latest;
         });
-        if (!previous) setStatus('the room is shared');
-        else if (latest.version > previous.version) setStatus('the room changed nearby');
-        else if (staleRef.current && reliableTiming) setStatus('the room is shared');
       } catch {
-        if (active && !sceneRef.current) setStatus('the room could not sync');
         // Keep showing the last canonical snapshot through a brief outage.
       } finally {
         refreshingRef.current = false;
@@ -130,7 +94,6 @@ export default function CommonsScene() {
       if (document.hidden || !sceneRef.current || !lastUsableRefreshAtRef.current) return;
       if (Date.now() - lastUsableRefreshAtRef.current >= SCENE_FRESHNESS_MS) {
         setStale(true);
-        setStatus('the room could not sync');
       }
     }
 
@@ -175,13 +138,12 @@ export default function CommonsScene() {
         callbacks: {
           interactive: false,
           inspector: false,
-          onAssetError: () => setStatus('the room is ready, but some art could not load'),
         },
       });
       gameRef.current = game;
       game.setMotionPolicy?.(initialMotionPolicyRef.current);
     }).catch(() => {
-      if (active) setStatus('the room is ready, but its renderer could not start');
+      // The static fallback remains visible when the optional renderer fails.
     });
     return () => {
       active = false;
@@ -198,22 +160,6 @@ export default function CommonsScene() {
     gameRef.current?.setMotionPolicy?.(motionPolicy);
   }, [motionPolicy]);
 
-  function togglePause() {
-    const next = !paused;
-    pausedRef.current = next;
-    writePausePreference(next);
-    if (!next && queuedSceneRef.current) {
-      const queued = queuedSceneRef.current;
-      queuedSceneRef.current = null;
-      latestSceneRef.current = queued;
-      sceneRef.current = queued;
-      setScene(queued);
-      setStatus('the room is up to date');
-    }
-    setPaused(next);
-  }
-
-  const displayStatus = paused ? 'the room is paused' : status;
   return (
     <div className="commons-scene" aria-label="Cozy Commons shared room">
       <div className="commons-room__image-wrap commons-scene__frame">
@@ -231,18 +177,6 @@ export default function CommonsScene() {
         />
         <div className="commons-scene__a11y">
           <p>{describeScene(scene)}</p>
-        </div>
-        <div className="commons-scene__instructions" aria-live="polite">
-          <span className="commons-scene__status-dot" aria-hidden="true" />
-          <span>{displayStatus}</span>
-          <button
-            className="commons-scene__pause"
-            type="button"
-            aria-pressed={paused}
-            onClick={togglePause}
-          >
-            {paused ? 'resume room' : 'pause room'}
-          </button>
         </div>
       </div>
     </div>

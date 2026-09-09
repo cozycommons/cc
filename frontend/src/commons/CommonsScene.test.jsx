@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -36,7 +36,6 @@ const scene = {
 describe('CommonsScene', () => {
   beforeEach(() => {
     mocks.getScene.mockResolvedValue(scene);
-    window.localStorage.clear();
   });
 
   afterEach(() => vi.clearAllMocks());
@@ -46,35 +45,9 @@ describe('CommonsScene', () => {
 
     expect(await screen.findByRole('img', { name: 'Ambient tile-based Commons room' })).toBeInTheDocument();
     expect(screen.getByText(/2 residents and 1 placed object/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'pause room' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pause room|resume room/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('the room is shared')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /record console/i })).not.toBeInTheDocument();
     expect(mocks.sendSceneCommand).not.toHaveBeenCalled();
-  });
-
-  it('freezes and resumes the displayed snapshot without writing to the scene', async () => {
-    render(<CommonsScene />);
-    const pause = await screen.findByRole('button', { name: 'pause room' });
-    fireEvent.click(pause);
-    expect(screen.getByRole('button', { name: 'resume room' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('the room is paused')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'resume room' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'pause room' })).toHaveAttribute('aria-pressed', 'false'));
-    expect(mocks.sendSceneCommand).not.toHaveBeenCalled();
-  });
-
-  it('queues a newer canonical snapshot while paused and applies it on resume', async () => {
-    const nextScene = {
-      ...scene,
-      version: 8,
-      state: { ...scene.state, objects: {} },
-    };
-    mocks.getScene.mockResolvedValueOnce(scene).mockResolvedValueOnce(nextScene);
-    render(<CommonsScene />);
-    fireEvent.click(await screen.findByRole('button', { name: 'pause room' }));
-    fireEvent.focus(window);
-    await waitFor(() => expect(mocks.getScene).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/1 placed object/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'resume room' }));
-    await waitFor(() => expect(screen.getByText(/0 placed objects/)).toBeInTheDocument());
   });
 });
