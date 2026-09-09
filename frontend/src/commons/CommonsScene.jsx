@@ -145,7 +145,11 @@ export default function CommonsScene() {
         parent: worldRef.current,
         initialScene: sceneRef.current,
         motionPolicy: initialMotionPolicyRef.current,
-        callbacks: { interactive: false, inspector: false },
+        callbacks: {
+          interactive: false,
+          inspector: false,
+          onAssetError: () => setStatus('the room is ready, but some art could not load'),
+        },
       });
       gameRef.current = game;
       game.setMotionPolicy?.(initialMotionPolicyRef.current);

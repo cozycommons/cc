@@ -142,6 +142,13 @@ export function createCommonsPhaserGame({
     }
 
     preload() {
+      const reportedAssetErrors = new Set();
+      this.load.on('loaderror', (file) => {
+        const key = file?.key || file?.src || 'unknown-asset';
+        if (reportedAssetErrors.has(key)) return;
+        reportedAssetErrors.add(key);
+        callbacks.onAssetError?.(key);
+      });
       this.load.image('commons-room-base', ROOM_ASSET);
       if (inspector) {
         this.load.spritesheet('commons-floor-atlas', FLOOR_ATLAS, {
@@ -498,6 +505,9 @@ export function createCommonsPhaserGame({
         const sourceHeight = Math.max(1, sprite.height);
         sprite.setOrigin(...metadata.anchor);
         sprite.setDisplaySize(metadata.width, metadata.width * (sourceHeight / sourceWidth));
+        if (entity.entityType === 'object') {
+          sprite.setFlipX(shouldMirrorCommonsAsset(entity.asset, orientation));
+        }
         sprite.setData('renderMetadata', metadata);
         sprite.setAlpha(entity.state?.playing === false || entity.state?.on === false ? 0.72 : 1);
         const tile = entityTile(entity);

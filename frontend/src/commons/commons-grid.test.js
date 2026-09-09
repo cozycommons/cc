@@ -55,6 +55,16 @@ describe('Commons tile projection', () => {
     )).toBe(false);
   });
 
+  it('does not let hidden legacy objects block a tile', () => {
+    const state = {
+      objects: {
+        'red-armchair': { id: 'red-armchair', asset: 'red-armchair', tile_x: 4, tile_y: 4, visible: false },
+      },
+      actors: { host: { id: 'host', tile_x: 4, tile_y: 3 } },
+    };
+    expect(isTileAvailable(state, { tile_x: 4, tile_y: 4 }, { entityType: 'actor', entityId: 'host' })).toBe(true);
+  });
+
   it('finds a four-direction path around blocked tiles', () => {
     const state = {
       grid: { blocked: [[2, 2]] },

@@ -135,7 +135,12 @@ export function isTileAvailable(state, tile, { entityType, entityId } = {}) {
 
   const objects = Object.values(state?.objects || {});
   if (objects.some((entity) => {
-    if ((entityType === 'object' && entity.id === entityId) || !getEntityFootprint(entity).blocks_movement) return false;
+    if (
+      (entityType === 'object' && entity.id === entityId)
+      || entity?.visible === false
+      || entity?.hidden === true
+      || !getEntityFootprint(entity).blocks_movement
+    ) return false;
     return cellsOverlap(candidateCells, occupiedCells(entity, stateEntityTile(entity)));
   })) {
     return false;
