@@ -1,6 +1,6 @@
 # Direction and major decisions
 
-Status: selected direction for implementation planning. The user has authorized this specification pass; implementation remains a separate request. These decisions replace the earlier open-ended choices. They are not claims that the proposed implementation has already been validated.
+Status: selected direction; implementation is in progress. These decisions replace the earlier open-ended choices and remain the source of truth for the unfinished art, renderer, and acceptance work.
 
 ## Product north star
 

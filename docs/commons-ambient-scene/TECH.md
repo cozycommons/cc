@@ -1,6 +1,6 @@
 # Technical specification: spatially coherent ambient Commons
 
-Status: selected architecture for a later implementation; see [DIRECTION](DIRECTION.md) for decisions and rationale. No code is changed by this plan.
+Status: selected architecture; implementation is in progress. See [DIRECTION](DIRECTION.md) for decisions and rationale. This document records the contracts as they are implemented and refined.
 
 ## 1. Architecture and ownership
 
@@ -204,4 +204,4 @@ Rollback: select the previous renderer/manifest and disable new ambient programs
 
 Build development-only deterministic scene fixtures with injected snapshot, seed, presentation time, motion policy and viewport. Include contact/depth/footprint overlays and a manual time scrubber. These controls are verification tools, not public product UI. Tests must exercise actual Phaser rendering in a browser because current React tests skip its initialization.
 
-Required pure tests: fractional projection, strict bounds, manifest registration/trim, orientation footprint parity, stable sort keys, deterministic character selection, timeline boundaries/wrap and rejection, monotonic reconciliation and cleanup. Required backend tests: actual migrated seed, customized upgrade, catalog parity, route safety, program invalidation, stale CAS, replay and read-only browsing. Required visual evidence is detailed in PLAN. No new deployment, database operation, or implementation is performed in this planning task.
+Required pure tests: fractional projection, strict bounds, manifest registration/trim, orientation footprint parity, stable sort keys, deterministic character selection, timeline boundaries/wrap and rejection, monotonic reconciliation and cleanup. Required backend tests: actual migrated seed, customized upgrade, catalog parity, route safety, program invalidation, stale CAS, replay and read-only browsing. Required visual evidence is detailed in PLAN. The current branch has implemented the geometry, catalog validation, ambient evaluator, passive scene, timing/freshness policy, renderer adapter, and additive seed migration; the remaining art and browser acceptance work stays tracked in PLAN.

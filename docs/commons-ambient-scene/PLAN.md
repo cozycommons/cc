@@ -1,6 +1,6 @@
 # Execution plan for small implementation agents
 
-Status: future work only. The present task produces instructions, not implementation. Do not interpret the checklist below as work already completed.
+Status: implementation in progress on `commons-ambient-scene`. W02, W09, W10 and W11 have working slices; W12 and W13 are partially integrated. W01, W03–W08 and W14 still require their stated visual/art or release evidence. Keep this tracker honest as commits land.
 
 ## Selected direction and delivery order
 

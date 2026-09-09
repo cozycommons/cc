@@ -1,6 +1,6 @@
 # Commons ambient scene — specification and execution guide
 
-Status: direction selected; specifications only. No implementation is authorized by this document.
+Status: direction selected; implementation is in progress on the `commons-ambient-scene` branch.
 Inspected baseline: `83c9bafe2759cef0728a1446245fe2e46bead56c` (2026-09-08).
 
 ## Strategy
@@ -23,7 +23,7 @@ Make the home page feel like looking into a small, inhabited evening room: warm 
 - [PLAN.md](PLAN.md): bounded worker tasks, dependencies, handoff requirements, and release gates.
 - [AUDIT.md](AUDIT.md): current-state evidence, limitations, and requirement coverage.
 
-DIRECTION sets the major decisions; PRODUCT, TECH and PLAN express their behavior, contracts and execution. Numeric values explicitly marked as calibration ranges are art targets; invariants and schemas in TECH are contracts. Changing a contract requires updating its consumers and fixtures together. Workers must implement only their assigned task after implementation is separately requested.
+DIRECTION sets the major decisions; PRODUCT, TECH and PLAN express their behavior, contracts and execution. Numeric values explicitly marked as calibration ranges are art targets; invariants and schemas in TECH are contracts. Changing a contract requires updating its consumers and fixtures together.
 
 ## Decisions
 
@@ -32,4 +32,4 @@ DIRECTION sets the major decisions; PRODUCT, TECH and PLAN express their behavio
 - Use a coherent high-resolution pixel-art treatment with original characters. Stardew/Pokémon are mood references, not assets to copy.
 - Ambient mode is the public default. Existing mutation APIs remain available for later interaction; editing is outside this visual release.
 - Backend state owns layout, appearances, semantic light states, and ambient schedules. Client time evaluation owns interpolated poses and decorative motion.
-- No database changes, artwork replacement, runtime changes, installation, deployment, or production access occur during this planning task.
+- The current implementation covers the shared spatial contract, backend-owned ambient timeline, passive homepage, authored evening seed, stale-state handling, and local migration checks. Final art production, full occlusion fixtures, character composition, and measured release acceptance remain open.

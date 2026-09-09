@@ -1,6 +1,6 @@
 # Product specification: a room that quietly lives
 
-Status: selected product direction, planning only. Major decisions and rationale are in [DIRECTION](DIRECTION.md). Read [README](README.md) for strategy and [TECH](TECH.md) for implementation contracts.
+Status: selected product direction; implementation is in progress. Major decisions and rationale are in [DIRECTION](DIRECTION.md). Read [README](README.md) for strategy and [TECH](TECH.md) for implementation contracts.
 
 ## Experience
 
