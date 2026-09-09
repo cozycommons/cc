@@ -34,7 +34,7 @@ function entitiesFromScene(scene) {
     ...entity,
     entityType: 'actor',
   }));
-  return [...objects, ...actors];
+  return [...objects, ...actors].filter((entity) => entity.visible !== false && entity.hidden !== true);
 }
 
 function entityTile(entity) {

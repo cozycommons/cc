@@ -172,7 +172,12 @@ def _tile_is_available(
     for object_id, scene_object in objects.items():
         if entity_type == "object" and object_id == entity_id:
             continue
-        if not isinstance(scene_object, dict) or not _entity_footprint(scene_object)["blocks_movement"]:
+        if (
+            not isinstance(scene_object, dict)
+            or scene_object.get("visible") is False
+            or scene_object.get("hidden") is True
+            or not _entity_footprint(scene_object)["blocks_movement"]
+        ):
             continue
         if _entity_cells(scene_object, *_entity_tile(scene_object)) & candidate:
             return False
