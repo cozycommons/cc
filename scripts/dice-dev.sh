@@ -82,7 +82,7 @@ show_doctor() {
     printf 'Docker:    unavailable\n' >&2
     failed=true
   fi
-  printf 'Required local ports: 54321-54327, 8000, 8080\n'
+  printf 'Required local ports: 54321-54327, %s, %s\n' "${DICE_BACKEND_PORT:-8000}" "${DICE_FRONTEND_PORT:-8080}"
   [[ "$failed" == false ]]
 }
 
@@ -182,19 +182,21 @@ run_harness() {
 
 show_status() {
   local failed=false
+  local backend_port="${DICE_BACKEND_PORT:-8000}"
+  local frontend_port="${DICE_FRONTEND_PORT:-8080}"
   if "${supabase_command[@]}" status --workdir "$repo_dir" >/dev/null 2>&1; then
     printf 'Supabase: ready\n'
   else
     printf 'Supabase: stopped\n'
     failed=true
   fi
-  if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${backend_port}/health" >/dev/null 2>&1; then
     printf 'Backend:  ready\n'
   else
     printf 'Backend:  stopped\n'
     failed=true
   fi
-  if curl -fsS http://127.0.0.1:8080/dice >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${frontend_port}/dice" >/dev/null 2>&1; then
     printf 'Frontend: ready\n'
   else
     printf 'Frontend: stopped\n'
@@ -203,7 +205,7 @@ show_status() {
   if [[ "${CODESPACES:-}" == "true" ]]; then
     printf 'Browser:  %s/dice\n' "$(codespaces_url)"
   else
-    printf 'Browser:  http://localhost:8080/dice\n'
+    printf 'Browser:  http://localhost:%s/dice\n' "$frontend_port"
   fi
   [[ "$failed" == false ]]
 }
@@ -253,7 +255,7 @@ case "${1:-}" in
       printf 'Use scripts/dice-dev.sh codespace inside GitHub Codespaces.\n' >&2
       exit 2
     fi
-    run_harness "http://localhost:8080"
+    run_harness "http://localhost:${DICE_FRONTEND_PORT:-8080}"
     ;;
   codespace)
     run_harness "$(codespaces_url)"
