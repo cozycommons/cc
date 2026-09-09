@@ -292,9 +292,10 @@ export function createCommonsPhaserGame({
         ...nextPolicy,
       };
       merged.animate = nextPolicy.animate
-        ?? !(merged.paused || merged.reducedMotion || merged.hidden);
+        ?? !(merged.paused || merged.reducedMotion || merged.hidden || merged.stale);
       this.motionPolicy = merged;
       if (this.motionPolicy.reducedMotion) this.renderHomePoses();
+      else if (this.motionPolicy.stale) this.renderStalePoses();
     }
 
     renderHomePoses() {
@@ -425,6 +426,23 @@ export function createCommonsPhaserGame({
       });
     }
 
+    renderStalePoses() {
+      const ambient = this.currentScene?.state?.ambient;
+      const now = Date.now() + this.clockOffsetMs;
+      this.currentEntities
+        .filter((entity) => entity.entityType === 'actor')
+        .forEach((actor) => {
+          const sprite = this.sprites.get(`actor:${actor.id}`);
+          if (!sprite) return;
+          const tile = entityTile(actor);
+          const pose = this.ambientValid
+            ? settleAmbientPose(ambient, actor.id, now, tile)
+            : { mode: 'home', progress: 0, facing: homeFacing(actor) };
+          this.placeContinuousSprite(sprite, pose.u ?? tile.tile_x, pose.v ?? tile.tile_y);
+          this.applyActorPose(sprite, pose);
+        });
+    }
+
     drawTarget(tile) {
       this.targetTile = tile ? normalizeTile(tile.tile_x, tile.tile_y) : null;
       this.pathOverlay?.clear();
@@ -536,6 +554,7 @@ export function createCommonsPhaserGame({
         if (entity.entityType === 'object') this.syncObjectEffect(entity, tile);
       });
       if (this.motionPolicy.reducedMotion) this.renderHomePoses();
+      else if (this.motionPolicy.stale) this.renderStalePoses();
     }
 
     applyActorPose(sprite, pose) {

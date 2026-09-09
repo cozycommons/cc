@@ -4,6 +4,8 @@ import { resolveMotionPolicy } from './ambient/motion-policy.js';
 import { validateSceneSnapshot } from './world/contracts.js';
 import './commons-scene.css';
 
+const SCENE_FRESHNESS_MS = 30_000;
+
 function actorCount(scene) {
   return Object.keys(scene?.state?.actors || {}).length;
 }
@@ -65,17 +67,21 @@ export default function CommonsScene() {
   const [scene, setScene] = useState(null);
   const [paused, setPaused] = useState(readPausePreference);
   const [hidden, setHidden] = useState(Boolean(globalThis.document?.hidden));
+  const [stale, setStale] = useState(false);
   const [status, setStatus] = useState('connecting to the room');
+  const lastUsableRefreshAtRef = useRef(0);
+  const staleRef = useRef(false);
   const reducedMotion = useMediaPreference('(prefers-reduced-motion: reduce)');
   const motionPolicy = useMemo(
-    () => resolveMotionPolicy({ paused, reducedMotion, hidden }),
-    [hidden, paused, reducedMotion],
+    () => resolveMotionPolicy({ paused, reducedMotion, hidden, stale }),
+    [hidden, paused, reducedMotion, stale],
   );
   const initialMotionPolicyRef = useRef(motionPolicy);
   if (!gameRef.current) initialMotionPolicyRef.current = motionPolicy;
   const hasScene = Boolean(scene);
   sceneRef.current = scene;
   pausedRef.current = paused;
+  staleRef.current = stale;
 
   useEffect(() => {
     let active = true;
@@ -91,6 +97,12 @@ export default function CommonsScene() {
           setStatus('the room sent an unsupported snapshot');
           return;
         }
+        const uncertaintyMs = Number(latest.__client_timing?.uncertainty_ms);
+        const reliableTiming = !Number.isFinite(uncertaintyMs) || uncertaintyMs <= 500;
+        if (reliableTiming) {
+          lastUsableRefreshAtRef.current = Date.now();
+          setStale(false);
+        }
         const previous = latestSceneRef.current || sceneRef.current;
         latestSceneRef.current = latest;
         if (previous && pausedRef.current) {
@@ -105,6 +117,7 @@ export default function CommonsScene() {
         });
         if (!previous) setStatus('the room is shared');
         else if (latest.version > previous.version) setStatus('the room changed nearby');
+        else if (staleRef.current && reliableTiming) setStatus('the room is shared');
       } catch {
         if (active && !sceneRef.current) setStatus('the room could not sync');
         // Keep showing the last canonical snapshot through a brief outage.
@@ -113,13 +126,27 @@ export default function CommonsScene() {
       }
     }
 
+    function markFreshness() {
+      if (document.hidden || !sceneRef.current || !lastUsableRefreshAtRef.current) return;
+      if (Date.now() - lastUsableRefreshAtRef.current >= SCENE_FRESHNESS_MS) {
+        setStale(true);
+        setStatus('the room could not sync');
+      }
+    }
+
     refresh({ initial: true });
-    const interval = window.setInterval(() => refresh(), 8000);
+    const interval = window.setInterval(() => {
+      markFreshness();
+      refresh();
+    }, 8000);
     window.addEventListener('focus', refresh);
     window.addEventListener('online', refresh);
     const handleVisibility = () => {
       setHidden(Boolean(document.hidden));
-      if (!document.hidden) refresh();
+      if (!document.hidden) {
+        markFreshness();
+        refresh();
+      }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
