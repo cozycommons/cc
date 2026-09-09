@@ -49,6 +49,14 @@ const game = createCommonsPhaserGame({
   Phaser, parent: document.querySelector('#room'), initialScene: snapshot(),
   motionPolicy: { reducedMotion: true, animate: false },
 });
+const viewport = document.querySelector('#viewport');
+game.events.on('postrender', () => {
+  const canvas = game.canvas;
+  if (!canvas) return;
+  const bounds = canvas.getBoundingClientRect();
+  const summary = `Canvas ${canvas.width} × ${canvas.height}px; displayed ${bounds.width.toFixed(1)} × ${bounds.height.toFixed(1)}; DPR ${window.devicePixelRatio}`;
+  if (viewport.textContent !== summary) viewport.textContent = summary;
+});
 function refresh() { version += 1; game.syncState(snapshot()); }
 document.querySelector('#previous').addEventListener('click', () => {
   cursor = (cursor + perimeter.length - 1) % perimeter.length;

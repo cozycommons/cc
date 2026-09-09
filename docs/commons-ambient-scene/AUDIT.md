@@ -2,6 +2,14 @@
 
 ## Support-depth follow-up — 2026-09-09
 
+The renderer now observes its container and sizes the backing buffer from the
+displayed square and capped DPR, while the camera retains the 512-unit world.
+The development fixture reports actual canvas/display dimensions. A loaded
+browser witness reported 760×760 backing and display dimensions at browser DPR
+0.75 (effective DPR is clamped to 1). Unit coverage exercises resizing between
+720px desktop and 358px mobile, DPR 1/2/3, duplicate notifications, zero-sized
+containers and observer cleanup. Actual DPR 1/2 browser gates remain open.
+
 The table and sofa now carry measured visible support points. Whole-sprite
 sorting uses their support-span midpoint, leaving their drawing registration
 unchanged. Actor depth and stable ID ties remain unchanged. This is an interim

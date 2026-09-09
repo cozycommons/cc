@@ -22,6 +22,7 @@ import { createPresentationClock } from './ambient/clock.js';
 import { depthForGround, projectGround } from './world/geometry.js';
 import { createSnapshotTransition } from './render/snapshot-transition.js';
 import { supportDepthOffset } from './render/grounding.js';
+import { observeCommonsViewport } from './render/viewport.js';
 import { validateSceneSnapshot } from './world/contracts.js';
 
 const ROOM_WIDTH = COMMONS_GRID.width;
@@ -270,6 +271,10 @@ export function createCommonsPhaserGame({
     }
 
     create() {
+      const stopObservingViewport = observeCommonsViewport({
+        parent, scale: this.scale, camera: this.cameras.main,
+      });
+      this.events.once('shutdown', stopObservingViewport);
       Object.entries(COMMONS_ACTOR_ANIMATIONS).forEach(([asset, animation]) => {
         this.anims.create({
           key: actorAnimationKey(asset),
@@ -771,13 +776,11 @@ export function createCommonsPhaserGame({
     }
   }
 
-  const dpr = Math.min(Math.max(globalThis.devicePixelRatio || 1, 1), 2);
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
     width: ROOM_WIDTH,
     height: ROOM_HEIGHT,
-    resolution: dpr,
     transparent: true,
     pixelArt: true,
     antialias: false,
