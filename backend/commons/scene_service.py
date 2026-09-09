@@ -13,7 +13,7 @@ from commons.contracts import SCENE_CONTRACT
 from commons.schemas import CommonsSceneCommandRequest
 
 SCENE_ID = "commons-home"
-LAYOUT_VERSION = 7
+LAYOUT_VERSION = 9
 _WORLD = SCENE_CONTRACT["world"]
 GRID_COLUMNS = int(_WORLD["columns"])
 GRID_ROWS = int(_WORLD["rows"])
