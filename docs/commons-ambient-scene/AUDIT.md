@@ -15,6 +15,39 @@ Completed since the planning baseline:
 
 Still open and intentionally tracked in PLAN: production four-view/eight-frame character art and build-time compositor; breathing, blinking and glance layers; authored furniture and architectural occlusion pieces; state-backed leaf/steam effects; complete candidate preload and scene fade reconciliation; full schedule boundary/clearance validation; browser-rendered G1/G2 contact sheets, traversal recordings, DPR/performance measurements and ten-minute unattended review. Migrations `0009` and `0010` also predate the current exact-seed guard and cannot be rewritten; their customized-upgrade risk needs a documented forward compatibility/rollback decision before release.
 
+## Integration and grounding follow-up
+
+Changes through `13a86ad` add source-contact baselines, remove the actor-only
+world-depth bias, put light pools below world objects, reject overlapping
+resident footprint reservations at overlapping times, and prepare complete
+texture sets before installing a scene revision. Small clock corrections are
+continuous; large corrections use an explicit reanchor during the scene fade.
+Paused/hidden updates queue and reduced motion installs without fading.
+
+The actual Phaser fixture is available in local development at
+`/commons-review.html`. Reproduce the unresolved table corner using
+`?prop=dining-table&step=4`: resident (10,6) and table (8,8) have equal ground
+depth, but the current unsplit table covers the resident's head. Compare
+`step=8` for the front case and the default sofa fixture for the rear case.
+These were inspected in the browser. This establishes a failing witness for
+support-center and authored occlusion work, not a passed traversal gate.
+The fixture makes no API requests and is not included in the default production
+HTML build. The next art pass must align physical support centers, footprints
+and depth pieces; bottom contact baselines alone do not solve that contract.
+
+The mobile homepage was inspected before and after replacing the absolutely
+positioned shelf with normal document flow. The large gap is removed. The
+whole-room scale animation is removed so the shell remains stable. No public
+scene controls were added.
+
+Validation: 214 frontend tests and 303 backend tests passed (19 backend skips),
+plus frontend lint. Tests cover snapshot preparation failure, queued replacement,
+reduced motion and cleanup, along with timed route reuse and offset actor
+footprints. Full browser failure injection, every corner/orientation and final
+performance/art gates remain open. Luna workers reached a usage limit midway
+through route and snapshot work; their partial changes were finished and
+reviewed by the integrating agent before commit.
+
 ## What was inspected
 
 Baseline commit `83c9bafe2759cef0728a1446245fe2e46bead56c`. Working tree was clean when planning began. The planning deliverables are new Markdown documents under this directory; no implementation, asset, migration, database, or deployment change was made.
