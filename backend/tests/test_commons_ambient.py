@@ -121,3 +121,52 @@ def test_rejects_a_disabled_program_with_an_unsafe_home_anchor():
     }
     with pytest.raises(AmbientProgramError, match="home anchor"):
         validate_ambient_program({"enabled": False, "revision": 2, "reason": "resting_only"}, ["host"], state)
+
+
+def _timed_outing(home, destination, start):
+    return [
+        {"kind": "hold", "duration_ms": start, "tile": home, "facing": "front_right"},
+        {"kind": "walk", "waypoints": [home, destination, home], "edge_durations_ms": [1000, 1000]},
+        {"kind": "hold", "duration_ms": 20000 - start - 2000, "tile": home, "facing": "front_right"},
+    ]
+
+
+def test_allows_shared_route_cells_at_different_times():
+    state = {"objects": {}, "actors": {
+        "host": {"asset": "host", "tile_x": 4, "tile_y": 4},
+        "maker": {"asset": "maker", "tile_x": 5, "tile_y": 5},
+    }}
+    program = {**PROGRAM, "cycle_ms": 20000, "actors": {
+        "host": _timed_outing([4, 4], [5, 4], 2000),
+        "maker": _timed_outing([5, 5], [5, 4], 8000),
+    }}
+    assert validate_ambient_program(program, ["host", "maker"], state)["valid"]
+    program["actors"]["maker"] = _timed_outing([5, 5], [5, 4], 2000)
+    with pytest.raises(AmbientProgramError, match="another actor"):
+        validate_ambient_program(program, ["host", "maker"], state)
+
+
+def test_checks_whole_actor_footprint_at_route_waypoints():
+    state = {"grid": {"blocked": [[6, 5]]}, "objects": {}, "actors": {
+        "host": {"asset": "host", "tile_x": 4, "tile_y": 4,
+                 "footprint": {"cells": [[0, 0], [0, 1]]}},
+    }}
+    with pytest.raises(AmbientProgramError, match="blocker"):
+        validate_ambient_program(PROGRAM, ["host"], state)
+
+
+@pytest.mark.parametrize("value", [True, -1, 1.5])
+def test_rejects_invalid_disabled_revisions(value):
+    with pytest.raises(AmbientProgramError):
+        validate_ambient_program({"enabled": False, "revision": value, "reason": "resting_only"})
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan"), True])
+def test_rejects_nonfinite_or_boolean_epoch(value):
+    with pytest.raises(AmbientProgramError):
+        validate_ambient_program({**PROGRAM, "epoch_ms": value})
+
+
+def test_explicit_empty_actor_set_rejects_existing_tracks():
+    with pytest.raises(AmbientProgramError, match="do not match"):
+        validate_ambient_program(PROGRAM, [])
