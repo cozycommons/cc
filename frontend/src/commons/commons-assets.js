@@ -60,6 +60,34 @@ const ASSET_SIZES = Object.freeze({
   neighbor: "12%",
 });
 
+// Logical render widths are authored against the 512-unit world. They keep
+// every instance of an asset on the same calibrated mannequin instead of
+// deriving size from whichever transparent padding a source PNG happens to
+// contain. The legacy percentage API remains below for old inspector callers.
+const COMMONS_RENDER_METADATA = Object.freeze({
+  "orange-sofa": Object.freeze({ width: 200, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "green-loveseat": Object.freeze({ width: 138, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "red-armchair": Object.freeze({ width: 108, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "dining-table": Object.freeze({ width: 174, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "dining-chair": Object.freeze({ width: 72, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "record-console": Object.freeze({ width: 179, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "coffee-table": Object.freeze({ width: 92, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "floor-lamp": Object.freeze({ width: 72, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "area-rug": Object.freeze({ width: 174, anchor: Object.freeze([0.5, 0.5]), depthOffset: -900, floorDecoration: true }),
+  topiary: Object.freeze({ width: 66, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  palm: Object.freeze({ width: 97, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  "bar-stool": Object.freeze({ width: 56, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  host: Object.freeze({ width: 61, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  maker: Object.freeze({ width: 61, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  neighbor: Object.freeze({ width: 61, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+});
+
+const DEFAULT_RENDER_METADATA = Object.freeze({
+  width: 82,
+  anchor: Object.freeze([0.5, 1]),
+  depthOffset: 0,
+});
+
 const DEFAULT_OBJECT_HITBOX = Object.freeze({ x: 0.16, y: 0.62, width: 0.68, height: 0.3 });
 const ACTOR_HITBOX = Object.freeze({ x: 0.22, y: 0.58, width: 0.56, height: 0.38 });
 
@@ -94,6 +122,10 @@ export function shouldMirrorCommonsAsset(asset, orientation = "south") {
 
 export function getCommonsAssetSize(asset) {
   return ASSET_SIZES[asset] || "16%";
+}
+
+export function getCommonsRenderMetadata(asset) {
+  return COMMONS_RENDER_METADATA[asset] || DEFAULT_RENDER_METADATA;
 }
 
 export function getCommonsActorAnimation(asset) {

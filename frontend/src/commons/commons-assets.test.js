@@ -3,6 +3,7 @@ import {
   getCommonsActorAnimation,
   getCommonsAsset,
   getCommonsHitbox,
+  getCommonsRenderMetadata,
   shouldMirrorCommonsAsset,
 } from './commons-assets.js';
 
@@ -36,5 +37,11 @@ describe('Commons furniture assets', () => {
   it('keeps interaction zones on the visible base of props and actors', () => {
     expect(getCommonsHitbox('orange-sofa')).toMatchObject({ y: 0.58, height: 0.34 });
     expect(getCommonsHitbox('host', 'actor')).toMatchObject({ y: 0.58, height: 0.38 });
+  });
+
+  it('exposes stable logical render metadata for grounded sizing', () => {
+    expect(getCommonsRenderMetadata('orange-sofa')).toMatchObject({ width: 200, depthOffset: 0 });
+    expect(getCommonsRenderMetadata('area-rug')).toMatchObject({ floorDecoration: true, depthOffset: -900 });
+    expect(getCommonsRenderMetadata('unknown')).toMatchObject({ width: 82, anchor: [0.5, 1] });
   });
 });

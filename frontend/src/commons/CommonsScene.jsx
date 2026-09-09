@@ -37,13 +37,32 @@ function useMediaPreference(query) {
   return matches;
 }
 
+function readPausePreference() {
+  try {
+    return window.localStorage.getItem('cozy-commons.scene-paused') === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writePausePreference(paused) {
+  try {
+    window.localStorage.setItem('cozy-commons.scene-paused', String(paused));
+  } catch {
+    // A pause control still works when storage is unavailable.
+  }
+}
+
 export default function CommonsScene() {
   const worldRef = useRef(null);
   const gameRef = useRef(null);
   const sceneRef = useRef(null);
+  const latestSceneRef = useRef(null);
+  const queuedSceneRef = useRef(null);
+  const pausedRef = useRef(false);
   const refreshingRef = useRef(false);
   const [scene, setScene] = useState(null);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(readPausePreference);
   const [hidden, setHidden] = useState(Boolean(globalThis.document?.hidden));
   const [status, setStatus] = useState('connecting to the room');
   const reducedMotion = useMediaPreference('(prefers-reduced-motion: reduce)');
@@ -53,12 +72,7 @@ export default function CommonsScene() {
   );
   const hasScene = Boolean(scene);
   sceneRef.current = scene;
-
-  useEffect(() => {
-    const updateVisibility = () => setHidden(Boolean(document.hidden));
-    document.addEventListener('visibilitychange', updateVisibility);
-    return () => document.removeEventListener('visibilitychange', updateVisibility);
-  }, []);
+  pausedRef.current = paused;
 
   useEffect(() => {
     let active = true;
@@ -69,7 +83,13 @@ export default function CommonsScene() {
       try {
         const latest = await getScene();
         if (!active) return;
-        const previous = sceneRef.current;
+        const previous = latestSceneRef.current || sceneRef.current;
+        latestSceneRef.current = latest;
+        if (previous && pausedRef.current) {
+          queuedSceneRef.current = latest;
+          setStatus('a newer room snapshot is waiting');
+          return;
+        }
         sceneRef.current = latest;
         setScene((current) => {
           if (current && latest.version < current.version) return current;
@@ -89,11 +109,17 @@ export default function CommonsScene() {
     const interval = window.setInterval(() => refresh(), 8000);
     window.addEventListener('focus', refresh);
     window.addEventListener('online', refresh);
+    const handleVisibility = () => {
+      setHidden(Boolean(document.hidden));
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       active = false;
       window.clearInterval(interval);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('online', refresh);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 
@@ -110,6 +136,7 @@ export default function CommonsScene() {
         Phaser,
         parent: worldRef.current,
         initialScene: sceneRef.current,
+        motionPolicy,
         callbacks: { interactive: false, inspector: false },
       });
       gameRef.current = game;
@@ -132,10 +159,31 @@ export default function CommonsScene() {
     gameRef.current?.setMotionPolicy?.(motionPolicy);
   }, [motionPolicy]);
 
+  function togglePause() {
+    const next = !paused;
+    pausedRef.current = next;
+    writePausePreference(next);
+    if (!next && queuedSceneRef.current) {
+      const queued = queuedSceneRef.current;
+      queuedSceneRef.current = null;
+      latestSceneRef.current = queued;
+      sceneRef.current = queued;
+      setScene(queued);
+      setStatus('the room is up to date');
+    }
+    setPaused(next);
+  }
+
   const displayStatus = paused ? 'the room is paused' : status;
   return (
     <div className="commons-scene" aria-label="Cozy Commons shared room">
       <div className="commons-room__image-wrap commons-scene__frame">
+        <img
+          className="commons-scene__fallback"
+          src="/commons/cozy-commons-room-tile-base.png"
+          alt=""
+          aria-hidden="true"
+        />
         <div
           className="commons-scene__phaser"
           ref={worldRef}
@@ -152,7 +200,7 @@ export default function CommonsScene() {
             className="commons-scene__pause"
             type="button"
             aria-pressed={paused}
-            onClick={() => setPaused((current) => !current)}
+            onClick={togglePause}
           >
             {paused ? 'resume room' : 'pause room'}
           </button>

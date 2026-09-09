@@ -5,15 +5,27 @@
 }
 
 .commons-scene__frame {
-  touch-action: none;
+  touch-action: auto;
+}
+
+.commons-scene__fallback {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
 }
 
 .commons-scene__phaser {
   position: absolute;
-  z-index: 0;
+  z-index: 1;
   inset: 0;
   overflow: hidden;
   border-radius: 2px;
+  pointer-events: none;
 }
 
 .commons-scene__phaser canvas {
@@ -21,7 +33,7 @@
   width: 100% !important;
   height: 100% !important;
   image-rendering: pixelated;
-  touch-action: none;
+  touch-action: auto;
 }
 
 .commons-scene__a11y {
@@ -166,6 +178,26 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   pointer-events: none;
+}
+
+.commons-scene__pause {
+  pointer-events: auto;
+  padding: 3px 5px;
+  border: 1px solid rgba(237, 179, 109, 0.38);
+  border-radius: 2px;
+  background: rgba(237, 179, 109, 0.08);
+  color: var(--commons-cream);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.commons-scene__pause:hover,
+.commons-scene__pause:focus-visible {
+  outline: none;
+  background: rgba(237, 179, 109, 0.18);
+  box-shadow: 0 0 0 1px var(--commons-amber);
 }
 
 .commons-scene__status-dot {
