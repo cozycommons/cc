@@ -43,6 +43,142 @@ def _same_tile(first: tuple[int, int] | None, second: tuple[int, int] | None) ->
     return first == second
 
 
+def _state_tile(entity: Any) -> tuple[int, int] | None:
+    if not isinstance(entity, dict):
+        return None
+    tile_x = entity.get("tile_x")
+    tile_y = entity.get("tile_y")
+    if tile_x is not None or tile_y is not None:
+        if (
+            not isinstance(tile_x, int)
+            or isinstance(tile_x, bool)
+            or not isinstance(tile_y, int)
+            or isinstance(tile_y, bool)
+        ):
+            return None
+        return (tile_x, tile_y) if 0 <= tile_x < GRID_COLUMNS and 0 <= tile_y < GRID_ROWS else None
+    x = entity.get("x")
+    y = entity.get("y")
+    if (
+        isinstance(x, (int, float))
+        and not isinstance(x, bool)
+        and isinstance(y, (int, float))
+        and not isinstance(y, bool)
+        and math.isfinite(float(x))
+        and math.isfinite(float(y))
+        and 0 <= float(x) <= 1
+        and 0 <= float(y) <= 1
+    ):
+        pixel_x = float(x) * float(_WORLD["width"])
+        pixel_y = float(y) * float(_WORLD["height"])
+        tile_u = (pixel_x - float(_WORLD["origin_x"])) / (float(_WORLD["tile_width"]) / 2)
+        tile_v = (pixel_y - float(_WORLD["origin_y"])) / (float(_WORLD["tile_height"]) / 2)
+        tile_x = math.floor(((tile_u + tile_v) / 2) + 0.5)
+        tile_y = math.floor(((tile_v - tile_u) / 2) + 0.5)
+        if 0 <= tile_x < GRID_COLUMNS and 0 <= tile_y < GRID_ROWS:
+            return tile_x, tile_y
+    return None
+
+
+def _entity_cells(entity: Any, tile: tuple[int, int]) -> set[tuple[int, int]]:
+    if not isinstance(entity, dict):
+        return set()
+    asset = entity.get("asset")
+    fallback = SCENE_CONTRACT.get("footprints", {}).get(asset, {"cells": [[0, 0]]})
+    configured = entity.get("footprint")
+    raw_cells = configured.get("cells") if isinstance(configured, dict) else None
+    cells = raw_cells if isinstance(raw_cells, list) else fallback.get("cells", [[0, 0]])
+    parsed: set[tuple[int, int]] = set()
+    for offset in cells:
+        if (
+            not isinstance(offset, (list, tuple))
+            or len(offset) != 2
+            or isinstance(offset[0], bool)
+            or isinstance(offset[1], bool)
+            or not isinstance(offset[0], int)
+            or not isinstance(offset[1], int)
+        ):
+            raise AmbientProgramError("invalid entity footprint")
+        parsed.add((tile[0] + offset[0], tile[1] + offset[1]))
+    return parsed or {(tile[0], tile[1])}
+
+
+def _blocks_movement(entity: Any) -> bool:
+    if not isinstance(entity, dict):
+        return True
+    configured = entity.get("footprint")
+    if isinstance(configured, dict) and "blocks_movement" in configured:
+        return configured["blocks_movement"] is True
+    definition = SCENE_CONTRACT.get("footprints", {}).get(entity.get("asset"), {})
+    return definition.get("blocks_movement", True) is not False
+
+
+def _validate_program_geometry(
+    program: dict[str, Any],
+    state: dict[str, Any],
+    parsed_tracks: dict[str, dict[str, set[tuple[int, int]]]],
+) -> None:
+    """Validate authored supports against the room state before serving it."""
+
+    grid = state.get("grid")
+    blocked_raw = grid.get("blocked", []) if isinstance(grid, dict) else []
+    blocked: set[tuple[int, int]] = set()
+    for cell in blocked_raw:
+        tile = _tile(cell)
+        if tile is None:
+            raise AmbientProgramError("invalid room blocker")
+        blocked.add(tile)
+
+    objects = state.get("objects")
+    actors = state.get("actors")
+    if not isinstance(objects, dict) or not isinstance(actors, dict):
+        raise AmbientProgramError("scene entities are required for ambient validation")
+
+    blocking_objects: list[set[tuple[int, int]]] = []
+    for entity in objects.values():
+        if not isinstance(entity, dict) or entity.get("visible") is False or entity.get("hidden") is True:
+            continue
+        tile = _state_tile(entity)
+        if tile is None:
+            raise AmbientProgramError("scene object has an invalid home anchor")
+        cells = _entity_cells(entity, tile)
+        if any(cell[0] < 0 or cell[0] >= GRID_COLUMNS or cell[1] < 0 or cell[1] >= GRID_ROWS for cell in cells):
+            raise AmbientProgramError("scene object footprint is outside the room")
+        if _blocks_movement(entity):
+            blocking_objects.append(cells)
+
+    actor_homes: dict[str, set[tuple[int, int]]] = {}
+    for actor_id, actor in actors.items():
+        tile = _state_tile(actor)
+        if tile is None:
+            raise AmbientProgramError("actor has an invalid home anchor")
+        cells = _entity_cells(actor, tile)
+        if any(cell[0] < 0 or cell[0] >= GRID_COLUMNS or cell[1] < 0 or cell[1] >= GRID_ROWS for cell in cells):
+            raise AmbientProgramError("actor home footprint is outside the room")
+        if cells & blocked or any(cells & occupied for occupied in blocking_objects):
+            raise AmbientProgramError("actor home anchor is blocked")
+        actor_homes[actor_id] = cells
+
+    actor_ids = list(actor_homes)
+    for index, actor_id in enumerate(actor_ids):
+        for other_id in actor_ids[index + 1 :]:
+            if actor_homes[actor_id] & actor_homes[other_id]:
+                raise AmbientProgramError("actor home anchors overlap")
+
+    for actor_id, track in parsed_tracks.items():
+        route_cells = track["route"]
+        if any(cell[0] < 0 or cell[0] >= GRID_COLUMNS or cell[1] < 0 or cell[1] >= GRID_ROWS for cell in route_cells):
+            raise AmbientProgramError("ambient route leaves the room")
+        if route_cells & blocked or any(route_cells & occupied for occupied in blocking_objects):
+            raise AmbientProgramError("ambient route intersects a blocker")
+        for other_id, home_cells in actor_homes.items():
+            if other_id != actor_id and route_cells & home_cells:
+                raise AmbientProgramError("ambient route intersects another actor's home")
+        for other_id, hold_cells in ((key, value["holds"]) for key, value in parsed_tracks.items() if key != actor_id):
+            if route_cells & hold_cells:
+                raise AmbientProgramError("ambient route intersects another actor's hold")
+
+
 def _duration(segment: dict[str, Any]) -> int:
     if segment.get("kind") == "hold":
         return int(segment["duration_ms"])
@@ -88,9 +224,15 @@ def _validate_segment(segment: Any, previous: tuple[int, int] | None) -> tuple[t
     return typed_waypoints[-1], total, typed_waypoints, views
 
 
-def validate_ambient_program(program: Any, actor_ids: list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+def validate_ambient_program(
+    program: Any,
+    actor_ids: list[str] | tuple[str, ...] = (),
+    state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if isinstance(program, dict) and program.get("enabled") is False:
         if isinstance(program.get("revision"), int) and isinstance(program.get("reason"), str) and program["reason"] in {"legacy", "invalidated", "resting_only"}:
+            if state is not None:
+                _validate_program_geometry(program, state, {})
             return {"valid": True, "disabled": True}
         raise AmbientProgramError("invalid disabled ambient state")
     if not isinstance(program, dict) or program.get("enabled") is not True:
@@ -111,17 +253,23 @@ def validate_ambient_program(program: Any, actor_ids: list[str] | tuple[str, ...
     if expected and set(tracks) != expected:
         raise AmbientProgramError("ambient actor tracks do not match the scene")
     walk_intervals: list[tuple[int, int]] = []
-    for segments in tracks.values():
+    parsed_tracks: dict[str, dict[str, set[tuple[int, int]]]] = {}
+    for actor_id, segments in tracks.items():
         if not isinstance(segments, list) or not segments:
             raise AmbientProgramError("actor needs an ambient track")
         elapsed = 0
         previous = None
         first = None
         walking_duration = 0
+        route_cells: set[tuple[int, int]] = set()
+        hold_cells: set[tuple[int, int]] = set()
         for segment in segments:
-            end, duration, _, _ = _validate_segment(segment, previous)
+            end, duration, waypoints, _ = _validate_segment(segment, previous)
             if first is None:
                 first = _tile(segment.get("tile")) if segment.get("kind") == "hold" else _tile(segment["waypoints"][0])
+            route_cells.update(waypoints)
+            if segment.get("kind") == "hold":
+                hold_cells.update(waypoints)
             if segment.get("kind") == "walk":
                 walking_duration += duration
                 walk_intervals.append((elapsed, elapsed + duration))
@@ -133,6 +281,9 @@ def validate_ambient_program(program: Any, actor_ids: list[str] | tuple[str, ...
             raise AmbientProgramError("actor walks for too much of the cycle")
         if not _same_tile(first, previous):
             raise AmbientProgramError("ambient cycle wraps discontinuously")
+        parsed_tracks[actor_id] = {"route": route_cells, "holds": hold_cells}
+    if state is not None:
+        _validate_program_geometry(program, state, parsed_tracks)
     limit = program.get("max_walkers", 1)
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise AmbientProgramError("invalid walker limit")

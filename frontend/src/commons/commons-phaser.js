@@ -18,6 +18,7 @@ import {
   tileKey,
 } from './commons-grid.js';
 import { evaluateAmbientPose, settleAmbientPose, validateAmbientProgram } from './ambient/timeline.js';
+import { createPresentationClock } from './ambient/clock.js';
 import { depthForGround, projectGround } from './world/geometry.js';
 
 const ROOM_WIDTH = COMMONS_GRID.width;
@@ -142,7 +143,7 @@ export function createCommonsPhaserGame({
       this.currentEntities = [];
       this.depthRanks = new Map();
       this.ambientValid = false;
-      this.clockOffsetMs = 0;
+      this.presentationClock = createPresentationClock();
       this.clockUncertaintyMs = 0;
       this.motionPolicy = {
         paused: false,
@@ -283,7 +284,7 @@ export function createCommonsPhaserGame({
     update() {
       if (!this.motionPolicy.animate || !this.currentScene || !this.ambientValid) return;
       const ambient = this.currentScene.state?.ambient;
-      const now = Date.now() + this.clockOffsetMs;
+      const now = this.presentationClock.now();
       this.currentEntities
         .filter((entity) => entity.entityType === 'actor')
         .forEach((actor) => {
@@ -441,7 +442,7 @@ export function createCommonsPhaserGame({
 
     renderStalePoses() {
       const ambient = this.currentScene?.state?.ambient;
-      const now = Date.now() + this.clockOffsetMs;
+      const now = this.presentationClock.now();
       this.currentEntities
         .filter((entity) => entity.entityType === 'actor')
         .forEach((actor) => {
@@ -479,9 +480,11 @@ export function createCommonsPhaserGame({
       );
       this.pathPreviewKey = null;
       this.hoverTileKey = null;
-      this.clockOffsetMs = Number.isFinite(Number(nextScene.server_time_ms))
-        ? Number(nextScene.server_time_ms) - Number(nextScene.__client_timing?.midpoint_ms || Date.now())
-        : 0;
+      this.presentationClock.observe({
+        serverTimeMs: Number(nextScene.server_time_ms),
+        midpointMs: Number(nextScene.__client_timing?.midpoint_ms || Date.now()),
+        uncertaintyMs: Number(nextScene.__client_timing?.uncertainty_ms),
+      });
       this.clockUncertaintyMs = Number.isFinite(Number(nextScene.__client_timing?.uncertainty_ms))
         ? Number(nextScene.__client_timing.uncertainty_ms)
         : 0;
@@ -561,8 +564,8 @@ export function createCommonsPhaserGame({
           && !this.motionPolicy.reducedMotion;
         if (entity.entityType === 'actor' && ambientCanDrive) {
           const pose = this.clockUncertaintyMs > 500
-            ? settleAmbientPose(ambient, entity.id, Date.now() + this.clockOffsetMs, tile)
-            : evaluateAmbientPose(ambient, entity.id, Date.now() + this.clockOffsetMs, tile);
+            ? settleAmbientPose(ambient, entity.id, this.presentationClock.now(), tile)
+            : evaluateAmbientPose(ambient, entity.id, this.presentationClock.now(), tile);
           this.placeContinuousSprite(sprite, pose.u, pose.v);
           this.applyActorPose(sprite, pose);
         } else if (!(this.motionPolicy.paused && sprite.getData('positioned'))) {

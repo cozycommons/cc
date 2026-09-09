@@ -4,9 +4,9 @@ Status: selected direction; implementation is in progress. These decisions repla
 
 ## Product north star
 
-Cozy Commons is a small, inhabited home on the web for the things we make. The room is the primary experience; project links are useful doors out of it. A visitor should find it beautiful paused, comfortable to leave open for ten minutes, and rewarding to glance at occasionally.
+Cozy Commons is a small, inhabited home on the web for the things we make. The room is the primary experience; project links are useful doors out of it. A visitor should find it beautiful at rest, comfortable to leave open for ten minutes, and rewarding to glance at occasionally.
 
-Build **one authored evening common room with three recognizable residents**. The scene is always evening, with warm interior lamps and quiet cool windows. No time-of-day controls, quests, progress indicators, public editor, audio, or visitors represented as characters in this release. Pause is the only scene control. The room does not need engagement mechanics to justify its existence.
+Build **one authored evening common room with three recognizable residents**. The scene is always evening, with warm interior lamps and quiet cool windows. No time-of-day controls, quests, progress indicators, public editor, audio, or visitors represented as characters in this release. Ambient browsing exposes no public scene controls. The room does not need engagement mechanics to justify its existence.
 
 ## Selected decisions
 
@@ -19,7 +19,7 @@ Build **one authored evening common room with three recognizable residents**. Th
 | D05 | Use explicit floor passes and authored furniture occlusion pieces | Rugs always remain underneath residents and furniture. Wide objects need actual occlusion design. G1 proves the approach; workers cannot substitute actor-specific offsets or hide defects by blocking formerly required paths. |
 | D06 | Assemble character recipes at build time | Three deployed residents do not justify browser-side atlas generation and cache lifecycle complexity. A reusable compositor exports any valid recipe; new characters require data/art, not renderer changes. |
 | D07 | Backend stores a validated authored timeline; client evaluates its pose | This gives the world continuity without per-frame writes, local random roaming, or an always-running simulation server. It remains an explicit foundation for later interactions. |
-| D08 | Freeze the complete displayed snapshot when paused | Incoming furniture cannot suddenly intersect a frozen resident. Queue updates and install a coherent snapshot on resume. Reduced motion uses safe static homes. |
+| D08 | Keep pause as an internal presentation policy | Development fixtures or a future embedding may freeze the complete displayed snapshot and queue updates coherently; the public ambient homepage exposes no pause control. Reduced motion uses safe static homes. |
 | D09 | Preserve customized legacy layouts through an explicit static compatibility path | The redesign must not silently reset existing state. New-schema art/geometry is used only after a lossless mapping validates. Public editing is not part of this release. |
 | D10 | Review visual integration before scaling production | Every asset/character worker starts from the same approved art slice and contracts. Final aesthetics are evaluated in the live room, not just isolated contact sheets. |
 
@@ -51,7 +51,7 @@ Runtime keeps current snapshot, an optional pending snapshot, asset handles, and
 
 Character composition is an offline pure operation: recipe + rig/components + asset version → deterministic atlas and manifest. Shipping output contains the three selected recipes. Adding a thirteenth character follows the same build path; a developer gallery proves twelve combinations. Runtime selects prebuilt recipe output and animates the registered pose/eyes/upper-body layers. Do not send the entire combinatorial source kit to the browser.
 
-For scene updates, prepare all required assets and validate the candidate before changing the displayed world. A geometry/catalog replacement swaps the complete snapshot between a short scene fade-out/fade-in; an actor-only clock correction can fade that actor. Never mix versions while assets load. Pause queues the candidate; reduced motion swaps without a fade. Loading failure retains the previous valid snapshot and reports the failure quietly.
+For scene updates, prepare all required assets and validate the candidate before changing the displayed world. A geometry/catalog replacement swaps the complete snapshot between a short scene fade-out/fade-in; an actor-only clock correction can fade that actor. Never mix versions while assets load. An internal paused policy queues the candidate; reduced motion swaps without a fade. Loading failure retains the previous valid snapshot and reports the failure quietly.
 
 ## Decision authority and gates
 

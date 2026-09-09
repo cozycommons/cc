@@ -209,7 +209,7 @@ def _validate_ambient_if_present(state: dict[str, Any]) -> None:
     actors = state.get("actors")
     actor_ids = list(actors) if isinstance(actors, dict) else []
     try:
-        validate_ambient_program(state["ambient"], actor_ids)
+        validate_ambient_program(state["ambient"], actor_ids, state)
     except AmbientProgramError as error:
         raise SceneStoreError("commons.invalid_ambient_program") from error
 

@@ -143,9 +143,9 @@ Every handoff includes: baseline commit; output commit/diff; a concise implement
 
 **Owned outputs:** `ambient/timeline.js`, `motion-policy.js`, unit tests, reconciliation fixture.
 
-**Work:** Pure route interpolation with explicit segment/edge time, seeded idle timing, server-time estimate, offset correction, pause/resume, visibility, 30-second freshness limit, revision changes and error handling. Supply pose to renderer; do not mutate snapshots or issue commands. Ensure repeated polls do not restart animation.
+**Work:** Pure route interpolation with explicit segment/edge time, seeded idle timing, server-time estimate, offset correction, internal paused-policy support for fixtures, visibility, 30-second freshness limit, revision changes and error handling. Supply pose to renderer; do not mutate snapshots or issue commands. Ensure repeated polls do not restart animation.
 
-**Checks:** Exact cycle boundary, hold/walk transitions, slow/fast/out-of-order responses, reliable/unreliable time samples, two clients with known offsets, paused live state update, reduced-motion change mid-walk, hidden-tab long return, offline-safe endpoint. Fake time tests must assert expected poses, not only timer calls.
+**Checks:** Exact cycle boundary, hold/walk transitions, slow/fast/out-of-order responses, reliable/unreliable time samples, two clients with known offsets, internal paused-policy state update, reduced-motion change mid-walk, hidden-tab long return, offline-safe endpoint. Fake time tests must assert expected poses, not only timer calls.
 
 **Done:** Identical snapshot/time inputs yield identical poses; state remains authoritative and the motion budget is enforced centrally.
 
@@ -169,17 +169,17 @@ Every handoff includes: baseline commit; output commit/diff; a concise implement
 
 **Work:** Replace hardcoded local ambient routes and old asset scaling; wire snapshot, pose, motion policy, owner-bound light/leaf/steam systems. Ensure semantic off state disables appropriate effects. Remove stale loops/listeners. Integrate full room, final static fallback and asset failure handling.
 
-**Checks:** Full-cycle room preview, state updates while idle/walking/paused, missing texture, unknown catalog, WebGL failure fallback, renderer remount, effect depth and total particle budget. No retained hidden local simulation and no per-frame network activity.
+**Checks:** Full-cycle room preview, state updates while idle/walking or under the internal paused policy, missing texture, unknown catalog, WebGL failure fallback, renderer remount, effect depth and total particle budget. No retained hidden local simulation and no per-frame network activity.
 
 **Done:** Runtime scene satisfies contracts using actual backend state, not a fixture secretly shipped as production truth.
 
-## W13 — Passive homepage and accessible controls
+## W13 — Passive homepage and accessible presentation
 
 **Inputs:** W12 and PRODUCT homepage requirements.
 
 **Owned outputs:** `CommonsHome.jsx`, `CommonsScene.jsx`, scene/theme CSS and related React tests.
 
-**Work:** Simplify overlays, semantic description, pause control, fixed aspect loading/fallback, connection status and mobile layout. Remove default global movement/drag/context-menu/touch suppression and mutation replay. Keep development inspector opt-in. Preserve queued commands for explicit later editing and `/dice` navigation.
+**Work:** Simplify overlays, semantic description, fixed aspect loading/fallback and mobile layout. Keep scene controls out of ambient mode; retain only project navigation and development-only diagnostics. Remove default global movement/drag/context-menu/touch suppression and mutation replay. Keep development inspector opt-in. Preserve queued commands for explicit later editing and `/dice` navigation.
 
 **Checks:** Keyboard/tab order, scroll/zoom, screen-reader description, runtime reduced-motion changes, all animation paused, first-load error and renderer error, frontend route regression. Ensure no command request occurs during browse/pause/reload, including with pending command storage populated.
 
@@ -206,7 +206,7 @@ Every handoff includes: baseline commit; output commit/diff; a concise implement
 | V05 | Gallery of twelve appearances, all four views, all gait frames and idle eye states | Complete component coverage, no seams or wrong-view parts; accessory handedness consistent; planted foot slip ≤1 logical pixel during contact |
 | V06 | Record full 180-second program using actual state | Each resident stays within its assigned 60-second window, walks ≤20 seconds, holds ≥10 seconds at window boundaries and returns home; at most one walker, no collisions/wrap jumps, calm pacing, no synchronized breathing/blinking |
 | V07 | Two clients, reload at known phase, change scene version and deliver stale response | Matching authoritative layout/appearance and poses within specified clock tolerance; no arbitrary local wandering or stale overwrite |
-| V08 | Pause, toggle reduced motion mid-walk, update state while paused | Zero decorative motion/locomotion while paused; steady light; no inaccessible hidden controls; resume follows explicit reconciliation |
+| V08 | Toggle reduced motion mid-walk; exercise the internal paused policy in a development fixture | Zero decorative motion/locomotion under reduced motion or the paused policy; steady light; release follows explicit reconciliation; no public room-control card |
 | V09 | Hide tab for two minutes; simulate offline >30s; restore connection; test first-load failure | No hidden animation/poll work, no fast catch-up, safe hold, honest status, fallback and navigation usable |
 | V10 | 1440×900, 1024×768, 390×844 and 320px-wide viewports; keyboard/touch use | Whole scene fits, no horizontal overflow/layout jump; mobile shelf follows scene with 24–40px content spacing rather than a large empty region; Dice link works, scroll/zoom/keys unaffected |
 | V11 | Warm 60-second render run and ten mount/unmount cycles, scene-state refreshes and asset-version swap | Record hardware/browser/DPR, p95 frame time, draw calls, network bytes and decoded residency; no growing timers/instances/textures; budgets in PRODUCT met |

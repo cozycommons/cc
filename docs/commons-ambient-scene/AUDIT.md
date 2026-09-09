@@ -1,5 +1,20 @@
 # Evidence and specification audit
 
+## Implementation follow-up audit — 2026-09-09
+
+The branch now contains the initial implementation slices and the public-control decision. The live local page was checked at `http://localhost:4100/`; the backend scene is served from the temporary `9100` port. The room renders the living/dining composition with three visible residents, the public status/pause card is gone, `/dice` remains available, and ambient browsing makes no command writes.
+
+Completed since the planning baseline:
+
+- Shared 16×16 geometry/catalog, calibrated resident dimensions and deterministic depth ordering.
+- Additive layout migrations through `layout_version=9`, including the living/dining seed and temporary service-port documentation.
+- Backend ambient shape/timing validation plus state-aware checks for room blockers, object footprints, resident home anchors and route/hold intersections.
+- Passive React scene with reduced-motion/visibility/freshness handling and a monotonic presentation clock that slews response corrections over two seconds.
+- Frontend rejection of malformed or newer-than-supported scene schema versions.
+- Public product/technical/plan language updated so ambient mode has no scene-control card; pause remains an internal fixture/embedding policy only.
+
+Still open and intentionally tracked in PLAN: production four-view/eight-frame character art and build-time compositor; breathing, blinking and glance layers; authored furniture and architectural occlusion pieces; state-backed leaf/steam effects; complete candidate preload and scene fade reconciliation; full schedule boundary/clearance validation; browser-rendered G1/G2 contact sheets, traversal recordings, DPR/performance measurements and ten-minute unattended review. Migrations `0009` and `0010` also predate the current exact-seed guard and cannot be rewritten; their customized-upgrade risk needs a documented forward compatibility/rollback decision before release.
+
 ## What was inspected
 
 Baseline commit `83c9bafe2759cef0728a1446245fe2e46bead56c`. Working tree was clean when planning began. The planning deliverables are new Markdown documents under this directory; no implementation, asset, migration, database, or deployment change was made.

@@ -79,3 +79,45 @@ def test_rejects_a_resident_that_walks_for_more_than_twenty_seconds():
     }
     with pytest.raises(AmbientProgramError, match="too much"):
         validate_ambient_program(invalid, ["host"])
+
+
+def test_rejects_a_route_that_intersects_a_blocking_object():
+    state = {
+        "grid": {"blocked": []},
+        "objects": {
+            "console": {"asset": "record-console", "tile_x": 6, "tile_y": 4},
+        },
+        "actors": {"host": {"asset": "host", "tile_x": 4, "tile_y": 4}},
+    }
+    with pytest.raises(AmbientProgramError, match="intersects a blocker"):
+        validate_ambient_program(PROGRAM, ["host"], state)
+
+
+def test_rejects_a_route_that_intersects_another_resident_home():
+    state = {
+        "grid": {"blocked": []},
+        "objects": {},
+        "actors": {
+            "host": {"asset": "host", "tile_x": 4, "tile_y": 4},
+            "maker": {"asset": "maker", "tile_x": 5, "tile_y": 4},
+        },
+    }
+    invalid = {
+        **PROGRAM,
+        "actors": {
+            "host": PROGRAM["actors"]["host"],
+            "maker": [{"kind": "hold", "duration_ms": 180_000, "tile": [5, 4], "facing": "front_left"}],
+        },
+    }
+    with pytest.raises(AmbientProgramError, match="another actor"):
+        validate_ambient_program(invalid, ["host", "maker"], state)
+
+
+def test_rejects_a_disabled_program_with_an_unsafe_home_anchor():
+    state = {
+        "grid": {"blocked": [[4, 4]]},
+        "objects": {},
+        "actors": {"host": {"asset": "host", "tile_x": 4, "tile_y": 4}},
+    }
+    with pytest.raises(AmbientProgramError, match="home anchor"):
+        validate_ambient_program({"enabled": False, "revision": 2, "reason": "resting_only"}, ["host"], state)

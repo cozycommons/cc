@@ -36,7 +36,9 @@ export function validateSceneSnapshot(snapshot) {
     return invalid('scene entity catalog or coordinates are invalid');
   }
 
-  const schemaVersion = Number(state.schema_version || 0);
+  const schemaVersion = Number(state.schema_version ?? 0);
+  if (!Number.isInteger(schemaVersion) || schemaVersion < 0) return invalid('scene schema is invalid');
+  if (schemaVersion > COMMONS_SCENE_CONTRACT.max_schema_version) return invalid('scene schema is unsupported');
   const isLegacy = schemaVersion < COMMONS_SCENE_CONTRACT.max_schema_version || !state.catalog_version;
   if (isLegacy) return { valid: true, legacy: true };
   if (state.catalog_version !== COMMONS_SCENE_CONTRACT.catalog_version) return invalid('scene catalog is unsupported');

@@ -29,4 +29,18 @@ describe('Commons scene contract', () => {
       state: { ...base.state, schema_version: 7, catalog_version: 'old', ambient: { enabled: false, revision: 1, reason: 'legacy' } },
     }).valid).toBe(false);
   });
+
+  it('rejects schema versions newer than the renderer understands', () => {
+    expect(validateSceneSnapshot({
+      ...base,
+      state: { ...base.state, schema_version: 8, catalog_version: 'commons-v2' },
+    })).toEqual({ valid: false, error: 'scene schema is unsupported' });
+  });
+
+  it('rejects non-integer schema versions', () => {
+    expect(validateSceneSnapshot({
+      ...base,
+      state: { ...base.state, schema_version: 'seven' },
+    })).toEqual({ valid: false, error: 'scene schema is invalid' });
+  });
 });
