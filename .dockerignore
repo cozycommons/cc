@@ -1,0 +1,8 @@
+.git
+.gitignore
+.dice-dev
+artifacts
+backend/.venv
+frontend/node_modules
+frontend/dist
+node_modules

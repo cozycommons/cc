@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateAmbientPose, validateAmbientProgram } from './timeline.js';
+import { evaluateAmbientPose, poseGroundPoint, validateAmbientProgram } from './timeline.js';
 
 const program = {
   enabled: true,
@@ -51,5 +51,24 @@ describe('Commons ambient timeline', () => {
       tile_y: 8,
       facing: 'back_right',
     })).toMatchObject({ mode: 'home', tile_x: 7, tile_y: 8, facing: 'back_right' });
+  });
+
+  it('rejects a resident schedule that spends more than twenty seconds walking', () => {
+    expect(validateAmbientProgram({
+      ...program,
+      cycle_ms: 260000,
+      actors: {
+        host: [
+          { kind: 'hold', duration_ms: 200000, tile: [4, 4], facing: 'front_right' },
+          { kind: 'walk', waypoints: [[4, 4], [5, 4]], edge_durations_ms: [21000] },
+          { kind: 'walk', waypoints: [[5, 4], [4, 4]], edge_durations_ms: [21000] },
+          { kind: 'hold', duration_ms: 18000, tile: [4, 4], facing: 'front_right' },
+        ],
+      },
+    }, ['host']).valid).toBe(false);
+  });
+
+  it('keeps fractional ground coordinates when projecting a walk pose', () => {
+    expect(poseGroundPoint({ tile_x: 5, tile_y: 4, u: 4.5, v: 4 })).toEqual({ u: 4.5, v: 4 });
   });
 });

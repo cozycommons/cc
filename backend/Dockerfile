@@ -16,12 +16,13 @@ RUN apt-get update \
 # Install Python deps first, before copying source, so unrelated code changes
 # don't bust this (expensive) layer. pip's wheel cache is mounted (not baked
 # into the image), keeping the image size the same while making rebuilds fast.
-COPY requirements.txt ./
+COPY backend/requirements.txt ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --requirement requirements.txt
 
 # Application source comes last: changes here invalidate only this layer.
-COPY --chown=app:app . /app/
+COPY --chown=app:app backend/ /app/
+COPY --chown=app:app shared/commons/scene-contract-v1.json /app/shared/commons/scene-contract-v1.json
 
 USER app
 

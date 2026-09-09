@@ -13,8 +13,8 @@ Create both applications from the `cozycommons/cc` GitHub repository and the
 ### Backend
 
 - Build pack: `Dockerfile`
-- Base directory: `/backend`
-- Dockerfile location: `/Dockerfile`
+- Base directory: `/`
+- Dockerfile location: `/backend/Dockerfile`
 - Exposed port: `8000`
 - Health endpoint: `/health` (defined in the Dockerfile)
 
@@ -67,7 +67,7 @@ Keep automatic deployments disabled until the first manual deployment and
 smoke test succeed. When enabled, use Coolify watch paths so frontend-only
 changes do not rebuild the backend and vice versa:
 
-- Backend: `/backend/**`
+- Backend: `/backend/**`, `/shared/commons/scene-contract-v1.json`
 - Frontend: `/frontend/**`
 
 ## GitHub Actions

@@ -54,9 +54,10 @@ jobs:
       - run: scripts/test-commons-migrations.sh
       - run: scripts/test-backend-predeployment.sh
       - name: Build backend container
-        run: docker build --tag cozy-commons-backend-ci backend
+        run: docker build --tag cozy-commons-backend-ci -f backend/Dockerfile .
       - name: Verify backend pre-deployment payload
         run: >-
           docker run --rm cozy-commons-backend-ci sh -c
           'test -x /app/apply-shared-migrations.sh &&
-          test -x /app/apply-commons-migrations.sh && command -v psql'
+          test -x /app/apply-commons-migrations.sh &&
+          test -f /app/shared/commons/scene-contract-v1.json && command -v psql'

@@ -62,3 +62,20 @@ def test_disabled_program_returns_canonical_home():
     )
     assert pose["mode"] == "home"
     assert (pose["tile_x"], pose["tile_y"], pose["facing"]) == (7, 8, "back_right")
+
+
+def test_rejects_a_resident_that_walks_for_more_than_twenty_seconds():
+    invalid = {
+        **PROGRAM,
+        "cycle_ms": 260_000,
+        "actors": {
+            "host": [
+                {"kind": "hold", "duration_ms": 200_000, "tile": [4, 4], "facing": "front_right"},
+                {"kind": "walk", "waypoints": [[4, 4], [5, 4]], "edge_durations_ms": [21_000]},
+                {"kind": "walk", "waypoints": [[5, 4], [4, 4]], "edge_durations_ms": [21_000]},
+                {"kind": "hold", "duration_ms": 18_000, "tile": [4, 4], "facing": "front_right"},
+            ],
+        },
+    }
+    with pytest.raises(AmbientProgramError, match="too much"):
+        validate_ambient_program(invalid, ["host"])

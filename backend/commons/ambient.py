@@ -5,15 +5,17 @@ from __future__ import annotations
 import math
 from typing import Any
 
-GRID_COLUMNS = 16
-GRID_ROWS = 16
+from commons.contracts import SCENE_CONTRACT
+
+_WORLD = SCENE_CONTRACT["world"]
+GRID_COLUMNS = int(_WORLD["columns"])
+GRID_ROWS = int(_WORLD["rows"])
 MAX_DURATION_MS = 24 * 60 * 60 * 1000
-VALID_VIEWS = {"front_right", "front_left", "back_left", "back_right"}
+MAX_WALK_MS = 20 * 1000
+VALID_VIEWS = set(SCENE_CONTRACT["actor_views"].values())
 VIEW_BY_DELTA = {
-    (1, 0): "front_right",
-    (0, 1): "front_left",
-    (-1, 0): "back_left",
-    (0, -1): "back_right",
+    tuple(int(value) for value in key.split(",")): view
+    for key, view in SCENE_CONTRACT["actor_views"].items()
 }
 
 
@@ -115,16 +117,20 @@ def validate_ambient_program(program: Any, actor_ids: list[str] | tuple[str, ...
         elapsed = 0
         previous = None
         first = None
+        walking_duration = 0
         for segment in segments:
             end, duration, _, _ = _validate_segment(segment, previous)
             if first is None:
                 first = _tile(segment.get("tile")) if segment.get("kind") == "hold" else _tile(segment["waypoints"][0])
             if segment.get("kind") == "walk":
+                walking_duration += duration
                 walk_intervals.append((elapsed, elapsed + duration))
             elapsed += duration
             previous = end
         if elapsed != cycle:
             raise AmbientProgramError("actor track does not fill the cycle")
+        if walking_duration > MAX_WALK_MS:
+            raise AmbientProgramError("actor walks for too much of the cycle")
         if not _same_tile(first, previous):
             raise AmbientProgramError("ambient cycle wraps discontinuously")
     limit = program.get("max_walkers", 1)

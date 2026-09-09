@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getScene } from './sceneApi.js';
 import { resolveMotionPolicy } from './ambient/motion-policy.js';
+import { validateSceneSnapshot } from './world/contracts.js';
 import './commons-scene.css';
 
 function actorCount(scene) {
@@ -70,6 +71,8 @@ export default function CommonsScene() {
     () => resolveMotionPolicy({ paused, reducedMotion, hidden }),
     [hidden, paused, reducedMotion],
   );
+  const initialMotionPolicyRef = useRef(motionPolicy);
+  if (!gameRef.current) initialMotionPolicyRef.current = motionPolicy;
   const hasScene = Boolean(scene);
   sceneRef.current = scene;
   pausedRef.current = paused;
@@ -83,6 +86,11 @@ export default function CommonsScene() {
       try {
         const latest = await getScene();
         if (!active) return;
+        const validation = validateSceneSnapshot(latest);
+        if (!validation.valid) {
+          setStatus('the room sent an unsupported snapshot');
+          return;
+        }
         const previous = latestSceneRef.current || sceneRef.current;
         latestSceneRef.current = latest;
         if (previous && pausedRef.current) {
@@ -136,11 +144,11 @@ export default function CommonsScene() {
         Phaser,
         parent: worldRef.current,
         initialScene: sceneRef.current,
-        motionPolicy,
+        motionPolicy: initialMotionPolicyRef.current,
         callbacks: { interactive: false, inspector: false },
       });
       gameRef.current = game;
-      game.setMotionPolicy?.(motionPolicy);
+      game.setMotionPolicy?.(initialMotionPolicyRef.current);
     }).catch(() => {
       if (active) setStatus('the room is ready, but its renderer could not start');
     });

@@ -7,6 +7,7 @@ import {
 
 const KINDS = new Set(['hold', 'walk']);
 const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
+const MAX_WALK_MS = 20 * 1000;
 
 function fail(message) {
   return { valid: false, error: message };
@@ -86,17 +87,20 @@ export function validateAmbientProgram(program, actorIds = []) {
     if (!Array.isArray(segments) || segments.length === 0) return fail('actor needs a non-empty ambient track');
     let elapsed = 0;
     let previousTile = null;
+    let walkingDuration = 0;
     for (const segment of segments) {
       const result = validateSegment(segment, previousTile);
       if (!result.valid) return result;
       elapsed += result.duration;
       previousTile = result.endTile;
       if (segment.kind === 'walk') {
+        walkingDuration += result.duration;
         walkEvents.push([elapsed - result.duration, 1]);
         walkEvents.push([elapsed, -1]);
       }
     }
     if (elapsed !== program.cycle_ms) return fail('actor track does not fill the cycle');
+    if (walkingDuration > MAX_WALK_MS) return fail('actor walks for too much of the cycle');
     const first = tileFromArray(segments[0].kind === 'hold' ? segments[0].tile : segments[0].waypoints[0]);
     if (!sameTile(first, previousTile)) return fail('ambient cycle wraps discontinuously');
   }
@@ -175,5 +179,8 @@ export function evaluateAmbientPose(program, actorId, timeMs, home) {
 }
 
 export function poseGroundPoint(pose) {
-  return tileToGround(pose.tile_x, pose.tile_y);
+  if (!Number.isFinite(pose?.u) || !Number.isFinite(pose?.v)) {
+    return tileToGround(pose.tile_x, pose.tile_y);
+  }
+  return { u: pose.u, v: pose.v };
 }
