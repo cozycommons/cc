@@ -53,10 +53,10 @@ If another local project needs the default web ports, choose temporary loopback
 ports for both services:
 
 ```bash
-DICE_BACKEND_PORT=8100 DICE_FRONTEND_PORT=3100 scripts/dice-dev.sh local
+DICE_BACKEND_PORT=9100 DICE_FRONTEND_PORT=4100 scripts/dice-dev.sh local
 ```
 
-Open `http://localhost:3100/dice` and pass the same variables to
+Open `http://localhost:4100/dice` and pass the same variables to
 `scripts/dice-dev.sh status` from another terminal. Supabase stays on its
 loopback ports `54321–54327`.
 
