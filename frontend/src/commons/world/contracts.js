@@ -11,14 +11,39 @@ function isTile(value, maximum) {
   return Number.isInteger(value) && value >= 0 && value < maximum;
 }
 
-function validateEntities(entities, world, allowedAssets) {
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isNormalizedCoordinate(value) {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= 0
+    && value <= 1;
+}
+
+function validateEntities(entities, world, allowedAssets, requireTiles = false) {
   if (!entities || typeof entities !== 'object' || Array.isArray(entities)) return false;
   return Object.values(entities).every((entity) => {
     if (!entity || typeof entity !== 'object' || !allowedAssets.has(entity.asset)) return false;
-    if (Number.isInteger(entity.tile_x) || Number.isInteger(entity.tile_y)) {
-      return isTile(entity.tile_x, world.columns) && isTile(entity.tile_y, world.rows);
+
+    const hasTileX = hasOwn(entity, 'tile_x');
+    const hasTileY = hasOwn(entity, 'tile_y');
+    if (hasTileX || hasTileY) {
+      if (!hasTileX || !hasTileY || !isTile(entity.tile_x, world.columns) || !isTile(entity.tile_y, world.rows)) {
+        return false;
+      }
     }
-    return Number.isFinite(entity.x) && Number.isFinite(entity.y);
+
+    const hasX = hasOwn(entity, 'x');
+    const hasY = hasOwn(entity, 'y');
+    if (hasX || hasY) {
+      if (!hasX || !hasY || !isNormalizedCoordinate(entity.x) || !isNormalizedCoordinate(entity.y)) {
+        return false;
+      }
+    }
+
+    return (hasTileX && hasTileY) || (!requireTiles && hasX && hasY);
   });
 }
 
@@ -30,16 +55,20 @@ export function validateSceneSnapshot(snapshot) {
   if (!Number.isFinite(Number(snapshot.server_time_ms))) return invalid('scene server time is missing');
   const state = snapshot.state;
   if (!state || typeof state !== 'object' || Array.isArray(state)) return invalid('scene state is missing');
-  const world = COMMONS_SCENE_CONTRACT.world;
-  const allowedAssets = new Set(COMMONS_SCENE_CONTRACT.allowed_assets);
-  if (!validateEntities(state.objects, world, allowedAssets) || !validateEntities(state.actors, world, allowedAssets)) {
-    return invalid('scene entity catalog or coordinates are invalid');
-  }
 
   const schemaVersion = Number(state.schema_version ?? 0);
   if (!Number.isInteger(schemaVersion) || schemaVersion < 0) return invalid('scene schema is invalid');
   if (schemaVersion > COMMONS_SCENE_CONTRACT.max_schema_version) return invalid('scene schema is unsupported');
-  const isLegacy = schemaVersion < COMMONS_SCENE_CONTRACT.max_schema_version || !state.catalog_version;
+
+  const world = COMMONS_SCENE_CONTRACT.world;
+  const allowedAssets = new Set(COMMONS_SCENE_CONTRACT.allowed_assets);
+  const requiresCanonicalTiles = schemaVersion === COMMONS_SCENE_CONTRACT.max_schema_version;
+  if (!validateEntities(state.objects, world, allowedAssets, requiresCanonicalTiles)
+    || !validateEntities(state.actors, world, allowedAssets, requiresCanonicalTiles)) {
+    return invalid('scene entity catalog or coordinates are invalid');
+  }
+
+  const isLegacy = schemaVersion < COMMONS_SCENE_CONTRACT.max_schema_version;
   if (isLegacy) return { valid: true, legacy: true };
   if (state.catalog_version !== COMMONS_SCENE_CONTRACT.catalog_version) return invalid('scene catalog is unsupported');
   const actorIds = Object.keys(state.actors);

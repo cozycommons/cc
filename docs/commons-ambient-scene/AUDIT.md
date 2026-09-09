@@ -2,6 +2,11 @@
 
 ## Support-depth follow-up — 2026-09-09
 
+Luna's contract-hardening pass closes the missing-catalog legacy bypass:
+schema 7 now requires the supported catalog and canonical tile anchors.
+Legacy normalized coordinates remain supported within [0,1]; incomplete or
+malformed coordinate pairs are rejected instead of silently normalized.
+
 The renderer now observes its container and sizes the backing buffer from the
 displayed square and capped DPR, while the camera retains the 512-unit world.
 The development fixture reports actual canvas/display dimensions. A loaded
