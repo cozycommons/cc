@@ -4,11 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getScene: vi.fn(),
-  getSceneClientId: vi.fn(() => 'browser-test'),
   sendSceneCommand: vi.fn(),
-  clearPendingSceneCommand: vi.fn(),
-  getPendingSceneCommand: vi.fn(() => null),
-  savePendingSceneCommand: vi.fn(),
 }));
 
 vi.mock('./sceneApi.js', () => mocks);
@@ -19,9 +15,11 @@ const scene = {
   id: 'commons-home',
   layout_version: 3,
   version: 7,
+  server_time_ms: 1800000000000,
   updated_at: '2026-09-07T12:00:00Z',
   state: {
     schema_version: 2,
+    ambient: { enabled: true, revision: 1, cycle_ms: 180000 },
     objects: {
       'record-console': {
         id: 'record-console', kind: 'furniture', asset: 'record-console', tile_x: 0, tile_y: 5,
@@ -30,6 +28,7 @@ const scene = {
     },
     actors: {
       host: { id: 'host', kind: 'actor', asset: 'host', tile_x: 7, tile_y: 5, facing: 'south' },
+      maker: { id: 'maker', kind: 'actor', asset: 'maker', tile_x: 4, tile_y: 7, facing: 'south' },
     },
   },
 };
@@ -37,79 +36,28 @@ const scene = {
 describe('CommonsScene', () => {
   beforeEach(() => {
     mocks.getScene.mockResolvedValue(scene);
-    mocks.sendSceneCommand.mockResolvedValue({
-      accepted_version: 8,
-      version: 8,
-      replayed: false,
-      state: {
-        ...scene.state,
-        objects: {
-          ...scene.state.objects,
-          'record-console': {
-            ...scene.state.objects['record-console'],
-            state: { playing: true },
-          },
-        },
-      },
-    });
   });
 
   afterEach(() => vi.clearAllMocks());
 
-  it('renders the server scene and commits an object state change', async () => {
+  it('renders the canonical room as a passive scene', async () => {
     render(<CommonsScene />);
 
-    const recordPlayer = await screen.findByRole('button', { name: /^record console\./i });
-    expect(screen.getByLabelText('Commons host')).toBeInTheDocument();
-
-    fireEvent.click(recordPlayer);
-
-    await waitFor(() => expect(mocks.sendSceneCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        expected_version: 7,
-        kind: 'set_object_state',
-        payload: { object_id: 'record-console', state_key: 'playing', value: true },
-      }),
-      'browser-test',
-    ));
+    expect(await screen.findByRole('img', { name: 'Ambient tile-based Commons room' })).toBeInTheDocument();
+    expect(screen.getByText(/2 residents and 1 placed object/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'pause room' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /record console/i })).not.toBeInTheDocument();
+    expect(mocks.sendSceneCommand).not.toHaveBeenCalled();
   });
 
-  it('persists a furniture orientation change', async () => {
+  it('freezes and resumes the displayed snapshot without writing to the scene', async () => {
     render(<CommonsScene />);
-
-    const rotateRecordPlayer = await screen.findByRole('button', { name: /rotate record console/i });
-    fireEvent.click(rotateRecordPlayer);
-
-    await waitFor(() => expect(mocks.sendSceneCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        expected_version: 7,
-        kind: 'rotate_object',
-        payload: { object_id: 'record-console', orientation: 'north' },
-      }),
-      'browser-test',
-    ));
-  });
-
-  it('persists keyboard movement for the host one tile at a time', async () => {
-    mocks.getScene.mockResolvedValue({
-      ...scene,
-      state: {
-        ...scene.state,
-        actors: { host: { ...scene.state.actors.host, facing: 'west' } },
-      },
-    });
-    render(<CommonsScene />);
-
-    const host = await screen.findByLabelText('Commons host');
-    expect(host).toBeInTheDocument();
-
-    fireEvent.keyDown(window, { key: 'ArrowLeft' });
-    await waitFor(() => expect(mocks.sendSceneCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'walk_actor',
-        payload: { actor_id: 'host', tile_x: 6, tile_y: 5 },
-      }),
-      'browser-test',
-    ));
+    const pause = await screen.findByRole('button', { name: 'pause room' });
+    fireEvent.click(pause);
+    expect(screen.getByRole('button', { name: 'resume room' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('the room is paused')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'resume room' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'pause room' })).toHaveAttribute('aria-pressed', 'false'));
+    expect(mocks.sendSceneCommand).not.toHaveBeenCalled();
   });
 });
