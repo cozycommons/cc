@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateAmbientPose, poseGroundPoint, validateAmbientProgram } from './timeline.js';
+import { evaluateAmbientPose, poseGroundPoint, settleAmbientPose, validateAmbientProgram } from './timeline.js';
 
 const program = {
   enabled: true,
@@ -70,5 +70,16 @@ describe('Commons ambient timeline', () => {
 
   it('keeps fractional ground coordinates when projecting a walk pose', () => {
     expect(poseGroundPoint({ tile_x: 5, tile_y: 4, u: 4.5, v: 4 })).toEqual({ u: 4.5, v: 4 });
+  });
+
+  it('settles an uncertain walk at the current edge endpoint', () => {
+    expect(settleAmbientPose(program, 'host', program.epoch_ms + 176850)).toMatchObject({
+      mode: 'hold',
+      tile_x: 5,
+      tile_y: 4,
+      u: 5,
+      v: 4,
+      progress: 1,
+    });
   });
 });

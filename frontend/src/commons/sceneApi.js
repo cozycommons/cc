@@ -58,6 +58,8 @@ export function clearPendingSceneCommand(commandId) {
 }
 
 async function request(path, options = {}) {
+  const startedAtWallMs = Date.now();
+  const startedAtMonoMs = globalThis.performance?.now?.() ?? startedAtWallMs;
   const response = await fetch(apiPath(path), {
     cache: 'no-store',
     ...options,
@@ -75,6 +77,22 @@ async function request(path, options = {}) {
     error.code = detail?.code;
     error.currentVersion = detail?.current_version;
     throw error;
+  }
+  if (body && typeof body === 'object' && Number.isFinite(Number(body.server_time_ms))) {
+    const finishedAtMonoMs = globalThis.performance?.now?.() ?? Date.now();
+    const roundTripMs = Math.max(0, finishedAtMonoMs - startedAtMonoMs);
+    try {
+      Object.defineProperty(body, '__client_timing', {
+        configurable: true,
+        enumerable: false,
+        value: Object.freeze({
+          midpoint_ms: startedAtWallMs + roundTripMs / 2,
+          uncertainty_ms: roundTripMs / 2,
+        }),
+      });
+    } catch {
+      // A frozen response can still be rendered using the receipt-time clock.
+    }
   }
   return body;
 }

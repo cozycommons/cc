@@ -17,7 +17,7 @@ import {
   tileDistance,
   tileKey,
 } from './commons-grid.js';
-import { evaluateAmbientPose, validateAmbientProgram } from './ambient/timeline.js';
+import { evaluateAmbientPose, settleAmbientPose, validateAmbientProgram } from './ambient/timeline.js';
 import { depthForGround, projectGround } from './world/geometry.js';
 
 const ROOM_WIDTH = COMMONS_GRID.width;
@@ -132,6 +132,7 @@ export function createCommonsPhaserGame({
       this.currentEntities = [];
       this.ambientValid = false;
       this.clockOffsetMs = 0;
+      this.clockUncertaintyMs = 0;
       this.motionPolicy = {
         paused: false,
         reducedMotion: false,
@@ -277,7 +278,9 @@ export function createCommonsPhaserGame({
         .forEach((actor) => {
           const sprite = this.sprites.get(`actor:${actor.id}`);
           if (!sprite) return;
-          const pose = evaluateAmbientPose(ambient, actor.id, now, entityTile(actor));
+          const pose = this.clockUncertaintyMs > 500
+            ? settleAmbientPose(ambient, actor.id, now, entityTile(actor))
+            : evaluateAmbientPose(ambient, actor.id, now, entityTile(actor));
           this.placeContinuousSprite(sprite, pose.u, pose.v);
           this.applyActorPose(sprite, pose);
         });
@@ -443,7 +446,10 @@ export function createCommonsPhaserGame({
       this.pathPreviewKey = null;
       this.hoverTileKey = null;
       this.clockOffsetMs = Number.isFinite(Number(nextScene.server_time_ms))
-        ? Number(nextScene.server_time_ms) - Date.now()
+        ? Number(nextScene.server_time_ms) - Number(nextScene.__client_timing?.midpoint_ms || Date.now())
+        : 0;
+      this.clockUncertaintyMs = Number.isFinite(Number(nextScene.__client_timing?.uncertainty_ms))
+        ? Number(nextScene.__client_timing.uncertainty_ms)
         : 0;
       const ambient = nextScene.state?.ambient;
       const actorIds = this.currentEntities
@@ -516,7 +522,9 @@ export function createCommonsPhaserGame({
           && this.motionPolicy.animate
           && !this.motionPolicy.reducedMotion;
         if (entity.entityType === 'actor' && ambientCanDrive) {
-          const pose = evaluateAmbientPose(ambient, entity.id, Date.now() + this.clockOffsetMs, tile);
+          const pose = this.clockUncertaintyMs > 500
+            ? settleAmbientPose(ambient, entity.id, Date.now() + this.clockOffsetMs, tile)
+            : evaluateAmbientPose(ambient, entity.id, Date.now() + this.clockOffsetMs, tile);
           this.placeContinuousSprite(sprite, pose.u, pose.v);
           this.applyActorPose(sprite, pose);
         } else if (!(this.motionPolicy.paused && sprite.getData('positioned'))) {

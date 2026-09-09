@@ -178,6 +178,23 @@ export function evaluateAmbientPose(program, actorId, timeMs, home) {
   return disabledPose(home);
 }
 
+export function settleAmbientPose(program, actorId, timeMs, home) {
+  const pose = evaluateAmbientPose(program, actorId, timeMs, home);
+  if (pose.mode !== 'walk') return pose;
+  const segment = program?.actors?.[actorId]?.[pose.segmentIndex];
+  const endpoint = tileFromArray(segment?.waypoints?.[pose.edgeIndex + 1]);
+  if (!endpoint) return pose;
+  return {
+    ...pose,
+    mode: 'hold',
+    tile_x: endpoint.tile_x,
+    tile_y: endpoint.tile_y,
+    u: endpoint.tile_x,
+    v: endpoint.tile_y,
+    progress: 1,
+  };
+}
+
 export function poseGroundPoint(pose) {
   if (!Number.isFinite(pose?.u) || !Number.isFinite(pose?.v)) {
     return tileToGround(pose.tile_x, pose.tile_y);
