@@ -25,6 +25,14 @@ const ROOM_HEIGHT = COMMONS_GRID.height;
 const ROOM_ASSET = '/commons/cozy-commons-room-tile-base.png';
 const FLOOR_ATLAS = '/commons/commons-floor-atlas.png';
 
+export function sortCommonsEntities(entities) {
+  return [...entities].sort((first, second) => {
+    const firstKey = `${first.entityType}:${first.id}`;
+    const secondKey = `${second.entityType}:${second.id}`;
+    return firstKey.localeCompare(secondKey);
+  });
+}
+
 function entitiesFromScene(scene) {
   const objects = Object.values(scene?.state?.objects || {}).map((entity) => ({
     ...entity,
@@ -34,7 +42,9 @@ function entitiesFromScene(scene) {
     ...entity,
     entityType: 'actor',
   }));
-  return [...objects, ...actors].filter((entity) => entity.visible !== false && entity.hidden !== true);
+  return sortCommonsEntities(
+    [...objects, ...actors].filter((entity) => entity.visible !== false && entity.hidden !== true),
+  );
 }
 
 function entityTile(entity) {
@@ -130,6 +140,7 @@ export function createCommonsPhaserGame({
       this.pathPreviewKey = null;
       this.currentScene = null;
       this.currentEntities = [];
+      this.depthRanks = new Map();
       this.ambientValid = false;
       this.clockOffsetMs = 0;
       this.clockUncertaintyMs = 0;
@@ -405,7 +416,8 @@ export function createCommonsPhaserGame({
       const depth = Number.isFinite(u) && Number.isFinite(v)
         ? depthForGround(u, v, metadata.depthOffset || 0)
         : sprite.y;
-      sprite.setDepth(depth + (sprite.getData('entityType') === 'actor' ? 0.01 : 0));
+      const depthRank = sprite.getData('depthRank');
+      sprite.setDepth(depth + (Number.isFinite(depthRank) ? depthRank / 1_000_000 : 0));
     }
 
     drawTileOverlay(tile, invalid = false) {
@@ -461,6 +473,9 @@ export function createCommonsPhaserGame({
       if (this.motionPolicy.paused && this.currentScene) return;
       this.currentScene = nextScene;
       this.currentEntities = entitiesFromScene(nextScene);
+      this.depthRanks = new Map(
+        this.currentEntities.map((entity, index) => [`${entity.entityType}:${entity.id}`, index]),
+      );
       this.pathPreviewKey = null;
       this.hoverTileKey = null;
       this.clockOffsetMs = Number.isFinite(Number(nextScene.server_time_ms))
@@ -523,6 +538,7 @@ export function createCommonsPhaserGame({
         } else if (!animation && sprite.texture.key !== textureKey) {
           sprite.setTexture(textureKey);
         }
+        sprite.setData('depthRank', this.depthRanks.get(id) ?? 0);
 
         const metadata = getCommonsRenderMetadata(entity.asset);
         const sourceWidth = Math.max(1, sprite.width);
