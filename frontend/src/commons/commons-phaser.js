@@ -305,6 +305,7 @@ export function createCommonsPhaserGame({
       merged.animate = nextPolicy.animate
         ?? !(merged.paused || merged.reducedMotion || merged.hidden || merged.stale);
       this.motionPolicy = merged;
+      if (this.motionPolicy.paused || this.motionPolicy.hidden) return;
       if (this.motionPolicy.reducedMotion) this.renderHomePoses();
       else if (this.motionPolicy.stale) this.renderStalePoses();
     }
@@ -569,6 +570,7 @@ export function createCommonsPhaserGame({
         }
         if (entity.entityType === 'object') this.syncObjectEffect(entity, tile);
       });
+      if (this.motionPolicy.paused || this.motionPolicy.hidden) return;
       if (this.motionPolicy.reducedMotion) this.renderHomePoses();
       else if (this.motionPolicy.stale) this.renderStalePoses();
     }
