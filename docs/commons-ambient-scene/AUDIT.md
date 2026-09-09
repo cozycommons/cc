@@ -2,6 +2,13 @@
 
 ## Support-depth follow-up — 2026-09-09
 
+The desktop room is capped at the specified 760px. DOM-measured browser
+checks show a 760×760 room at 1440×900, and a 358.7px room at 390×844 with
+16px side margins, exactly 24px to the project shelf, and document scroll width
+390px. Viewport overrides were reset after testing. The browser still reports
+DPR 0.75; its screenshots have a capture-scale artifact, so these dimensions
+come from DOM bounds rather than estimating screenshot pixels.
+
 Luna's contract-hardening pass closes the missing-catalog legacy bypass:
 schema 7 now requires the supported catalog and canonical tile anchors.
 Legacy normalized coordinates remain supported within [0,1]; incomplete or

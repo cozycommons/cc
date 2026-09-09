@@ -95,7 +95,7 @@
   position: relative;
   display: flex;
   width: min(100%, 94svh);
-  max-width: 940px;
+  max-width: 760px;
   margin-inline: auto;
   aspect-ratio: 1;
   align-items: center;
