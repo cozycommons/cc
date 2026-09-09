@@ -8,6 +8,7 @@ from typing import Any
 
 from supabase import Client
 
+from commons.ambient import AmbientProgramError, validate_ambient_program
 from commons.schemas import CommonsSceneCommandRequest
 
 SCENE_ID = "commons-home"
@@ -192,6 +193,30 @@ def _text(payload: dict[str, Any], name: str, max_length: int = 64) -> str:
     return value
 
 
+def _invalidate_ambient(state: dict[str, Any], reason: str = "invalidated") -> None:
+    ambient = state.get("ambient")
+    if not isinstance(ambient, dict):
+        return
+    prior_revision = ambient.get("revision", 0)
+    revision = prior_revision + 1 if isinstance(prior_revision, int) else 1
+    state["ambient"] = {
+        "enabled": False,
+        "revision": revision,
+        "reason": reason,
+    }
+
+
+def _validate_ambient_if_present(state: dict[str, Any]) -> None:
+    if "ambient" not in state:
+        return
+    actors = state.get("actors")
+    actor_ids = list(actors) if isinstance(actors, dict) else []
+    try:
+        validate_ambient_program(state["ambient"], actor_ids)
+    except AmbientProgramError as error:
+        raise SceneStoreError("commons.invalid_ambient_program") from error
+
+
 def apply_scene_command(
     state: dict[str, Any], command: CommonsSceneCommandRequest
 ) -> dict[str, Any]:
@@ -225,6 +250,7 @@ def apply_scene_command(
         scene_object["tile_x"] = tile_x
         scene_object["tile_y"] = tile_y
         scene_object["x"], scene_object["y"] = _tile_to_normalized(tile_x, tile_y)
+        _invalidate_ambient(next_state)
         return next_state
 
     if command.kind == "walk_actor":
@@ -263,6 +289,13 @@ def apply_scene_command(
             actor["facing"] = "north"
         elif tile_y > prior_tile_y:
             actor["facing"] = "south"
+        actor["view"] = {
+            (1, 0): "front_right",
+            (-1, 0): "back_left",
+            (0, -1): "back_right",
+            (0, 1): "front_left",
+        }[(tile_x - prior_tile_x, tile_y - prior_tile_y)]
+        _invalidate_ambient(next_state)
         return next_state
 
     if command.kind == "rotate_object":
@@ -276,6 +309,7 @@ def apply_scene_command(
         if orientation not in {"north", "south"}:
             raise SceneCommandError("invalid_orientation", "orientation must be north or south")
         scene_object["orientation"] = orientation
+        _invalidate_ambient(next_state)
         return next_state
 
     object_id = _text(payload, "object_id")
@@ -311,7 +345,45 @@ def _scene_row(client: Client) -> dict[str, Any]:
 
 
 def read_scene(client: Client) -> dict[str, Any]:
-    return _scene_row(client)
+    row = _scene_row(client)
+    _validate_ambient_if_present(row.get("state", {}))
+    return row
+
+
+def _existing_receipt(
+    client: Client,
+    actor_key: str,
+    command: CommonsSceneCommandRequest,
+) -> dict[str, Any] | None:
+    rows = (
+        client.table("commons_scene_commands")
+        .select("scene_id,client_command_id,accepted_version,canonical_payload,resulting_state")
+        .eq("scene_id", SCENE_ID)
+        .eq("actor_key", actor_key)
+        .eq("client_command_id", command.client_command_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return None
+    existing = rows[0]
+    if not isinstance(existing, dict) or "canonical_payload" not in existing:
+        return None
+    expected_payload = {"kind": command.kind, "payload": command.payload}
+    if existing.get("canonical_payload") != expected_payload:
+        raise SceneConflictError("command_id_conflict")
+    scene = _scene_row(client)
+    return {
+        "ok": True,
+        "replayed": True,
+        "scene_id": SCENE_ID,
+        "client_command_id": command.client_command_id,
+        "accepted_version": existing.get("accepted_version"),
+        "version": scene.get("version"),
+        "state": scene.get("state"),
+    }
 
 
 def commit_scene_command(
@@ -320,6 +392,9 @@ def commit_scene_command(
     command: CommonsSceneCommandRequest,
 ) -> dict[str, Any]:
     row = _scene_row(client)
+    replay = _existing_receipt(client, actor_key, command)
+    if replay is not None:
+        return replay
     next_state = apply_scene_command(row["state"], command)
     response = client.rpc(
         "commons_apply_command",

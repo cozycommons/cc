@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -35,7 +36,8 @@ def _actor_key(value: str | None) -> str:
 @router.get("/scene", response_model=CommonsSceneOut)
 def get_scene(request: Request) -> CommonsSceneOut:
     try:
-        return CommonsSceneOut.model_validate(read_scene(_client(request)))
+        row = read_scene(_client(request))
+        return CommonsSceneOut.model_validate({**row, "server_time_ms": int(time.time() * 1000)})
     except SceneStoreError as error:
         raise HTTPException(status_code=503, detail={"code": str(error)}) from error
 

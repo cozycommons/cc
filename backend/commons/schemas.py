@@ -14,6 +14,7 @@ class CommonsSceneOut(BaseModel):
     version: int
     state: dict[str, Any]
     updated_at: datetime
+    server_time_ms: int
 
 
 class CommonsSceneCommandRequest(BaseModel):

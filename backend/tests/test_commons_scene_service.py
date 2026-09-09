@@ -53,6 +53,21 @@ def test_actor_walk_updates_facing_and_position():
     assert next_state["actors"]["host"]["tile_y"] == 5
 
 
+def test_scene_commands_disable_an_ambient_score_when_geometry_changes():
+    state = deepcopy(STATE)
+    state["ambient"] = {"enabled": True, "revision": 4, "cycle_ms": 180000}
+    next_state = apply_scene_command(
+        state, command("walk_actor", {"actor_id": "host", "tile_x": 6, "tile_y": 5})
+    )
+
+    assert next_state["ambient"] == {
+        "enabled": False,
+        "revision": 5,
+        "reason": "invalidated",
+    }
+    assert "ambient" not in state or state["ambient"]["enabled"] is True
+
+
 def test_actor_walk_rejects_non_adjacent_steps():
     with pytest.raises(SceneCommandError) as error:
         apply_scene_command(
@@ -126,6 +141,41 @@ class _Client:
     def rpc(self, name, params):
         self.rpc_calls.append((name, params))
         return _Query(self.result)
+
+
+class _ReplayClient(_Client):
+    def __init__(self, receipt, scene_state=STATE):
+        super().__init__(None)
+        self.receipt = receipt
+        self.scene_state = scene_state
+
+    def table(self, name):
+        if name == "commons_scene_commands":
+            return _Query(self.receipt)
+        return _Query({"id": "commons-home", "version": 4, "state": self.scene_state})
+
+
+def test_commit_replays_an_accepted_command_before_revalidating_its_next_step():
+    receipt = {
+        "scene_id": "commons-home",
+        "client_command_id": "command-1",
+        "accepted_version": 3,
+        "canonical_payload": {
+            "kind": "walk_actor",
+            "payload": {"actor_id": "host", "tile_x": 6, "tile_y": 5},
+        },
+    }
+    client = _ReplayClient(receipt)
+
+    result = commit_scene_command(
+        client,
+        "browser-1",
+        command("walk_actor", {"actor_id": "host", "tile_x": 6, "tile_y": 5}),
+    )
+
+    assert result["replayed"] is True
+    assert result["accepted_version"] == 3
+    assert client.rpc_calls == []
 
 
 def test_commit_sends_the_canonical_next_state_to_the_database_function():

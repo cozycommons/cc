@@ -19,7 +19,7 @@ SUPABASE_DB_POOLER_HOST="$pooler_host" \
 MOCK_EXISTING_SCHEMA=0 \
   bash "$repo_dir/scripts/apply-commons-migrations.sh" >/dev/null
 
-for version in 0001 0002 0003 0004 0005 0006 0007; do
+for version in 0001 0002 0003 0004 0005 0006 0007 0008 0009; do
   grep -q "${version}_commons_" "$PSQL_LOG"
 done
 grep -q 'commons_schema_contract.sql' "$PSQL_LOG"
