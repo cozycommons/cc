@@ -5,5 +5,7 @@ frontend/.env.local
 frontend/public/config.json
 frontend/dist/
 node_modules/
+__pycache__/
+*.py[cod]
 .dice-dev/
 artifacts/
