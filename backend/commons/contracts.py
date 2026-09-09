@@ -30,6 +30,26 @@ _FALLBACK_CONTRACT: dict[str, Any] = {
         "0,-1": "back_right",
     },
     "ambient": {"cycle_ms": 180000, "max_walkers": 1, "default_edge_duration_ms": 1000},
+    "footprints": {
+        "orange-sofa": {"cells": [[-1, 0], [0, 0], [1, 0]]},
+        "green-loveseat": {"cells": [[0, 0], [1, 0]]},
+        "red-armchair": {"cells": [[0, 0]]},
+        "dining-table": {"cells": [[-1, 0], [0, 0], [1, 0]]},
+        "dining-chair": {"cells": [[0, 0]]},
+        "record-console": {"cells": [[-1, 0], [0, 0], [1, 0]]},
+        "coffee-table": {"cells": [[-1, 0], [0, 0]]},
+        "area-rug": {
+            "cells": [[-1, -1], [0, -1], [1, -1], [-1, 0], [0, 0], [1, 0]],
+            "blocks_movement": False,
+        },
+        "floor-lamp": {"cells": [[0, 0]]},
+        "topiary": {"cells": [[0, 0]]},
+        "palm": {"cells": [[0, 0]]},
+        "bar-stool": {"cells": [[0, 0]]},
+        "host": {"cells": [[0, 0]]},
+        "maker": {"cells": [[0, 0]]},
+        "neighbor": {"cells": [[0, 0]]},
+    },
 }
 
 

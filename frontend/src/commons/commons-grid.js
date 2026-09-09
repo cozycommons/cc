@@ -1,31 +1,22 @@
+import contract from '../../../shared/commons/scene-contract-v1.json';
+
 export const COMMONS_GRID = Object.freeze({
-  columns: 16,
-  rows: 16,
-  width: 512,
-  height: 512,
-  tileWidth: 32,
-  tileHeight: 20,
-  originX: 256,
-  originY: 180,
+  columns: contract.world.columns,
+  rows: contract.world.rows,
+  width: contract.world.width,
+  height: contract.world.height,
+  tileWidth: contract.world.tile_width,
+  tileHeight: contract.world.tile_height,
+  originX: contract.world.origin_x,
+  originY: contract.world.origin_y,
 });
 
-export const COMMONS_FOOTPRINTS = Object.freeze({
-  'orange-sofa': Object.freeze({ cells: [[-1, 0], [0, 0], [1, 0]] }),
-  'green-loveseat': Object.freeze({ cells: [[0, 0], [1, 0]] }),
-  'red-armchair': Object.freeze({ cells: [[0, 0]] }),
-  'dining-table': Object.freeze({ cells: [[-1, 0], [0, 0], [1, 0]] }),
-  'dining-chair': Object.freeze({ cells: [[0, 0]] }),
-  'record-console': Object.freeze({ cells: [[-1, 0], [0, 0], [1, 0]] }),
-  'coffee-table': Object.freeze({ cells: [[-1, 0], [0, 0]] }),
-  'area-rug': Object.freeze({
-    cells: [[-1, -1], [0, -1], [1, -1], [-1, 0], [0, 0], [1, 0]],
-    blocks_movement: false,
-  }),
-  'floor-lamp': Object.freeze({ cells: [[0, 0]] }),
-  topiary: Object.freeze({ cells: [[0, 0]] }),
-  palm: Object.freeze({ cells: [[0, 0]] }),
-  'bar-stool': Object.freeze({ cells: [[0, 0]] }),
-});
+export const COMMONS_FOOTPRINTS = Object.freeze(Object.fromEntries(
+  Object.entries(contract.footprints || {}).map(([asset, footprint]) => [asset, Object.freeze({
+    cells: footprint.cells,
+    ...(footprint.blocks_movement === undefined ? {} : { blocks_movement: footprint.blocks_movement }),
+  })]),
+));
 
 function finiteNumber(value, fallback = 0) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;

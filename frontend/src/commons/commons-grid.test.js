@@ -43,6 +43,14 @@ describe('Commons tile projection', () => {
     expect(isTileAvailable(state, { tile_x: 6, tile_y: 6 }, { entityType: 'actor', entityId: 'host' })).toBe(true);
   });
 
+  it('reads the shared footprint contract for the non-blocking rug', () => {
+    const state = {
+      objects: { 'area-rug': { id: 'area-rug', asset: 'area-rug', tile_x: 4, tile_y: 4 } },
+      actors: { host: { id: 'host', tile_x: 4, tile_y: 3 } },
+    };
+    expect(isTileAvailable(state, { tile_x: 4, tile_y: 4 }, { entityType: 'actor', entityId: 'host' })).toBe(true);
+  });
+
   it('reserves the full furniture footprint while moving a large prop', () => {
     const state = {
       objects: { 'record-console': { id: 'record-console', asset: 'record-console', tile_x: 2, tile_y: 5 } },

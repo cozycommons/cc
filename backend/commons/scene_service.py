@@ -9,34 +9,26 @@ from typing import Any
 from supabase import Client
 
 from commons.ambient import AmbientProgramError, validate_ambient_program
+from commons.contracts import SCENE_CONTRACT
 from commons.schemas import CommonsSceneCommandRequest
 
 SCENE_ID = "commons-home"
 LAYOUT_VERSION = 7
-GRID_COLUMNS = 16
-GRID_ROWS = 16
-GRID_WIDTH = 512
-GRID_HEIGHT = 512
-GRID_TILE_WIDTH = 32
-GRID_TILE_HEIGHT = 20
-GRID_ORIGIN_X = 256
-GRID_ORIGIN_Y = 180
+_WORLD = SCENE_CONTRACT["world"]
+GRID_COLUMNS = int(_WORLD["columns"])
+GRID_ROWS = int(_WORLD["rows"])
+GRID_WIDTH = int(_WORLD["width"])
+GRID_HEIGHT = int(_WORLD["height"])
+GRID_TILE_WIDTH = int(_WORLD["tile_width"])
+GRID_TILE_HEIGHT = int(_WORLD["tile_height"])
+GRID_ORIGIN_X = int(_WORLD["origin_x"])
+GRID_ORIGIN_Y = int(_WORLD["origin_y"])
 FOOTPRINTS = {
-    "orange-sofa": {"cells": [(-1, 0), (0, 0), (1, 0)]},
-    "green-loveseat": {"cells": [(0, 0), (1, 0)]},
-    "red-armchair": {"cells": [(0, 0)]},
-    "dining-table": {"cells": [(-1, 0), (0, 0), (1, 0)]},
-    "dining-chair": {"cells": [(0, 0)]},
-    "record-console": {"cells": [(-1, 0), (0, 0), (1, 0)]},
-    "coffee-table": {"cells": [(-1, 0), (0, 0)]},
-    "area-rug": {
-        "cells": [(-1, -1), (0, -1), (1, -1), (-1, 0), (0, 0), (1, 0)],
-        "blocks_movement": False,
-    },
-    "floor-lamp": {"cells": [(0, 0)]},
-    "topiary": {"cells": [(0, 0)]},
-    "palm": {"cells": [(0, 0)]},
-    "bar-stool": {"cells": [(0, 0)]},
+    asset: {
+        "cells": [tuple(cell) for cell in definition.get("cells", [])],
+        "blocks_movement": definition.get("blocks_movement", True),
+    }
+    for asset, definition in SCENE_CONTRACT.get("footprints", {}).items()
 }
 
 
