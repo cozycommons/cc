@@ -44,7 +44,6 @@ export default function CommonsScene() {
   const worldRef = useRef(null);
   const gameRef = useRef(null);
   const sceneRef = useRef(null);
-  const refreshingRef = useRef(false);
   const [scene, setScene] = useState(null);
   const [hidden, setHidden] = useState(Boolean(globalThis.document?.hidden));
   const [stale, setStale] = useState(false);
@@ -61,10 +60,11 @@ export default function CommonsScene() {
 
   useEffect(() => {
     let active = true;
+    let refreshing = false;
 
     async function refresh({ initial = false } = {}) {
-      if (!active || refreshingRef.current || (!initial && document.hidden)) return;
-      refreshingRef.current = true;
+      if (!active || refreshing || (!initial && document.hidden)) return;
+      refreshing = true;
       try {
         const latest = await getScene();
         if (!active) return;
@@ -72,6 +72,7 @@ export default function CommonsScene() {
         if (!validation.valid) {
           return;
         }
+        if (sceneRef.current && latest.version < sceneRef.current.version) return;
         const uncertaintyMs = Number(latest.__client_timing?.uncertainty_ms);
         const reliableTiming = !Number.isFinite(uncertaintyMs) || uncertaintyMs <= 500;
         if (reliableTiming) {
@@ -79,14 +80,11 @@ export default function CommonsScene() {
           setStale(false);
         }
         sceneRef.current = latest;
-        setScene((current) => {
-          if (current && latest.version < current.version) return current;
-          return latest;
-        });
+        setScene(latest);
       } catch {
         // Keep showing the last canonical snapshot through a brief outage.
       } finally {
-        refreshingRef.current = false;
+        refreshing = false;
       }
     }
 

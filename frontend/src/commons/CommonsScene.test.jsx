@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -39,6 +39,18 @@ describe('CommonsScene', () => {
   });
 
   afterEach(() => vi.clearAllMocks());
+
+  it('starts a fresh request after a StrictMode effect remount', async () => {
+    let resolveAbandoned;
+    mocks.getScene.mockImplementationOnce(() => new Promise((resolve) => { resolveAbandoned = resolve; }));
+    render(<React.StrictMode><CommonsScene /></React.StrictMode>);
+    expect(await screen.findByText(/2 residents and 1 placed object/)).toBeInTheDocument();
+    expect(mocks.getScene).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolveAbandoned({ ...scene, version: 8, state: { ...scene.state, actors: {} } });
+    });
+    expect(screen.getByText(/2 residents and 1 placed object/)).toBeInTheDocument();
+  });
 
   it('renders the canonical room as a passive scene', async () => {
     render(<CommonsScene />);
