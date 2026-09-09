@@ -18,7 +18,7 @@ function describeScene(scene) {
   if (!scene) return 'The shared room is loading.';
   const people = actorCount(scene);
   const objects = objectCount(scene);
-  return `The shared Commons room has ${people} resident${people === 1 ? '' : 's'} and ${objects} placed object${objects === 1 ? '' : 's'}.`;
+  return `A warmly lit common room with ${people} resident${people === 1 ? '' : 's'} and ${objects} placed object${objects === 1 ? '' : 's'}, including plants and a listening nook.`;
 }
 
 function useMediaPreference(query) {
