@@ -41,6 +41,7 @@ describe('Commons furniture assets', () => {
 
   it('exposes stable logical render metadata for grounded sizing', () => {
     expect(getCommonsRenderMetadata('orange-sofa')).toMatchObject({ width: 200, depthOffset: 0 });
+    expect(getCommonsRenderMetadata('host')).toMatchObject({ width: 48, height: 96, depthOffset: 1 });
     expect(getCommonsRenderMetadata('area-rug')).toMatchObject({ floorDecoration: true, depthOffset: -900 });
     expect(getCommonsRenderMetadata('unknown')).toMatchObject({ width: 82, anchor: [0.5, 1] });
   });

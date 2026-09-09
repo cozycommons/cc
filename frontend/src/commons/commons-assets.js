@@ -77,9 +77,13 @@ const COMMONS_RENDER_METADATA = Object.freeze({
   topiary: Object.freeze({ width: 66, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
   palm: Object.freeze({ width: 97, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
   "bar-stool": Object.freeze({ width: 56, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  host: Object.freeze({ width: 61, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  maker: Object.freeze({ width: 61, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
-  neighbor: Object.freeze({ width: 61, anchor: Object.freeze([0.5, 1]), depthOffset: 0 }),
+  // The deployed walk strips are 444×889 source pixels per frame. Keep the
+  // resident mannequin at a calibrated 48×96 logical frame and bias equal
+  // ground rows a fraction forward so a person is never hidden by a prop
+  // sharing the same support point.
+  host: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 1]), depthOffset: 1 }),
+  maker: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 1]), depthOffset: 1 }),
+  neighbor: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 1]), depthOffset: 1 }),
 });
 
 const DEFAULT_RENDER_METADATA = Object.freeze({

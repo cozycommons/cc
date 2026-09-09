@@ -545,7 +545,10 @@ export function createCommonsPhaserGame({
         const sourceWidth = Math.max(1, sprite.width);
         const sourceHeight = Math.max(1, sprite.height);
         sprite.setOrigin(...metadata.anchor);
-        sprite.setDisplaySize(metadata.width, metadata.width * (sourceHeight / sourceWidth));
+        const displayHeight = Number.isFinite(metadata.height)
+          ? metadata.height
+          : metadata.width * (sourceHeight / sourceWidth);
+        sprite.setDisplaySize(metadata.width, displayHeight);
         if (entity.entityType === 'object') {
           sprite.setFlipX(shouldMirrorCommonsAsset(entity.asset, orientation));
         }
