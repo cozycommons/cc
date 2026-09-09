@@ -86,6 +86,14 @@ Art production uses editable layered 2D sources on the shared orthographic proje
 
 ## 4. Render passes and occlusion
 
+Intermediate legacy renderer: the measured visible feet of the current table
+and sofa are recorded in `commons-assets.js`. Their drawing origins remain
+unchanged, while `render/grounding.js` derives a whole-body depth offset from
+the midpoint of the visible support span, in displayed logical units. This
+removes the nearest-foot sorting bias without adding an actor priority. It is
+not the final support polygon or multi-piece manifest: hidden supports are not
+inferred, and side/corner traversal remains a release gate.
+
 The renderer uses these strict passes:
 
 1. Background and rear architectural surfaces.

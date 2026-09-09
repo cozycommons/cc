@@ -21,6 +21,7 @@ import { evaluateAmbientPose, settleAmbientPose, validateAmbientProgram } from '
 import { createPresentationClock } from './ambient/clock.js';
 import { depthForGround, projectGround } from './world/geometry.js';
 import { createSnapshotTransition } from './render/snapshot-transition.js';
+import { supportDepthOffset } from './render/grounding.js';
 import { validateSceneSnapshot } from './world/contracts.js';
 
 const ROOM_WIDTH = COMMONS_GRID.width;
@@ -513,7 +514,7 @@ export function createCommonsPhaserGame({
         return;
       }
       const depth = Number.isFinite(u) && Number.isFinite(v)
-        ? depthForGround(u, v, metadata.depthOffset || 0)
+        ? depthForGround(u, v, supportDepthOffset(metadata))
         : sprite.y;
       const depthRank = sprite.getData('depthRank');
       sprite.setDepth(depth + (Number.isFinite(depthRank) ? depthRank / 1_000_000 : 0));

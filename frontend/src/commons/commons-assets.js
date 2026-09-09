@@ -65,10 +65,18 @@ const ASSET_SIZES = Object.freeze({
 // deriving size from whichever transparent padding a source PNG happens to
 // contain. The legacy percentage API remains below for old inspector callers.
 const COMMONS_RENDER_METADATA = Object.freeze({
-  "orange-sofa": Object.freeze({ width: 200, anchor: Object.freeze([0.5, 998 / 1024]), depthOffset: 0 }),
+  "orange-sofa": Object.freeze({
+    width: 200, anchor: Object.freeze([0.5, 998 / 1024]), depthOffset: 0,
+    sourceSizePx: Object.freeze([1536, 1024]),
+    supportPointsPx: Object.freeze([[159, 598], [1021, 998], [1360, 822]].map(Object.freeze)),
+  }),
   "green-loveseat": Object.freeze({ width: 138, anchor: Object.freeze([0.5, 987 / 1024]), depthOffset: 0 }),
   "red-armchair": Object.freeze({ width: 108, anchor: Object.freeze([0.5, 1036 / 1254]), depthOffset: 0 }),
-  "dining-table": Object.freeze({ width: 174, anchor: Object.freeze([0.5, 956 / 1024]), depthOffset: 0 }),
+  "dining-table": Object.freeze({
+    width: 174, anchor: Object.freeze([0.5, 956 / 1024]), depthOffset: 0,
+    sourceSizePx: Object.freeze([1536, 1024]),
+    supportPointsPx: Object.freeze([[191, 774], [573, 954], [1350, 605]].map(Object.freeze)),
+  }),
   "dining-chair": Object.freeze({ width: 72, anchor: Object.freeze([0.5, 1224 / 1295]), depthOffset: 0 }),
   "record-console": Object.freeze({ width: 179, anchor: Object.freeze([0.5, 1022 / 1024]), depthOffset: 0 }),
   "coffee-table": Object.freeze({ width: 92, anchor: Object.freeze([0.5, 871 / 1024]), depthOffset: 0 }),

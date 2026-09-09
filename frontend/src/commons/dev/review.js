@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { createCommonsPhaserGame } from '../commons-phaser.js';
+import { getCommonsRenderMetadata } from '../commons-assets.js';
+import { supportDepthOffset } from '../render/grounding.js';
 
 if (!import.meta.env.DEV) throw new Error('Commons review is available only in development');
 
@@ -29,7 +31,9 @@ function snapshot() {
   ];
   if (prop === 'area-rug') entries.pop();
   if (reversed) entries.reverse();
-  position.textContent = `Resident (${tile_x}, ${tile_y}) · depth ${10 * (tile_x + tile_y)}; furniture (8, 8) · depth 160`;
+  const metadata = getCommonsRenderMetadata(prop, orientationInput.value);
+  const propDepth = metadata.floorDecoration ? 'floor pass' : (160 + supportDepthOffset(metadata)).toFixed(1);
+  position.textContent = `Resident (${tile_x}, ${tile_y}) · depth ${10 * (tile_x + tile_y)}; furniture (8, 8) · depth ${propDepth}`;
   return {
     id: 'commons-review', version, layout_version: 9, server_time_ms: Date.now(),
     state: {

@@ -1,5 +1,19 @@
 # Evidence and specification audit
 
+## Support-depth follow-up — 2026-09-09
+
+The table and sofa now carry measured visible support points. Whole-sprite
+sorting uses their support-span midpoint, leaving their drawing registration
+unchanged. Actor depth and stable ID ties remain unchanged. This is an interim
+legacy-art correction, not completion of the authored occlusion-piece contract.
+
+Browser checks of `/commons-review.html` show the previously failing table
+corner (`prop=dining-table&step=4`) now preserves the resident's head. The rear
+case (`step=0`) still places the resident behind the tabletop; the mirrored
+opposite corner (`step=12&orientation=north`) leaves the side resident visible.
+These captures are in the conversation evidence. Full perimeter traversal,
+sofa traversal, physical footprint registration and DPR gates remain open.
+
 ## Implementation follow-up audit — 2026-09-09
 
 The branch now contains the initial implementation slices and the public-control decision. The live local page was checked at `http://localhost:4100/`; the backend scene is served from the temporary `9100` port. The room renders the living/dining composition with three visible residents, the public status/pause card is gone, `/dice` remains available, and ambient browsing makes no command writes.
