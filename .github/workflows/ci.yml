@@ -67,7 +67,7 @@ jobs:
             -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon \
             -e PGRST_SERVER_PORT=55433 \
             -e PGRST_JWT_SECRET=local-dice-test-jwt-secret-at-least-32-characters \
-            public.ecr.aws/supabase/postgrest:v14.14
+            postgrest/postgrest:v14.14
           python3 scripts/ci-rest-proxy.py > /tmp/dice-ci-rest.log 2>&1 &
           curl --fail --retry 20 --retry-delay 1 --retry-connrefused --retry-all-errors http://127.0.0.1:55431/rest/v1/ > /dev/null
           echo 'API_URL=http://127.0.0.1:55431' >> "$GITHUB_ENV"
