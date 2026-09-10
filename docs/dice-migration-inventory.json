@@ -1,0 +1,1186 @@
+{
+  "assessed_at": "2026-09-10 UTC / 2026-09-09 America/New_York",
+  "target": "83c9bafe2759cef0728a1446245fe2e46bead56c",
+  "source": "335cdff294ae921d0b4b2c66131c7194ce9190ed",
+  "legacy_main": "3e7369afc7afabbcd08dfe20b4be6d7e32ec4cfe",
+  "reconstructed_import_baseline": "1e0dc0831e10fef6167a80416b1f2a9f01517a89",
+  "note": "Review inventory, not an overwrite allowlist. Preserve target historical SQL and shared infrastructure. No production database SQL was run.",
+  "files": [
+    {
+      "path": ".agents/skills/verify-dice/SKILL.md",
+      "target_blob": null,
+      "source_blob": "eeafd0f5bc260bd189527e74ec85ef4eb092c18c",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/agents/openai.yaml",
+      "target_blob": null,
+      "source_blob": "91b10610e441e4256647148247e1103a24f2fe1c",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/features/README.md",
+      "target_blob": null,
+      "source_blob": "36fda978a1cee04bfaad0c49d84ef134ba16a98a",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/features/corrections-and-gaps.md",
+      "target_blob": null,
+      "source_blob": "14232971c9d5cddd57ee6fd85368d0e5c9e7b5e9",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/features/duo-ratings.md",
+      "target_blob": null,
+      "source_blob": "0609e8c0951d9900f856ce9d73b00ffd60e0abbf",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/features/fifa.md",
+      "target_blob": null,
+      "source_blob": "4c3cdc1404a41e31109691a8fe55f99786567103",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/features/live-game-lifecycle.md",
+      "target_blob": null,
+      "source_blob": "bea1faa7366e6386a8ba400579d4e912855d8378",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/features/prediction-and-virtual-dice.md",
+      "target_blob": null,
+      "source_blob": "d2c45f7af9c4dac0028b8d0d6b9dbdcf72d067ba",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/features/referee-scoring.md",
+      "target_blob": null,
+      "source_blob": "c4f24217250c0aec3f6b7bb48ee0a09e16be2e84",
+      "status": "only_source"
+    },
+    {
+      "path": ".agents/skills/verify-dice/references/core-principles.md",
+      "target_blob": null,
+      "source_blob": "7b0388b11ef4931031ab83276a477ab3a3a11d91",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/dice/__init__.py",
+      "target_blob": "6d1337cee773d3c5ddbaf6446f7c5fc7b19a2cc4",
+      "source_blob": "6d1337cee773d3c5ddbaf6446f7c5fc7b19a2cc4",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/duo_rating.py",
+      "target_blob": null,
+      "source_blob": "a2e20b8f04cc38052ff56477f1f748dbf4c7773c",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/dice/duo_repository.py",
+      "target_blob": null,
+      "source_blob": "6282712aa25ca039c086bccfdda565ff8dee11fb",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/dice/elo.py",
+      "target_blob": "8d3663767be355739397f9217c52dcd34c259b60",
+      "source_blob": "8d3663767be355739397f9217c52dcd34c259b60",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/feature_access.py",
+      "target_blob": "7c7e1c1652be0fefc3e16e06f6d766db6cb2d20f",
+      "source_blob": "6e9a164a7881b95bcf77fa6ab47a653000bf4c9e",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/live_probability.py",
+      "target_blob": "d9b279ca44c88cdf077865f2bddae7030619d21e",
+      "source_blob": "3be3492bb41d05244dbe06e30fe9847f8574c7a1",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/live_projector.py",
+      "target_blob": "e8120bf708b0a018f029e8553bdb458b955d3c69",
+      "source_blob": "3f1f55261ac918da0b01f931a3bc193584ff2cf8",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/live_service.py",
+      "target_blob": "c4425f6b10c15752e892d6312ca9473f6099516e",
+      "source_blob": "3819a518d3304b6a1827edae645900aaa4e2550d",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/live_types.py",
+      "target_blob": "ccf014d2b8e591b98711c5c2e6dfa38ff88e19b0",
+      "source_blob": "b34359eae2c99c51ffc602c5684576465ce811e5",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/notifications.py",
+      "target_blob": "0fc791fac0e6bec9c6bd29c8a21d22e813eee90e",
+      "source_blob": "d0c8b1de2abc57b1ed1ca983c6404156c75e5cd2",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/photo_backfill.py",
+      "target_blob": "441f18a93f2de1fa673ea5e89df6bd949a1704eb",
+      "source_blob": "441f18a93f2de1fa673ea5e89df6bd949a1704eb",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/prediction_dataset.py",
+      "target_blob": "b3d8ea1d3b39c0756dad8059d3203c24ce763c02",
+      "source_blob": "b3d8ea1d3b39c0756dad8059d3203c24ce763c02",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/prediction_model.py",
+      "target_blob": "77aa43ec1b8d50c6387fa4ba94b32f4ffb04b923",
+      "source_blob": "77aa43ec1b8d50c6387fa4ba94b32f4ffb04b923",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/rating_config.py",
+      "target_blob": "f8367b0e30a5967b4e9569f8e97ea6cf753c66d5",
+      "source_blob": "f8367b0e30a5967b4e9569f8e97ea6cf753c66d5",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/rating_consistency.py",
+      "target_blob": "6a5575c6379071238e0f0deefb84096b5e957240",
+      "source_blob": "08dc12b4149759b92a441c89773ea1ef89f53c02",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/rating_deviation.py",
+      "target_blob": "2c89a3342d59596d3daed3d844ce870a9f6ff9d0",
+      "source_blob": "2c89a3342d59596d3daed3d844ce870a9f6ff9d0",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/rating_prior.py",
+      "target_blob": "cc475cb4e6d8b7d0cf8ba001917ce11f1214f1b1",
+      "source_blob": "cc475cb4e6d8b7d0cf8ba001917ce11f1214f1b1",
+      "status": "equal"
+    },
+    {
+      "path": "backend/dice/rating_replay.py",
+      "target_blob": "8c512f2a359c6d4bbd49bd2073331f99eeb95a5a",
+      "source_blob": "45685a9fee5520b9d87f0affe6211af87b8c72c7",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/repository.py",
+      "target_blob": "389cab900a6833f3bd4fdf3f56a79f7a0be7b4ab",
+      "source_blob": "67fb7cc3fb9b08455065b429c43f77d9000d847f",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/routes.py",
+      "target_blob": "ff23d638ad1be3c9afd89d927ef41c45f5050c58",
+      "source_blob": "a7bde1e2aa99097c486ce7476df41474ed10919b",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/schemas.py",
+      "target_blob": "a4d36be94c6b216963edf5f7cd99bc5cc3bbe2f4",
+      "source_blob": "8d1bc725da33bfe6303617a736bca7a6a0e1bd06",
+      "status": "differs"
+    },
+    {
+      "path": "backend/dice/virtual_currency.py",
+      "target_blob": "e73b6a22ba2c606fbdc838b89ea12273cc0dc696",
+      "source_blob": "e73b6a22ba2c606fbdc838b89ea12273cc0dc696",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0025_dice_schema.sql",
+      "target_blob": "9536aef6b57c612aed523a0dbcfd535d78e1a513",
+      "source_blob": "9536aef6b57c612aed523a0dbcfd535d78e1a513",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0031_dice_game_comments.sql",
+      "target_blob": "892b06539d88e962997290e7d76deb0bd7fdccdc",
+      "source_blob": "892b06539d88e962997290e7d76deb0bd7fdccdc",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0032_dice_hide_from_leaderboard.sql",
+      "target_blob": "30cf373c3bec25f1645c6fc99c16e5bb964e6b02",
+      "source_blob": "30cf373c3bec25f1645c6fc99c16e5bb964e6b02",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0033_dice_game_comments_image.sql",
+      "target_blob": "42b50021941baced106267f019ef9a654e4a911d",
+      "source_blob": "42b50021941baced106267f019ef9a654e4a911d",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0034_dice_game_comments_optional_body.sql",
+      "target_blob": "97b26008505937cb94618386852cc14a38dee122",
+      "source_blob": "97b26008505937cb94618386852cc14a38dee122",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0036_dice_tournaments.sql",
+      "target_blob": "f20336c62835167aa2b01033007266bc8f8cf1a8",
+      "source_blob": "f20336c62835167aa2b01033007266bc8f8cf1a8",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0037_dice_tournaments_datetime_and_data.sql",
+      "target_blob": "e9e5fd8b8713787fb0ce53e094828e448c2aa34a",
+      "source_blob": "e9e5fd8b8713787fb0ce53e094828e448c2aa34a",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0038_dice_games_tournament_id.sql",
+      "target_blob": "e26c2528bdb3a92cf5beff4353be21f6d12f9ecd",
+      "source_blob": "e26c2528bdb3a92cf5beff4353be21f6d12f9ecd",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0039_dice_profiles_ranked_normal_wins_losses.sql",
+      "target_blob": "57a788972449676a2fbc1723da28286d1aab0cff",
+      "source_blob": "57a788972449676a2fbc1723da28286d1aab0cff",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0040_dice_sinks.sql",
+      "target_blob": "41457eb34429e8286738ea887715cff807dd5d71",
+      "source_blob": "41457eb34429e8286738ea887715cff807dd5d71",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0041_dice_sms_notifications.sql",
+      "target_blob": "081a1bea2dea0d1533fd9a08c10cc6b0ba7b9554",
+      "source_blob": "081a1bea2dea0d1533fd9a08c10cc6b0ba7b9554",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0042_dice_profile_feature_access.sql",
+      "target_blob": "eda091f3500d55820a5fcd1d501b28a9a1db64c0",
+      "source_blob": "eda091f3500d55820a5fcd1d501b28a9a1db64c0",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0043_dice_game_player_group_stage_scope.sql",
+      "target_blob": "c81891997d78b006093b27be34ef6bb074a3f94f",
+      "source_blob": "c81891997d78b006093b27be34ef6bb074a3f94f",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0044_dice_live_store.sql",
+      "target_blob": "2cf161187b4d62d9b879a851dee701d9548e31e8",
+      "source_blob": "2cf161187b4d62d9b879a851dee701d9548e31e8",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0045_dice_live_results.sql",
+      "target_blob": "6af2d5967eb03d5683560e815eb1d06f12af35c7",
+      "source_blob": "66190d44de537b24f289a0039972c17d0b43053d",
+      "status": "differs"
+    },
+    {
+      "path": "backend/migrations/0046_dice_live_rpc_auth_claims.sql",
+      "target_blob": "668a4431919caa078155fab54528444160a35897",
+      "source_blob": "668a4431919caa078155fab54528444160a35897",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0047_dice_live_rating_snapshots.sql",
+      "target_blob": "ec11a8ca80a655ca38289700b8abd88ea8e3acc7",
+      "source_blob": "ec11a8ca80a655ca38289700b8abd88ea8e3acc7",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0048_dice_virtual_currency.sql",
+      "target_blob": "f4bdc0ae7cd46ccc15158417240f441dda17bd34",
+      "source_blob": "f4bdc0ae7cd46ccc15158417240f441dda17bd34",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0049_dice_feature_access_reconciliation.sql",
+      "target_blob": "d4c753934a8b3c11b74140146f2794b65564b4b5",
+      "source_blob": "d4c753934a8b3c11b74140146f2794b65564b4b5",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0052_dice_elo_v11_state.sql",
+      "target_blob": "004b626e0642fa42cb5ea3c0a825ce511c429a6d",
+      "source_blob": "004b626e0642fa42cb5ea3c0a825ce511c429a6d",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0053_dice_rating_analytics_snapshot.sql",
+      "target_blob": "c6d20c337f0077cca04da19c9e55bfb0a0d1d6bb",
+      "source_blob": "c6d20c337f0077cca04da19c9e55bfb0a0d1d6bb",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0054_dice_live_prediction_snapshots.sql",
+      "target_blob": "a1cf9922857b858d52580d11c5e86f10e106a0a5",
+      "source_blob": "a1cf9922857b858d52580d11c5e86f10e106a0a5",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0055_dice_canonical_rating_transaction.sql",
+      "target_blob": "ed0fe0e7d36fc2ae52d2bf70279fb620e815cd3b",
+      "source_blob": "ed0fe0e7d36fc2ae52d2bf70279fb620e815cd3b",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0056_dice_atomic_rating_mutations.sql",
+      "target_blob": "34aadef7409a76c79c49f17797a4b7144aac1c96",
+      "source_blob": "34aadef7409a76c79c49f17797a4b7144aac1c96",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0057_dice_canonical_rating_generation_snapshot.sql",
+      "target_blob": "5802e09681b4e408c214bacf856a7923c71c8158",
+      "source_blob": "5802e09681b4e408c214bacf856a7923c71c8158",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0058_dice_canonical_rating_activation.sql",
+      "target_blob": "3399f24b7e83b8ed2b02d5673923603c928a54eb",
+      "source_blob": "3399f24b7e83b8ed2b02d5673923603c928a54eb",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0059_dice_canonical_rating_fill_forward.sql",
+      "target_blob": "2281cf670ef5e3b5e6b7fb0964148c4f69d1685c",
+      "source_blob": "2281cf670ef5e3b5e6b7fb0964148c4f69d1685c",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0060_dice_remove_shadow_rating.sql",
+      "target_blob": "9c895b0e473dd17b610b72268671368358d879fb",
+      "source_blob": "9c895b0e473dd17b610b72268671368358d879fb",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0063_dice_canonical_rating_profile_invariants.sql",
+      "target_blob": "8201ace70d5752e7a71182b81d108bb4f53c3519",
+      "source_blob": "8201ace70d5752e7a71182b81d108bb4f53c3519",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/0064_dice_canonical_rating_only.sql",
+      "target_blob": "9cf1091f2824a1b1eda9edc4dc4c4ce4f60b1193",
+      "source_blob": "4eeced71900629f3823f820782afda9a870a5828",
+      "status": "differs"
+    },
+    {
+      "path": "backend/migrations/0065_dice_live_command_metrics.sql",
+      "target_blob": null,
+      "source_blob": "48e0c0d807a4ce7c1e8b792f9fc43caafaa090f1",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0066_dice_live_ranked_settings.sql",
+      "target_blob": null,
+      "source_blob": "0b87082926606c5199a10dcd6a6d708722d8b63b",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0067_dice_live_match_deletion.sql",
+      "target_blob": null,
+      "source_blob": "daba129fa81b19988ae21a06d658af7e66d3a002",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0068_dice_duo_replay_support.sql",
+      "target_blob": null,
+      "source_blob": "0dfd07a74e4a6eb366d57dad9b086263fc7e115c",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0069_dice_duo_replay_privileges.sql",
+      "target_blob": null,
+      "source_blob": "91e53b897594fa0ba4f199043dcfdeddb650019e",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0070_dice_live_ranked_canonical_mutation.sql",
+      "target_blob": null,
+      "source_blob": "4f4c672415445648b7e619cc750984d82567a5b9",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0071_dice_live_ranked_settings_concurrency.sql",
+      "target_blob": null,
+      "source_blob": "569fe8c0138998b42ac51e2e48a373e386e1776c",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0072_dice_live_rating_repair_queue.sql",
+      "target_blob": null,
+      "source_blob": "533024efa0894a23e98ed8e1903a460b03db3c5f",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0073_dice_live_atomic_lifecycle.sql",
+      "target_blob": null,
+      "source_blob": "176c429a89ed71dc316f29b3110c20bade2fccd5",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0074_dice_manual_game_update_concurrency.sql",
+      "target_blob": null,
+      "source_blob": "6689e4a6aae8769fc1b2a2d0a4abb55a77f4024e",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0075_dice_duo_snapshot_fix_forward.sql",
+      "target_blob": null,
+      "source_blob": "42d1baae1891ac7313209c7420dcc304b7412a7a",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0076_dice_live_referee_default_on.sql",
+      "target_blob": null,
+      "source_blob": "866d842eeb40e878e3df0853bcba8bcf84c8287d",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0077_dice_recorded_stats_snapshot.sql",
+      "target_blob": null,
+      "source_blob": "7c084569e2f26ee643f8a649a9a95a170eeede0b",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/0078_dice_live_referee_flag_retirement.sql",
+      "target_blob": null,
+      "source_blob": "1961f6e2b5d833b8599592a9c4b4b05764e8bbb6",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/migrations/DICE_SCHEMA_CONTRACT_VERSION",
+      "target_blob": "9cf632baa432fae276e046d86396c9e0280a368d",
+      "source_blob": "9a99bd275cc34727c4e15e3bef17f2cdba4eca26",
+      "status": "differs"
+    },
+    {
+      "path": "backend/migrations/PRODUCTION_SCHEMA_VERSION",
+      "target_blob": "086538ccf1f6b800761e0cf15280823d716bc622",
+      "source_blob": "086538ccf1f6b800761e0cf15280823d716bc622",
+      "status": "equal"
+    },
+    {
+      "path": "backend/migrations/dice_schema_contract.sql",
+      "target_blob": "61601b0500c9b4d4d51b1ac0dcdcea68846b5542",
+      "source_blob": "828ba1f46d972e7753073cc98930a816d56ee356",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/fixtures/dice_live_projection_vectors.json",
+      "target_blob": "56b6e60a64e4acabff5240bb536cfc30c324d898",
+      "source_blob": "a4d094970dd1a98044bf18c3c8de5ad92ae5ddc5",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice.py",
+      "target_blob": "09a6a263eca11aabe19bb5916bbeb2f941d963d6",
+      "source_blob": "15869438949abb6798bc64b904ac8e8bdfe3c3fb",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_codespace_url.py",
+      "target_blob": "60967ef3b571f4ee119199e2e87599f4e529fec5",
+      "source_blob": "60967ef3b571f4ee119199e2e87599f4e529fec5",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_duo_rating.py",
+      "target_blob": null,
+      "source_blob": "76771d5c9df0946e05599da50e011fb86c4b8626",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/tests/test_dice_duo_repository.py",
+      "target_blob": null,
+      "source_blob": "f60cd47e0adfcb4d98bdab9b127eb72fa8c96c52",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/tests/test_dice_live_api.py",
+      "target_blob": "af7212aab05ea436e798ba05d5836ff064aafcba",
+      "source_blob": "c4492433421184277b0fd592f1b0063bc081b690",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_live_contract.py",
+      "target_blob": "93ded7bb7114e94bccbf7c3fcd50ace9b569f831",
+      "source_blob": "89a3daba0b0db7f125d25c8c07cfe7998402f527",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_live_probability.py",
+      "target_blob": "9f93a3d90268d849e8dba06f22392236093fe498",
+      "source_blob": "ac9d4fce7e827548787d06b29cfa34ff723be8c9",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_live_rating_repair_job.py",
+      "target_blob": null,
+      "source_blob": "cd0102695971906f56016046f911b2d3935c244c",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/tests/test_dice_live_service.py",
+      "target_blob": "d1b12c451de0ee530d4a38a1d56900ec6c3fe694",
+      "source_blob": "97f40fbcd2d03a46958f0927ca3e965c9699cda7",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_live_store.py",
+      "target_blob": "d33e7e3c4f503f7e945552f3a62c6b0f46a7e728",
+      "source_blob": "1227eab9a5a0b21fee857bd47120460a919b995d",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_local_harness.py",
+      "target_blob": "5abdd5707a62151ac1d2c49d0612216e5457445d",
+      "source_blob": "b60ef83b69058d60bb58240a2106c1b613acc946",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_photo_backfill.py",
+      "target_blob": "26cf5fe312fc39710e4cc7499a9a6f22306b07f0",
+      "source_blob": "26cf5fe312fc39710e4cc7499a9a6f22306b07f0",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_prediction_dataset.py",
+      "target_blob": "2f531b847efd4bb3172e3ca6492f58bf18a7335b",
+      "source_blob": "2f531b847efd4bb3172e3ca6492f58bf18a7335b",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_prediction_model.py",
+      "target_blob": "9cc50684573effbd656bf4c16bfe1b3792e68cc2",
+      "source_blob": "9cc50684573effbd656bf4c16bfe1b3792e68cc2",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_consistency.py",
+      "target_blob": "5242638c8d56769a93520c3022ae730d75ec8f42",
+      "source_blob": "4891a7d9064459d26666870fe92e035963a3ac9a",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_deviation.py",
+      "target_blob": "2e9166e677d0c067dd127945392b8a12bf93106d",
+      "source_blob": "2e9166e677d0c067dd127945392b8a12bf93106d",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_operator.py",
+      "target_blob": "9d7d01b45f95c80dc95c508ac30963238dcee8f5",
+      "source_blob": "80627a756cd81496b0c442c4f1e2b0eeca5cb71b",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_prior.py",
+      "target_blob": "229abbbf534f963f86dc65ae7c2e61a130ba63d7",
+      "source_blob": "229abbbf534f963f86dc65ae7c2e61a130ba63d7",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_rebuild_job.py",
+      "target_blob": null,
+      "source_blob": "a7e48dc392af8fab12b3f19261390a6274f207fc",
+      "status": "only_source"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_replay.py",
+      "target_blob": "4c3b3a369e7f333c3ca9114b5d4f7d2d1af62985",
+      "source_blob": "4c3b3a369e7f333c3ca9114b5d4f7d2d1af62985",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_transaction.py",
+      "target_blob": "2c03777b6b3497d3628065691fa1e5de7d382a73",
+      "source_blob": "f75ecd892f338c77362d21c3934daed504493bab",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_rating_z_canonical_only.py",
+      "target_blob": "9bf77710ebfd1a7f5971e99ac43414cc22c4d203",
+      "source_blob": "8b77aaa196d5ecb05a9b083b7bbf1bbabc011a79",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_virtual_currency.py",
+      "target_blob": "3e404f3c4445b8b4ca097737ec783c8cb1fcc163",
+      "source_blob": "997f2158f9ff3496ff422da23aad87bcab172127",
+      "status": "differs"
+    },
+    {
+      "path": "backend/tests/test_dice_virtual_leaderboard.py",
+      "target_blob": "82033bd34c82c342d16916c973089fcf4b9e4bd6",
+      "source_blob": "82033bd34c82c342d16916c973089fcf4b9e4bd6",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_virtual_lifecycle.py",
+      "target_blob": "1cfb712ff27fdae15691894927367c6f270690c7",
+      "source_blob": "1cfb712ff27fdae15691894927367c6f270690c7",
+      "status": "equal"
+    },
+    {
+      "path": "backend/tests/test_dice_virtual_quote.py",
+      "target_blob": "c6b3ebba9469b20f4e04e3edb718f3ee307d6f49",
+      "source_blob": "c6b3ebba9469b20f4e04e3edb718f3ee307d6f49",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/App.jsx",
+      "target_blob": "95acf9bf43fb2783e57a75a63ff02a55f14d106b",
+      "source_blob": "8b3f526036a17601a994e3ef83eaa1822febe4fd",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/App.test.jsx",
+      "target_blob": null,
+      "source_blob": "c6c4252d05299a947e2719fc4474b5c82d0771db",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/DiceHeader.jsx",
+      "target_blob": "c3ef79fe9d752a918992e41866e35d2f5899ef5c",
+      "source_blob": "5909e27b1510a76c0ad5acd88327677953c65539",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/DiceHeader.test.jsx",
+      "target_blob": "154dea4f490a4526469297e7d0a00c27c12f43a8",
+      "source_blob": "a24223b984a58b14d14cf349d5ea5eaea9670a83",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/api.js",
+      "target_blob": "88474973550e8d8b3804d495a981d60ca5f7399d",
+      "source_blob": "f76288584eb5c842096e7773bf07ac39b2b6a754",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/api.test.js",
+      "target_blob": "d59235fd79e51243a2a685d082bfd0510deda80f",
+      "source_blob": "967982316988eddc27985f8234c4ad5ec4ad8a63",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/components/BracketView.jsx",
+      "target_blob": "8a489ef486709fd2e90686e2040f8ae159924670",
+      "source_blob": "8a489ef486709fd2e90686e2040f8ae159924670",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/CommentsSection.jsx",
+      "target_blob": "9dd11f17e2f59c9fbbb46c821f93779e0f500d23",
+      "source_blob": "9dd11f17e2f59c9fbbb46c821f93779e0f500d23",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/CommentsSection.test.jsx",
+      "target_blob": "e2d1fc6bb667c2f78ceb73b161744e25726cf427",
+      "source_blob": "e2d1fc6bb667c2f78ceb73b161744e25726cf427",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/EloDistribution.jsx",
+      "target_blob": null,
+      "source_blob": "5820fe5e8141e3f273b2cfeb3b4bd2b7b18dec72",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/components/EloDistribution.test.jsx",
+      "target_blob": null,
+      "source_blob": "168eac3ef8cdcd1b9c6db97d6a01c5db259091b5",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/components/EloHistoryChart.jsx",
+      "target_blob": "6e48a5fd03fee15fc3fae0cd50c1a93778eea4b2",
+      "source_blob": "6e48a5fd03fee15fc3fae0cd50c1a93778eea4b2",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/GameRow.jsx",
+      "target_blob": "71c80a08c44bdaad06834d1e069f5d7a13661b1b",
+      "source_blob": "71c80a08c44bdaad06834d1e069f5d7a13661b1b",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/GameRow.test.jsx",
+      "target_blob": "fe1d1028e8eb4fb6a073d245341d876d470f0c45",
+      "source_blob": "fe1d1028e8eb4fb6a073d245341d876d470f0c45",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/LeaderboardRow.jsx",
+      "target_blob": "313f350a094025982f66f91f1495a4329fc13932",
+      "source_blob": "112cb93e5a89984b4d1aa85ede8c7c859d7f3978",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/components/LeaderboardRow.test.jsx",
+      "target_blob": "7729c534a56d8135930413463b4d10074b09d83e",
+      "source_blob": "1b58d0676b88266b1d35203d018c3ee2ef0d41bc",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/components/Linkify.jsx",
+      "target_blob": "778f62ca672fd5202170d64724f923fda96f7b4d",
+      "source_blob": "778f62ca672fd5202170d64724f923fda96f7b4d",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/PhotoGallery.jsx",
+      "target_blob": "39ac39acb8097a33dab02e1fb090c651bc1cae65",
+      "source_blob": "39ac39acb8097a33dab02e1fb090c651bc1cae65",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/PhotoGallery.test.jsx",
+      "target_blob": "3ae3ee9be39b821c2cda419d5c055b20abe54913",
+      "source_blob": "3ae3ee9be39b821c2cda419d5c055b20abe54913",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/PlayerAvatar.jsx",
+      "target_blob": "c36a7f3d5e59bf627dd456580f8cfcfbd2c9e5a8",
+      "source_blob": "c36a7f3d5e59bf627dd456580f8cfcfbd2c9e5a8",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/PlayerAvatar.test.jsx",
+      "target_blob": "1a95cc300e820f750884408d5b7b1ad3711a7874",
+      "source_blob": "1a95cc300e820f750884408d5b7b1ad3711a7874",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/PlayerGameStats.jsx",
+      "target_blob": null,
+      "source_blob": "019dcb003a6d7032bb29fd4bd7a6e7290ed8fbb9",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/components/PlayerGameStats.test.jsx",
+      "target_blob": null,
+      "source_blob": "3cc8aa20c1045d29d7ae8334431616730be6c39f",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/components/PlayerPicker.jsx",
+      "target_blob": "4e9c762d125bce5e487e488ef93a776cdefaf332",
+      "source_blob": "4e9c762d125bce5e487e488ef93a776cdefaf332",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/RankedChoice.jsx",
+      "target_blob": null,
+      "source_blob": "ed46fdd691095581bf01a8c6d5fbcf5aece7f799",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/components/RosterPicker.jsx",
+      "target_blob": "0d10798e7d18a6c0f3e1398bb730ce6738bd898b",
+      "source_blob": "0d10798e7d18a6c0f3e1398bb730ce6738bd898b",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/SinkCountInput.jsx",
+      "target_blob": "a35b0d07d4339c4ba1575a60360faeaafb54940d",
+      "source_blob": "a35b0d07d4339c4ba1575a60360faeaafb54940d",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/components/SinkLeadersChart.jsx",
+      "target_blob": "56457782632049aa06823c416d74ff15e301b80e",
+      "source_blob": "92eb97602fdcdfa31b7cd80f7c0b94bee0a961c8",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/components/SinkLeadersChart.test.jsx",
+      "target_blob": "5aef682de39d96041edb32ef63c686dc7cb5873d",
+      "source_blob": "c1605f8b614452e8736249225dc819683a5ccb49",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/components/StatsBackLink.jsx",
+      "target_blob": null,
+      "source_blob": "501c68d21f2800d8fea321b661013536be9e2251",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/components/TournamentRow.jsx",
+      "target_blob": "62020baa64006dc7dfae49f927b508255e2adebd",
+      "source_blob": "62020baa64006dc7dfae49f927b508255e2adebd",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/dice-theme.css",
+      "target_blob": "3221bf25d0bd3e2e43d2551a719d641cd9428567",
+      "source_blob": "dcc333806c7db2b4d03b4aaee309a41eba47a128",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/imageUpload.js",
+      "target_blob": "a3a675da7470c2efbbaf1c200719010b28b5a61b",
+      "source_blob": "a3a675da7470c2efbbaf1c200719010b28b5a61b",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/imageUpload.test.js",
+      "target_blob": "acf29ccca95cc7bff2848097f4f1a94d8f8dbd1b",
+      "source_blob": "acf29ccca95cc7bff2848097f4f1a94d8f8dbd1b",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/leaderboard.js",
+      "target_blob": "a0d109822f295d73e197b9c05acbd8832feb6c95",
+      "source_blob": "4ddb439a9ad6f24a9d5db56b27918ae5cda98b42",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/leaderboard.test.js",
+      "target_blob": "d97058d275821b9af0c350b38e8baf5e0886153e",
+      "source_blob": "94eb97c6264019bd1dd2e0e87e4ca5fd7b81c556",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/liveCommandHedge.js",
+      "target_blob": null,
+      "source_blob": "1a07108c482781ee30039891abf070294614b28e",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/liveCommandHedge.test.js",
+      "target_blob": null,
+      "source_blob": "57918be585b858a540c5349b623040686a80dc3b",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/liveCommandIntent.js",
+      "target_blob": null,
+      "source_blob": "750e70372f621f0beeaf8cd4d9d5e6f0501854a8",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/liveCommandIntent.test.js",
+      "target_blob": null,
+      "source_blob": "7b2d462698f1052e4afc740b90c4a945f2f9cd8e",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/liveTurnOrder.js",
+      "target_blob": "c2a196fe38328d9340e7815c21b1e87f3867cc74",
+      "source_blob": "3cd66a168c2dd857c41c979c4e15ff72b2c1a32c",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/liveTurnOrder.test.js",
+      "target_blob": "613fe2f8e29f6ff3ecd0a56986d5e9c84ab25f00",
+      "source_blob": "1b6f698f22c6474ac3bb34186aefa1953a00fba4",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/DuoDetail.jsx",
+      "target_blob": null,
+      "source_blob": "ae926d597077ef2a8d3fcdc5ddf733a47fa6462a",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/DuoDetail.test.jsx",
+      "target_blob": null,
+      "source_blob": "6af95b93f2b6496c067b5d028e9586340b8121de",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/EloExplainer.jsx",
+      "target_blob": "9e91a1a3242c5af4df2a477fafb85ff6223b7ee1",
+      "source_blob": "0a29d73add43237e9d80229ef266684caa3b4db3",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/EloExplainer.test.jsx",
+      "target_blob": null,
+      "source_blob": "1d1d289a6cea9281df8a65bf0ec4f723206d8274",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/EloLeaderboard.jsx",
+      "target_blob": "25087da68f5f4d6cbaae8933921672db76ab29e2",
+      "source_blob": "53f397d2ce9f30ed315976a987d6cedfcdb6b063",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/GameDetail.jsx",
+      "target_blob": "e9331c6910dbfc2671ce050e23acfc3f843ffe27",
+      "source_blob": "285e9b3478d01dd44bd792e2a0cc05606d2a5f70",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/GameDetail.test.jsx",
+      "target_blob": null,
+      "source_blob": "cfc4f23fde7fe80fbc0342a35beb5bfd04d89e26",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/GamePulse.jsx",
+      "target_blob": "3bad74b84b7df112b5f2df1451b80fea8a12ab26",
+      "source_blob": "3bad74b84b7df112b5f2df1451b80fea8a12ab26",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/pages/Home.jsx",
+      "target_blob": "2dddf8097ed355c1185b093a65e9b45a72624884",
+      "source_blob": "bfdd1d0fb4954f501647b36d29680aee163328a8",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/Home.test.jsx",
+      "target_blob": "e4857eca8b534eabeead591be427b9a1f9d53fb8",
+      "source_blob": "97d175eb15e97b67fae4be6a3bfa5a832ed83d8c",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LeaderboardNavigation.test.jsx",
+      "target_blob": null,
+      "source_blob": "a21fd0e90f943a0db8bb4c1ab7c0ef8c71d27658",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/LegacyHome.jsx",
+      "target_blob": "f1b2e9b9bfe8a4c6a6409c6c9f93d36f20c8e58f",
+      "source_blob": null,
+      "status": "only_target"
+    },
+    {
+      "path": "frontend/src/dice/pages/LiveGame.jsx",
+      "target_blob": "2b90d55b41d90fb26a52b85a0129ca3120d89f43",
+      "source_blob": "906efa1cc03d3bbd811ac0f308309131157eb45c",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LiveGame.test.jsx",
+      "target_blob": "58b1e309ef0e7603af7083550f8231023cb6be34",
+      "source_blob": "8195c315161928999bcd422336dcac4232eb3590",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LiveGameActionSheet.jsx",
+      "target_blob": "c8c815a537646592d7fb59179e177a864af314fa",
+      "source_blob": "55e12045ee885e49666e8a0e1a5faa716a829d23",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LiveLobby.jsx",
+      "target_blob": "b7535a327a97103f844a85c2db2aab4d7a55e306",
+      "source_blob": "517187ab12f2d13ed4ae556c7c912abc3e436940",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LiveLobby.test.jsx",
+      "target_blob": "886461c0440415b8fb4c761701799022e08d6888",
+      "source_blob": "11c10d10cafea01d53542b6bc8cc34058ffe5e14",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LiveRosterPicker.jsx",
+      "target_blob": "f10796504aca324266c75fd76c4991a4ac3944ba",
+      "source_blob": "050b7eb19702cd8bb299635968a7d36ab44aa348",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LiveScoringControls.jsx",
+      "target_blob": "20e41c50321e58b3dfe536ac3051ea27c2d366ca",
+      "source_blob": "016ee699957966d4aa43cc415a2cd641c257dc21",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LogMatch.jsx",
+      "target_blob": "79c37c2d40d51330713ad42083bce682b6507a02",
+      "source_blob": "d29441427ab868d8b6b393f97938546c59480c90",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/LogMatch.test.jsx",
+      "target_blob": null,
+      "source_blob": "4976e07fce389ed93b957be3f02ea0247434a778",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/MatchHistory.jsx",
+      "target_blob": "982f5cfd0a9f908d6eb231feddb228078922531d",
+      "source_blob": "982f5cfd0a9f908d6eb231feddb228078922531d",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/pages/PlayerProfile.features.test.jsx",
+      "target_blob": "e54793d20b7152c5dd281dc539a0a4daad85e836",
+      "source_blob": null,
+      "status": "only_target"
+    },
+    {
+      "path": "frontend/src/dice/pages/PlayerProfile.jsx",
+      "target_blob": "b7416025145cab2fe239128fbed13e4a988a868c",
+      "source_blob": "c91978e5c9380461d96f4eaf79d21b65505cdd76",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/PlayerProfile.test.jsx",
+      "target_blob": null,
+      "source_blob": "0da0e468e9e14a15fcaf00d46f4d7371bbef2153",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/Players.jsx",
+      "target_blob": "850d64a0886c6268810f3b41756d772891b4c809",
+      "source_blob": null,
+      "status": "only_target"
+    },
+    {
+      "path": "frontend/src/dice/pages/SelfSinkLeaderboard.jsx",
+      "target_blob": "6d180cacfc9f1178efa44561d6f5ac8953e8e31a",
+      "source_blob": "03a1863a94face6ef5f7acb5dcf1f3cda2fd2bea",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/SinkLeaderboard.jsx",
+      "target_blob": "c49117b844b8374f315b442f8e1061e907f1110e",
+      "source_blob": "02e5386dad61039effe41cce4c078cf58bf27139",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/Stats.jsx",
+      "target_blob": "d68a47189a5fb3352c59f7328be817ebaf1abd83",
+      "source_blob": "6d73c398ace7865f5c0a5b75be6f24ac03e5ec2a",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/Stats.test.jsx",
+      "target_blob": null,
+      "source_blob": "14a15d18de061216b586ff83506b3fe945b7c11c",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/StreakDetail.jsx",
+      "target_blob": null,
+      "source_blob": "f931e1bd7e09c21cad1ba02590cdf9bea4d66642",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/StreakDetail.test.jsx",
+      "target_blob": null,
+      "source_blob": "9bee06145648464c825e56804539e5622f20c81f",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/TournamentDetail.jsx",
+      "target_blob": "fd14affbf6f171dac711d3e1973c15283ee757c7",
+      "source_blob": "88ab1c3cf42b08f92cb4ed47c66a6285c815ba4b",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/TournamentDetail.test.jsx",
+      "target_blob": null,
+      "source_blob": "6c13a5c13fed3b07079a2bbb8da82c9d16b70efd",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/pages/TournamentForm.jsx",
+      "target_blob": "d1c14626bee50598dc7d799f4818b063157536cc",
+      "source_blob": "d1c14626bee50598dc7d799f4818b063157536cc",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/pages/Tournaments.jsx",
+      "target_blob": "235662a132fcbfb2f6516e2e95b8bba7d15ec723",
+      "source_blob": "235662a132fcbfb2f6516e2e95b8bba7d15ec723",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/pages/VirtualDice.jsx",
+      "target_blob": "5046af2cb54b9e6b97b6889df015bd3816c242b1",
+      "source_blob": "aa851618e82bb36adf7f3791617c535aedb0b4c9",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/pages/VirtualDice.test.jsx",
+      "target_blob": "1f9a091128da739087f1cd005f4d082a57cdc0dc",
+      "source_blob": "2d91b624f6414ff1557e58723d62ae94df861c4b",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/recordedStats.js",
+      "target_blob": null,
+      "source_blob": "b2a1550b9e9b7f98922f8e6d824e8410fd8fce9f",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/recordedStats.test.js",
+      "target_blob": null,
+      "source_blob": "2e5c95a5a8b2177dc186245b92ffe871c899868c",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/timezone.js",
+      "target_blob": "424350cbb86f85f616d5513c029cdf6655fe7851",
+      "source_blob": "424350cbb86f85f616d5513c029cdf6655fe7851",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/timezone.test.js",
+      "target_blob": "4c8e3fa9e0c2c461a3d3868be77d9f6bbfcf3f56",
+      "source_blob": "4c8e3fa9e0c2c461a3d3868be77d9f6bbfcf3f56",
+      "status": "equal"
+    },
+    {
+      "path": "frontend/src/dice/useDiceAuth.features.test.jsx",
+      "target_blob": "8879c5f6826bcd47d88790cac4dbddc7afdca6eb",
+      "source_blob": null,
+      "status": "only_target"
+    },
+    {
+      "path": "frontend/src/dice/useDiceAuth.js",
+      "target_blob": "2eb85c5cf4d9b59ea9fb7efc91e52b4d5352ff64",
+      "source_blob": "79b6df4b30c9e60688480b71e22d696af75c74d7",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/useDiceAuth.session.test.jsx",
+      "target_blob": null,
+      "source_blob": "7d3de1aaa8ceb99e9fd4e1eaaf1d8492ed5d9582",
+      "status": "only_source"
+    },
+    {
+      "path": "frontend/src/dice/useDiceAuth.test.js",
+      "target_blob": "6ca3961bd9a6a8865f0cf7f244175d73960d973b",
+      "source_blob": "442445c1095515c45ca50f96299844b7cf41926e",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/utils.js",
+      "target_blob": "d5ceda0ce009eb74eb2ca138ac3876ff9003b825",
+      "source_blob": "271aafe8f1734a14ec5b417d8c8860bff66b7c92",
+      "status": "differs"
+    },
+    {
+      "path": "frontend/src/dice/utils.test.js",
+      "target_blob": "43979c2c91c415a2d022f354c3bf68a6b41a8d00",
+      "source_blob": "d4a960e4fa2416567eb2a29a018e0101d1725988",
+      "status": "differs"
+    }
+  ]
+}
