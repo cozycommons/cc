@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { diceApi } from '../api.js';
+import RankedChoice from '../components/RankedChoice.jsx';
 import LiveRosterPicker from './LiveRosterPicker.jsx';
 
 const label = (value) => String(value || '').replaceAll('_', ' ');
@@ -9,6 +10,30 @@ const shortId = (value) => {
   const text = String(value || '');
   return text.split('-').length === 5 ? text.slice(-4) : text.split('-')[0];
 };
+
+const pendingCreateKey = (userId) => `dice:live:create:${userId || 'unknown'}`;
+const CREATE_RECOVERY_WINDOW_MS = 5 * 60 * 1000;
+
+function readPendingCreate(userId) {
+  try {
+    const pending = JSON.parse(window.sessionStorage.getItem(pendingCreateKey(userId))) || null;
+    if (!pending?.createdAt || Date.now() - pending.createdAt > CREATE_RECOVERY_WINDOW_MS) {
+      window.sessionStorage.removeItem(pendingCreateKey(userId));
+      return null;
+    }
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
+function writePendingCreate(userId, attempt) {
+  try { window.sessionStorage.setItem(pendingCreateKey(userId), JSON.stringify(attempt)); } catch { /* storage unavailable */ }
+}
+
+function clearPendingCreate(userId) {
+  try { window.sessionStorage.removeItem(pendingCreateKey(userId)); } catch { /* storage unavailable */ }
+}
 
 const DEFAULT_RULES = {
   contract_version: 1,
@@ -28,7 +53,6 @@ const DEFAULT_RULES = {
 
 export default function LiveLobby({ auth }) {
   const navigate = useNavigate();
-  const enabled = auth.features?.dice_live_referee?.effective === true;
   const [games, setGames] = useState(null);
   const [error, setError] = useState('');
   const [changing, setChanging] = useState('');
@@ -39,27 +63,35 @@ export default function LiveLobby({ auth }) {
   const [showCreate, setShowCreate] = useState(false);
   const [createError, setCreateError] = useState('');
   const [players, setPlayers] = useState(['', '', '', '']);
+  const [ranked, setRanked] = useState(true);
+  const createAttempt = useRef(null);
 
   const load = useCallback(async () => {
-    if (!enabled || !auth.token) return;
+    if (!auth.token) return;
     setError('');
     try {
-      setGames(await diceApi.getLiveGames(auth.token));
+      const loaded = await diceApi.getLiveGames(auth.token);
+      setGames(loaded);
+      const pending = readPendingCreate(auth.user?.id);
+      if (pending && loaded.some((game) => game.id === pending.key)) {
+        createAttempt.current = null;
+        clearPendingCreate(auth.user?.id);
+      }
     } catch (requestError) {
       setError(requestError.message || 'Could not load live games.');
     }
-  }, [auth.token, enabled]);
+  }, [auth.token, auth.user?.id]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (!enabled || !auth.token) return undefined;
+    if (!auth.token) return undefined;
     const timer = window.setInterval(() => load(), 15000);
     return () => window.clearInterval(timer);
-  }, [auth.token, enabled, load]);
+  }, [auth.token, load]);
 
   const loadProfiles = useCallback(async () => {
-    if (!enabled || typeof diceApi.searchProfiles !== 'function') {
+    if (typeof diceApi.searchProfiles !== 'function') {
       setProfiles([]);
       setProfilesError('Player list is unavailable in this environment.');
       setProfilesLoading(false);
@@ -76,7 +108,7 @@ export default function LiveLobby({ auth }) {
     } finally {
       setProfilesLoading(false);
     }
-  }, [enabled]);
+  }, []);
 
   useEffect(() => {
     loadProfiles();
@@ -106,11 +138,24 @@ export default function LiveLobby({ auth }) {
     }
     setCreating(true);
     try {
-      const created = await diceApi.createLiveGame(auth.token, {
+      const payload = {
         team_order: ['blue', 'clay'],
         teams: { blue: players.slice(0, 2), clay: players.slice(2) },
         rules_snapshot: DEFAULT_RULES,
-      });
+        ranked,
+      };
+      const signature = JSON.stringify(payload);
+      const pending = readPendingCreate(auth.user?.id);
+      createAttempt.current = pending;
+      if (pending?.signature === signature && typeof pending.key === 'string') {
+        createAttempt.current = pending;
+      } else {
+        createAttempt.current = { signature, key: crypto.randomUUID(), createdAt: Date.now() };
+        writePendingCreate(auth.user?.id, createAttempt.current);
+      }
+      const created = await diceApi.createLiveGame(auth.token, payload, createAttempt.current.key);
+      createAttempt.current = null;
+      clearPendingCreate(auth.user?.id);
       navigate(`/dice/live/${created.id}`);
     } catch (requestError) {
       setCreateError(requestError.message || 'Could not start the live game.');
@@ -119,21 +164,6 @@ export default function LiveLobby({ auth }) {
     }
   };
 
-  if (!enabled) {
-    return (
-      <main className="max-w-xl mx-auto px-4 py-12">
-        <div className="jk-card p-6 text-center">
-          <p className="jk-label mb-2">// LIVE REFEREE</p>
-          <h1 className="jk-display text-3xl">Live referee unavailable</h1>
-          <p className="mt-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            This private beta is not enabled for your account.
-          </p>
-          <Link to="/dice" className="inline-block mt-5 underline">Back to Dice</Link>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="max-w-xl mx-auto px-4 pt-7 pb-24">
       <div className="flex items-end justify-between gap-4 mb-5">
@@ -141,17 +171,26 @@ export default function LiveLobby({ auth }) {
           <h1 className="jk-display text-4xl">Live games</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Join a game and keep score.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowCreate((current) => !current)}>{showCreate ? 'Cancel' : 'Start game'}</Button>
+        <Button variant="outline" size="sm" onClick={() => setShowCreate((current) => {
+          if (current) {
+            createAttempt.current = null;
+            clearPendingCreate(auth.user?.id);
+          }
+          return !current;
+        })}>{showCreate ? 'Cancel' : 'Start game'}</Button>
       </div>
 
-      {showCreate && <form className="jk-card p-4 mb-5" onSubmit={createGame}>
+      {showCreate && <form className="jk-card p-5 mb-6" onSubmit={createGame}>
         <p className="jk-label">START 2V2</p>
-        <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>Pick two teams.</p>
+        <h2 className="jk-display text-2xl mt-2">Pick two teams</h2>
         {profilesLoading && <p className="mt-3 text-sm" role="status" style={{ color: 'var(--text-secondary)' }}>Loading registered players…</p>}
         {profilesError && <div className="mt-3 flex items-center justify-between gap-3 text-sm" role="alert" style={{ color: 'var(--state-danger)' }}><span>{profilesError}</span><Button type="button" size="sm" variant="outline" onClick={loadProfiles}>Retry</Button></div>}
         <LiveRosterPicker profiles={profiles} players={players} onChange={setPlayers} />
+        <div className="mt-7 pt-6" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <RankedChoice ranked={ranked} onChange={setRanked} />
+        </div>
         {createError && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--state-danger)' }}>{createError}</p>}
-        <Button className="w-full min-h-12 mt-4" disabled={creating || profilesLoading || Boolean(profilesError) || players.some((player) => !player) || new Set(players).size !== 4}>{profilesLoading ? 'Loading players…' : creating ? 'Starting…' : 'Start live game'}</Button>
+        <Button className="w-full min-h-12 mt-6" disabled={creating || profilesLoading || Boolean(profilesError) || players.some((player) => !player) || new Set(players).size !== 4}>{profilesLoading ? 'Loading players…' : creating ? 'Starting…' : 'Start live game'}</Button>
       </form>}
 
       {error && games !== null && (

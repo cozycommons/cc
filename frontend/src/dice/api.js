@@ -1,4 +1,5 @@
 import { api, getUrl } from '../api.js';
+import { sendLiveCommandWithAdaptiveHedge } from './liveCommandHedge.js';
 
 function authHeaders(token) {
   return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {};
@@ -14,10 +15,12 @@ export class DiceLiveApiError extends Error {
   }
 }
 
-async function liveRequest(token, method, path, body) {
+async function liveRequest(token, method, path, body, { signal, headers = {}, keepalive = false } = {}) {
   const response = await fetch(`${getUrl()}${path}`, {
     method,
-    headers: authHeaders(token),
+    headers: { ...authHeaders(token), ...headers },
+    signal,
+    keepalive,
     ...(method === 'GET' ? { cache: 'no-store' } : {}),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -32,12 +35,18 @@ class DiceApiClient {
     return liveRequest(token, 'GET', '/dice/live/games');
   }
 
-  createLiveGame(token, payload) {
-    return liveRequest(token, 'POST', '/dice/live/games', payload);
+  createLiveGame(token, payload, idempotencyKey) {
+    return liveRequest(token, 'POST', '/dice/live/games', payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
   }
 
   getLiveGame(token, matchId) {
     return liveRequest(token, 'GET', `/dice/live/games/${matchId}`);
+  }
+
+  updateLiveSettings(token, matchId, ranked) {
+    return liveRequest(token, 'PUT', `/dice/live/games/${matchId}/settings`, { ranked });
   }
 
   getLivePrediction(token, matchId) {
@@ -57,7 +66,25 @@ class DiceApiClient {
   }
 
   sendLiveCommand(token, matchId, command) {
-    return liveRequest(token, 'POST', `/dice/live/games/${matchId}/commands`, command);
+    return sendLiveCommandWithAdaptiveHedge(({ attempt, signal }) => (
+      liveRequest(token, 'POST', `/dice/live/games/${matchId}/commands`, command, {
+        signal,
+        headers: {
+          'X-Dice-Live-Attempt': attempt,
+          'X-Dice-Live-Operation': command.client_command_id,
+        },
+      })
+    ), {
+      onTelemetry: (metric) => {
+        void liveRequest(
+          token,
+          'POST',
+          `/dice/live/games/${matchId}/command-metrics`,
+          { operation_id: command.client_command_id, ...metric },
+          { keepalive: true },
+        ).catch(() => {});
+      },
+    });
   }
 
   openVirtualBankroll(token, tournamentId) {
@@ -89,14 +116,6 @@ class DiceApiClient {
     return api.get('/dice/me', token);
   }
 
-  getMyFeatures(token) {
-    return api.get('/dice/me/features', token);
-  }
-
-  updateMyFeature(token, feature, enabled) {
-    return api.request('PUT', `/dice/me/features/${feature}`, { enabled }, { headers: authHeaders(token) });
-  }
-
   updateMyProfile(token, profileData) {
     return api.request('PUT', '/dice/me', profileData, { headers: authHeaders(token) });
   }
@@ -118,6 +137,14 @@ class DiceApiClient {
     return api.get(`/dice/profiles/${userId}/rating-progress`);
   }
 
+  getDuoLadder(token, limit = 100, homepageEligible = false) {
+    return api.get(`/dice/stats/duos?limit=${limit}&homepage_eligible=${homepageEligible}`, token);
+  }
+
+  getDuoDetail(token, duoId) {
+    return api.get(`/dice/stats/duos/${encodeURIComponent(duoId)}`, token);
+  }
+
   // Leaderboards
   getEloLeaderboard(limit = 5, includeProvisional = false) {
     return api.get(`/dice/leaderboard/elo?limit=${limit}&include_provisional=${includeProvisional}`);
@@ -136,8 +163,20 @@ class DiceApiClient {
     return api.get(`/dice/games?limit=${limit}&offset=${offset}`);
   }
 
-  getGame(id) {
-    return api.get(`/dice/games/${id}`);
+  async getAllGames(pageSize = 200) {
+    const all = [];
+    let offset = 0;
+    while (true) {
+      const page = await this.getGames(pageSize, offset);
+      all.push(...page);
+      if (page.length < pageSize) return all;
+      offset += pageSize;
+    }
+  }
+
+  getGame(id, includeDuoOnly = false, token = null) {
+    const query = includeDuoOnly ? '?duo=1' : '';
+    return api.get(`/dice/games/${id}${query}`, token);
   }
 
   createGame(token, gameData, idempotencyKey) {
@@ -150,8 +189,10 @@ class DiceApiClient {
     return api.request('PUT', `/dice/games/${id}`, gameData, { headers: authHeaders(token) });
   }
 
-  deleteGame(token, id) {
-    return api.request('DELETE', `/dice/games/${id}`, null, { headers: authHeaders(token) });
+  deleteGame(token, id, idempotencyKey) {
+    return api.request('DELETE', `/dice/games/${id}`, null, {
+      headers: { ...authHeaders(token), 'Idempotency-Key': idempotencyKey },
+    });
   }
 
   // Photos

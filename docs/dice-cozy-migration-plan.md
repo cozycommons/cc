@@ -1,5 +1,9 @@
 # Dice to Cozy Commons: bulk migration feasibility and plan
 
+Implementation update: see [the bulk migration handoff](dice-bulk-migration-handoff.md)
+for completed staging reconciliation, asset verification and the release checklist.
+The assessment below is retained as the pre-implementation design.
+
 Assessed September 9, 2026 (America/New_York). Status: **bulk code migration is feasible; production cutover is not yet proven safe**. This document is an assessment and execution design, not a record of a completed migration.
 
 ## Decision and scope

@@ -24,11 +24,11 @@ const game = {
   referees: [{ user_id: 'other', left_at: null }],
 };
 
-function renderLobby(effective = true) {
+function renderLobby(effective = true, available = true) {
   const auth = {
     token: 'token',
     user: { id: 'me' },
-    features: { dice_live_referee: { opted_in: effective, effective } },
+    features: { dice_live_referee: { opted_in: effective, effective, available } },
   };
   return render(
     <MemoryRouter>
@@ -44,12 +44,18 @@ describe('LiveLobby', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
+    window.sessionStorage.clear();
   });
 
-  it('makes direct navigation clearly unavailable without a live request when disabled', () => {
-    renderLobby(false);
-    expect(screen.getByText('Live referee unavailable')).toBeInTheDocument();
-    expect(mocks.getLiveGames).not.toHaveBeenCalled();
+  it('ignores a stale unavailable opt-out and loads the released lobby', async () => {
+    mocks.getLiveGames.mockResolvedValue([]);
+    mocks.searchProfiles.mockResolvedValue([]);
+    renderLobby(false, false);
+
+    expect(await screen.findByText('No games on the roof')).toBeInTheDocument();
+    expect(mocks.getLiveGames).toHaveBeenCalledWith('token');
+    expect(screen.queryByText('Live referee unavailable')).not.toBeInTheDocument();
   });
 
   it('shows an ongoing 2v2 score and joined referees without internal version clutter', async () => {
@@ -80,7 +86,116 @@ describe('LiveLobby', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
     await waitFor(() => expect(mocks.createLiveGame).toHaveBeenCalledWith('token', expect.objectContaining({
       team_order: ['blue', 'clay'], teams: { blue: ['alice', 'bea'], clay: ['cam', 'dev'] },
-    })));
+      ranked: true,
+    }), expect.any(String)));
+  });
+
+  it('searches a compact roster and can explicitly create an unranked game', async () => {
+    mocks.getLiveGames.mockResolvedValue([]);
+    mocks.searchProfiles.mockResolvedValue([
+      { user_id: 'aaron', display_name: 'Aaron' },
+      { user_id: 'alice', display_name: 'Alice' },
+      { user_id: 'bea', display_name: 'Bea' },
+      { user_id: 'cam', display_name: 'Cam' },
+      { user_id: 'dev', display_name: 'Dev' },
+      { user_id: 'erin', display_name: 'Erin' },
+      { user_id: 'zoe', display_name: 'Zoe Martinez' },
+    ]);
+    mocks.createLiveGame.mockResolvedValue({ id: 'new-match' });
+    renderLobby();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start game' }));
+
+    const rankedChoice = screen.getByRole('radio', { name: 'Ranked — Affects ELO' });
+    const unrankedChoice = screen.getByRole('radio', { name: 'Unranked — Casual game' });
+    expect(rankedChoice).toBeChecked();
+    fireEvent.keyDown(rankedChoice, { key: 'ArrowRight' });
+    expect(unrankedChoice).toBeChecked();
+    fireEvent.keyDown(unrankedChoice, { key: 'ArrowLeft' });
+    expect(rankedChoice).toBeChecked();
+    expect(screen.queryByRole('button', { name: 'Zoe Martinez' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'FIND TEAM 1 1ST THROWER' }), { target: { value: 'zoe' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Zoe Martinez' }));
+    for (const name of ['Alice', 'Bea', 'Cam']) {
+      fireEvent.change(screen.getByRole('searchbox'), { target: { value: name } });
+      fireEvent.click(screen.getByRole('button', { name }));
+    }
+    fireEvent.click(screen.getByRole('radio', { name: 'Unranked — Casual game' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
+
+    await waitFor(() => expect(mocks.createLiveGame).toHaveBeenCalledWith('token', expect.objectContaining({
+      ranked: false,
+      teams: { blue: ['zoe', 'alice'], clay: ['bea', 'cam'] },
+    }), expect.any(String)));
+  });
+
+  it('reuses the creation key when retrying the same failed submission', async () => {
+    mocks.getLiveGames.mockResolvedValue([]);
+    mocks.searchProfiles.mockResolvedValue([
+      { user_id: 'alice', display_name: 'Alice' },
+      { user_id: 'bea', display_name: 'Bea' },
+      { user_id: 'cam', display_name: 'Cam' },
+      { user_id: 'dev', display_name: 'Dev' },
+    ]);
+    mocks.createLiveGame.mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValueOnce({ id: 'new-match' });
+    const firstRender = renderLobby();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start game' }));
+    for (const name of ['Alice', 'Bea', 'Cam', 'Dev']) fireEvent.click(screen.getByRole('button', { name }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
+    expect(await screen.findByText('connection lost')).toBeInTheDocument();
+    firstRender.unmount();
+    renderLobby();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start game' }));
+    for (const name of ['Alice', 'Bea', 'Cam', 'Dev']) fireEvent.click(screen.getByRole('button', { name }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
+    await waitFor(() => expect(mocks.createLiveGame).toHaveBeenCalledTimes(2));
+    expect(mocks.createLiveGame.mock.calls[1][2]).toBe(mocks.createLiveGame.mock.calls[0][2]);
+  });
+
+  it('abandons a pending creation key when the user cancels', async () => {
+    mocks.getLiveGames.mockResolvedValue([]);
+    mocks.searchProfiles.mockResolvedValue([
+      { user_id: 'alice', display_name: 'Alice' },
+      { user_id: 'bea', display_name: 'Bea' },
+      { user_id: 'cam', display_name: 'Cam' },
+      { user_id: 'dev', display_name: 'Dev' },
+    ]);
+    mocks.createLiveGame.mockRejectedValue(new Error('connection lost'));
+    renderLobby();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start game' }));
+    for (const name of ['Alice', 'Bea', 'Cam', 'Dev']) fireEvent.click(screen.getByRole('button', { name }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
+    expect(await screen.findByText('connection lost')).toBeInTheDocument();
+    const firstKey = mocks.createLiveGame.mock.calls[0][2];
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start game' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
+    await waitFor(() => expect(mocks.createLiveGame).toHaveBeenCalledTimes(2));
+    expect(mocks.createLiveGame.mock.calls[1][2]).not.toBe(firstKey);
+  });
+
+  it('expires a pending creation key while the form remains mounted', async () => {
+    const startedAt = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+    mocks.getLiveGames.mockResolvedValue([]);
+    mocks.searchProfiles.mockResolvedValue([
+      { user_id: 'alice', display_name: 'Alice' },
+      { user_id: 'bea', display_name: 'Bea' },
+      { user_id: 'cam', display_name: 'Cam' },
+      { user_id: 'dev', display_name: 'Dev' },
+    ]);
+    mocks.createLiveGame.mockRejectedValue(new Error('connection lost'));
+    renderLobby();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start game' }));
+    for (const name of ['Alice', 'Bea', 'Cam', 'Dev']) fireEvent.click(screen.getByRole('button', { name }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
+    expect(await screen.findByText('connection lost')).toBeInTheDocument();
+    const firstKey = mocks.createLiveGame.mock.calls[0][2];
+    now.mockReturnValue(startedAt + 6 * 60 * 1000);
+    fireEvent.click(screen.getByRole('button', { name: 'Start live game' }));
+    await waitFor(() => expect(mocks.createLiveGame).toHaveBeenCalledTimes(2));
+    expect(mocks.createLiveGame.mock.calls[1][2]).not.toBe(firstKey);
+    now.mockRestore();
   });
 
   it('swaps filled player slots in one tap when the throwing order changes', async () => {

@@ -107,7 +107,6 @@ function MarketCard({ market, game, picks, token, tournamentId, onChanged }) {
 
 export default function VirtualDice({ auth }) {
   const { tournamentId } = useParams();
-  const enabled = auth.features?.dice_live_referee?.effective === true;
   const [bankroll, setBankroll] = useState(null);
   const [markets, setMarkets] = useState([]);
   const [picks, setPicks] = useState([]);
@@ -122,7 +121,7 @@ export default function VirtualDice({ auth }) {
   const latestLoad = useRef(0);
 
   const load = useCallback(async () => {
-    if (!enabled || !auth.token) return;
+    if (!auth.token) return;
     const requestId = latestLoad.current + 1;
     latestLoad.current = requestId;
     setError('');
@@ -159,15 +158,15 @@ export default function VirtualDice({ auth }) {
     } finally {
       if (requestId === latestLoad.current) setLoading(false);
     }
-  }, [auth.token, enabled, tournamentId]);
+  }, [auth.token, tournamentId]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (!enabled || (markets.length > 0 && markets.every((market) => market.status === 'settled'))) return undefined;
+    if (markets.length > 0 && markets.every((market) => market.status === 'settled')) return undefined;
     const timer = window.setInterval(load, 15000);
     return () => window.clearInterval(timer);
-  }, [enabled, load, markets]);
+  }, [load, markets]);
 
   const marketMatchIds = new Set(markets.map((market) => market.live_match_id));
   const eligible = liveGames.filter((game) => game.version === 0 && game.status === 'active'
@@ -186,8 +185,6 @@ export default function VirtualDice({ auth }) {
       setOpening('');
     }
   };
-
-  if (!enabled) return <main className="max-w-xl mx-auto px-4 py-12 text-center">Virtual Dice is unavailable.</main>;
 
   return (
     <main className="max-w-xl mx-auto px-4 pt-6 pb-24">

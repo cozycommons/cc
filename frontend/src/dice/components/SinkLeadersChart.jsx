@@ -13,7 +13,7 @@ export default function SinkLeadersChart({ sinks, selfSinks, currentUserId }) {
   const config = MODES[mode];
   const entries = mode === 'sinks' ? sinks : selfSinks;
   const ranked = rankLeaderboard(entries, config.valueKey);
-  const leaders = ranked.filter((profile) => profile[config.valueKey] > 0).slice(0, 5);
+  const leaders = ranked.filter((profile) => profile[config.valueKey] > 0 && profile.rank <= 5);
   const current = ranked.find((profile) => profile.user_id === currentUserId);
   const pinnedCurrent = current && !leaders.some((profile) => profile.user_id === current.user_id) ? current : null;
   const displayed = pinnedCurrent ? [...leaders, pinnedCurrent] : leaders;
@@ -47,7 +47,7 @@ export default function SinkLeadersChart({ sinks, selfSinks, currentUserId }) {
                 key={profile.user_id}
                 to={`/dice/profile/${profile.user_id}`}
                 className={`jk-vertical-leader${isCurrentUser ? ' is-current-user' : ''}`}
-                aria-label={`Rank ${profile.rank}, ${profile.display_name}, ${value} ${config.label}${isCurrentUser ? ', you' : ''}`}
+                aria-label={`${profile.tied ? 'Tied rank' : 'Rank'} ${profile.rank}, ${profile.display_name}, ${value} ${config.label}${isCurrentUser ? ', you' : ''}`}
                 title={profile.display_name}
               >
                 <span className="jk-vertical-leader-value">{value}</span>

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from math import isclose
+from threading import Lock
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Query, Request
@@ -13,7 +15,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from dice.notifications import notify_ranked_game
-from dice.feature_access import DiceFeature, feature_state, feature_states, is_feature_enabled, set_profile_access
+from dice.feature_access import DiceFeature, feature_state, feature_states
+from dice.duo_repository import get_duo_detail, list_duo_ladder
 from dice.live_probability import MODEL_ID, MODEL_VERSION, project_live_history, project_live_projection
 from dice.live_service import append_command, create_live_match, set_membership
 from dice.live_types import DiceLiveError, DiceLiveProjection, SavedRules
@@ -32,6 +35,8 @@ from dice.repository import (
     create_tournament,
     delete_comment,
     delete_game,
+    delete_live_match,
+    sync_live_result_rating,
     delete_scheduled_match,
     delete_tournament,
     enroll_in_tournament,
@@ -39,6 +44,8 @@ from dice.repository import (
     get_game,
     get_head_to_head,
     get_live_result,
+    has_pending_live_rating_repair,
+    get_game_source_live_match_id,
     get_or_create_profile,
     get_profile,
     get_rating_progress,
@@ -51,7 +58,9 @@ from dice.repository import (
     list_self_sink_leaderboard,
     list_sink_leaderboard,
     list_tournaments,
+    game_delete_was_committed,
     remove_finalist,
+    record_live_rating_repair_failure,
     resolve_bracket_match,
     search_profiles,
     set_bracket_teams,
@@ -68,6 +77,8 @@ from dice.schemas import (
     CreateScheduledMatchRequest,
     CreateTournamentRequest,
     DiceGame,
+    DuoDetailOut,
+    DuoLadderOut,
     DiceFeatureState,
     DiceFeatures,
     DiceFeatureUpdate,
@@ -88,9 +99,11 @@ from dice.schemas import (
     UpdateScheduledMatchRequest,
     UpdateTournamentRequest,
     LiveCommandRequest,
+    LiveCommandMetricRequest,
     LiveCreateRequest,
     LiveMatchDetailOut,
     LiveMatchOut,
+    LiveSettingsRequest,
     LiveMembershipOut,
     LiveReceiptOut,
     LivePredictionOut,
@@ -162,6 +175,14 @@ def _assert_can_edit_game(game: DiceGame, auth: AuthedUser) -> None:
     )
 
 
+def _assert_manual_game_mutation_allowed(request: Request, game_id: str) -> None:
+    if get_game_source_live_match_id(request.app.state.supabase, game_id):
+        raise HTTPException(status_code=409, detail={
+            "code": "dice_game.live_result_requires_referee_correction",
+            "message": "This game came from the live referee. Correct it from the referee view before changing it.",
+        })
+
+
 def _assert_can_delete_comment(comment_user_id: str, auth: AuthedUser) -> None:
     if auth.is_admin or comment_user_id == auth.user_id:
         return
@@ -178,6 +199,7 @@ def _assert_can_edit_tournament(tournament: DiceTournament, auth: AuthedUser) ->
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+_live_settings_lock = Lock()
 
 
 def require_live_authenticated_user(
@@ -195,12 +217,11 @@ def require_live_authenticated_user(
 def _require_live(request: Request, auth: AuthedUser) -> None:
     if not get_profile(request.app.state.supabase, auth.user_id):
         raise HTTPException(status_code=403, detail="dice_live.profile_required")
-    if not is_feature_enabled(request.app.state.supabase, auth.user_id, DiceFeature.LIVE_REFEREE):
-        raise HTTPException(status_code=403, detail="dice_live.feature_disabled")
 
 
 def _live_row(request: Request, match_id: str) -> dict:
     rows = request.app.state.supabase_admin.table("dice_live_matches").select("*").eq("id", match_id).limit(1).execute().data or []
+    rows = [row for row in rows if not row.get("deleted_at")]
     if not rows:
         raise HTTPException(status_code=404, detail="dice_live.match_not_found")
     return rows[0]
@@ -219,6 +240,44 @@ def _live_events(request: Request, match_id: str) -> list[dict]:
             or []
         )
     ]
+
+
+def _set_live_ranked(request: Request, match_id: str, ranked: bool) -> str:
+    client = request.app.state.supabase_admin
+    clear_cache = getattr(client, "clear_cache", None)
+    try:
+        result = client.rpc(
+            "dice_live_set_ranked", {"p_match_id": match_id, "p_ranked": ranked}
+        ).execute().data
+    finally:
+        if callable(clear_cache):
+            clear_cache()
+    return result.get("status") if isinstance(result, dict) else "missing"
+
+
+def _live_settings_conflict(error: Exception) -> bool:
+    raw = str(error)
+    code = str(getattr(error, "code", ""))
+    return code in {"40001", "55P03", "504"} or any(marker in raw for marker in (
+        "dice_rating.source_changed", "lock timeout", "upstream server is timing out", "'code': 504",
+    ))
+
+
+def _repair_pending_live_rating(request: Request, match_id: str) -> None:
+    try:
+        if not has_pending_live_rating_repair(request.app.state.supabase_admin, match_id):
+            return
+        sync_live_result_rating(request.app.state.supabase_admin, match_id, bounded=True)
+    except Exception as error:  # noqa: BLE001 - transport errors vary
+        logger.exception("Dice live rating repair failed for match %s", match_id)
+        _note_live_rating_repair_failure(request, match_id, error)
+
+
+def _note_live_rating_repair_failure(request: Request, match_id: str, error: Exception) -> None:
+    try:
+        record_live_rating_repair_failure(request.app.state.supabase_admin, match_id, error)
+    except Exception:  # noqa: BLE001 - the durable queue already exists
+        logger.exception("Could not annotate Dice live rating repair for match %s", match_id)
 
 
 def _pregame_probability(row: dict) -> tuple[float, str, str, str, datetime | None]:
@@ -306,6 +365,7 @@ def _live_pulse_virtual(request: Request, match_id: str, user_id: str) -> LivePu
 def _live_output(request: Request, row: dict, *, detail: bool = False):
     refs = request.app.state.supabase_admin.table("dice_live_referees").select("*").eq("match_id", row["id"]).execute().data or []
     data = {key: row[key] for key in ("id", "created_by", "created_at", "team_order", "teams", "rules_snapshot", "version", "status", "score", "detail_coverage", "projection")}
+    data["ranked"] = row.get("ranked", False)
     roster_ids = list(dict.fromkeys(
         player_id for team_id in row["team_order"] for player_id in row["teams"][team_id]
     ))
@@ -361,12 +421,24 @@ def _command_error(error: Exception) -> HTTPException:
 
 
 @router.post("/live/games", response_model=LiveMatchOut)
-def post_live_game(request: Request, payload: LiveCreateRequest, auth: AuthedUser = Depends(require_live_authenticated_user)):
+def post_live_game(
+    request: Request,
+    payload: LiveCreateRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    auth: AuthedUser = Depends(require_live_authenticated_user),
+):
     _require_live(request, auth)
     try:
-        row = create_live_match(request.app.state.supabase_admin, auth.user_id, payload.team_order, payload.teams, payload.rules_snapshot)
+        row = create_live_match(
+            request.app.state.supabase_admin, auth.user_id, payload.team_order,
+            payload.teams, payload.rules_snapshot, payload.ranked,
+            creation_id=idempotency_key or str(uuid.uuid4()),
+        )
     except DiceLiveError as error:
         raise HTTPException(status_code=422, detail={"code": error.code, "message": error.message})
+    except ValueError as error:
+        status = 409 if "idempotency key conflicts" in str(error) else 400
+        raise HTTPException(status_code=status, detail=str(error))
     return _live_output(request, row)
 
 
@@ -374,13 +446,61 @@ def post_live_game(request: Request, payload: LiveCreateRequest, auth: AuthedUse
 def get_live_games(request: Request, state: Literal["ongoing"] = Query("ongoing"), auth: AuthedUser = Depends(require_live_authenticated_user)):
     _require_live(request, auth)
     rows = request.app.state.supabase_admin.table("dice_live_matches").select("*").in_("status", ["active", "awaiting_replay", "ready_to_finish"]).order("updated_at", desc=True).execute().data or []
+    rows = [row for row in rows if not row.get("deleted_at")]
     return [_live_output(request, row) for row in rows]
 
 
 @router.get("/live/games/{match_id}", response_model=LiveMatchDetailOut)
 def get_live_game(request: Request, match_id: str, auth: AuthedUser = Depends(require_live_authenticated_user)):
     _require_live(request, auth)
+    _repair_pending_live_rating(request, match_id)
     return _live_output(request, _live_row(request, match_id), detail=True)
+
+
+@router.put("/live/games/{match_id}/settings", response_model=LiveMatchOut)
+def update_live_settings(request: Request, match_id: str, payload: LiveSettingsRequest,
+                         auth: AuthedUser = Depends(require_live_authenticated_user)):
+    _require_live(request, auth)
+    # The Supabase sync client is shared by route workers. Keep this multi-call
+    # mutation serialized in-process; the database lock timeout remains the
+    # cross-process backstop.
+    with _live_settings_lock:
+        row = _live_row(request, match_id)
+        active_referee = (request.app.state.supabase_admin.table("dice_live_referees").select("user_id")
+                          .eq("match_id", match_id).eq("user_id", auth.user_id).is_("left_at", "null")
+                          .limit(1).execute().data or [])
+        if not auth.is_admin and row["created_by"] != auth.user_id and not active_referee:
+            raise HTTPException(status_code=403, detail="Only the creator, an active referee, or an admin can change result settings")
+        try:
+            settings_status = _set_live_ranked(request, match_id, payload.ranked)
+        except Exception as error:
+            if _live_settings_conflict(error):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "dice_live.settings_conflict", "message": "Game settings changed; reload and try again"},
+                ) from error
+            raise
+        if settings_status == "missing":
+            raise HTTPException(status_code=404, detail="Live game not found")
+        if settings_status == "official":
+            try:
+                sync_live_result_rating(
+                    request.app.state.supabase_admin,
+                    match_id,
+                    payload.ranked,
+                    bounded=True,
+                )
+            except Exception as error:
+                if _live_settings_conflict(error):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"code": "dice_live.settings_conflict", "message": "Game settings changed; reload and try again"},
+                    ) from error
+                raise
+            # The canonical mutation updates the source match in the same database
+            # transaction, so a rating change and its UI setting cannot diverge.
+            return _live_output(request, _live_row(request, match_id))
+        return _live_output(request, _live_row(request, match_id))
 
 
 @router.get("/live/games/{match_id}/prediction", response_model=LivePredictionOut)
@@ -582,21 +702,53 @@ def post_live_command(request: Request, match_id: str, payload: dict = Body(...)
         raise HTTPException(status_code=422, detail={"code": error.code, "message": error.message, "event_id": error.event_id, "sequence": error.sequence})
     except Exception as error:
         raise _command_error(error)
+    current_row = None
+    current_result = None
+    current_state_loaded = False
     try:
         current_row = _live_row(request, match_id)
         current_result = get_live_result(request.app.state.supabase_admin, match_id)
-        reconcile_match_winner_markets(
-            request.app.state.supabase_admin,
-            match_id,
-            current_row["team_order"],
-            current_row["version"],
-            current_result,
-        )
-    except Exception:
-        # The command is already durable. Betting must never make scoring look
-        # failed or tempt the client to submit the same event again.
-        logger.exception("Virtual Dice reconciliation failed for live match %s", match_id)
+        current_state_loaded = True
+        if current_result and current_row.get("ranked"):
+            sync_live_result_rating(request.app.state.supabase_admin, match_id)
+    except Exception as error:  # noqa: BLE001 - command is already durable
+        logger.exception("Dice live rating replay deferred for match %s", match_id)
+        _note_live_rating_repair_failure(request, match_id, error)
+    if current_state_loaded:
+        try:
+            reconcile_match_winner_markets(
+                request.app.state.supabase_admin,
+                match_id,
+                current_row["team_order"],
+                current_row["version"],
+                current_result,
+            )
+        except Exception:
+            # The command is already durable. Betting must never make scoring look
+            # failed or tempt the client to submit the same event again.
+            logger.exception("Virtual Dice reconciliation failed for live match %s", match_id)
     return receipt
+
+
+@router.post("/live/games/{match_id}/command-metrics", status_code=202)
+def post_live_command_metric(
+    request: Request,
+    match_id: str,
+    payload: LiveCommandMetricRequest,
+    auth: AuthedUser = Depends(require_live_authenticated_user),
+):
+    """Persist best-effort client command latency telemetry once per operation."""
+    _require_live(request, auth)
+    _live_row(request, match_id)
+    request.app.state.supabase_admin.table("dice_live_command_metrics").upsert(
+        {
+            **payload.model_dump(),
+            "match_id": match_id,
+            "referee_id": auth.user_id,
+        },
+        on_conflict="match_id,referee_id,operation_id",
+    ).execute()
+    return {"accepted": True}
 
 
 @router.get("/me", response_model=DiceProfile)
@@ -613,16 +765,16 @@ def get_my_profile(
     )
 
 
-@router.get("/me/features", response_model=DiceFeatures)
+@router.get("/me/features", response_model=DiceFeatures, deprecated=True)
 def get_my_features(
     request: Request, auth: AuthedUser = Depends(require_authenticated_user)
 ) -> DiceFeatures:
-    return DiceFeatures.model_validate(
-        feature_states(request.app.state.supabase, auth.user_id)
-    )
+    if not get_profile(request.app.state.supabase, auth.user_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return DiceFeatures.model_validate(feature_states())
 
 
-@router.put("/me/features/{feature}", response_model=DiceFeatures)
+@router.put("/me/features/{feature}", response_model=DiceFeatures, deprecated=True)
 def put_my_feature(
     request: Request,
     feature: DiceFeature,
@@ -631,13 +783,12 @@ def put_my_feature(
 ) -> DiceFeatures:
     if not get_profile(request.app.state.supabase, auth.user_id):
         raise HTTPException(status_code=404, detail="Profile not found")
-    set_profile_access(request.app.state.supabase_admin, auth.user_id, feature, payload.enabled)
-    return DiceFeatures.model_validate(
-        feature_states(request.app.state.supabase, auth.user_id)
-    )
+    # Compatibility for cached clients: the retired flag cannot disable the
+    # released experience, even if an old UI sends ``enabled: false``.
+    return DiceFeatures.model_validate(feature_states())
 
 
-@router.put("/admin/features/{user_id}", response_model=DiceFeatureUpdate)
+@router.put("/admin/features/{user_id}", response_model=DiceFeatureUpdate, deprecated=True)
 def put_profile_feature(
     request: Request,
     user_id: str,
@@ -648,8 +799,7 @@ def put_profile_feature(
         raise HTTPException(status_code=403, detail="Only an admin can manage feature access")
     if not get_profile(request.app.state.supabase, user_id):
         raise HTTPException(status_code=404, detail="Profile not found")
-    set_profile_access(request.app.state.supabase_admin, user_id, payload.feature, payload.enabled)
-    state = feature_state(request.app.state.supabase, user_id, payload.feature)
+    state = feature_state(payload.feature)
     return DiceFeatureUpdate(
         user_id=user_id,
         feature=payload.feature,
@@ -723,6 +873,35 @@ def get_profile_rating_progress(request: Request, user_id: str) -> RatingProgres
     return progress
 
 
+def _require_duo_access(request: Request, auth: AuthedUser) -> None:
+    if not get_profile(request.app.state.supabase, auth.user_id):
+        raise HTTPException(status_code=404, detail="Dice stats are not available")
+
+
+@router.get("/stats/duos", response_model=DuoLadderOut)
+def get_duo_ladder(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=200),
+    homepage_eligible: bool = Query(default=False),
+    auth: AuthedUser = Depends(require_authenticated_user),
+) -> DuoLadderOut:
+    _require_duo_access(request, auth)
+    return list_duo_ladder(request.app.state.supabase, limit, homepage_eligible)
+
+
+@router.get("/stats/duos/{duo_id}", response_model=DuoDetailOut)
+def get_duo_detail_by_id(
+    request: Request,
+    duo_id: str,
+    auth: AuthedUser = Depends(require_authenticated_user),
+) -> DuoDetailOut:
+    _require_duo_access(request, auth)
+    detail = get_duo_detail(request.app.state.supabase, duo_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Duo not found")
+    return detail
+
+
 @router.get("/leaderboard/elo", response_model=list[LeaderboardEntry])
 def get_elo_leaderboard(
     request: Request,
@@ -760,8 +939,21 @@ def get_games(
 
 
 @router.get("/games/{game_id}", response_model=DiceGame)
-def get_game_by_id(request: Request, game_id: str) -> DiceGame:
-    game = get_game(request.app.state.supabase, game_id)
+def get_game_by_id(
+    request: Request,
+    game_id: str,
+    auth: AuthedUser | None = Depends(get_optional_authenticated_user),
+) -> DiceGame:
+    include_duo_only = request.query_params.get("duo") == "1"
+    if include_duo_only:
+        if auth is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        _require_duo_access(request, auth)
+    game = get_game(
+        request.app.state.supabase,
+        game_id,
+        include_duo_only=include_duo_only,
+    )
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     return game
@@ -803,25 +995,64 @@ def put_game(
     if not existing:
         raise HTTPException(status_code=404, detail="Game not found")
     _assert_can_edit_game(existing, auth)
+    _assert_manual_game_mutation_allowed(request, game_id)
     try:
         return update_game(supabase, game_id, payload)
     except ValueError as exc:
+        if str(exc) == "dice_game.stale_update":
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "dice_game.stale_update"},
+            ) from exc
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.delete("/games/{game_id}")
 def delete_game_by_id(
-    request: Request, game_id: str, auth: AuthedUser = Depends(require_authenticated_user)
+    request: Request,
+    game_id: str,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    auth: AuthedUser = Depends(require_authenticated_user),
 ) -> dict:
     supabase = request.app.state.supabase
     existing = get_game(supabase, game_id)
     if not existing:
+        if idempotency_key:
+            try:
+                if game_delete_was_committed(
+                    request.app.state.supabase_admin, idempotency_key, game_id, auth.user_id
+                ):
+                    return {"deleted": True}
+            except ValueError as exc:
+                status = 409 if "idempotency key conflicts" in str(exc) else 400
+                raise HTTPException(status_code=status, detail=str(exc))
         raise HTTPException(status_code=404, detail="Game not found")
     _assert_can_edit_game(existing, auth)
     try:
-        delete_game(supabase, game_id)
+        if existing.source_live_match_id:
+            delete_live_match(
+                request.app.state.supabase_admin, existing.source_live_match_id,
+                game_id, auth.user_id, mutation_id=idempotency_key,
+            )
+        else:
+            delete_game(
+                supabase, game_id, auth.user_id, mutation_id=idempotency_key
+            )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        if idempotency_key:
+            try:
+                if game_delete_was_committed(
+                    request.app.state.supabase_admin,
+                    idempotency_key,
+                    game_id,
+                    auth.user_id,
+                ):
+                    return {"deleted": True}
+            except ValueError as receipt_error:
+                status = 409 if "idempotency key conflicts" in str(receipt_error) else 400
+                raise HTTPException(status_code=status, detail=str(receipt_error))
+        status = 409 if "idempotency key conflicts" in str(exc) else 400
+        raise HTTPException(status_code=status, detail=str(exc))
     return {"deleted": True}
 
 

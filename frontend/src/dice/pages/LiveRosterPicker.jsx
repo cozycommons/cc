@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Input } from '@/components/ui/input';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 
 const turnLabelBySlot = ['1st', '2nd', '1st', '2nd'];
@@ -7,7 +8,16 @@ const slotLabel = (index) => `Team ${index < 2 ? 1 : 2} ${turnLabelBySlot[index]
 
 export default function LiveRosterPicker({ profiles, players, onChange }) {
   const [activeSlot, setActiveSlot] = useState(() => Math.max(0, players.findIndex((player) => !player)));
+  const [query, setQuery] = useState('');
+  const searchRef = useRef(null);
   const profilesById = useMemo(() => new Map(profiles.map((profile) => [profile.user_id, profile])), [profiles]);
+  const matches = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    const filtered = normalized
+      ? profiles.filter((profile) => profile.display_name.toLocaleLowerCase().includes(normalized))
+      : profiles;
+    return filtered.slice(0, 6);
+  }, [profiles, query]);
 
   const pick = (playerId) => {
     const occupiedSlot = players.indexOf(playerId);
@@ -19,22 +29,30 @@ export default function LiveRosterPicker({ profiles, players, onChange }) {
     }));
     const nextEmpty = players.findIndex((current, index) => index !== activeSlot && !current);
     setActiveSlot(nextEmpty >= 0 ? nextEmpty : (activeSlot + 1) % players.length);
+    setQuery('');
+    searchRef.current?.focus();
+  };
+
+  const activateSlot = (index) => {
+    setActiveSlot(index);
+    setQuery('');
+    requestAnimationFrame(() => searchRef.current?.focus());
   };
 
   return (
-    <div className="grid gap-3 mt-3">
-      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Each team takes both throws. Pick who goes first.</p>
+    <div className="grid gap-5 mt-5">
+      <p className="text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>Each team takes both throws. Tap a spot, then find the player.</p>
       {[[0, 1], [2, 3]].map((indexes, teamIndex) => (
         <fieldset
           key={teamIndex}
-          className="min-w-0 p-3 rounded-lg border-l-4"
+          className="min-w-0 p-3 min-[360px]:p-4 rounded-xl border-l-4"
           style={{
             borderLeftColor: `var(--team${teamIndex + 1}-color)`,
             background: `color-mix(in srgb, var(--team${teamIndex + 1}-color) 7%, var(--surface-card))`,
           }}
         >
           <legend className="jk-label px-1">TEAM {teamIndex + 1}</legend>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 min-[360px]:gap-3">
             {indexes.map((index) => {
               const profile = profilesById.get(players[index]);
               const active = activeSlot === index;
@@ -44,15 +62,17 @@ export default function LiveRosterPicker({ profiles, players, onChange }) {
                   type="button"
                   aria-pressed={active}
                   aria-label={`${slotLabel(index)}: ${profile?.display_name || 'Choose'}`}
-                  onClick={() => setActiveSlot(index)}
-                  className="min-w-0 min-h-14 p-2 rounded-md text-left flex items-center gap-2 overflow-hidden transition-all duration-200"
+                  onClick={() => activateSlot(index)}
+                  className="min-w-0 min-h-16 p-2 min-[360px]:p-2.5 rounded-lg text-left flex items-center gap-2 overflow-hidden transition-all duration-200"
                   style={{
                     border: `1.5px solid ${active ? `var(--team${teamIndex + 1}-color)` : 'var(--border-subtle)'}`,
                     background: 'var(--surface-card)',
                   }}
                 >
-                  {profile ? <PlayerAvatar profile={profile} size={36} linkToProfile={false} /> : (
-                    <span className="w-9 h-9 rounded-full grid place-items-center text-lg" style={{ background: 'var(--surface-sunken)', color: 'var(--text-tertiary)' }}>+</span>
+                  {profile ? (
+                    <span className="hidden min-[360px]:inline-flex shrink-0"><PlayerAvatar profile={profile} size={32} linkToProfile={false} /></span>
+                  ) : (
+                    <span className="hidden min-[360px]:grid w-8 h-8 shrink-0 rounded-full place-items-center text-lg" style={{ background: 'var(--surface-sunken)', color: 'var(--text-tertiary)' }}>+</span>
                   )}
                   <span className="min-w-0">
                     <span className="jk-label block">THROWS {turnLabelBySlot[index]}</span>
@@ -90,8 +110,22 @@ export default function LiveRosterPicker({ profiles, players, onChange }) {
         </section>
       )}
 
-      <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto" aria-label={`Players for ${slotLabel(activeSlot)}`}>
-        {profiles.map((profile) => {
+      <section className="min-w-0" aria-label={`Players for ${slotLabel(activeSlot)}`}>
+        <label htmlFor="live-player-search" className="jk-label block mb-2">
+          FIND {slotLabel(activeSlot).toUpperCase()}
+        </label>
+        <Input
+          ref={searchRef}
+          id="live-player-search"
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search players by name"
+          autoComplete="off"
+          className="min-h-12"
+        />
+        <div className="grid grid-cols-2 gap-2 mt-3">
+        {matches.map((profile) => {
           const selectedHere = players[activeSlot] === profile.user_id;
           return (
             <button
@@ -106,11 +140,18 @@ export default function LiveRosterPicker({ profiles, players, onChange }) {
               }}
             >
               <PlayerAvatar profile={profile} size={34} linkToProfile={false} />
-              <span className="min-w-0 font-semibold truncate">{profile.display_name.split(' ')[0]}</span>
+              <span className="min-w-0 font-semibold truncate">{profile.display_name}</span>
             </button>
           );
         })}
-      </div>
+        </div>
+        {matches.length === 0 && query && (
+          <p className="py-5 text-center text-sm" role="status" style={{ color: 'var(--text-secondary)' }}>No players match “{query}”.</p>
+        )}
+        {!query && profiles.length > matches.length && (
+          <p className="mt-3 text-center text-xs" style={{ color: 'var(--text-tertiary)' }}>Search to find {profiles.length - matches.length} more players.</p>
+        )}
+      </section>
     </div>
   );
 }

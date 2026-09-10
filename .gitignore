@@ -7,3 +7,7 @@ frontend/dist/
 node_modules/
 .dice-dev/
 artifacts/
+
+__pycache__/
+*.pyc
+.dice-verification/

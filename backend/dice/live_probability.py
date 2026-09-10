@@ -202,9 +202,6 @@ def _validate(value: LiveProbabilityInput) -> None:
         _invalid("target_score and win_by must be positive")
     if not 0.0 <= value.pregame_team1_probability <= 1.0:
         _invalid("pregame probability must be between 0 and 1")
-    if value.team1_score >= value.target_score and value.team2_score >= value.target_score:
-        if abs(value.team1_score - value.team2_score) < value.win_by:
-            _invalid("score cannot have both teams past target without a winner")
 
 
 def _invalid(message: str) -> None:

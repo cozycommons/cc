@@ -1,12 +1,25 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { diceApi } from '../api.js';
 import PlayerPicker from '../components/PlayerPicker.jsx';
 import SinkCountInput from '../components/SinkCountInput.jsx';
+import RankedChoice from '../components/RankedChoice.jsx';
 
 const emptySlots = { t1p1: null, t1p2: null, t2p1: null, t2p2: null };
+
+function editableGameSummary(game) {
+  const playerSummary = (player) => (
+    `${player.display_name} (${player.sinks || 0} sinks, ${player.self_sinks || 0} self-sinks${player.counts_for_group_stage === false ? ', substitute' : ''})`
+  );
+  const team = (number) => game.players
+    .filter((player) => player.team === number)
+    .sort((left, right) => left.display_name.localeCompare(right.display_name))
+    .map(playerSummary)
+    .join(' + ');
+  return `Team 1: ${team(1)}. Team 2: ${team(2)}. Score: ${game.team1_score}–${game.team2_score}. ${game.ranked ? 'Ranked' : 'Normal'}. Tournament: ${game.tournament_id || 'none'}.`;
+}
 
 export default function LogMatch({ auth, editMode = false }) {
   const { gameId } = useParams();
@@ -30,12 +43,14 @@ export default function LogMatch({ auth, editMode = false }) {
   const [sinks, setSinks] = useState({});
   const [team1Score, setTeam1Score] = useState('');
   const [team2Score, setTeam2Score] = useState('');
-  const [ranked, setRanked] = useState(false);
+  const [ranked, setRanked] = useState(true);
   const [substituteIds, setSubstituteIds] = useState({});
   const [tournamentId, setTournamentId] = useState(navTournamentId || null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [loadingGame, setLoadingGame] = useState(editMode);
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState(null);
+  const [conflictGame, setConflictGame] = useState(null);
   const createAttemptRef = useRef(null);
   // A scheduled match or bracket slot arrives with its format already
   // fixed via `navMatchType`, so the toggle is hidden there. A manual
@@ -70,9 +85,7 @@ export default function LogMatch({ auth, editMode = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profiles]);
 
-  useEffect(() => {
-    if (!editMode) return;
-    diceApi.getGame(gameId).then((game) => {
+  const applyGame = useCallback((game) => {
       const byTeam = (team, idx) => game.players.filter((p) => p.team === team)[idx] || null;
       setSlots({
         t1p1: byTeam(1, 0),
@@ -96,12 +109,20 @@ export default function LogMatch({ auth, editMode = false }) {
       setTeam2Score(String(game.team2_score));
       setRanked(game.ranked);
       setTournamentId(game.tournament_id || null);
+      setExpectedUpdatedAt(game.updated_at);
+  }, []);
+
+  useEffect(() => {
+    if (!editMode) return;
+    diceApi.getGame(gameId).then((game) => {
+      applyGame(game);
       setLoadingGame(false);
     }).catch(() => setLoadingGame(false));
-  }, [editMode, gameId]);
+  }, [applyGame, editMode, gameId]);
 
   const activeSlotKeys = isSingles ? ['t1p1', 't2p1'] : ['t1p1', 't1p2', 't2p1', 't2p2'];
   const requiredPlayerCount = activeSlotKeys.length;
+  const teamOf = { t1p1: 1, t1p2: 1, t2p1: 2, t2p2: 2 };
 
   const chosenIds = useMemo(
     () => activeSlotKeys.map((key) => slots[key]).filter(Boolean).map((p) => p.user_id),
@@ -121,7 +142,6 @@ export default function LogMatch({ auth, editMode = false }) {
     setSubmitting(true);
     setError(null);
     try {
-      const teamOf = { t1p1: 1, t1p2: 1, t2p1: 2, t2p2: 2 };
       const players = activeSlotKeys.map((key) => ({
         user_id: slots[key].user_id,
         team: teamOf[key],
@@ -137,6 +157,8 @@ export default function LogMatch({ auth, editMode = false }) {
         players,
       };
       if (editMode) {
+        payload.expected_updated_at = expectedUpdatedAt;
+        setConflictGame(null);
         const updated = await diceApi.updateGame(token, gameId, payload);
         navigate(`/dice/game/${updated.id}`);
       } else {
@@ -169,7 +191,17 @@ export default function LogMatch({ auth, editMode = false }) {
         }
       }
     } catch (err) {
-      setError(`Failed to save match. Make sure all ${requiredPlayerCount} players are distinct and scores don't tie.`);
+      if (editMode && err.status === 409 && err.detail?.code === 'dice_game.stale_update') {
+        try {
+          const latest = await diceApi.getGame(gameId);
+          setExpectedUpdatedAt(latest.updated_at);
+          setConflictGame(latest);
+        } catch {
+          setError('Another editor changed this match, but the latest result could not load. Reload before saving again.');
+        }
+      } else {
+        setError(`Failed to save match. Make sure all ${requiredPlayerCount} players are distinct and scores don't tie.`);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -186,6 +218,20 @@ export default function LogMatch({ auth, editMode = false }) {
       </div>
     );
   }
+
+  const retainedGame = {
+    team1_score: team1Score,
+    team2_score: team2Score,
+    ranked,
+    tournament_id: tournamentId,
+    players: activeSlotKeys.filter((key) => slots[key]).map((key) => ({
+      ...slots[key],
+      team: teamOf[key],
+      sinks: sinks[slots[key].user_id] || 0,
+      self_sinks: selfSinks[slots[key].user_id] || 0,
+      counts_for_group_stage: !substituteIds[slots[key].user_id],
+    })),
+  };
 
   return (
     <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">
@@ -249,10 +295,7 @@ export default function LogMatch({ auth, editMode = false }) {
           </div>
         </div>
 
-        <label className="flex items-center gap-2" style={{ fontFamily: 'var(--font-body)', fontSize: 14 }}>
-          <input type="checkbox" checked={ranked} onChange={(e) => setRanked(e.target.checked)} />
-          Ranked (affects ELO)
-        </label>
+        <RankedChoice ranked={ranked} onChange={setRanked} />
 
         {tournamentId && isAdmin && allSlotsFilled && (
           <div className="flex flex-col gap-2" style={{ color: 'var(--text-secondary)' }}>
@@ -311,11 +354,34 @@ export default function LogMatch({ auth, editMode = false }) {
         )}
 
         {error && <p style={{ color: 'var(--state-danger)', fontSize: 13 }}>{error}</p>}
+        {conflictGame && (
+          <section className="jk-card p-4" aria-label="Unsaved match changes">
+            <p className="jk-label">// NOT SAVED</p>
+            <p className="text-sm mt-2">Another editor updated this match. Your changes are still here.</p>
+            <p className="text-sm mt-2"><strong>Latest:</strong> {editableGameSummary(conflictGame)}</p>
+            <p className="text-sm mt-2"><strong>Yours:</strong> {editableGameSummary(retainedGame)}</p>
+            <p className="text-sm mt-2">Saving yours will replace every latest field shown above.</p>
+            <Button type="submit" className="w-full min-h-12 mt-3" disabled={submitting}>
+              Save my changes now
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full min-h-12 mt-2"
+              onClick={() => {
+                applyGame(conflictGame);
+                setConflictGame(null);
+              }}
+            >
+              Discard my changes and reload
+            </Button>
+          </section>
+        )}
         {!scoresValid && team1Score !== '' && team2Score !== '' && (
           <p style={{ color: 'var(--state-danger)', fontSize: 13 }}>Scores can't tie — there must be a winner.</p>
         )}
 
-        <Button type="submit" disabled={!canSubmit} style={{ background: 'var(--accent-primary)', color: '#fff' }}>
+        <Button type="submit" disabled={!canSubmit || Boolean(conflictGame)} style={{ background: 'var(--accent-primary)', color: '#fff' }}>
           {submitting ? 'Saving…' : editMode ? 'Save Changes' : 'Log Match'}
         </Button>
       </form>

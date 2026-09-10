@@ -325,6 +325,22 @@ def _project(
             "short/low characteristics are required only for invalid observations",
             event,
         )
+        catcher = event.get("catcher_id")
+        if event["outcome"] == "caught":
+            if catcher is not None:
+                _require(
+                    catcher in player_team and player_team[catcher] != throwing_team,
+                    Code.INVALID_OBSERVATION,
+                    "table-hit catcher must be on the receiving team",
+                    event,
+                )
+        else:
+            _require(
+                catcher is None,
+                Code.INVALID_OBSERVATION,
+                "only caught observations may name a table-hit catcher",
+                event,
+            )
         fifa = event.get("fifa")
         if event["outcome"] == "fifa":
             _require(
@@ -821,6 +837,7 @@ def _project(
     fifa_kicks: Counter[str] = Counter()
     fifa_catches: Counter[str] = Counter()
     fifa_saves: Counter[str] = Counter()
+    table_catches: Counter[str] = Counter()
     observations = 0
     termination_reason = None
     for _, event in logical_slots:
@@ -830,6 +847,8 @@ def _project(
             ]
             stats[event["outcome"]] += 1
             player_outcomes[event["thrower_id"]][event["outcome"]] += 1
+            if event["outcome"] == "caught" and event.get("catcher_id"):
+                table_catches[event["catcher_id"]] += 1
             if event["outcome"] == "fifa":
                 fifa_kicks[event["fifa"]["kicker_id"]] += 1
                 if event["fifa"]["finish"] == "goal":
@@ -889,6 +908,7 @@ def _project(
         player_stats={
             player_id: DiceLivePlayerStats(
                 outcomes=DiceLiveOutcomeCounts(**player_outcomes[player_id]),
+                table_catches=table_catches[player_id],
                 fifa_goals=fifa_goals[player_id],
                 fifa_kicks=fifa_kicks[player_id],
                 fifa_catches=fifa_catches[player_id],

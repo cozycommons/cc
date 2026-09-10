@@ -50,7 +50,7 @@
       "name": "v1 outcomes derive score from throw and participant roles",
       "events": [
         {"id": "miss", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "miss", "score_delta": [0, 0]},
-        {"id": "caught", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "score_delta": [0, 0]},
+        {"id": "caught", "sequence": 2, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "catcher_id": "p3", "score_delta": [0, 0]},
         {"id": "point", "sequence": 3, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "point", "score_delta": [1, 0]},
         {"id": "sink", "sequence": 4, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "sink", "score_delta": [1, 0]},
         {"id": "self", "sequence": 5, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "self_sink", "score_delta": [0, 2]},
@@ -520,6 +520,12 @@
       "name": "saved fifa goal requires a saver on the throwing team",
       "events": [
         {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "fifa", "fifa": {"finish": "goal_saved", "kicker_id": "p3", "saver_id": "p4"}, "score_delta": [0, 0]}
+      ]
+    },
+    {
+      "name": "table-hit catcher must be on the receiving team",
+      "events": [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "catcher_id": "p2", "score_delta": [0, 0]}
       ]
     },
     {

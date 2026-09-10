@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 import dice.routes as routes
 from dice.routes import router
-from dice.schemas import LiveCreateRequest, LiveCommandRequest
+from dice.schemas import CreateGameRequest, LiveCreateRequest, LiveCommandRequest, UpdateGameRequest
 from dice.live_types import DiceLiveError, DiceLiveErrorCode
 from dice.prediction_model import ACCEPTED_MODEL, predict_features
 from runtime_policy import initialize_runtime_policy
@@ -45,7 +45,13 @@ class _Supabase:
     def select(self, *_args):
         return self
 
+    def update(self, *_args):
+        return self
+
     def eq(self, *_args):
+        return self
+
+    def is_(self, *_args):
         return self
 
     def in_(self, *_args):
@@ -61,32 +67,226 @@ class _Supabase:
         return type("Response", (), {"data": []})()
 
 
-def _client(monkeypatch, enabled=False):
+def _client(monkeypatch, supabase=None):
     app = FastAPI()
     app.include_router(router, prefix="/dice")
-    app.state.supabase = _Supabase()
-    app.state.supabase_admin = _Supabase()
+    app.state.supabase = supabase or _Supabase()
+    app.state.supabase_admin = supabase or _Supabase()
     app.state.runtime_policy = initialize_runtime_policy({}, lambda: None)
     monkeypatch.setattr(routes, "get_profile", lambda *_args: object())
-    monkeypatch.setattr(routes, "is_feature_enabled", lambda *_args: enabled)
     return TestClient(app)
 
 
-def test_only_the_six_live_endpoints_are_exposed():
+def test_ranked_live_settings_use_canonical_rating_mutation(monkeypatch):
+    class SettingsSupabase(_Supabase):
+        def execute(self):
+            return type("Response", (), {"data": [{
+                "id": "m1", "created_by": USER, "created_at": "2026-01-01T00:00:00Z",
+                "team_order": ["one", "two"], "teams": {"one": [], "two": []},
+                "rules_snapshot": {}, "version": 1, "status": "active", "score": [0, 0],
+                "detail_coverage": "unknown", "projection": {
+                    "score": [0, 0], "status": "active", "coverage": "unknown",
+                    "observations": 0, "stats": {},
+                }, "ranked": True,
+            }]})()
+
+    client = _client(monkeypatch, supabase=SettingsSupabase())
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: {
+        "id": "m1", "created_by": USER, "created_at": "2026-01-01T00:00:00Z",
+        "team_order": ["one", "two"], "teams": {"one": [], "two": []},
+        "rules_snapshot": {}, "version": 1, "status": "active", "score": [0, 0],
+        "detail_coverage": "unknown", "projection": {
+            "score": [0, 0], "status": "active", "coverage": "unknown",
+            "observations": 0, "stats": {},
+        }, "ranked": True,
+    })
+    monkeypatch.setattr(routes, "_set_live_ranked", lambda *_args: "official")
+    sync = []
+    monkeypatch.setattr(
+        routes,
+        "sync_live_result_rating",
+        lambda *args, **kwargs: sync.append((args[1:], kwargs)),
+    )
+    monkeypatch.setattr(routes, "_live_output", lambda _request, row: row)
+
+    response = client.put(
+        "/dice/live/games/m1/settings",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={"ranked": True},
+    )
+
+    assert response.status_code == 200
+    assert sync == [(('m1', True), {"bounded": True})]
+
+
+def test_live_ranked_setting_clears_cached_match_reads():
+    class Admin:
+        cleared = 0
+
+        def rpc(self, name, payload):
+            assert name == "dice_live_set_ranked"
+            assert payload == {"p_match_id": "m1", "p_ranked": False}
+            return self
+
+        def execute(self):
+            return type("Response", (), {"data": {"status": "updated"}})()
+
+        def clear_cache(self):
+            self.cleared += 1
+
+    admin = Admin()
+    request = type("Request", (), {
+        "app": type("App", (), {"state": type("State", (), {"supabase_admin": admin})()})()
+    })()
+
+    assert routes._set_live_ranked(request, "m1", False) == "updated"
+    assert admin.cleared == 1
+
+
+def test_live_ranked_setting_clears_cache_after_ambiguous_failure():
+    class Admin:
+        cleared = 0
+
+        def rpc(self, *_args):
+            return self
+
+        def execute(self):
+            raise RuntimeError("connection dropped after commit")
+
+        def clear_cache(self):
+            self.cleared += 1
+
+    admin = Admin()
+    request = type("Request", (), {
+        "app": type("App", (), {"state": type("State", (), {"supabase_admin": admin})()})()
+    })()
+
+    with pytest.raises(RuntimeError, match="connection dropped"):
+        routes._set_live_ranked(request, "m1", False)
+    assert admin.cleared == 1
+
+
+def test_live_settings_still_require_a_registered_profile(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(routes, "get_profile", lambda *_args: None)
+    monkeypatch.setattr(
+        routes,
+        "_live_row",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("unregistered access must not read the match")),
+    )
+
+    response = client.put(
+        "/dice/live/games/m1/settings",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={"ranked": True},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "dice_live.profile_required"
+
+
+def test_concurrent_live_settings_return_a_retryable_conflict(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: {
+        "id": "m1", "created_by": USER, "ranked": False,
+    })
+    monkeypatch.setattr(routes, "_set_live_ranked", lambda *_args: "official")
+    monkeypatch.setattr(
+        routes,
+        "sync_live_result_rating",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("canceling statement due to lock timeout")
+        ),
+    )
+
+    response = client.put(
+        "/dice/live/games/m1/settings",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={"ranked": True},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "dice_live.settings_conflict"
+
+
+def test_unfinished_live_settings_use_the_serialized_database_boundary(monkeypatch):
+    client = _client(monkeypatch)
+    row = {
+        "id": "m1", "created_by": USER, "created_at": "2026-01-01T00:00:00Z",
+        "team_order": ["one", "two"], "teams": {"one": [], "two": []},
+        "rules_snapshot": {}, "version": 0, "status": "active", "score": [0, 0],
+        "detail_coverage": "unknown", "projection": {
+            "score": [0, 0], "status": "active", "coverage": "unknown",
+            "observations": 0, "stats": {},
+        }, "ranked": True,
+    }
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: row)
+    calls = []
+    monkeypatch.setattr(routes, "_set_live_ranked", lambda *args: calls.append(args[1:]) or "updated")
+    monkeypatch.setattr(routes, "_live_output", lambda _request, value: value)
+
+    response = client.put(
+        "/dice/live/games/m1/settings",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={"ranked": True},
+    )
+
+    assert response.status_code == 200
+    assert calls == [("m1", True)]
+
+
+def test_only_the_expected_live_endpoints_are_exposed():
     paths = {(route.path, tuple(sorted(route.methods or ()))) for route in router.routes if "/live/" in route.path}
     assert paths == {
         ("/live/games", ("GET",)), ("/live/games", ("POST",)),
-        ("/live/games/{match_id}", ("GET",)),
+            ("/live/games/{match_id}", ("GET",)),
+            ("/live/games/{match_id}/settings", ("PUT",)),
         ("/live/games/{match_id}/prediction", ("GET",)),
         ("/live/games/{match_id}/pulse", ("GET",)),
         ("/live/games/{match_id}/referees/me", ("PUT",)),
         ("/live/games/{match_id}/referees/me", ("DELETE",)),
         ("/live/games/{match_id}/commands", ("POST",)),
+        ("/live/games/{match_id}/command-metrics", ("POST",)),
     }
 
 
+def test_live_command_metric_is_authenticated_and_uses_deduplication_key(monkeypatch):
+    writes = []
+
+    class MetricsSupabase(_Supabase):
+        def table(self, name):
+            self.table_name = name
+            return self
+
+        def upsert(self, value, *, on_conflict):
+            writes.append((self.table_name, value, on_conflict))
+            return self
+
+    client = _client(monkeypatch, supabase=MetricsSupabase())
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: {"id": "m1"})
+    metric = {
+        "operation_id": "command-1", "attempts": 2, "winner": "hedge",
+        "outcome": "resolved", "status": 200, "duration_ms": 925,
+        "hedge_delay_ms": 800, "loser_cancelled": True,
+    }
+
+    response = client.post(
+        "/dice/live/games/m1/command-metrics",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json=metric,
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {"accepted": True}
+    assert writes == [(
+        "dice_live_command_metrics",
+        {**metric, "match_id": "m1", "referee_id": USER},
+        "match_id,referee_id,operation_id",
+    )]
+
+
 def test_prediction_is_derived_from_canonical_snapshot(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {
         "id": "m1", "version": 4,
         "projection": {"score": [7, 3], "status": "active", "coverage": "complete", "observations": 2, "stats": {}},
@@ -110,7 +310,7 @@ def test_prediction_is_derived_from_canonical_snapshot(monkeypatch):
 
 
 def test_prediction_uses_independent_creation_snapshot_when_present(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     captured_at = datetime.now(timezone.utc).isoformat()
     row = {
         "id": "m1", "version": 4,
@@ -139,7 +339,7 @@ def test_prediction_uses_independent_creation_snapshot_when_present(monkeypatch)
 
 
 def test_prediction_rejects_a_probability_that_does_not_match_its_saved_inputs(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     captured_at = datetime.now(timezone.utc).isoformat()
     snapshot = _prediction_snapshot(captured_at)
     snapshot["team1_probability"] = 0.99
@@ -159,7 +359,7 @@ def test_prediction_rejects_a_probability_that_does_not_match_its_saved_inputs(m
 
 
 def test_prediction_rejects_stale_creation_snapshot_to_neutral(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     created_at = datetime.now(timezone.utc)
     row = {
         "id": "m1", "version": 1, "created_at": created_at.isoformat(),
@@ -177,7 +377,7 @@ def test_prediction_rejects_stale_creation_snapshot_to_neutral(monkeypatch):
 
 
 def test_prediction_rejects_unknown_dataset_contract(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     now = datetime.now(timezone.utc).isoformat()
     row = {
         "id": "m1", "version": 1, "created_at": now,
@@ -195,7 +395,7 @@ def test_prediction_rejects_unknown_dataset_contract(monkeypatch):
 
 
 def test_legacy_active_match_keeps_its_immutable_elo_prior(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     now = datetime.now(timezone.utc).isoformat()
     row = {
         "id": "m1", "version": 1, "created_at": now, "team_order": ["blue", "clay"],
@@ -214,7 +414,7 @@ def test_legacy_active_match_keeps_its_immutable_elo_prior(monkeypatch):
 
 
 def test_live_pulse_exposes_server_derived_story_and_personal_pick(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     row = {
         "id": "m1", "version": 0, "team_order": ["blue", "clay"],
         "teams": {"blue": ["a", "b"], "clay": ["c", "d"]},
@@ -264,8 +464,42 @@ def test_live_pulse_exposes_server_derived_story_and_personal_pick(monkeypatch):
     assert payload["virtual"]["rank"] == 2
 
 
+def test_live_pulse_accepts_tied_catch_up_score_past_target(monkeypatch):
+    client = _client(monkeypatch)
+    row = {
+        "id": "m1", "version": 1, "team_order": ["blue", "clay"],
+        "teams": {"blue": ["a", "b"], "clay": ["c", "d"]},
+        "rules_snapshot": {
+            "contract_version": 1, "ruleset_version": 1, "scoring_version": 1,
+            "target_score": 5, "win_by": 1,
+            "call_policy": {
+                "low_call_deadline": "before_surface_contact", "low_call_exceptions": [],
+                "short_boundary": "center_line_is_short", "midline_remedy": "consume_attempt",
+                "dispute_authority": "teams_or_designated_referee", "uncertain_call_remedy": "retoss",
+            },
+        },
+        "rating_snapshot": {},
+    }
+    event = {
+        "id": "score", "match_id": "m1", "match_version": 1, "sequence": 1,
+        "client_command_id": "c1", "command_index": 0, "kind": "score_checkpoint",
+        "recorded_by": "ref", "recorded_at": "2026-08-24T12:00:00Z",
+        "match_elapsed_ms": 0, "score": [10, 10], "coverage": "unknown",
+        "coverage_after": None, "replacement_for": None,
+        "replay_resolution_for": None, "replay_disposition": None,
+    }
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: row)
+    monkeypatch.setattr(routes, "_live_events", lambda *_args: [event])
+    monkeypatch.setattr(routes, "_live_pulse_virtual", lambda *_args: None)
+
+    response = client.get("/dice/live/games/m1/pulse", headers={"Authorization": f"Bearer {TOKEN}"})
+
+    assert response.status_code == 200
+    assert response.json()["points"][-1]["score"] == [10, 10]
+
+
 def test_live_pulse_accepts_result_reopen_story_point(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     row = {
         "id": "m1", "version": 3, "team_order": ["blue", "clay"],
         "teams": {"blue": ["a", "b"], "clay": ["c", "d"]},
@@ -315,6 +549,29 @@ def test_create_schema_is_strict_2v2_and_commands_are_strict():
         LiveCommandRequest(kind="record_throw", client_command_id="c", expected_version=0, thrower_id="p", outcome="point", extra="nope")
 
 
+def test_new_live_and_manually_logged_games_default_to_ranked():
+    live = LiveCreateRequest(
+        team_order=["a", "b"],
+        teams={"a": ["1", "2"], "b": ["3", "4"]},
+        rules_snapshot={},
+    )
+    manual = CreateGameRequest(
+        team1_score=5,
+        team2_score=3,
+        players=[{"user_id": "1", "team": 1}, {"user_id": "2", "team": 2}],
+    )
+
+    assert live.ranked is True
+    assert manual.ranked is True
+    with pytest.raises(ValidationError):
+        UpdateGameRequest(
+            team1_score=5,
+            team2_score=3,
+            players=[{"user_id": "1", "team": 1}, {"user_id": "2", "team": 2}],
+            expected_updated_at="2026-09-05T18:00:00Z",
+        )
+
+
 def test_virtual_bankroll_and_pick_are_tournament_scoped_and_server_quoted(monkeypatch):
     class VirtualAdmin(_Supabase):
         calls = []
@@ -339,7 +596,7 @@ def test_virtual_bankroll_and_pick_are_tournament_scoped_and_server_quoted(monke
                 }
             return type("Response", (), {"data": data})()
 
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     admin = VirtualAdmin()
     client.app.state.supabase_admin = admin
     tournament = "30000000-0000-0000-0000-000000000001"
@@ -378,7 +635,7 @@ def test_virtual_portfolio_returns_only_callers_tournament_picks(monkeypatch):
             }]})()
 
     tournament = "30000000-0000-0000-0000-000000000001"
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     admin = PickAdmin()
     client.app.state.supabase_admin = admin
 
@@ -392,7 +649,7 @@ def test_virtual_portfolio_returns_only_callers_tournament_picks(monkeypatch):
     assert admin.filters == [("tournament_id", tournament), ("user_id", USER)]
 
 
-def test_virtual_leaderboard_is_beta_gated_and_returns_authoritative_ranking(monkeypatch):
+def test_virtual_leaderboard_returns_authoritative_ranking(monkeypatch):
     tournament = "30000000-0000-0000-0000-000000000001"
     ranking = [{"rank": 1, "user_id": USER, "display_name": "Referee", "balance": 1200}]
     calls = []
@@ -402,17 +659,12 @@ def test_virtual_leaderboard_is_beta_gated_and_returns_authoritative_ranking(mon
         lambda client, tournament_id: calls.append((client, tournament_id)) or ranking,
     )
 
-    disabled = _client(monkeypatch, enabled=False).get(
-        f"/dice/virtual/tournaments/{tournament}/leaderboard",
-        headers={"Authorization": f"Bearer {TOKEN}"},
-    )
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     response = client.get(
         f"/dice/virtual/tournaments/{tournament}/leaderboard",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
 
-    assert disabled.status_code == 403
     assert response.status_code == 200
     assert response.json() == ranking
     assert calls == [(client.app.state.supabase_admin, tournament)]
@@ -438,7 +690,7 @@ def test_virtual_market_quote_comes_from_saved_ratings_not_client_input(monkeypa
                 data = [{"id": 4, "status": "open", **self.inserted}]
             return type("Response", (), {"data": data})()
 
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     admin = MarketAdmin()
     client.app.state.supabase_admin = admin
     captured_at = datetime.now(timezone.utc).isoformat()
@@ -502,13 +754,19 @@ def test_live_output_adds_registered_roster_display_names():
 
 
 def test_live_creation_rejects_roster_members_without_profiles(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
-    monkeypatch.setattr(routes, "create_live_match", lambda *_args: (_ for _ in ()).throw(
-        DiceLiveError(DiceLiveErrorCode.INVALID_ROSTER, "all live-match roster members must have registered profiles")
-    ))
+    client = _client(monkeypatch)
+    captured = {}
+    def reject_roster(*_args, **kwargs):
+        captured.update(kwargs)
+        raise DiceLiveError(
+            DiceLiveErrorCode.INVALID_ROSTER,
+            "all live-match roster members must have registered profiles",
+        )
+    monkeypatch.setattr(routes, "create_live_match", reject_roster)
+    creation_id = "75000000-0000-0000-0000-000000000001"
     response = client.post(
         "/dice/live/games",
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers={"Authorization": f"Bearer {TOKEN}", "Idempotency-Key": creation_id},
         json={
             "team_order": ["team1", "team2"],
             "teams": {"team1": ["p1", "p2"], "team2": ["p3", "p4"]},
@@ -520,10 +778,11 @@ def test_live_creation_rejects_roster_members_without_profiles(monkeypatch):
         "code": "dice_live.invalid_roster",
         "message": "all live-match roster members must have registered profiles",
     }
+    assert captured["creation_id"] == creation_id
 
 
 def test_live_creation_rejects_invalid_rules_before_persistence_and_lobby_visibility(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     payload = {
         "team_order": ["team1", "team2"],
         "teams": {"team1": ["p1", "p2"], "team2": ["p3", "p4"]},
@@ -540,15 +799,15 @@ def test_live_creation_rejects_invalid_rules_before_persistence_and_lobby_visibi
     assert lobby.json() == []
 
 
-def test_authentication_and_effective_access_fail_closed(monkeypatch):
-    client = _client(monkeypatch, enabled=False)
+def test_live_lobby_requires_authentication_but_not_a_rollout_flag(monkeypatch):
+    client = _client(monkeypatch)
     assert client.get("/dice/live/games").status_code == 401
     response = client.get("/dice/live/games", headers={"Authorization": f"Bearer {TOKEN}"})
-    assert response.status_code == 403 and response.json()["detail"] == "dice_live.feature_disabled"
+    assert response.status_code == 200
 
 
 def test_command_validation_uses_stable_domain_error_with_field_identity(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {})
     response = client.post(
         "/dice/live/games/m1/commands",
@@ -561,7 +820,7 @@ def test_command_validation_uses_stable_domain_error_with_field_identity(monkeyp
 
 
 def test_replay_target_is_irrelevant_to_non_record_commands(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {})
     response = client.post("/dice/live/games/m1/commands", headers={"Authorization": f"Bearer {TOKEN}"}, json={
         "kind": "reopen", "client_command_id": "c", "expected_version": 0,
@@ -576,7 +835,7 @@ def test_replay_target_is_irrelevant_to_non_record_commands(monkeypatch):
 
 
 def test_malformed_replay_target_is_a_stable_domain_error(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {})
     response = client.post("/dice/live/games/m1/commands", headers={"Authorization": f"Bearer {TOKEN}"}, json={
         "kind": "record_throw", "client_command_id": "c", "expected_version": 0,
@@ -591,7 +850,7 @@ def test_malformed_replay_target_is_a_stable_domain_error(monkeypatch):
 
 
 def test_authenticated_record_throw_passes_replay_target_to_service(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {})
     captured = {}
 
@@ -611,7 +870,7 @@ def test_authenticated_record_throw_passes_replay_target_to_service(monkeypatch)
 
 
 def test_virtual_reconciliation_failure_cannot_reject_accepted_command(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {
         "team_order": ["blue", "clay"], "version": 1,
     })
@@ -641,8 +900,136 @@ def test_virtual_reconciliation_failure_cannot_reject_accepted_command(monkeypat
     assert response.json()["accepted_version"] == 1
 
 
+def test_rating_replay_failure_keeps_command_success_and_records_durable_repair(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: {
+        "team_order": ["blue", "clay"], "version": 4, "ranked": True,
+    })
+    monkeypatch.setattr(routes, "append_command", lambda *_args: {
+        "accepted_version": 4,
+        "first_sequence": 4,
+        "last_sequence": 4,
+        "projection": {
+            "score": [5, 3], "status": "completed", "coverage": "partial",
+            "observations": 3, "stats": {},
+        },
+    })
+    monkeypatch.setattr(routes, "get_live_result", lambda *_args: {"id": "g1"})
+    monkeypatch.setattr(
+        routes,
+        "sync_live_result_rating",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("database unavailable")),
+    )
+    failures = []
+    monkeypatch.setattr(
+        routes,
+        "record_live_rating_repair_failure",
+        lambda _client, match_id, error: failures.append((match_id, str(error))),
+    )
+    monkeypatch.setattr(routes, "reconcile_match_winner_markets", lambda *_args: None)
+
+    response = client.post("/dice/live/games/m1/commands", headers={"Authorization": f"Bearer {TOKEN}"}, json={
+        "kind": "finish", "client_command_id": "finish-1", "expected_version": 3,
+        "coverage": "partial", "termination_reason": "other",
+    })
+
+    assert response.status_code == 200
+    assert failures == [("m1", "database unavailable")]
+
+
+@pytest.mark.parametrize("failing_read", ["live_match", "official_result"])
+def test_post_commit_read_failure_cannot_reject_accepted_command(monkeypatch, failing_read):
+    client = _client(monkeypatch)
+    reads = 0
+
+    def live_row(*_args):
+        nonlocal reads
+        reads += 1
+        if reads == 1 or failing_read == "official_result":
+            return {}
+        raise RuntimeError("read unavailable")
+
+    monkeypatch.setattr(routes, "_live_row", live_row)
+    if failing_read == "official_result":
+        monkeypatch.setattr(
+            routes,
+            "get_live_result",
+            lambda *_args: (_ for _ in ()).throw(RuntimeError("read unavailable")),
+        )
+    monkeypatch.setattr(routes, "append_command", lambda *_args: {
+        "accepted_version": 1, "first_sequence": 1, "last_sequence": 1,
+        "projection": {"score": [1, 0], "status": "active", "stats": {}},
+    })
+    monkeypatch.setattr(routes, "record_live_rating_repair_failure", lambda *_args: None)
+    reconciled = []
+    monkeypatch.setattr(routes, "reconcile_match_winner_markets", lambda *_args: reconciled.append(True))
+
+    response = client.post("/dice/live/games/m1/commands", headers={"Authorization": f"Bearer {TOKEN}"}, json={
+        "kind": "record_throw", "client_command_id": "point-1", "expected_version": 0,
+        "thrower_id": "p1", "outcome": "point",
+    })
+
+    assert response.status_code == 200
+    assert response.json()["accepted_version"] == 1
+    assert reconciled == []
+
+
+def test_live_detail_opportunistically_repairs_pending_rating(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(routes, "has_pending_live_rating_repair", lambda *_args: True)
+    repaired = []
+    monkeypatch.setattr(
+        routes,
+        "sync_live_result_rating",
+        lambda _client, match_id, **kwargs: repaired.append((match_id, kwargs)),
+    )
+    row = {
+        "id": "m1", "created_by": USER, "created_at": "2026-01-01T00:00:00Z",
+        "team_order": ["blue", "clay"], "teams": {"blue": [], "clay": []},
+        "rules_snapshot": {}, "version": 4, "status": "completed", "ranked": True,
+        "score": [5, 3], "detail_coverage": "partial",
+        "projection": {"score": [5, 3], "status": "completed", "stats": {}},
+        "events": [],
+    }
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: row)
+    monkeypatch.setattr(routes, "_live_output", lambda _request, value, detail=False: value)
+
+    response = client.get(
+        "/dice/live/games/m1", headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+
+    assert response.status_code == 200
+    assert repaired == [("m1", {"bounded": True})]
+
+
+def test_live_detail_survives_repair_queue_read_failure(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        routes,
+        "has_pending_live_rating_repair",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("queue unavailable")),
+    )
+    row = {
+        "id": "m1", "created_by": USER, "created_at": "2026-01-01T00:00:00Z",
+        "team_order": ["blue", "clay"], "teams": {"blue": [], "clay": []},
+        "rules_snapshot": {}, "version": 4, "status": "completed", "ranked": True,
+        "score": [5, 3], "detail_coverage": "partial",
+        "projection": {"score": [5, 3], "status": "completed", "stats": {}},
+        "events": [],
+    }
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: row)
+    monkeypatch.setattr(routes, "_live_output", lambda _request, value, detail=False: value)
+    monkeypatch.setattr(routes, "record_live_rating_repair_failure", lambda *_args: None)
+
+    response = client.get(
+        "/dice/live/games/m1", headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+
+    assert response.status_code == 200
+
+
 def test_accepted_command_reconciles_market_from_saved_team_order(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {
         "team_order": ["blue", "clay"], "version": 4,
     })
@@ -686,7 +1073,7 @@ def test_accepted_command_reconciles_market_from_saved_team_order(monkeypatch):
 def test_command_retry_reconciles_current_state_not_stored_receipt(
     monkeypatch, old_receipt_result, current_result, current_version,
 ):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {
         "team_order": ["blue", "clay"], "version": current_version,
     })
@@ -716,7 +1103,7 @@ def test_command_retry_reconciles_current_state_not_stored_receipt(
 
 
 def test_authenticated_replay_domain_error_keeps_target_identity(monkeypatch):
-    client = _client(monkeypatch, enabled=True)
+    client = _client(monkeypatch)
     monkeypatch.setattr(routes, "_live_row", lambda *_args: {})
     monkeypatch.setattr(routes, "append_command", lambda *_args: (_ for _ in ()).throw(
         DiceLiveError(DiceLiveErrorCode.INVALID_REPLAY, "replay_of target is inactive", event_id="decision-1", sequence=3)

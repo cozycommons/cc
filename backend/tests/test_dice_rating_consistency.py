@@ -67,3 +67,21 @@ def test_canonical_snapshot_rejects_invalid_references_and_ranked_rosters():
     profiles, games, players = _source()
     with pytest.raises(ValueError, match="incomplete roster"):
         validate_canonical_rating_snapshot(profiles, games, players[:1])
+
+
+def test_canonical_snapshot_ignores_duo_only_history_from_shared_analytics_snapshot():
+    profiles, games, players = _source()
+    games.append({
+        "id": "duo-game", "duo_only": True, "ranked": True, "winner_team": 1,
+        "team1_score": 11, "team2_score": 1,
+        "played_at": "2026-01-02T00:00:00+00:00",
+        "created_at": "2026-01-02T00:00:00+00:00", "live_result_state": None,
+    })
+    players.extend([
+        {"id": "duo-p1", "game_id": "duo-game", "user_id": "hidden-a", "team": 1,
+         "self_sinks": 0, "sinks": 0},
+        {"id": "duo-p2", "game_id": "duo-game", "user_id": "hidden-b", "team": 1,
+         "self_sinks": 0, "sinks": 0},
+    ])
+
+    validate_canonical_rating_snapshot(profiles, games, players)

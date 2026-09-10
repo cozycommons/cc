@@ -33,6 +33,23 @@ def validate_canonical_rating_snapshot(
 ) -> None:
     """Fail unless official history reproduces every persisted rating field."""
 
+    # The analytics snapshot is shared with duo replay and therefore contains
+    # duo-only games. Canonical individual state intentionally excludes that
+    # history, so remove the rows at this validation boundary as well as in the
+    # profile-progress reader and SQL mutation source.
+    duo_only_game_ids = {
+        row["id"]
+        for row in games
+        if isinstance(row, dict) and row.get("duo_only", False) and "id" in row
+    }
+    games = [
+        row for row in games
+        if not isinstance(row, dict) or row.get("id") not in duo_only_game_ids
+    ]
+    players = [
+        row for row in players
+        if not isinstance(row, dict) or row.get("game_id") not in duo_only_game_ids
+    ]
     source = {
         "profiles": [{"user_id": _project(row, PROFILE_STATE_FIELDS, "profile")["user_id"]}
                      for row in profiles],

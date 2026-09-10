@@ -2,7 +2,7 @@ export function rankLeaderboard(entries, valueKey, { provisionalKey } = {}) {
   let previousValue;
   let previousRank = 0;
 
-  return (entries || []).map((entry, index) => {
+  const ranked = (entries || []).map((entry, index) => {
     if (provisionalKey && entry[provisionalKey]) return { ...entry, rank: null };
 
     const value = entry[valueKey];
@@ -11,6 +11,11 @@ export function rankLeaderboard(entries, valueKey, { provisionalKey } = {}) {
     previousRank = rank;
     return { ...entry, rank };
   });
+  const rankCounts = ranked.reduce((counts, entry) => {
+    if (entry.rank !== null) counts.set(entry.rank, (counts.get(entry.rank) || 0) + 1);
+    return counts;
+  }, new Map());
+  return ranked.map((entry) => ({ ...entry, tied: entry.rank !== null && rankCounts.get(entry.rank) > 1 }));
 }
 
 export function leaderboardPreview(entries, currentUserId, limit = 3) {

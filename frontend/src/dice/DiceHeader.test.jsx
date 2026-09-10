@@ -11,7 +11,7 @@ function Location() {
   return <output>{useLocation().pathname}</output>;
 }
 
-function renderHeader(effective) {
+function renderHeader(effective = true) {
   const auth = {
     user: { id: 'user-1' },
     profile: {},
@@ -28,7 +28,15 @@ function renderHeader(effective) {
 }
 
 describe('DiceHeader match action', () => {
-  it('provides enabled profiles a direct path to the experimental stats page', () => {
+  it('uses ELO as the single player directory', () => {
+    renderHeader(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Players' }));
+
+    expect(screen.getByText('/dice/leaderboard/elo')).toBeInTheDocument();
+  });
+
+  it('provides profiles a direct path to Stats', () => {
     renderHeader(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Stats' }));
@@ -36,13 +44,14 @@ describe('DiceHeader match action', () => {
     expect(screen.getByText('/dice/stats')).toBeInTheDocument();
   });
 
-  it('does not expose the experimental stats page to disabled profiles', () => {
+  it('ignores a stale opt-out when exposing Stats', () => {
     renderHeader(false);
 
-    expect(screen.queryByRole('button', { name: 'Stats' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Stats' }));
+    expect(screen.getByText('/dice/stats')).toBeInTheDocument();
   });
 
-  it('starts the live match flow when the profile has access', () => {
+  it('starts the live match flow', () => {
     renderHeader(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Start Match' }));
@@ -51,11 +60,12 @@ describe('DiceHeader match action', () => {
     expect(screen.queryByRole('button', { name: 'Log Match' })).not.toBeInTheDocument();
   });
 
-  it('keeps direct match logging for profiles without access', () => {
+  it('does not restore direct logging for a stale opt-out', () => {
     renderHeader(false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Log Match' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Match' }));
 
-    expect(screen.getByText('/dice/log')).toBeInTheDocument();
+    expect(screen.getByText('/dice/live')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Log Match' })).not.toBeInTheDocument();
   });
 });

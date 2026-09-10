@@ -1,10 +1,14 @@
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from runtime_policy import LOCAL_SUPABASE_URL, initialize_runtime_policy
+from tests.dice_test_database import is_isolated_dice_test_database
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -180,6 +184,17 @@ def test_synthetic_referee_can_open_the_seeded_tournament_bankroll():
     ) in seed
 
 
+def test_seed_contains_replayable_duo_ladder_runs():
+    seed = (BACKEND_DIR.parent / "supabase" / "dice-seed.sql").read_text(encoding="utf-8")
+
+    assert "dice-duo-long-" in seed
+    assert "dice-duo-short-" in seed
+    assert "dice-duo-provisional-a-" in seed
+    assert "expected 12 Dice profiles" in (
+        BACKEND_DIR.parent / "scripts" / "reset-local-dice-db.sh"
+    ).read_text(encoding="utf-8")
+
+
 def test_sandbox_includes_compact_and_legacy_photo_fixtures():
     repository = BACKEND_DIR.parent
     seed = (repository / "supabase" / "dice-seed.sql").read_text(encoding="utf-8")
@@ -200,6 +215,61 @@ def test_feature_access_storage_is_service_role_only():
     assert "to authenticated" not in migration
 
 
+def test_live_referee_retirement_migration_normalizes_and_prevents_false_rows():
+    if not is_isolated_dice_test_database(os.environ):
+        pytest.skip("requires an allowlisted isolated PostgreSQL database")
+    migration = BACKEND_DIR / "migrations" / "0078_dice_live_referee_flag_retirement.sql"
+    result = subprocess.run(
+        ["psql", os.environ["DB_URL"], "-X", "-v", "ON_ERROR_STOP=1"],
+        cwd=BACKEND_DIR.parent,
+        input=f"""
+begin;
+alter table public.dice_feature_access
+  drop constraint dice_feature_access_released_check;
+alter table public.dice_feature_access alter column enabled set default false;
+delete from public.dice_feature_access
+where user_id in (
+  '10000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000002'
+);
+insert into public.dice_feature_access (user_id, feature, enabled)
+values ('10000000-0000-0000-0000-000000000001', 'dice_live_referee', false);
+\\i {migration}
+insert into public.dice_feature_access (user_id, feature)
+values ('10000000-0000-0000-0000-000000000002', 'dice_live_referee');
+do $$
+begin
+  if (select enabled from public.dice_feature_access
+      where user_id = '10000000-0000-0000-0000-000000000001') is not true then
+    raise exception 'historical false row was not normalized';
+  end if;
+  if (select enabled from public.dice_feature_access
+      where user_id = '10000000-0000-0000-0000-000000000002') is not true then
+    raise exception 'new row did not receive the released default';
+  end if;
+end
+$$;
+do $$
+begin
+  begin
+    update public.dice_feature_access set enabled = false
+    where user_id = '10000000-0000-0000-0000-000000000001';
+    raise exception 'retired false state was accepted';
+  exception when check_violation then
+    null;
+  end;
+end
+$$;
+rollback;
+""",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_backend_launcher_preserves_only_an_absolute_external_venv():
     launcher = (
         BACKEND_DIR.parent / "scripts" / "start-local-dice-backend.sh"
@@ -207,7 +277,32 @@ def test_backend_launcher_preserves_only_an_absolute_external_venv():
 
     assert '[[ "$BACKEND_VENV_DIR" != /* ]]' in launcher
     assert 'clean_env+=("BACKEND_VENV_DIR=$BACKEND_VENV_DIR")' in launcher
+    assert '"PORT=$backend_port"' in launcher
+    assert 'frontend_port="${DICE_FRONTEND_PORT:-8080}"' in launcher
+    assert '"CORS_EXTRA_ORIGINS=http://localhost:$frontend_port,http://127.0.0.1:$frontend_port"' in launcher
     assert "DICE_LIVE_REFEREE_ENABLED" not in launcher
+
+
+def test_backend_launcher_rejects_an_injection_shaped_frontend_port():
+    launcher = BACKEND_DIR.parent / "scripts" / "start-local-dice-backend.sh"
+    env = {
+        **os.environ,
+        "DICE_FRONTEND_PORT": "8083,https://attacker.example",
+        "CORS_EXTRA_ORIGINS": "https://attacker.example",
+    }
+
+    result = subprocess.run(
+        ["bash", launcher],
+        cwd=BACKEND_DIR.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "DICE_FRONTEND_PORT must be an integer from 1024 through 65535.\n"
 
 
 def test_browser_qa_lifecycle_preserves_database_and_tracks_owned_processes():
@@ -215,15 +310,68 @@ def test_browser_qa_lifecycle_preserves_database_and_tracks_owned_processes():
         encoding="utf-8"
     )
 
-    assert "start|status|stop" in lifecycle
+    assert "start|status|scenario|fuzz|stop" in lifecycle
     assert "start_new_session=True" in lifecycle
-    assert "dice_live_referee" in lifecycle
+    assert "source_fingerprint" in lifecycle
+    assert '[[ -f "$repo_dir/$path" ]] || continue' in lifecycle
+    assert 'hash-object "$repo_dir/$path" 2>/dev/null' in lifecycle
+    assert "ps -o lstart=" in lifecycle
+    assert "/dice/me/features/dice_live_referee" in lifecycle
+    assert '{"enabled":false}' in lifecycle
+    assert '"opted_in": True, "effective": True' in lifecycle
     assert "/dice/live/games" in lifecycle
     assert "this command will not reset it" in lifecycle
     assert "dice-dev.sh reset" not in lifecycle
     assert "dice-dev.sh stop" not in lifecycle
+    assert 'DICE_QA_BACKEND_PORT:-8000' in lifecycle
+    assert 'DICE_QA_FRONTEND_PORT:-8080' in lifecycle
+    assert '${repo_key}-${backend_port}-${frontend_port}' in lifecycle
+    assert lifecycle.count("current_owned_pid backend") >= 3
+    assert 'http://localhost:$frontend_port' in lifecycle
     for linux_only_dependency in ("/proc/", "command -v ss", "setsid"):
         assert linux_only_dependency not in lifecycle
+
+
+def test_frontend_launcher_allows_only_an_explicit_loopback_api_override():
+    launcher = (
+        BACKEND_DIR.parent / "scripts" / "start-local-dice-frontend.sh"
+    ).read_text(encoding="utf-8")
+
+    assert 'dice_backend_url="${VITE_API_URL:-http://localhost:8000}"' in launcher
+    assert "^http://(localhost|127\\.0\\.0\\.1):[0-9]+$" in launcher
+    assert 'DICE_FRONTEND_PORT:-8080' in launcher
+
+
+def test_browser_qa_can_build_a_completed_rating_replay_scenario():
+    repository = BACKEND_DIR.parent
+    lifecycle = (repository / "scripts" / "dice-browser-qa.sh").read_text(encoding="utf-8")
+    scenario = (repository / "scripts" / "dice-live-scenario.py").read_text(encoding="utf-8")
+
+    assert "does not own a current-source browser QA stack" in lifecycle
+    assert 'export VITE_API_URL="http://localhost:$backend_port"' in lifecycle
+    assert "dice-live-scenario.py" in lifecycle
+    assert '"ranked": False' in scenario
+    assert "individual_elo_backfill" in scenario
+    assert "duo_replay" in scenario
+    assert "unranked_restore" in scenario
+    assert 'game_id not in entry["game_ids"]' in scenario
+    assert 'game_id in entry["game_ids"]' in scenario
+    assert 'unranked["ranked"] is not False' in scenario
+    assert "profiles_restored != profiles_before" in scenario
+    assert '"rating_deviation", "elo_model_version"' in scenario
+
+
+def test_sandbox_scenario_allows_ready_to_finish_play_to_continue():
+    path = BACKEND_DIR.parent / "scripts" / "dice-live-scenario.py"
+    spec = importlib.util.spec_from_file_location("dice_live_scenario", path)
+    assert spec is not None and spec.loader is not None
+    scenario = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scenario)
+
+    assert scenario.ready_to_finish((5, 0), 5, 1)
+    assert scenario.ready_to_finish((6, 5), 5, 1)
+    assert scenario.ready_to_finish((25, 23), 5, 2)
+    assert not scenario.ready_to_finish((5, 5), 5, 1)
 
 
 def test_repository_documents_unix_developer_tooling_contract():
@@ -234,6 +382,74 @@ def test_repository_documents_unix_developer_tooling_contract():
     assert "Bash 3.2" in instructions
     assert "Do not commit Linux-only" in instructions
     assert "Do not add PowerShell" in instructions
+
+
+def test_migration_contract_preflight_runs_on_supported_platform():
+    script = BACKEND_DIR.parent / "scripts" / "check-dice-migration-contract.sh"
+    contract = (
+        BACKEND_DIR / "migrations" / "DICE_SCHEMA_CONTRACT_VERSION"
+    ).read_text(encoding="utf-8").strip()
+
+    result = subprocess.run(
+        ["bash", script],
+        cwd=BACKEND_DIR.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert contract in result.stdout
+    assert "-printf" not in script.read_text(encoding="utf-8")
+
+
+def test_regression_entrypoint_is_safe_and_covers_source_and_sandbox_paths():
+    script = BACKEND_DIR.parent / "scripts" / "test-dice-regressions.sh"
+    source = script.read_text(encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", script, "--help"],
+        cwd=BACKEND_DIR.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "source|sandbox|all" in result.stdout
+    assert "unset DB_URL" in source
+    assert "127.0.0.1:54322/postgres" in source
+    assert "create database" in source
+    assert "drop database if exists" in source
+    assert "DICE_TEST_DATABASE=1" in source
+    assert 'backend/tests/test_dice*.py' in source
+    assert "src/dice sandboxConfig.test.js src/runtimeConfig.test.js" in source
+    assert source.count('"$repo_dir/scripts/dice-browser-qa.sh" scenario') == 4
+
+
+def test_destructive_database_tests_require_an_allowlisted_isolated_database():
+    marker = {"DICE_TEST_DATABASE": "1"}
+
+    assert is_isolated_dice_test_database({
+        **marker,
+        "DB_URL": "postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_501_1234",
+    })
+    assert is_isolated_dice_test_database({
+        "GITHUB_ACTIONS": "true",
+        "DB_URL": "postgresql://postgres:postgres@localhost:5432/dummi_test",
+    })
+    assert not is_isolated_dice_test_database({
+        **marker,
+        "DB_URL": "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+    })
+    assert not is_isolated_dice_test_database({
+        **marker,
+        "DB_URL": "postgresql://postgres:postgres@example.com:5432/dummi_test",
+    })
+    assert not is_isolated_dice_test_database({
+        **marker,
+        "DB_URL": "postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_501_1234?host=example.com",
+    })
 
 
 def test_codespace_stays_private_and_starts_the_synthetic_harness():

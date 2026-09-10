@@ -15,8 +15,10 @@ _READINESS_TIMEOUT_SECONDS = float(os.getenv("READINESS_TIMEOUT_SECONDS", "2"))
 
 
 def _check_required_schema(supabase) -> None:
-    """Verify that the database is reachable and the core Dice schema exists."""
-    supabase.table("dice_profiles").select("user_id").limit(1).execute()
+    """Attest actual Dice and Commons schema, not a copied version ledger."""
+    result = supabase.rpc("dice_release_readiness").execute()
+    if result.data is not True:
+        raise RuntimeError("Release schema attestation failed")
 
 
 @router.get("/health")
@@ -31,7 +33,7 @@ def health_check():
 @router.get("/ready")
 async def readiness_check(request: Request):
     """Bounded dependency and core-schema probe for deployment readiness."""
-    supabase = getattr(request.app.state, "supabase_admin", None)
+    supabase = getattr(request.app.state, "readiness_supabase", None) or getattr(request.app.state, "supabase_admin", None)
     if supabase is None:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

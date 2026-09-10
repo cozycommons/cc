@@ -1,20 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { diceApi } from './api.js';
 import { resolveRuntimeServiceUrl } from '../runtimeConfig.js';
 
 export const ADMIN_EMAILS = new Set(['jason.keungg@gmail.com', 'homatt999@gmail.com']);
-const DEFAULT_FEATURE_STATE = Object.freeze({ opted_in: false, effective: false });
-export const DEFAULT_DICE_FEATURES = Object.freeze({ dice_live_referee: DEFAULT_FEATURE_STATE });
 
-export function normalizeDiceFeatures(features) {
-  const liveReferee = features?.dice_live_referee;
-  return {
-    dice_live_referee: {
-      opted_in: liveReferee?.opted_in === true,
-      effective: liveReferee?.effective === true,
-    },
-  };
+function isLocalHarnessOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    const port = Number(url.port);
+    return (
+      url.origin === origin &&
+      url.protocol === 'http:' &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
+      Number.isInteger(port) &&
+      port >= 1024 &&
+      port <= 65535
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function canUseSyntheticDiceAccount({
@@ -32,9 +37,7 @@ export function canUseSyntheticDiceAccount({
   }
 
   const isLoopback = supabaseUrl === 'http://127.0.0.1:54321';
-  const isLoopbackBrowser =
-    browserOrigin === 'http://127.0.0.1:8080' ||
-    browserOrigin === 'http://localhost:8080';
+  const isLoopbackBrowser = isLocalHarnessOrigin(browserOrigin);
   const isCodespacesBrowser =
     browserOrigin === codespacesOrigin ||
     browserOrigin === 'http://127.0.0.1:8080' ||
@@ -98,32 +101,28 @@ export function useDiceAuth() {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [features, setFeatures] = useState(DEFAULT_DICE_FEATURES);
   const [loading, setLoading] = useState(true);
+  const activeToken = useRef(null);
 
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
     let syncVersion = 0;
+    let authEventVersion = 0;
 
     const syncSession = async (session) => {
       if (cancelled) return;
       const version = ++syncVersion;
+      activeToken.current = session?.access_token ?? null;
+      setLoading(true);
       setUser(session?.user ?? null);
       setToken(session?.access_token ?? null);
-      setFeatures(DEFAULT_DICE_FEATURES);
+      setProfile(null);
       if (session?.access_token) {
         try {
-          const [p, loadedFeatures] = await Promise.all([
-            diceApi.getMyProfile(session.access_token),
-            diceApi.getMyFeatures(session.access_token).catch((err) => {
-              console.error('Failed to load dice features:', err);
-              return DEFAULT_DICE_FEATURES;
-            }),
-          ]);
+          const p = await diceApi.getMyProfile(session.access_token);
           if (!cancelled && version === syncVersion) {
             setProfile(p);
-            setFeatures(normalizeDiceFeatures(loadedFeatures));
           }
         } catch (err) {
           console.error('Failed to load dice profile:', err);
@@ -134,12 +133,15 @@ export function useDiceAuth() {
       if (!cancelled && version === syncVersion) setLoading(false);
     };
 
+    const initialAuthEventVersion = authEventVersion;
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       try {
         const replacement = await recoverResetSyntheticSession(supabase, session);
+        if (authEventVersion !== initialAuthEventVersion) return;
         await syncSession(replacement || session);
       } catch (error) {
         console.error('Failed to refresh the synthetic Dice session:', error);
+        if (authEventVersion !== initialAuthEventVersion) return;
         await syncSession(session);
       }
     });
@@ -147,6 +149,7 @@ export function useDiceAuth() {
       // getSession above owns initial hydration so a stale pre-reset token is
       // validated before any profile requests are made.
       if (event === 'INITIAL_SESSION') return;
+      authEventVersion += 1;
       syncSession(session);
     });
 
@@ -158,25 +161,11 @@ export function useDiceAuth() {
 
   const refreshProfile = async () => {
     if (!token) return;
-    const p = await diceApi.getMyProfile(token);
+    const requestedToken = token;
+    const p = await diceApi.getMyProfile(requestedToken);
+    if (activeToken.current !== requestedToken) return undefined;
     setProfile(p);
     return p;
-  };
-
-  const refreshFeatures = async () => {
-    if (!token) return DEFAULT_DICE_FEATURES;
-    const loadedFeatures = normalizeDiceFeatures(await diceApi.getMyFeatures(token));
-    setFeatures(loadedFeatures);
-    return loadedFeatures;
-  };
-
-  const updateFeature = async (feature, enabled) => {
-    if (!token) return DEFAULT_DICE_FEATURES;
-    const loadedFeatures = normalizeDiceFeatures(
-      await diceApi.updateMyFeature(token, feature, enabled),
-    );
-    setFeatures(loadedFeatures);
-    return loadedFeatures;
   };
 
   const isAdmin = ADMIN_EMAILS.has(user?.email?.toLowerCase());
@@ -201,12 +190,9 @@ export function useDiceAuth() {
     user,
     token,
     profile,
-    features,
     loading,
     isAdmin,
     refreshProfile,
-    refreshFeatures,
-    updateFeature,
     signIn,
     signOut,
   };

@@ -258,10 +258,22 @@ def apply_game_rating_mutation(
     mutation_id: str | None = None,
     actor_id: str | None = None,
     request_fingerprint: str | None = None,
+    rpc_name: str = "dice_rating_apply_game_mutation",
+    rpc_parameters: dict | None = None,
 ) -> dict:
     """Apply a raw game mutation and its canonical generation atomically."""
 
     mutation_id = str(uuid.UUID(mutation_id)) if mutation_id else str(uuid.uuid4())
+    canonical_parameter_names = {
+        "p_mutation_id", "p_source", "p_operation", "p_game", "p_players",
+        "p_expected_source", "p_player_snapshots", "p_profile_states",
+        "p_source_digest", "p_output_digest", "p_actor_id", "p_request_fingerprint",
+    }
+    collisions = canonical_parameter_names & (rpc_parameters or {}).keys()
+    if collisions:
+        raise ValueError(
+            f"RPC parameters cannot override canonical fields: {', '.join(sorted(collisions))}"
+        )
     for attempt in range(attempts):
         source = client.rpc("dice_rating_source_snapshot").execute().data
         applied_game = game
@@ -276,23 +288,22 @@ def apply_game_rating_mutation(
         expected_source = project_game_mutation(source, operation, applied_game, players)
         plan = build_rating_plan(expected_source)
         try:
-            result = client.rpc(
-                "dice_rating_apply_game_mutation",
-                {
-                    "p_mutation_id": mutation_id,
-                    "p_source": source,
-                    "p_operation": operation,
-                    "p_game": applied_game,
-                    "p_players": players,
-                    "p_expected_source": plan.source,
-                    "p_player_snapshots": plan.player_snapshots,
-                    "p_profile_states": plan.profile_states,
-                    "p_source_digest": plan.source_digest,
-                    "p_output_digest": plan.output_digest,
-                    "p_actor_id": actor_id,
-                    "p_request_fingerprint": request_fingerprint,
-                },
-            ).execute().data
+            parameters = {
+                "p_mutation_id": mutation_id,
+                "p_source": source,
+                "p_operation": operation,
+                "p_game": applied_game,
+                "p_players": players,
+                "p_expected_source": plan.source,
+                "p_player_snapshots": plan.player_snapshots,
+                "p_profile_states": plan.profile_states,
+                "p_source_digest": plan.source_digest,
+                "p_output_digest": plan.output_digest,
+                "p_actor_id": actor_id,
+                "p_request_fingerprint": request_fingerprint,
+            }
+            parameters.update(rpc_parameters or {})
+            result = client.rpc(rpc_name, parameters).execute().data
         except Exception as mutation_error:  # noqa: BLE001 - transports use several exception types
             if "dice_rating.idempotency_conflict" in str(mutation_error):
                 raise ValueError("idempotency key conflicts with an earlier request") from mutation_error
@@ -312,7 +323,7 @@ def apply_game_rating_mutation(
                     "request_fingerprint": request_fingerprint,
                 }
                 replay_matches_request = (
-                    operation == "create"
+                    request_fingerprint is not None
                     and isinstance(receipt, dict)
                     and receipt.get("mutation_id") == mutation_id
                     and receipt.get("operation") == operation
@@ -350,7 +361,7 @@ def apply_game_rating_mutation(
             **expected_counts,
         }
         replay_matches_request = (
-            operation == "create"
+            request_fingerprint is not None
             and isinstance(result, dict)
             and result.get("replayed") is True
             and result.get("mutation_id") == mutation_id

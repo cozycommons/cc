@@ -39,6 +39,15 @@ def test_score_and_terminal_states_move_probability_monotonically():
     assert won.team2 == 0.0
 
 
+def test_tied_score_past_target_remains_a_valid_deuce_state():
+    tied = project_live_probability(
+        _input(team1_score=10, team2_score=10, target_score=5, win_by=1)
+    )
+
+    assert tied.team1 == pytest.approx(0.5)
+    assert tied.team2 == pytest.approx(0.5)
+
+
 def test_projection_adapter_uses_authoritative_score_and_rules_snapshot():
     projection = DiceLiveProjection(
         score=[7, 3], status="active", coverage="complete", observations=4, stats={}

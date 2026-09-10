@@ -68,7 +68,7 @@ The outcomes and scoring are:
 | Outcome | Meaning | Score |
 | --- | --- | --- |
 | `miss` | Legal throw with no table result | none |
-| `caught` | The throw hit the table and was caught | none |
+| `caught` | The throw hit the table without scoring; optional `catcher_id` identifies a receiving-team catch | none |
 | `point` | Ordinary point | throwing team +1 |
 | `sink` | Thrower sank the die | throwing team +1 |
 | `self_sink` | Thrower caused a self-sink | opposing team +2 |
@@ -76,7 +76,7 @@ The outcomes and scoring are:
 | `invalid` | Short, low, or both | none |
 
 `table` is not a separate outcome: a table hit that does not score is
-`caught`. `short` and `low` always make the throw `invalid`; neither may be
+`caught`, whether a player catches it or nobody does. `short` and `low` always make the throw `invalid`; neither may be
 attached to any other outcome. An invalid observation has a nonempty
 `characteristics` set containing only `short`, `low`, or both.
 
@@ -96,6 +96,12 @@ statistics and coverage remain unchanged. A retoss cannot target an off-roof
 event, and off-roof is rejected while a replay decision is pending.
 
 ### Attribution
+
+An ordinary `caught` observation retains an optional `catcher_id` separately
+from the thrower's table-hit outcome. When present, the server validates that
+the catcher is on the receiving team. When absent, the event means nobody
+caught the table hit. Both cases score zero; only the former credits a player
+catch.
 
 `self_sink` is a negative statistic attributed to the thrower. The opponents
 receive two team points, but no opponent player receives a throw statistic.
@@ -228,9 +234,8 @@ The live-referee UI exposes these server-backed actions:
 
 It should not expose event kinds, replacement links, command indexes, or
 coverage-chain mechanics. During a dispute it should pause rather than publish
-a provisional score. Scoring requires the user to join as a referee, and the
-live-referee routes must not read game data unless that user's effective
-feature gate is enabled.
+a provisional score. Scoring requires a registered user to join as a referee;
+there is no rollout flag or classic Dice fallback.
 
 Exact possession, attempt number, and next thrower are advisory in contract
 v1. Partial coverage can omit the facts needed to reconstruct them. The UI may

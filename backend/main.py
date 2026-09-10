@@ -1,5 +1,7 @@
 import logging
+import json
 import os
+from time import perf_counter
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -11,6 +13,7 @@ from analytics import router as analytics_router
 from commons.routes import router as commons_router
 from dice.routes import router as dice_router
 from runtime_policy import initialize_runtime_policy
+from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
 from supabase_cache import CachedSupabaseClient, SupabaseTTLCacheStore
 
@@ -66,9 +69,28 @@ app.state.supabase_admin: Client = CachedSupabaseClient(
     create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY), cache_store=cache_store
 )
 app.state.analytics_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+app.state.readiness_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 # Commons scene reads must not use the generic 120-second cache. Every command
 # is fenced by the database version and the next GET must observe it promptly.
 app.state.commons_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+
+@app.middleware("http")
+async def log_dice_live_commands(request, call_next):
+    tags = dice_live_request_tags(request.url.path, request.headers)
+    if not tags:
+        return await call_next(request)
+    started = perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        logging.getLogger("uvicorn.error").info(json.dumps({
+            "event": "dice_live_command", "status_code": status,
+            "duration_ms": round((perf_counter() - started) * 1000, 2), **tags,
+        }))
 
 
 @app.get("/")

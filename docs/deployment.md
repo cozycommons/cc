@@ -24,6 +24,7 @@ Runtime-only environment variables:
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_KEY=your-secret-or-service-role-key
 SUPABASE_DB_URL=postgresql://postgres.your-project-ref:your-db-password@your-session-pooler.supabase.com:5432/postgres?sslmode=require
+EXPECTED_SUPABASE_PROJECT=your-project-ref
 # Only needed when SUPABASE_DB_URL uses db.your-project-ref.supabase.co:5432.
 SUPABASE_DB_POOLER_HOST=your-session-pooler.supabase.com
 CORS_EXTRA_ORIGINS=https://your-frontend-hostname
@@ -81,23 +82,36 @@ Configure the following as a protected, serialized Coolify pre-deploy command
 for the Commons backend:
 
 ```bash
-bash apply-commons-migrations.sh
+bash apply-shared-migrations.sh
 ```
 
-Give only this command `SUPABASE_DB_URL` (and, when using a direct Supabase
-database hostname, `SUPABASE_DB_POOLER_HOST`); runtime application secrets
-remain in Coolify. The Commons command applies only the Commons migration
-family and verifies its checked-in schema contract before the new backend
-starts. Dice migrations remain owned by the Dice deployment and its existing
-protected workflow.
+Give this command `SUPABASE_DB_URL`, `EXPECTED_SUPABASE_PROJECT` (staging:
+`dhjnrnhjghsulbevfhno`) and, for a direct database hostname,
+`SUPABASE_DB_POOLER_HOST`. It applies both Dice and Commons in one locked
+database session, records checksums transactionally, rejects ledger gaps and
+changed known checksums before applying files, and checks both schema contracts.
+Unknown historical checksums remain unknown; migration 0079 reconciles the
+observed staging drift without changing historical SQL. A copied ledger is not
+proof of readiness: `/ready` executes the actual schema contracts as service_role.
+
+CI uses PostgreSQL 17 and real PostgREST with synthetic credentials. Missing
+database configuration or any skipped Dice test fails the backend job. It checks
+fresh installation, repeat application, drift repair, checksum/gap rejection,
+and browser-role denial of the readiness RPC.
+
+Configure a serialized backend scheduled task to run `python -m dice_maintenance`
+every minute with the backend runtime environment. Run
+`python -m dice_maintenance --rebuild` once after deployment to reconcile ratings
+and drain repair work; verify the repair queue is empty afterward. Scheduling is
+external to the API process: `ENABLE_SCHEDULER` does not start a worker here.
+Do not configure the old repository's unrelated jobs in this deployment.
 
 ## Supabase provisioning
 
 Before smoke testing the deployment:
 
-1. Apply the checked-in Commons migrations to the new project using the
-   protected backend pre-deploy command above. Apply Dice and analytics
-   migrations only through the separate Dice deployment workflow.
+1. Apply both checked-in migration families using the shared pre-deploy command
+   above. Do not run the old Dice deployment workflow against this project.
 2. Create the `dice-profile-photos` and `dice-comment-photos` storage buckets
    and verify their policies.
 3. Configure the frontend URL in Supabase Auth URL configuration and in any

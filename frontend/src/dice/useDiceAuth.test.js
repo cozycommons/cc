@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   canUseSyntheticDiceAccount,
-  DEFAULT_DICE_FEATURES,
-  normalizeDiceFeatures,
 } from './useDiceAuth.js';
 
 const base = {
@@ -19,6 +17,13 @@ const base = {
 describe('canUseSyntheticDiceAccount', () => {
   it('allows the exact loopback harness', () => {
     expect(canUseSyntheticDiceAccount(base)).toBe(true);
+  });
+
+  it.each([
+    'http://localhost:8083',
+    'http://127.0.0.1:49152',
+  ])('allows a loopback harness on alternate unprivileged port %s', (browserOrigin) => {
+    expect(canUseSyntheticDiceAccount({ ...base, browserOrigin })).toBe(true);
   });
 
   it('allows an exact same-origin Codespaces sandbox', () => {
@@ -46,6 +51,16 @@ describe('canUseSyntheticDiceAccount', () => {
     { localHarness: false },
     { supabaseUrl: 'https://example.supabase.co' },
     { browserOrigin: 'https://attacker.example' },
+    { browserOrigin: 'http://localhost' },
+    { browserOrigin: 'http://localhost:80' },
+    { browserOrigin: 'http://127.0.0.1:65536' },
+    { browserOrigin: 'http://localhost:8083/path' },
+    { browserOrigin: 'http://localhost.example:8083' },
+    {
+      supabaseUrl: 'http://127.0.0.1:49152',
+      codespacesOrigin: 'https://friendly-space-8080.app.github.dev',
+      browserOrigin: 'http://127.0.0.1:49152',
+    },
     {
       supabaseUrl: 'https://friendly-space-8080.app.github.dev',
       codespacesOrigin: 'https://friendly-space-8080.app.github.dev',
@@ -55,21 +70,5 @@ describe('canUseSyntheticDiceAccount', () => {
     { password: '' },
   ])('rejects unsafe synthetic login configuration: %o', (override) => {
     expect(canUseSyntheticDiceAccount({ ...base, ...override })).toBe(false);
-  });
-});
-
-describe('normalizeDiceFeatures', () => {
-  it('fails closed when access is missing or malformed', () => {
-    expect(normalizeDiceFeatures()).toEqual(DEFAULT_DICE_FEATURES);
-    expect(normalizeDiceFeatures({ dice_live_referee: 'true' })).toEqual(DEFAULT_DICE_FEATURES);
-  });
-
-  it('keeps only known boolean capabilities', () => {
-    expect(normalizeDiceFeatures({
-      dice_live_referee: { opted_in: true, effective: true },
-      future_flag: { opted_in: true, effective: true },
-    })).toEqual({
-      dice_live_referee: { opted_in: true, effective: true },
-    });
   });
 });

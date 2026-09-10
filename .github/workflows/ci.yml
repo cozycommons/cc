@@ -36,6 +36,19 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    env:
+      DB_URL: postgresql://postgres:postgres@localhost:5432/dummi_test
+      DICE_REQUIRE_DATABASE_TESTS: "1"
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: dummi_test
+          POSTGRES_PASSWORD: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dummi_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,18 +58,31 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: python -m venv backend/.venv
       - run: backend/.venv/bin/python -m pip install -r backend/requirements.txt
+      - name: Bootstrap isolated Dice database
+        run: bash scripts/bootstrap-dice-test-db.sh
+      - name: Start isolated PostgREST contract service
+        run: |
+          docker run -d --name dice-ci-rest --network host \
+            -e PGRST_DB_URI=postgresql://postgres:postgres@localhost:5432/dummi_test \
+            -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon \
+            -e PGRST_SERVER_PORT=55433 \
+            -e PGRST_JWT_SECRET=local-dice-test-jwt-secret-at-least-32-characters \
+            public.ecr.aws/supabase/postgrest:v14.14
+          python3 scripts/ci-rest-proxy.py > /tmp/dice-ci-rest.log 2>&1 &
+          curl --fail --retry 20 --retry-delay 1 --retry-connrefused --retry-all-errors http://127.0.0.1:55431/rest/v1/ > /dev/null
+          echo 'API_URL=http://127.0.0.1:55431' >> "$GITHUB_ENV"
+          echo 'DICE_TEST_REST_URL=http://127.0.0.1:55431' >> "$GITHUB_ENV"
+          backend/.venv/bin/python -c "import jwt; print('SECRET_KEY='+jwt.encode({'role':'service_role'},'local-dice-test-jwt-secret-at-least-32-characters',algorithm='HS256'))" >> "$GITHUB_ENV"
       - run: backend/.venv/bin/python -m pytest backend/tests -q
         env:
           PYTHONPATH: backend
       - run: scripts/check-dice-migration-contract.sh
       - run: scripts/check-commons-migration-contract.sh
       - run: scripts/test-supabase-db-url.sh
-      - run: scripts/test-commons-migrations.sh
-      - run: scripts/test-backend-predeployment.sh
       - name: Build backend container
         run: docker build --tag cozy-commons-backend-ci backend
       - name: Verify backend pre-deployment payload
         run: >-
           docker run --rm cozy-commons-backend-ci sh -c
-          'test -x /app/apply-shared-migrations.sh &&
+          'test -f /app/migration_runner.py && test -x /app/apply-shared-migrations.sh &&
           test -x /app/apply-commons-migrations.sh && command -v psql'

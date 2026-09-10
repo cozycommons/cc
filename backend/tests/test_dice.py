@@ -136,7 +136,10 @@ class _FakeQuery:
     def _filtered(self):
         rows = self._rows_ref
         for field, value in self._eq:
-            rows = [r for r in rows if r.get(field) == value]
+            rows = [
+                r for r in rows
+                if r.get(field, False if field == "duo_only" else None) == value
+            ]
         for field, values in self._in:
             rows = [r for r in rows if r.get(field) in values]
         for field, value in self._gt:
@@ -356,7 +359,11 @@ class _FakeSupabase:
                     return _Resp(deepcopy(
                         supabase.rating_mutation_receipts.get(params["p_mutation_id"])
                     ))
-                if name == "dice_rating_apply_game_mutation":
+                if name in {
+                    "dice_rating_apply_game_mutation",
+                    "dice_rating_apply_game_mutation_if_current",
+                    "dice_live_delete_with_rating_mutation",
+                }:
                     mutation_id = params["p_mutation_id"]
                     prior_receipt = supabase.rating_mutation_receipts.get(mutation_id)
                     if prior_receipt is not None:
@@ -373,6 +380,15 @@ class _FakeSupabase:
                         raise RuntimeError("synthetic mutation failure")
                     if params["p_source"] != supabase._rating_source_snapshot():
                         raise RuntimeError("dice_rating.source_changed")
+                    if name == "dice_rating_apply_game_mutation_if_current":
+                        current = next(
+                            row for row in supabase.tables.get("dice_games", [])
+                            if row["id"] == params["p_game"]["id"]
+                        )
+                        if datetime.fromisoformat(current["updated_at"]) != datetime.fromisoformat(
+                            params["p_expected_updated_at"]
+                        ):
+                            raise RuntimeError("dice_game.stale_update")
                     working = deepcopy(supabase.tables)
                     game_id = params["p_game"]["id"]
                     games = working.setdefault("dice_games", [])
@@ -380,7 +396,12 @@ class _FakeSupabase:
                     games[:] = [row for row in games if row["id"] != game_id]
                     players[:] = [row for row in players if row["game_id"] != game_id]
                     if params["p_operation"] != "delete":
-                        games.append(dict(params["p_game"]))
+                        committed_game = dict(params["p_game"])
+                        if params["p_operation"] == "create":
+                            committed_game["updated_at"] = committed_game["created_at"]
+                        elif params["p_operation"] == "update":
+                            committed_game["updated_at"] = datetime.now(timezone.utc).isoformat()
+                        games.append(committed_game)
                         players.extend(
                             {**dict(row), "game_id": game_id} for row in params["p_players"]
                         )
@@ -396,6 +417,19 @@ class _FakeSupabase:
                         profiles_by_id[state["user_id"]].update(state)
                     if supabase.rating_mutation_failure == "after":
                         raise RuntimeError("synthetic mutation failure")
+                    if name == "dice_live_delete_with_rating_mutation":
+                        live_match = next((
+                            row for row in working.get("dice_live_matches", [])
+                            if row["id"] == params["p_match_id"]
+                            and row.get("official_result_id") == game_id
+                            and not row.get("deleted_at")
+                        ), None)
+                        if live_match is None:
+                            raise RuntimeError("dice_live.delete_source_changed")
+                        live_match.update({
+                            "deleted_at": datetime.now(timezone.utc).isoformat(),
+                            "deleted_by": params["p_deleted_by"],
+                        })
                     supabase.tables = working
                     supabase.rating_mutation_receipts[mutation_id] = {
                         "mutation_id": mutation_id,
@@ -473,35 +507,31 @@ def _build_client(
     return TestClient(app, raise_server_exceptions=raise_server_exceptions), supabase
 
 
-# --- Private profile-level feature access ---
+# --- Retired feature flag compatibility ---
 
 
 def _feature_state(opted_in=False, effective=False):
     return {"dice_live_referee": {"opted_in": opted_in, "effective": effective}}
 
 
-def test_my_features_defaults_off_when_access_is_missing():
+def test_my_features_defaults_on_when_access_is_missing():
     client, _ = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
 
     response = client.get("/dice/me/features", headers=_headers(HOST_TOKEN))
 
     assert response.status_code == 200
-    assert response.json() == _feature_state()
-
-
-def test_profile_access_is_effective_without_a_global_gate():
-    client, _ = _build_client(
-        profiles=ROSTER,
-        auth_users=AUTH_USERS,
-        feature_access=[{"user_id": "u1", "feature": "dice_live_referee", "enabled": True}],
-    )
-
-    response = client.get("/dice/me/features", headers=_headers(HOST_TOKEN))
-
     assert response.json() == _feature_state(opted_in=True, effective=True)
 
 
-def test_disabled_profile_access_stays_off():
+def test_my_features_require_a_registered_profile():
+    client, _ = _build_client(auth_users=AUTH_USERS)
+
+    response = client.get("/dice/me/features", headers=_headers(HOST_TOKEN))
+
+    assert response.status_code == 404
+
+
+def test_historical_false_feature_row_cannot_restore_classic_dice():
     client, _ = _build_client(
         profiles=ROSTER,
         auth_users=AUTH_USERS,
@@ -510,22 +540,153 @@ def test_disabled_profile_access_stays_off():
 
     response = client.get("/dice/me/features", headers=_headers(HOST_TOKEN))
 
-    assert response.json() == _feature_state()
+    assert response.json() == _feature_state(opted_in=True, effective=True)
 
 
-def test_profile_access_enables_feature():
+def test_released_feature_compatibility_does_not_query_retired_storage():
+    client, supabase = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
+    table = supabase.table
+
+    def without_retired_storage(name):
+        if name == "dice_feature_access":
+            raise RuntimeError("retired feature store unavailable")
+        return table(name)
+
+    supabase.table = without_retired_storage
+
+    response = client.get("/dice/me/features", headers=_headers(HOST_TOKEN))
+
+    assert response.status_code == 200
+    assert response.json() == _feature_state(opted_in=True, effective=True)
+
+
+def _duo_api_summary():
+    from dice.schemas import DuoMember, DuoSummary
+
+    return DuoSummary(
+        duo_id="2:u12:u2",
+        members=(DuoMember(user_id="u1", display_name="Alpha"), DuoMember(user_id="u2", display_name="Bravo")),
+        elo=1550,
+        rating_deviation=180,
+        conservative_score=1370,
+        wins=3,
+        losses=1,
+        games=4,
+        win_rate=0.75,
+        placed=True,
+        homepage_eligible=False,
+        rank=1,
+        current_streak=2,
+        best_streak=3,
+    )
+
+
+def test_duo_endpoints_require_a_profile_but_ignore_historical_opt_outs(monkeypatch):
+    from dice import routes as dice_routes
+    from dice.schemas import DuoLadderOut
+
+    client, _ = _build_client(auth_users=AUTH_USERS)
+    response = client.get("/dice/stats/duos", headers=_headers(HOST_TOKEN))
+
+    assert response.status_code == 404
+    monkeypatch.setattr(dice_routes, "list_duo_ladder", lambda *_args: DuoLadderOut(ranked=[_duo_api_summary()], to_watch=[]))
+    client, _ = _build_client(
+        profiles=ROSTER,
+        auth_users=AUTH_USERS,
+        feature_access=[{"user_id": "u1", "feature": "dice_live_referee", "enabled": False}],
+    )
+    response = client.get("/dice/stats/duos", headers=_headers(HOST_TOKEN))
+
+    assert response.status_code == 200
+    assert response.json()["ranked"][0]["duo_id"] == "2:u12:u2"
+
+
+def test_duo_detail_returns_underlying_game_evidence(monkeypatch):
+    from datetime import datetime, timezone
+    from dice import routes as dice_routes
+    from dice.schemas import DuoDetailOut, DuoHeadToHead, DuoTransitionOut
+
+    summary = _duo_api_summary()
+    transition = DuoTransitionOut(
+        game_id="game-1",
+        opponent_duo_id="2:u32:u4",
+        before_elo=1500,
+        after_elo=1525,
+        delta=25,
+        result="win",
+        score=(11, 8),
+        played_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    detail = DuoDetailOut(
+        summary=summary,
+        rating_history=[transition],
+        games=[transition],
+        head_to_head=[DuoHeadToHead(opponent_duo_id="2:u32:u4", wins=1, losses=0, games=1, game_ids=["game-1"])],
+    )
+    monkeypatch.setattr(dice_routes, "get_duo_detail", lambda *_args: detail)
     client, _ = _build_client(
         profiles=ROSTER,
         auth_users=AUTH_USERS,
         feature_access=[{"user_id": "u1", "feature": "dice_live_referee", "enabled": True}],
     )
 
-    response = client.get("/dice/me/features", headers=_headers(HOST_TOKEN))
+    response = client.get("/dice/stats/duos/2%3Au12%3Au2", headers=_headers(HOST_TOKEN))
 
-    assert response.json() == _feature_state(opted_in=True, effective=True)
+    assert response.status_code == 200
+    assert response.json()["games"][0]["game_id"] == "game-1"
 
 
-def test_user_can_enable_and_disable_their_own_feature():
+def test_duo_game_evidence_requires_an_authenticated_registered_profile(monkeypatch):
+    from dice import routes as dice_routes
+
+    monkeypatch.setattr(dice_routes, "get_game", lambda *_args, **_kwargs: None)
+    client, _ = _build_client(
+        auth_users=AUTH_USERS,
+        feature_access=[{"user_id": "u1", "feature": "dice_live_referee", "enabled": False}],
+    )
+
+    assert client.get("/dice/games/game-1?duo=1").status_code == 401
+    assert client.get("/dice/games/game-1?duo=1", headers=_headers(HOST_TOKEN)).status_code == 404
+
+
+def test_completed_live_game_reads_persisted_canonical_recorded_stats():
+    client, supabase = _build_client(profiles=deepcopy(ROSTER), auth_users=AUTH_USERS)
+    game = client.post(
+        "/dice/games",
+        headers=_headers(HOST_TOKEN),
+        json={
+            "ranked": False,
+            "team1_score": 5,
+            "team2_score": 3,
+            "players": [
+                {"user_id": "u1", "team": 1}, {"user_id": "u2", "team": 1},
+                {"user_id": "u3", "team": 2}, {"user_id": "u4", "team": 2},
+            ],
+        },
+    ).json()
+    recorded_stats = {
+        "schema_version": "dice-recorded-stats/v1",
+        "coverage": "partial",
+        "observations": 2,
+        "outcomes": {"point": 1, "caught": 1},
+        "players": {
+            "u1": {"outcomes": {"point": 1}},
+            "u2": {"outcomes": {}, "table_catches": 1},
+        },
+    }
+    supabase.tables["dice_games"][0].update({
+        "source_live_match_id": "live-1",
+        "recorded_stats": recorded_stats,
+    })
+
+    response = client.get(f"/dice/games/{game['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["recorded_stats"] == recorded_stats
+    assert client.get("/dice/games?limit=10").json()[0]["recorded_stats"] == recorded_stats
+
+
+def test_stale_client_cannot_disable_the_released_experience():
     client, supabase = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
 
     enabled = client.put(
@@ -542,10 +703,8 @@ def test_user_can_enable_and_disable_their_own_feature():
     assert enabled.status_code == 200
     assert enabled.json() == _feature_state(opted_in=True, effective=True)
     assert disabled.status_code == 200
-    assert disabled.json() == _feature_state()
-    assert supabase.tables["dice_feature_access"] == [
-        {"user_id": "u1", "feature": "dice_live_referee", "enabled": False}
-    ]
+    assert disabled.json() == _feature_state(opted_in=True, effective=True)
+    assert supabase.tables["dice_feature_access"] == []
 
 
 def test_user_self_update_is_immediately_effective():
@@ -612,7 +771,7 @@ def test_non_admin_cannot_mutate_feature_access():
     assert response.status_code == 403
 
 
-def test_admin_can_enable_profile_access():
+def test_admin_compatibility_endpoint_cannot_disable_released_experience():
     client, supabase = _build_client(
         profiles=ROSTER,
         auth_users=AUTH_USERS,
@@ -621,7 +780,7 @@ def test_admin_can_enable_profile_access():
     response = client.put(
         "/dice/admin/features/u1",
         headers=_headers(ADMIN_TOKEN),
-        json={"feature": "dice_live_referee", "enabled": True},
+        json={"feature": "dice_live_referee", "enabled": False},
     )
 
     assert response.status_code == 200
@@ -630,22 +789,23 @@ def test_admin_can_enable_profile_access():
         "feature": "dice_live_referee",
         "state": {"opted_in": True, "effective": True},
     }
-    assert supabase.tables["dice_feature_access"] == [
-        {"user_id": "u1", "feature": "dice_live_referee", "enabled": True}
-    ]
+    assert supabase.tables["dice_feature_access"] == []
 
 
-def test_user_only_receives_their_own_effective_features():
+def test_all_registered_users_receive_the_released_feature_state():
     client, _ = _build_client(
         profiles=ROSTER,
         auth_users=AUTH_USERS,
-        feature_access=[{"user_id": "u4", "feature": "dice_live_referee", "enabled": True}],
+        feature_access=[
+            {"user_id": "u1", "feature": "dice_live_referee", "enabled": False},
+            {"user_id": "u4", "feature": "dice_live_referee", "enabled": True},
+        ],
     )
 
     host_response = client.get("/dice/me/features", headers=_headers(HOST_TOKEN))
     other_response = client.get("/dice/me/features", headers=_headers(OTHER_TOKEN))
 
-    assert host_response.json() == _feature_state()
+    assert host_response.json() == _feature_state(opted_in=True, effective=True)
     assert other_response.json() == _feature_state(opted_in=True, effective=True)
 
 
@@ -1139,6 +1299,74 @@ def test_scheduled_match_rejects_more_than_two_slots():
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("team1", "team2"),
+    [(["u1", "u1"], ["u4", None]), (["u1", "u2"], ["u4", "u1"])],
+)
+def test_scheduled_match_rejects_duplicate_players(team1, team2):
+    client, _ = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
+
+    created = client.post(
+        "/dice/tournaments",
+        json={"name": "Summer Bash", "starts_at": "2026-08-15T22:00:00Z", "host_user_ids": ["u1"]},
+        headers=_headers(ADMIN_TOKEN),
+    ).json()
+
+    response = client.post(
+        f"/dice/tournaments/{created['id']}/matches",
+        json={"team1_player_ids": team1, "team2_player_ids": team2},
+        headers=_headers(HOST_TOKEN),
+    )
+
+    assert response.status_code == 422
+    assert "a player can only appear once" in response.text
+
+
+def test_scheduled_match_update_rejects_duplicate_players():
+    client, _ = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
+    created = client.post(
+        "/dice/tournaments",
+        json={"name": "Summer Bash", "starts_at": "2026-08-15T22:00:00Z", "host_user_ids": ["u1"]},
+        headers=_headers(ADMIN_TOKEN),
+    ).json()
+    added = client.post(
+        f"/dice/tournaments/{created['id']}/matches",
+        json={"team1_player_ids": ["u1", "u2"], "team2_player_ids": ["u4", None]},
+        headers=_headers(HOST_TOKEN),
+    ).json()["scheduled_matches"][0]
+
+    response = client.put(
+        f"/dice/tournaments/{created['id']}/matches/{added['id']}",
+        json={"team1_player_ids": ["u1", "u2"], "team2_player_ids": ["u4", "u1"]},
+        headers=_headers(HOST_TOKEN),
+    )
+
+    assert response.status_code == 422
+    assert "a player can only appear once" in response.text
+
+
+def test_legacy_duplicate_scheduled_players_render_as_tbd_slots():
+    client, supabase = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
+    created = client.post(
+        "/dice/tournaments",
+        json={"name": "Summer Bash", "starts_at": "2026-08-15T22:00:00Z", "host_user_ids": ["u1"]},
+        headers=_headers(ADMIN_TOKEN),
+    ).json()
+    stored = next(row for row in supabase.tables["dice_tournaments"] if row["id"] == created["id"])
+    stored["data"]["scheduled_matches"] = [{
+        "id": "legacy-duplicate",
+        "label": None,
+        "team1_player_ids": ["u1", "u1"],
+        "team2_player_ids": ["u4", "u1"],
+    }]
+
+    match = client.get(f"/dice/tournaments/{created['id']}").json()["scheduled_matches"][0]
+
+    assert [player["user_id"] for player in match["team1"]] == ["u1", None]
+    assert [player["user_id"] for player in match["team2"]] == ["u4", None]
+    assert stored["data"]["scheduled_matches"][0]["team1_player_ids"] == ["u1", "u1"]
 
 
 def test_only_host_or_admin_can_add_a_scheduled_match():
@@ -1895,6 +2123,52 @@ def test_a_game_not_tied_to_a_tournament_does_not_appear_in_its_completed_games(
     assert tournament["completed_games"] == []
 
 
+def test_tournament_completed_games_exclude_duo_only_history():
+    from dice.repository import list_games_for_tournament
+
+    client, supabase = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
+    timestamp = "2026-08-15T22:00:00+00:00"
+    supabase.tables["dice_games"] = [
+        {
+            "id": "normal-game",
+            "created_by": "u1",
+            "ranked": False,
+            "duo_only": False,
+            "team1_score": 11,
+            "team2_score": 7,
+            "winner_team": 1,
+            "played_at": timestamp,
+            "created_at": timestamp,
+            "tournament_id": "tournament-1",
+        },
+        {
+            "id": "duo-game",
+            "created_by": "u1",
+            "ranked": True,
+            "duo_only": True,
+            "team1_score": 11,
+            "team2_score": 7,
+            "winner_team": 1,
+            "played_at": timestamp,
+            "created_at": timestamp,
+            "tournament_id": "tournament-1",
+        },
+    ]
+    supabase.tables["dice_game_players"] = [
+        {"game_id": game_id, "user_id": user_id, "team": 1, "self_sinks": 0, "sinks": 0, "elo_before": None, "elo_after": None}
+        for game_id in ("normal-game", "duo-game")
+        for user_id in ("u1", "u2")
+    ] + [
+        {"game_id": game_id, "user_id": user_id, "team": 2, "self_sinks": 0, "sinks": 0, "elo_before": None, "elo_after": None}
+        for game_id in ("normal-game", "duo-game")
+        for user_id in ("u3", "u4")
+    ]
+
+    games = list_games_for_tournament(supabase, "tournament-1")
+
+    assert [game.id for game in games] == ["normal-game"]
+
+
 def test_cannot_log_a_match_against_an_unknown_tournament():
     client, _ = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
 
@@ -2113,7 +2387,12 @@ def test_canonical_update_and_delete_replace_the_complete_generation():
 
     updated = client.put(
         f"/dice/games/{game['id']}",
-        json={**payload, "team1_score": 7, "team2_score": 11},
+        json={
+            **payload,
+            "team1_score": 7,
+            "team2_score": 11,
+            "expected_updated_at": game["updated_at"],
+        },
         headers=_headers(HOST_TOKEN),
     )
     assert updated.status_code == 200
@@ -2128,11 +2407,53 @@ def test_canonical_update_and_delete_replace_the_complete_generation():
     assert supabase.tables == before_failed_delete
 
     supabase.rating_mutation_failure = None
-    deleted = client.delete(f"/dice/games/{game['id']}", headers=_headers(HOST_TOKEN))
+    delete_headers = {
+        **_headers(HOST_TOKEN),
+        "Idempotency-Key": "73000000-0000-0000-0000-000000000001",
+    }
+    deleted = client.delete(f"/dice/games/{game['id']}", headers=delete_headers)
+    retried = client.delete(f"/dice/games/{game['id']}", headers=delete_headers)
     assert deleted.status_code == 200
+    assert retried.status_code == 200
     assert supabase.tables["dice_games"] == []
     assert client.get("/dice/profiles/u1").json()["elo_rating"] == 1500
     assert client.get("/dice/profiles/u2").json()["rating_deviation"] == 350.0
+
+
+def test_canonical_update_rejects_a_stale_editor_without_changing_ratings():
+    client, supabase = _build_client(profiles=deepcopy(ROSTER), auth_users=AUTH_USERS)
+    payload = {
+        "ranked": True,
+        "team1_score": 11,
+        "team2_score": 7,
+        "players": _game_players_1v1("u1", "u2"),
+    }
+    game = client.post("/dice/games", json=payload, headers=_headers(HOST_TOKEN)).json()
+    revision = game["updated_at"]
+
+    first = client.put(
+        f"/dice/games/{game['id']}",
+        json={**payload, "team1_score": 12, "expected_updated_at": revision},
+        headers=_headers(HOST_TOKEN),
+    )
+    assert first.status_code == 200
+    before_stale = deepcopy(supabase.tables)
+
+    stale = client.put(
+        f"/dice/games/{game['id']}",
+        json={
+            **payload,
+            "team1_score": 7,
+            "team2_score": 11,
+            "ranked": False,
+            "expected_updated_at": revision,
+        },
+        headers=_headers(HOST_TOKEN),
+    )
+
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "dice_game.stale_update"
+    assert supabase.tables == before_stale
 
 
 def test_live_materialized_game_rejects_manual_update_and_delete():
@@ -2148,15 +2469,80 @@ def test_live_materialized_game_rejects_manual_update_and_delete():
     before = deepcopy(supabase.tables)
 
     updated = client.put(
-        f"/dice/games/{game['id']}", json={**payload, "ranked": True},
+        f"/dice/games/{game['id']}",
+        json={**payload, "ranked": True, "expected_updated_at": game["updated_at"]},
         headers=_headers(HOST_TOKEN),
     )
     deleted = client.delete(f"/dice/games/{game['id']}", headers=_headers(HOST_TOKEN))
 
-    assert updated.status_code == 400
+    assert updated.status_code == 409
     assert deleted.status_code == 400
-    assert "through the live match" in updated.json()["detail"]
-    assert supabase.tables == before
+    assert updated.json()["detail"]["code"] == "dice_game.live_result_requires_referee_correction"
+    assert supabase.tables["dice_games"] == before["dice_games"]
+    assert supabase.tables["dice_game_players"] == before["dice_game_players"]
+
+
+def test_live_materialized_game_can_be_deleted_by_a_participant():
+    client, supabase = _build_client(profiles=deepcopy(ROSTER), auth_users=AUTH_USERS)
+    payload = {"ranked": False, "team1_score": 11, "team2_score": 7,
+               "players": _game_players_1v1("u1", "u2")}
+    game = client.post("/dice/games", json=payload, headers=_headers(HOST_TOKEN)).json()
+    supabase.tables["dice_games"][0]["source_live_match_id"] = "live-match-delete"
+    supabase.tables["dice_live_matches"] = [{
+        "id": "live-match-delete", "official_result_id": game["id"], "deleted_at": None,
+    }]
+
+    mutation_id = "74000000-0000-0000-0000-000000000001"
+    headers = {**_headers(HOST_TOKEN), "Idempotency-Key": mutation_id}
+    deleted = client.delete(f"/dice/games/{game['id']}", headers=headers)
+    retried = client.delete(f"/dice/games/{game['id']}", headers=headers)
+
+    assert deleted.status_code == 200
+    assert retried.status_code == 200
+    assert retried.json() == {"deleted": True}
+    assert not supabase.tables["dice_games"]
+    assert supabase.tables["dice_live_matches"][0]["deleted_by"] == "u1"
+
+
+def test_delete_recovers_when_a_parallel_request_commits_after_preflight(monkeypatch):
+    client, supabase = _build_client(profiles=deepcopy(ROSTER), auth_users=AUTH_USERS)
+    payload = {"ranked": False, "team1_score": 11, "team2_score": 7,
+               "players": _game_players_1v1("u1", "u2")}
+    game = client.post("/dice/games", json=payload, headers=_headers(HOST_TOKEN)).json()
+    supabase.tables["dice_games"][0]["source_live_match_id"] = "live-match-race"
+
+    def lose_delete_race(*_args, **_kwargs):
+        raise ValueError("game not found")
+
+    receipt_call = {}
+
+    def committed_after_race(client, mutation_id, game_id, deleted_by):
+        receipt_call.update({
+            "client": client,
+            "mutation_id": mutation_id,
+            "game_id": game_id,
+            "deleted_by": deleted_by,
+        })
+        return True
+
+    monkeypatch.setattr("dice.routes.delete_live_match", lose_delete_race)
+    monkeypatch.setattr("dice.routes.game_delete_was_committed", committed_after_race)
+    response = client.delete(
+        f"/dice/games/{game['id']}",
+        headers={
+            **_headers(HOST_TOKEN),
+            "Idempotency-Key": "74000000-0000-0000-0000-000000000002",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": True}
+    assert receipt_call == {
+        "client": supabase,
+        "mutation_id": "74000000-0000-0000-0000-000000000002",
+        "game_id": game["id"],
+        "deleted_by": "u1",
+    }
 
 
 def test_logging_a_match_with_three_players_is_rejected():

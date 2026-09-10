@@ -7,14 +7,16 @@ const shortId = (value) => {
   return text.split('-').length === 5 ? text.slice(-4) : text.split('-')[0];
 };
 
-export default function LiveGameActionSheet({ target, game, roster, selectedThrowerId, replayOfEventId, playerLabel = shortId, playerProfile, saving, onCommand, onCancel }) {
-  const resultMode = target === 'result' || target === 'fifa';
-  const correction = target !== 'game' && !resultMode ? target : null;
-  const [step, setStep] = useState(correction ? 'change' : resultMode ? 'result' : 'menu');
+export default function LiveGameActionSheet({ target, game, roster, selectedThrowerId, replayOfEventId, playerLabel = shortId, playerProfile, scoreAnchor, saving, onCommand, onCancel }) {
+  const resultMode = ['result', 'fifa', 'caught'].includes(target);
+  const directFixScore = target === 'fix_score';
+  const correction = target !== 'game' && !resultMode && !directFixScore ? target : null;
+  const [step, setStep] = useState(directFixScore ? 'fix_score' : correction ? 'change' : resultMode ? 'result' : 'menu');
   const [outcome, setOutcome] = useState(correction?.outcome || 'miss');
+  const [catcher, setCatcher] = useState(correction?.outcome === 'caught' ? correction.catcher_id || 'none' : '');
   const [characteristics, setCharacteristics] = useState(correction?.characteristics || []);
   const [thrower, setThrower] = useState(correction?.thrower_id || selectedThrowerId || roster[0]?.playerId || '');
-  const [advancedOutcome, setAdvancedOutcome] = useState(target === 'fifa' ? 'fifa' : 'sink');
+  const [advancedOutcome, setAdvancedOutcome] = useState(target === 'fifa' ? 'fifa' : target === 'caught' ? 'caught' : 'sink');
   const [fifaFinish, setFifaFinish] = useState(null);
   const [fifaKicker, setFifaKicker] = useState('');
   const [score, setScore] = useState(game.score.map(String));
@@ -25,7 +27,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
   const selected = roster.find(({ playerId }) => playerId === responsible);
   const losingIndex = selected ? game.team_order.indexOf(selected.teamId) : 0;
   const offRoofScore = losingIndex === 0 ? '0–5' : '5–0';
-  const sheetTitle = correction ? 'Fix result' : step === 'menu' ? 'Game options' : step === 'result' ? (target === 'fifa' ? 'FIFA' : 'More results') : step.replaceAll('_', ' ');
+  const sheetTitle = correction ? 'Fix result' : step === 'menu' ? 'Game options' : step === 'result' ? ({ fifa: 'FIFA', caught: 'Table hit' }[target] || 'More results') : step === 'fix_score' ? 'Catch up score' : step.replaceAll('_', ' ');
   const throwerTeamId = roster.find(({ playerId }) => playerId === thrower)?.teamId;
   const fifaRoster = throwerTeamId ? roster.filter(({ teamId }) => teamId !== throwerTeamId) : [];
   const savingTeam = throwerTeamId ? roster.filter(({ teamId }) => teamId === throwerTeamId) : [];
@@ -49,10 +51,27 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
     ...(replayOfEventId ? { replay_of: replayOfEventId } : {}),
     fifa,
   });
-  const fifaPlayerButtons = (legend, players, onPick, selectedId = '') => (
+  const playerButtons = (legend, players, onPick, selectedId = '', allowNobody = false) => (
     <fieldset className="mt-4">
       <legend className="jk-label">{legend}</legend>
       <div className="grid grid-cols-2 gap-2 mt-2">
+        {allowNobody && (
+          <button
+            type="button"
+            aria-label={`${legend}: Dead — no one caught it`}
+            aria-pressed={selectedId === 'none'}
+            disabled={saving}
+            className="col-span-2 min-h-14 p-3 rounded-lg border text-left transition-transform active:scale-[.97]"
+            onClick={() => onPick('none')}
+            style={{
+              borderColor: selectedId === 'none' ? 'var(--accent-gold)' : 'var(--border-subtle)',
+              background: selectedId === 'none' ? 'color-mix(in srgb, var(--accent-gold) 15%, var(--surface-card))' : 'var(--surface-card)',
+            }}
+          >
+            <span className="font-semibold">Dead</span>
+            <span className="jk-label block mt-0.5">No catch · 0 points</span>
+          </button>
+        )}
         {players.map(({ playerId }) => (
           <button
             key={playerId}
@@ -74,6 +93,8 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
       </div>
     </fieldset>
   );
+  const tableCatchButtons = (onPick, selectedId = '') => playerButtons('WHO CAUGHT IT?', fifaRoster, onPick, selectedId, true);
+  const catcherField = catcher && catcher !== 'none' ? { catcher_id: catcher } : {};
   const characteristicControls = () => (
     <fieldset className="mt-3">
       <legend className="jk-label">Invalid characteristics</legend>
@@ -107,10 +128,14 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
 
         {correction && step === 'change' && <>
           <p className="text-sm mt-2">Edit the call, or retoss if they’ll throw again.</p>
-          {select('replacement-thrower', 'Replacement thrower', thrower, setThrower, roster.map(({ playerId }) => ({ value: playerId, label: playerLabel(playerId) })))}
-          {select('replacement-outcome', 'Replacement result', outcome, setOutcome, ['point', 'miss', 'caught', 'sink', 'self_sink', 'invalid'].map((value) => ({ value, label: value.replaceAll('_', ' ') })))}
+          {scoreAnchor && <p className="text-sm mt-3 p-3 rounded-md" style={{ background: 'var(--surface-sunken)' }}>
+            This result is before the official {scoreAnchor.score.join('–')} score checkpoint. Changing it updates recorded stats, but the score stays fixed. Use Catch up score afterward if the official score should change.
+          </p>}
+          {select('replacement-thrower', 'Replacement thrower', thrower, (playerId) => { setThrower(playerId); setCatcher(''); }, roster.map(({ playerId }) => ({ value: playerId, label: playerLabel(playerId) })))}
+          {select('replacement-outcome', 'Replacement result', outcome, (value) => { setOutcome(value); if (value !== 'caught') setCatcher(''); }, ['point', 'miss', 'caught', 'sink', 'self_sink', 'invalid'].map((value) => ({ value, label: value.replaceAll('_', ' ') })))}
+          {outcome === 'caught' && tableCatchButtons(setCatcher, catcher)}
           {outcome === 'invalid' && characteristicControls()}
-          <Button className="w-full min-h-12 mt-4" disabled={saving || (outcome === 'invalid' && characteristics.length === 0)} onClick={() => onCommand({ kind: 'change_throw', target_event_id: correction.id, thrower_id: thrower, outcome, ...(outcome === 'invalid' ? { characteristics } : {}), reason: 'mistaken_entry' })}>Change result</Button>
+          <Button className="w-full min-h-12 mt-4" disabled={saving || (outcome === 'caught' && !catcher) || (outcome === 'invalid' && characteristics.length === 0)} onClick={() => onCommand({ kind: 'change_throw', target_event_id: correction.id, thrower_id: thrower, outcome, ...(outcome === 'caught' ? catcherField : {}), ...(outcome === 'invalid' ? { characteristics } : {}), reason: 'mistaken_entry' })}>{scoreAnchor ? 'Change recorded result' : 'Change result'}</Button>
           <div className="grid grid-cols-2 gap-2 mt-2"><Button variant="outline" onClick={() => setStep('retoss')}>Retoss — new physical throw</Button><Button variant="outline" onClick={() => setStep('remove')}>Remove mistaken entry</Button></div>
         </>}
 
@@ -122,7 +147,9 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
 
         {step === 'remove' && <>
           <p className="font-semibold mt-4">Remove {playerLabel(correction.thrower_id)}’s {correction.outcome}?</p>
-          <p className="text-sm mt-2">The score will update. History stays intact.</p>
+          <p className="text-sm mt-2">{scoreAnchor
+            ? `Recorded stats will update, but the official ${scoreAnchor.score.join('–')} checkpoint keeps the score fixed. History stays intact.`
+            : 'The score will update. History stays intact.'}</p>
           <Button className="w-full min-h-12 mt-4" disabled={saving} onClick={() => onCommand({ kind: 'remove_mistake', target_event_id: correction.id, reason: 'mistaken_entry' })}>Confirm remove mistaken entry</Button>
         </>}
 
@@ -137,12 +164,16 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
             <p className="jk-label">THROWER</p>
             <p className="font-semibold mt-1">{playerLabel(thrower)}</p>
           </div>
-          {target !== 'fifa' && select('advanced-result', 'Result', advancedOutcome, setAdvancedOutcome, [
+          {target === 'result' && select('advanced-result', 'Result', advancedOutcome, setAdvancedOutcome, [
             { value: 'sink', label: 'Sink' },
             { value: 'self_sink', label: 'Self-sink' },
             { value: 'fifa', label: 'FIFA' },
             { value: 'invalid', label: 'Invalid (short / low)' },
           ])}
+          {advancedOutcome === 'caught' && tableCatchButtons((catcherId) => onCommand({
+            kind: 'record_throw', thrower_id: thrower, outcome: 'caught', ...(catcherId !== 'none' ? { catcher_id: catcherId } : {}),
+            ...(replayOfEventId ? { replay_of: replayOfEventId } : {}),
+          }))}
           {advancedOutcome === 'invalid' && characteristicControls()}
           {advancedOutcome === 'fifa' && <>
             <fieldset className="mt-4">
@@ -172,22 +203,22 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
                 ))}
               </div>
             </fieldset>
-            {fifaFinish === 'goal' && fifaPlayerButtons('WHO SCORED?', fifaRoster, (playerId) => recordFifa({ finish: 'goal', kicker_id: playerId }))}
-            {fifaFinish === 'kick_catch' && fifaPlayerButtons('WHO CAUGHT IT?', fifaRoster, (catcherId) => recordFifa({
+            {fifaFinish === 'goal' && playerButtons('WHO SCORED?', fifaRoster, (playerId) => recordFifa({ finish: 'goal', kicker_id: playerId }))}
+            {fifaFinish === 'kick_catch' && playerButtons('WHO CAUGHT IT?', fifaRoster, (catcherId) => recordFifa({
               finish: 'kick_catch',
               kicker_id: fifaRoster.find(({ playerId }) => playerId !== catcherId)?.playerId,
               catcher_id: catcherId,
             }))}
             {fifaFinish === 'goal_saved' && <>
-              {fifaPlayerButtons('WHO KICKED IT?', fifaRoster, setFifaKicker, fifaKicker)}
-              {fifaKicker && fifaPlayerButtons('WHO SAVED IT?', savingTeam, (saverId) => recordFifa({
+              {playerButtons('WHO KICKED IT?', fifaRoster, setFifaKicker, fifaKicker)}
+              {fifaKicker && playerButtons('WHO SAVED IT?', savingTeam, (saverId) => recordFifa({
                 finish: 'goal_saved',
                 kicker_id: fifaKicker,
                 saver_id: saverId,
               }))}
             </>}
           </>}
-          {advancedOutcome !== 'fifa' && <Button className="w-full min-h-12 mt-4" disabled={saving || (advancedOutcome === 'invalid' && characteristics.length === 0)} onClick={() => onCommand({
+          {!['caught', 'fifa'].includes(advancedOutcome) && <Button className="w-full min-h-12 mt-4" disabled={saving || (advancedOutcome === 'invalid' && characteristics.length === 0)} onClick={() => onCommand({
             kind: 'record_throw', thrower_id: thrower, outcome: advancedOutcome,
             ...(replayOfEventId ? { replay_of: replayOfEventId } : {}),
             ...(advancedOutcome === 'invalid' ? { characteristics } : {}),
@@ -219,7 +250,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
           <Button className="w-full min-h-12 mt-4" disabled={saving} style={{ background: 'var(--state-danger)', color: '#fff' }} onClick={() => onCommand({ kind: 'off_roof', responsible_player_id: responsible })}>Confirm off-roof {offRoofScore} completion</Button>
         </>}
 
-        <Button variant="ghost" className="w-full min-h-12 mt-3" onClick={step === 'change' || step === 'menu' || step === 'result' ? onCancel : () => setStep(correction ? 'change' : 'menu')}>Cancel</Button>
+        <Button variant="ghost" className="w-full min-h-12 mt-3" onClick={step === 'change' || step === 'menu' || step === 'result' || directFixScore ? onCancel : () => setStep(correction ? 'change' : 'menu')}>Cancel</Button>
       </section>
     </div>
   );

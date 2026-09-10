@@ -19,7 +19,6 @@ import VirtualDice from './VirtualDice.jsx';
 
 const auth = {
   token: 'token', user: { id: 'me' },
-  features: { dice_live_referee: { effective: true } },
 };
 const game = {
   id: 'game-1', version: 0, status: 'active', team_order: ['blue', 'clay'],

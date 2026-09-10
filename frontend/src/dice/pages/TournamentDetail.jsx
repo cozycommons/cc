@@ -8,7 +8,7 @@ import Linkify from '../components/Linkify.jsx';
 import RosterPicker from '../components/RosterPicker.jsx';
 import GameRow from '../components/GameRow.jsx';
 import BracketView from '../components/BracketView.jsx';
-import { canEditTournament, isEnrolled, computeTournamentStandings } from '../utils.js';
+import { canEditTournament, isEnrolled, computeTournamentStandings, hasDuplicatePlayerIds } from '../utils.js';
 import { formatTournamentDateTime } from '../timezone.js';
 
 function PlayerChip({ profile }) {
@@ -118,6 +118,11 @@ function PlayerSelect({ players, value, onChange }) {
   );
 }
 
+export function selectBracketTeamPlayer(team, index, userId, isSingles) {
+  if (isSingles) return [userId];
+  return team.map((current, slot) => (slot === index ? userId : current));
+}
+
 function FormatToggle({ value, onChange }) {
   return (
     <div className="inline-flex shrink-0" style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-pill)', overflow: 'hidden' }}>
@@ -151,6 +156,8 @@ function ScheduledMatchForm({ tournamentId, enrolledPlayers, token, editingMatch
   const [error, setError] = useState(null);
   const isSingles = format === '1v1';
 
+  const hasDuplicate = hasDuplicatePlayerIds(team1, team2);
+
   const changeFormat = (next) => {
     setFormat(next);
     const trim = (t) => (next === '1v1' ? [t[0]] : [t[0], t[1] ?? null]);
@@ -160,6 +167,10 @@ function ScheduledMatchForm({ tournamentId, enrolledPlayers, token, editingMatch
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (hasDuplicate) {
+      setError('Each player can only appear once in a match.');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -198,12 +209,17 @@ function ScheduledMatchForm({ tournamentId, enrolledPlayers, token, editingMatch
           )}
         </div>
       </div>
+      {hasDuplicate && (
+        <p style={{ color: 'var(--state-danger)', fontSize: 13 }}>
+          Each player can only appear once in a match.
+        </p>
+      )}
       {error && <p style={{ color: 'var(--state-danger)', fontSize: 13 }}>{error}</p>}
       <div className="flex gap-2 justify-end">
         <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" size="sm" disabled={submitting} style={{ background: 'var(--accent-primary)', color: '#fff' }}>
+        <Button type="submit" size="sm" disabled={submitting || hasDuplicate} style={{ background: 'var(--accent-primary)', color: '#fff' }}>
           {submitting ? 'Saving…' : editingMatch ? 'Save' : 'Add Match'}
         </Button>
       </div>
@@ -227,6 +243,10 @@ function BracketTeamsForm({ tournamentId, finalists, bracket, token, onSaved, on
   const [error, setError] = useState(null);
   const isSingles = format === '1v1';
 
+  const selectPlayer = (team, setTeam, index, userId) => {
+    setTeam(selectBracketTeamPlayer(team, index, userId, isSingles));
+  };
+
   const changeFormat = (next) => {
     setFormat(next);
     const trim = (t) => (next === '1v1' ? [t[0]] : [t[0], t[1] ?? null]);
@@ -236,8 +256,7 @@ function BracketTeamsForm({ tournamentId, finalists, bracket, token, onSaved, on
     setTeam4(trim);
   };
 
-  const chosenIds = [...team1, ...team2, ...team3, ...team4].filter(Boolean);
-  const hasDuplicate = new Set(chosenIds).size !== chosenIds.length;
+  const hasDuplicate = hasDuplicatePlayerIds(team1, team2, team3, team4);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -276,17 +295,17 @@ function BracketTeamsForm({ tournamentId, finalists, bracket, token, onSaved, on
           <span className="jk-label" style={{ color: 'var(--text-secondary)' }}>Left Semifinal</span>
           <div className="flex flex-col gap-1.5">
             <span className="jk-label">Team 1</span>
-            <PlayerSelect players={finalists} value={team1[0]} onChange={(v) => setTeam1((t) => [v, t[1]])} />
+            <PlayerSelect players={finalists} value={team1[0]} onChange={(v) => selectPlayer(team1, setTeam1, 0, v)} />
             {!isSingles && (
-              <PlayerSelect players={finalists} value={team1[1]} onChange={(v) => setTeam1((t) => [t[0], v])} />
+              <PlayerSelect players={finalists} value={team1[1]} onChange={(v) => selectPlayer(team1, setTeam1, 1, v)} />
             )}
           </div>
           <span className="jk-display text-center" style={{ fontSize: 14 }}>vs</span>
           <div className="flex flex-col gap-1.5">
             <span className="jk-label">Team 3</span>
-            <PlayerSelect players={finalists} value={team3[0]} onChange={(v) => setTeam3((t) => [v, t[1]])} />
+            <PlayerSelect players={finalists} value={team3[0]} onChange={(v) => selectPlayer(team3, setTeam3, 0, v)} />
             {!isSingles && (
-              <PlayerSelect players={finalists} value={team3[1]} onChange={(v) => setTeam3((t) => [t[0], v])} />
+              <PlayerSelect players={finalists} value={team3[1]} onChange={(v) => selectPlayer(team3, setTeam3, 1, v)} />
             )}
           </div>
         </div>
@@ -294,17 +313,17 @@ function BracketTeamsForm({ tournamentId, finalists, bracket, token, onSaved, on
           <span className="jk-label" style={{ color: 'var(--text-secondary)' }}>Right Semifinal</span>
           <div className="flex flex-col gap-1.5">
             <span className="jk-label">Team 2</span>
-            <PlayerSelect players={finalists} value={team2[0]} onChange={(v) => setTeam2((t) => [v, t[1]])} />
+            <PlayerSelect players={finalists} value={team2[0]} onChange={(v) => selectPlayer(team2, setTeam2, 0, v)} />
             {!isSingles && (
-              <PlayerSelect players={finalists} value={team2[1]} onChange={(v) => setTeam2((t) => [t[0], v])} />
+              <PlayerSelect players={finalists} value={team2[1]} onChange={(v) => selectPlayer(team2, setTeam2, 1, v)} />
             )}
           </div>
           <span className="jk-display text-center" style={{ fontSize: 14 }}>vs</span>
           <div className="flex flex-col gap-1.5">
             <span className="jk-label">Team 4</span>
-            <PlayerSelect players={finalists} value={team4[0]} onChange={(v) => setTeam4((t) => [v, t[1]])} />
+            <PlayerSelect players={finalists} value={team4[0]} onChange={(v) => selectPlayer(team4, setTeam4, 0, v)} />
             {!isSingles && (
-              <PlayerSelect players={finalists} value={team4[1]} onChange={(v) => setTeam4((t) => [t[0], v])} />
+              <PlayerSelect players={finalists} value={team4[1]} onChange={(v) => selectPlayer(team4, setTeam4, 1, v)} />
             )}
           </div>
         </div>
@@ -500,7 +519,7 @@ export default function TournamentDetail({ auth }) {
           </p>
         )}
 
-        {enrolled && auth.features?.dice_live_referee?.effective && (
+        {enrolled && (
           <Link
             to={`/dice/tournament/${tournamentId}/virtual`}
             className="mt-5 flex items-center justify-between gap-3 p-4 rounded-md"

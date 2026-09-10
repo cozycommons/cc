@@ -42,8 +42,8 @@ profile_count="$(
   psql "$DB_URL" --tuples-only --no-align \
     --command "select count(*) from public.dice_profiles"
 )"
-if [[ "$profile_count" != "5" ]]; then
-  printf 'Local seed verification failed: expected 5 Dice profiles, got %s\n' \
+if [[ "$profile_count" != "12" ]]; then
+  printf 'Local seed verification failed: expected 12 Dice profiles, got %s\n' \
     "$profile_count" >&2
   exit 1
 fi

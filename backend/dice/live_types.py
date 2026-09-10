@@ -108,6 +108,7 @@ class DiceLiveOutcomeCounts(StrictModel):
 
 class DiceLivePlayerStats(StrictModel):
     outcomes: DiceLiveOutcomeCounts = Field(default_factory=DiceLiveOutcomeCounts)
+    table_catches: StatCount = 0
     fifa_goals: StatCount = 0
     fifa_kicks: StatCount = 0
     fifa_catches: StatCount = 0
@@ -132,6 +133,7 @@ class ObservationEvent(EventEnvelope):
     throwing_team_id: str = Field(min_length=1)
     outcome: Outcome
     score_delta: Score = Field(min_length=2, max_length=2)
+    catcher_id: str | None = None
     characteristics: list[InvalidCharacteristic] | None = None
     fifa: FifaPlay | None = None
     replacement_for: str | None = None

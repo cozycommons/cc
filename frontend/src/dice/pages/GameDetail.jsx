@@ -1,10 +1,25 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { diceApi } from '../api.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
+import PlayerGameStats from '../components/PlayerGameStats.jsx';
 import CommentsSection from '../components/CommentsSection.jsx';
 import { teamAverageElo, teamPlayers, formatDate, canEditGame } from '../utils.js';
+
+const pendingDeleteKey = (userId, gameId) => `dice:game:delete:${userId || 'unknown'}:${gameId}`;
+
+function readPendingDelete(userId, gameId) {
+  try { return window.sessionStorage.getItem(pendingDeleteKey(userId, gameId)); } catch { return null; }
+}
+
+function writePendingDelete(userId, gameId, key) {
+  try { window.sessionStorage.setItem(pendingDeleteKey(userId, gameId), key); } catch { /* storage unavailable */ }
+}
+
+function clearPendingDelete(userId, gameId) {
+  try { window.sessionStorage.removeItem(pendingDeleteKey(userId, gameId)); } catch { /* storage unavailable */ }
+}
 
 function PlayerColumn({ player }) {
   const delta = player.elo_after != null && player.elo_before != null
@@ -89,18 +104,47 @@ function Team({ game, team, side }) {
 
 export default function GameDetail({ auth }) {
   const { gameId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { user, token, isAdmin } = auth;
   const [game, setGame] = useState(null);
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const deleteAttempt = useRef(null);
 
   useEffect(() => {
-    diceApi.getGame(gameId).then(setGame).catch(() => setGame(null));
-  }, [gameId]);
+    let cancelled = false;
+    const includeDuoOnly = new URLSearchParams(location.search).get('duo') === '1';
+    const load = async () => {
+      try {
+        const loaded = await diceApi.getGame(gameId, includeDuoOnly, includeDuoOnly ? token : null);
+        if (!cancelled) setGame(loaded);
+      } catch (loadError) {
+        const pending = readPendingDelete(user?.id, gameId);
+        if (pending && token) {
+          try {
+            await diceApi.deleteGame(token, gameId, pending);
+            clearPendingDelete(user?.id, gameId);
+            if (!cancelled) navigate('/dice');
+            return;
+          } catch (recoveryError) {
+            if (!cancelled) setError(recoveryError.message || 'Could not confirm the pending deletion.');
+          }
+        } else if (!cancelled) {
+          setError(loadError.message || 'Match not found.');
+        }
+        if (!cancelled) setGame(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [gameId, location.search, navigate, token, user?.id]);
 
   if (game === null) {
     return <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">Loading…</div>;
+  }
+  if (game === false) {
+    return <div role="alert" className="max-w-2xl mx-auto px-4 sm:px-6 py-8">{error || 'Match not found.'}</div>;
   }
 
   const editable = canEditGame(game, user, isAdmin);
@@ -110,10 +154,19 @@ export default function GameDetail({ auth }) {
     setDeleting(true);
     setError(null);
     try {
-      await diceApi.deleteGame(token, gameId);
+      if (deleteAttempt.current?.gameId !== gameId) {
+        const pending = readPendingDelete(user?.id, gameId);
+        deleteAttempt.current = { gameId, key: pending || crypto.randomUUID() };
+        if (!pending) writePendingDelete(user?.id, gameId, deleteAttempt.current.key);
+      }
+      await diceApi.deleteGame(token, gameId, deleteAttempt.current.key);
+      clearPendingDelete(user?.id, gameId);
       navigate('/dice');
     } catch (err) {
-      setError('Failed to delete match.');
+      const detail = typeof err?.detail === 'string'
+        ? err.detail
+        : err?.detail?.message || err?.message;
+      setError(detail || 'Failed to delete match.');
       setDeleting(false);
     }
   };
@@ -136,17 +189,49 @@ export default function GameDetail({ auth }) {
         </div>
       </div>
 
+      {game.recorded_stats?.players && (
+        <PlayerGameStats
+          coverage={game.recorded_stats.coverage}
+          statsByPlayer={game.recorded_stats.players}
+          teams={[1, 2].map((team) => ({
+            id: team,
+            label: `Team ${team}`,
+            players: teamPlayers(game, team),
+          }))}
+        />
+      )}
+
       {editable && (
         <div className="flex gap-2 mt-4 justify-end">
-          <Button size="sm" variant="outline" onClick={() => navigate(`/dice/game/${gameId}/edit`)}>
-            Edit
-          </Button>
+          {game.source_live_match_id && (
+            <Button size="sm" variant="outline" onClick={() => navigate(`/dice/live/${game.source_live_match_id}`)}>
+              Correct in referee
+            </Button>
+          )}
+          {!game.source_live_match_id && (
+            <Button size="sm" variant="outline" onClick={() => navigate(`/dice/game/${gameId}/edit${location.search}`)}>
+              Edit
+            </Button>
+          )}
           <Button size="sm" variant="destructive" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete'}
           </Button>
         </div>
       )}
-      {error && <p style={{ color: 'var(--state-danger)', fontSize: 13 }} className="mt-2 text-right">{error}</p>}
+      {error && (
+        <div className="mt-2 text-right">
+          <p style={{ color: 'var(--state-danger)', fontSize: 13 }}>{error}</p>
+          {game.source_live_match_id && (
+            <button
+              type="button"
+              onClick={() => navigate(`/dice/live/${game.source_live_match_id}`)}
+              className="underline text-sm mt-1"
+            >
+              Open referee correction view
+            </button>
+          )}
+        </div>
+      )}
 
       <CommentsSection gameId={gameId} auth={auth} />
     </div>
