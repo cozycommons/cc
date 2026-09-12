@@ -13,7 +13,7 @@ from commons.contracts import SCENE_CONTRACT
 from commons.schemas import CommonsSceneCommandRequest
 
 SCENE_ID = "commons-home"
-LAYOUT_VERSION = 9
+LAYOUT_VERSION = 10
 _WORLD = SCENE_CONTRACT["world"]
 GRID_COLUMNS = int(_WORLD["columns"])
 GRID_ROWS = int(_WORLD["rows"])
@@ -80,16 +80,14 @@ def _round_tile(value: float) -> int:
 def _normalized_to_tile(x: float, y: float) -> tuple[int, int]:
     pixel_x = x * GRID_WIDTH
     pixel_y = y * GRID_HEIGHT
-    u = (pixel_x - GRID_ORIGIN_X) / (GRID_TILE_WIDTH / 2)
-    v = (pixel_y - GRID_ORIGIN_Y) / (GRID_TILE_HEIGHT / 2)
-    tile_x = max(0, min(GRID_COLUMNS - 1, _round_tile((u + v) / 2)))
-    tile_y = max(0, min(GRID_ROWS - 1, _round_tile((v - u) / 2)))
+    tile_x = max(0, min(GRID_COLUMNS - 1, _round_tile((pixel_x - GRID_ORIGIN_X) / GRID_TILE_WIDTH)))
+    tile_y = max(0, min(GRID_ROWS - 1, _round_tile((pixel_y - GRID_ORIGIN_Y) / GRID_TILE_HEIGHT)))
     return tile_x, tile_y
 
 
 def _tile_to_normalized(tile_x: int, tile_y: int) -> tuple[float, float]:
-    pixel_x = GRID_ORIGIN_X + (tile_x - tile_y) * (GRID_TILE_WIDTH / 2)
-    pixel_y = GRID_ORIGIN_Y + (tile_x + tile_y) * (GRID_TILE_HEIGHT / 2)
+    pixel_x = GRID_ORIGIN_X + tile_x * GRID_TILE_WIDTH
+    pixel_y = GRID_ORIGIN_Y + tile_y * GRID_TILE_HEIGHT
     return pixel_x / GRID_WIDTH, pixel_y / GRID_HEIGHT
 
 
@@ -287,10 +285,10 @@ def apply_scene_command(
         elif tile_y > prior_tile_y:
             actor["facing"] = "south"
         actor["view"] = {
-            (1, 0): "front_right",
-            (-1, 0): "back_left",
-            (0, -1): "back_right",
-            (0, 1): "front_left",
+            (1, 0): "right",
+            (-1, 0): "left",
+            (0, -1): "back",
+            (0, 1): "front",
         }[(tile_x - prior_tile_x, tile_y - prior_tile_y)]
         _invalidate_ambient(next_state)
         return next_state
@@ -317,6 +315,7 @@ def apply_scene_command(
     allowed_state = {
         "record-console": {"playing": bool},
         "floor-lamp": {"on": bool},
+        "fireplace": {"on": bool},
     }
     expected_type = allowed_state.get(object_id, {}).get(state_key)
     value = payload.get("value")

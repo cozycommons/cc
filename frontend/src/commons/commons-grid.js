@@ -47,15 +47,15 @@ export function tileDistance(first, second) {
 export function tileToPixel(tileX, tileY, grid = COMMONS_GRID) {
   const tile = normalizeTile(tileX, tileY);
   return {
-    x: grid.originX + (tile.tile_x - tile.tile_y) * (grid.tileWidth / 2),
-    y: grid.originY + (tile.tile_x + tile.tile_y) * (grid.tileHeight / 2),
+    x: grid.originX + tile.tile_x * grid.tileWidth,
+    y: grid.originY + tile.tile_y * grid.tileHeight,
   };
 }
 
 export function pixelToTile(pixelX, pixelY, grid = COMMONS_GRID) {
-  const u = (finiteNumber(pixelX) - grid.originX) / (grid.tileWidth / 2);
-  const v = (finiteNumber(pixelY) - grid.originY) / (grid.tileHeight / 2);
-  return normalizeTile((u + v) / 2, (v - u) / 2);
+  const tileX = Math.floor((finiteNumber(pixelX) - grid.originX + grid.tileWidth / 2) / grid.tileWidth);
+  const tileY = Math.floor((finiteNumber(pixelY) - grid.originY + grid.tileHeight / 2) / grid.tileHeight);
+  return normalizeTile(tileX, tileY);
 }
 
 export function normalizedToTile(x, y, grid = COMMONS_GRID) {

@@ -12,7 +12,7 @@ PROGRAM = {
     "max_walkers": 1,
     "actors": {
         "host": [
-            {"kind": "hold", "duration_ms": 176_400, "tile": [4, 4], "facing": "front_right"},
+            {"kind": "hold", "duration_ms": 176_400, "tile": [4, 4], "facing": "front"},
             {"kind": "walk", "waypoints": [[4, 4], [5, 4], [6, 4]], "edge_durations_ms": [900, 900]},
             {"kind": "walk", "waypoints": [[6, 4], [5, 4], [4, 4]], "edge_durations_ms": [900, 900]},
         ],
@@ -29,8 +29,8 @@ def test_rejects_disconnected_segments():
         **PROGRAM,
         "actors": {
             "host": [
-                {"kind": "hold", "duration_ms": 179000, "tile": [4, 4], "facing": "front_right"},
-                {"kind": "hold", "duration_ms": 1000, "tile": [5, 4], "facing": "front_right"},
+                    {"kind": "hold", "duration_ms": 179000, "tile": [4, 4], "facing": "front"},
+                    {"kind": "hold", "duration_ms": 1000, "tile": [5, 4], "facing": "front"},
             ]
         },
     }
@@ -43,14 +43,14 @@ def test_evaluates_fractional_position_and_direction():
     assert pose["mode"] == "walk"
     assert pose["u"] == 5
     assert pose["v"] == 4
-    assert pose["facing"] == "front_right"
+    assert pose["facing"] == "right"
 
 
 def test_evaluates_time_before_epoch_with_mathematical_modulo():
     pose = evaluate_ambient_pose(PROGRAM, "host", PROGRAM["epoch_ms"] - 900)
     assert pose["u"] == 5
     assert pose["v"] == 4
-    assert pose["facing"] == "back_left"
+    assert pose["facing"] == "left"
 
 
 def test_disabled_program_returns_canonical_home():
@@ -58,10 +58,10 @@ def test_disabled_program_returns_canonical_home():
         {"enabled": False, "revision": 2, "reason": "invalidated"},
         "host",
         1,
-        {"tile_x": 7, "tile_y": 8, "facing": "back_right"},
+        {"tile_x": 7, "tile_y": 8, "facing": "back"},
     )
     assert pose["mode"] == "home"
-    assert (pose["tile_x"], pose["tile_y"], pose["facing"]) == (7, 8, "back_right")
+    assert (pose["tile_x"], pose["tile_y"], pose["facing"]) == (7, 8, "back")
 
 
 def test_rejects_a_resident_that_walks_for_more_than_twenty_seconds():
@@ -70,10 +70,10 @@ def test_rejects_a_resident_that_walks_for_more_than_twenty_seconds():
         "cycle_ms": 260_000,
         "actors": {
             "host": [
-                {"kind": "hold", "duration_ms": 200_000, "tile": [4, 4], "facing": "front_right"},
+            {"kind": "hold", "duration_ms": 200_000, "tile": [4, 4], "facing": "front"},
                 {"kind": "walk", "waypoints": [[4, 4], [5, 4]], "edge_durations_ms": [21_000]},
                 {"kind": "walk", "waypoints": [[5, 4], [4, 4]], "edge_durations_ms": [21_000]},
-                {"kind": "hold", "duration_ms": 18_000, "tile": [4, 4], "facing": "front_right"},
+            {"kind": "hold", "duration_ms": 18_000, "tile": [4, 4], "facing": "front"},
             ],
         },
     }
@@ -106,7 +106,7 @@ def test_rejects_a_route_that_intersects_another_resident_home():
         **PROGRAM,
         "actors": {
             "host": PROGRAM["actors"]["host"],
-            "maker": [{"kind": "hold", "duration_ms": 180_000, "tile": [5, 4], "facing": "front_left"}],
+            "maker": [{"kind": "hold", "duration_ms": 180_000, "tile": [5, 4], "facing": "front"}],
         },
     }
     with pytest.raises(AmbientProgramError, match="another actor"):
@@ -125,9 +125,9 @@ def test_rejects_a_disabled_program_with_an_unsafe_home_anchor():
 
 def _timed_outing(home, destination, start):
     return [
-        {"kind": "hold", "duration_ms": start, "tile": home, "facing": "front_right"},
+        {"kind": "hold", "duration_ms": start, "tile": home, "facing": "front"},
         {"kind": "walk", "waypoints": [home, destination, home], "edge_durations_ms": [1000, 1000]},
-        {"kind": "hold", "duration_ms": 20000 - start - 2000, "tile": home, "facing": "front_right"},
+        {"kind": "hold", "duration_ms": 20000 - start - 2000, "tile": home, "facing": "front"},
     ]
 
 

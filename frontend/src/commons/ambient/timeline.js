@@ -123,7 +123,7 @@ function disabledPose(home) {
     tile_y: tile.tile_y,
     u: tile.tile_x,
     v: tile.tile_y,
-    facing: home?.facing || 'front_right',
+    facing: home?.facing || 'front',
     segmentIndex: -1,
     progress: 0,
   };

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="384" viewBox="0 0 256 384" shape-rendering="crispEdges">
+  <defs>
+    <g id="back">
+      <rect x="5" y="44" width="22" height="3" fill="#241d29" opacity=".55"/>
+      <rect x="8" y="2" width="16" height="13" fill="#3d2a32"/><rect x="11" y="0" width="10" height="5" fill="#2d222a"/>
+      <rect x="7" y="15" width="18" height="9" fill="#d89570"/><rect x="7" y="24" width="18" height="12" fill="#704554"/>
+      <rect x="6" y="24" width="5" height="11" fill="#c9b4dc"/><rect x="21" y="24" width="5" height="11" fill="#c9b4dc"/>
+      <rect x="10" y="34" width="6" height="10" fill="#34333d"/><rect x="17" y="34" width="6" height="10" fill="#34333d"/>
+      <rect x="8" y="43" width="8" height="4" fill="#61402f"/><rect x="17" y="43" width="8" height="4" fill="#61402f"/>
+      <rect x="21" y="25" width="6" height="8" fill="#9a6545"/><rect x="23" y="27" width="3" height="2" fill="#d4aa64"/>
+    </g>
+    <g id="back-step">
+      <rect x="5" y="44" width="22" height="3" fill="#241d29" opacity=".55"/>
+      <rect x="8" y="2" width="16" height="13" fill="#3d2a32"/><rect x="11" y="0" width="10" height="5" fill="#2d222a"/>
+      <rect x="7" y="15" width="18" height="9" fill="#d89570"/><rect x="7" y="24" width="18" height="12" fill="#704554"/>
+      <rect x="6" y="24" width="5" height="11" fill="#c9b4dc"/><rect x="21" y="24" width="5" height="11" fill="#c9b4dc"/>
+      <rect x="7" y="34" width="7" height="10" fill="#34333d"/><rect x="19" y="34" width="6" height="10" fill="#34333d"/>
+      <rect x="6" y="43" width="9" height="4" fill="#61402f"/><rect x="19" y="43" width="8" height="4" fill="#61402f"/>
+      <rect x="21" y="25" width="6" height="8" fill="#9a6545"/><rect x="23" y="27" width="3" height="2" fill="#d4aa64"/>
+    </g>
+    <g id="side">
+      <rect x="5" y="44" width="22" height="3" fill="#241d29" opacity=".55"/>
+      <rect x="8" y="3" width="16" height="12" fill="#3d2a32"/><rect x="18" y="1" width="5" height="6" fill="#2d222a"/>
+      <rect x="13" y="15" width="11" height="10" fill="#d89570"/><rect x="7" y="24" width="17" height="12" fill="#704554"/>
+      <rect x="6" y="24" width="5" height="11" fill="#c9b4dc"/><rect x="18" y="24" width="6" height="12" fill="#5f3949"/>
+      <rect x="9" y="35" width="7" height="9" fill="#34333d"/><rect x="18" y="35" width="6" height="9" fill="#34333d"/>
+      <rect x="8" y="43" width="8" height="4" fill="#61402f"/><rect x="18" y="43" width="8" height="4" fill="#61402f"/>
+      <rect x="22" y="25" width="5" height="8" fill="#9a6545"/><rect x="23" y="27" width="3" height="2" fill="#d4aa64"/>
+    </g>
+    <g id="side-step">
+      <rect x="5" y="44" width="22" height="3" fill="#241d29" opacity=".55"/>
+      <rect x="8" y="3" width="16" height="12" fill="#3d2a32"/><rect x="18" y="1" width="5" height="6" fill="#2d222a"/>
+      <rect x="13" y="15" width="11" height="10" fill="#d89570"/><rect x="7" y="24" width="17" height="12" fill="#704554"/>
+      <rect x="6" y="24" width="5" height="11" fill="#c9b4dc"/><rect x="18" y="24" width="6" height="12" fill="#5f3949"/>
+      <rect x="7" y="35" width="8" height="9" fill="#34333d"/><rect x="19" y="35" width="6" height="9" fill="#34333d"/>
+      <rect x="6" y="43" width="9" height="4" fill="#61402f"/><rect x="20" y="43" width="7" height="4" fill="#61402f"/>
+      <rect x="22" y="25" width="5" height="8" fill="#9a6545"/><rect x="23" y="27" width="3" height="2" fill="#d4aa64"/>
+    </g>
+    <g id="front">
+      <rect x="5" y="44" width="22" height="3" fill="#241d29" opacity=".55"/>
+      <rect x="8" y="3" width="16" height="11" fill="#3d2a32"/><rect x="11" y="1" width="10" height="5" fill="#2d222a"/>
+      <rect x="10" y="10" width="13" height="10" fill="#d89570"/><rect x="8" y="12" width="4" height="7" fill="#3d2a32"/><rect x="21" y="11" width="4" height="8" fill="#3d2a32"/>
+      <rect x="11" y="14" width="4" height="3" fill="#e5d5b6"/><rect x="18" y="14" width="4" height="3" fill="#e5d5b6"/>
+      <rect x="12" y="15" width="3" height="2" fill="#352631"/><rect x="18" y="15" width="3" height="2" fill="#352631"/>
+      <rect x="7" y="20" width="18" height="16" fill="#704554"/><rect x="6" y="23" width="5" height="11" fill="#c9b4dc"/><rect x="21" y="23" width="5" height="11" fill="#c9b4dc"/>
+      <rect x="11" y="19" width="10" height="5" fill="#b08bbf"/><rect x="13" y="23" width="6" height="5" fill="#c9b4dc"/>
+      <rect x="9" y="35" width="7" height="9" fill="#34333d"/><rect x="17" y="35" width="7" height="9" fill="#34333d"/>
+      <rect x="8" y="43" width="8" height="4" fill="#61402f"/><rect x="17" y="43" width="9" height="4" fill="#61402f"/>
+    </g>
+    <g id="front-step">
+      <rect x="5" y="44" width="22" height="3" fill="#241d29" opacity=".55"/>
+      <rect x="8" y="3" width="16" height="11" fill="#3d2a32"/><rect x="11" y="1" width="10" height="5" fill="#2d222a"/>
+      <rect x="10" y="10" width="13" height="10" fill="#d89570"/><rect x="8" y="12" width="4" height="7" fill="#3d2a32"/><rect x="21" y="11" width="4" height="8" fill="#3d2a32"/>
+      <rect x="11" y="14" width="4" height="3" fill="#e5d5b6"/><rect x="18" y="14" width="4" height="3" fill="#e5d5b6"/>
+      <rect x="12" y="15" width="3" height="2" fill="#352631"/><rect x="18" y="15" width="3" height="2" fill="#352631"/>
+      <rect x="7" y="20" width="18" height="16" fill="#704554"/><rect x="6" y="23" width="5" height="11" fill="#c9b4dc"/><rect x="21" y="23" width="5" height="11" fill="#c9b4dc"/>
+      <rect x="11" y="19" width="10" height="5" fill="#b08bbf"/><rect x="13" y="23" width="6" height="5" fill="#c9b4dc"/>
+      <rect x="7" y="35" width="8" height="9" fill="#34333d"/><rect x="19" y="35" width="6" height="9" fill="#34333d"/>
+      <rect x="6" y="43" width="9" height="4" fill="#61402f"/><rect x="19" y="43" width="8" height="4" fill="#61402f"/>
+    </g>
+  </defs>
+  <use href="#back" transform="translate(0 0) scale(2)"/><use href="#back-step" transform="translate(64 0) scale(2)"/><use href="#back" transform="translate(128 0) scale(2)"/><use href="#back-step" transform="translate(192 0) scale(2)"/>
+  <use href="#side" transform="translate(0 96) scale(2)"/><use href="#side-step" transform="translate(64 96) scale(2)"/><use href="#side" transform="translate(128 96) scale(2)"/><use href="#side-step" transform="translate(192 96) scale(2)"/>
+  <use href="#side" transform="translate(0 192) scale(2)"/><use href="#side-step" transform="translate(64 192) scale(2)"/><use href="#side" transform="translate(128 192) scale(2)"/><use href="#side-step" transform="translate(192 192) scale(2)"/>
+  <use href="#front" transform="translate(0 288) scale(2)"/><use href="#front-step" transform="translate(64 288) scale(2)"/><use href="#front" transform="translate(128 288) scale(2)"/><use href="#front-step" transform="translate(192 288) scale(2)"/>
+</svg>

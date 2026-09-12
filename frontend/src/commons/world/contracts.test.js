@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateSceneSnapshot } from './contracts.js';
+import { COMMONS_SCENE_CONTRACT, validateSceneSnapshot } from './contracts.js';
 
 const base = {
   id: 'commons-home',
@@ -51,27 +51,33 @@ describe('Commons scene contract', () => {
     });
   });
 
-  it('requires the new catalog and a valid ambient program for schema seven', () => {
+  it('requires the new catalog and a valid ambient program for schema eight', () => {
     expect(validateSceneSnapshot({
       ...base,
-      state: { ...base.state, schema_version: 7, catalog_version: 'old', ambient: { enabled: false, revision: 1, reason: 'legacy' } },
+      state: { ...base.state, schema_version: 8, catalog_version: 'old', ambient: { enabled: false, revision: 1, reason: 'legacy' } },
     }).valid).toBe(false);
   });
 
-  it('does not treat a schema seven snapshot without a catalog as legacy', () => {
+  it('describes a blocked room shell with a two-tile doorway', () => {
+    expect(COMMONS_SCENE_CONTRACT.room_shell.blocked).toContainEqual([0, 0]);
+    expect(COMMONS_SCENE_CONTRACT.room_shell.blocked).not.toContainEqual([7, 15]);
+    expect(COMMONS_SCENE_CONTRACT.room_shell.doorway).toEqual([[7, 15], [8, 15]]);
+  });
+
+  it('does not treat a schema eight snapshot without a catalog as legacy', () => {
     expect(validateSceneSnapshot({
       ...base,
-      state: { ...base.state, schema_version: 7, ambient: { enabled: false, revision: 1, reason: 'legacy' } },
+      state: { ...base.state, schema_version: 8, ambient: { enabled: false, revision: 1, reason: 'legacy' } },
     })).toEqual({ valid: false, error: 'scene catalog is unsupported' });
   });
 
-  it('requires canonical tile anchors for schema seven entities', () => {
+  it('requires canonical tile anchors for schema eight entities', () => {
     expect(validateSceneSnapshot({
       ...base,
       state: {
         ...base.state,
-        schema_version: 7,
-        catalog_version: 'commons-v2',
+        schema_version: 8,
+        catalog_version: 'commons-room-v1',
         ambient: { enabled: false, revision: 1, reason: 'resting_only' },
         actors: { host: { asset: 'host', x: 0.5, y: 0.5 } },
       },
@@ -81,7 +87,7 @@ describe('Commons scene contract', () => {
   it('rejects schema versions newer than the renderer understands', () => {
     expect(validateSceneSnapshot({
       ...base,
-      state: { ...base.state, schema_version: 8, catalog_version: 'commons-v2' },
+      state: { ...base.state, schema_version: 9, catalog_version: 'commons-room-v1' },
     })).toEqual({ valid: false, error: 'scene schema is unsupported' });
   });
 

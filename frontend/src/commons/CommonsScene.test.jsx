@@ -52,14 +52,12 @@ describe('CommonsScene', () => {
     expect(screen.getByText(/2 residents and 1 placed object/)).toBeInTheDocument();
   });
 
-  it('renders the canonical room as a passive scene', async () => {
+  it('renders the canonical room as an interactive top-down scene', async () => {
     render(<CommonsScene />);
 
-    expect(await screen.findByRole('img', { name: 'Ambient tile-based Commons room' })).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: 'Interactive top-down tile-based Cozy Commons room' })).toBeInTheDocument();
     expect(screen.getByText(/2 residents and 1 placed object/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /pause room|resume room/i })).not.toBeInTheDocument();
-    expect(screen.queryByText('the room is shared')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /record console/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/WASD \/ arrows to walk/)).toBeInTheDocument();
     expect(mocks.sendSceneCommand).not.toHaveBeenCalled();
   });
 });

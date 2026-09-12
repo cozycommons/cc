@@ -1,3 +1,7 @@
+import { COMMONS_PLAYER_COMPOSITIONS, getCommonsPlayerComposition } from './player-compositions.js';
+
+export { COMMONS_PLAYER_COMPOSITIONS, getCommonsPlayerComposition } from './player-compositions.js';
+
 export const COMMONS_ASSETS = Object.freeze({
   "orange-sofa": "/commons/assets/orange-sofa.png",
   "green-loveseat": "/commons/assets/green-loveseat.png",
@@ -11,21 +15,30 @@ export const COMMONS_ASSETS = Object.freeze({
   topiary: "/commons/assets/topiary.png",
   palm: "/commons/assets/palm.png",
   "bar-stool": "/commons/assets/bar-stool.png",
-  host: "/commons/assets/host.png",
-  maker: "/commons/assets/maker.png",
-  neighbor: "/commons/assets/neighbor.png",
+  "cozy-bed": "/commons/assets/cozy-bed.svg",
+  "cozy-table": "/commons/assets/cozy-table.svg",
+  "cozy-chair": "/commons/assets/cozy-chair.svg",
+  "cozy-bookcase": "/commons/assets/cozy-bookcase.svg",
+  "cozy-fireplace": "/commons/assets/cozy-fireplace.svg",
+  "cozy-chest": "/commons/assets/cozy-chest.svg",
+  "cozy-plant": "/commons/assets/cozy-plant.svg",
+  host: COMMONS_PLAYER_COMPOSITIONS.host.spritePath,
+  maker: COMMONS_PLAYER_COMPOSITIONS.maker.spritePath,
+  neighbor: COMMONS_PLAYER_COMPOSITIONS.neighbor.spritePath,
 });
 
 export const COMMONS_ACTOR_ANIMATIONS = Object.freeze({
-  host: Object.freeze({
-    path: "/commons/assets/host-walk.png", frameWidth: 444, frameHeight: 889, frames: 4, frameRate: 8,
-  }),
-  maker: Object.freeze({
-    path: "/commons/assets/maker-walk.png", frameWidth: 444, frameHeight: 889, frames: 4, frameRate: 8,
-  }),
-  neighbor: Object.freeze({
-    path: "/commons/assets/neighbor-walk.png", frameWidth: 444, frameHeight: 889, frames: 4, frameRate: 8,
-  }),
+  ...Object.fromEntries(Object.entries(COMMONS_PLAYER_COMPOSITIONS).map(([asset, composition]) => [
+    asset,
+    Object.freeze({
+      path: composition.spritePath,
+      frameWidth: composition.frameWidth,
+      frameHeight: composition.frameHeight,
+      frames: composition.frames,
+      frameRate: composition.frameRate,
+      directionRows: composition.directionRows,
+    }),
+  ])),
 });
 
 const COMMONS_ASSET_ORIENTATIONS = Object.freeze({
@@ -85,12 +98,13 @@ const COMMONS_RENDER_METADATA = Object.freeze({
   topiary: Object.freeze({ width: 66, anchor: Object.freeze([0.5, 1458 / 1536]), depthOffset: 0 }),
   palm: Object.freeze({ width: 97, anchor: Object.freeze([0.5, 1182 / 1297]), depthOffset: 0 }),
   "bar-stool": Object.freeze({ width: 56, anchor: Object.freeze([0.5, 1204 / 1278]), depthOffset: 0 }),
-  // The deployed walk strips are 444×889 source pixels per frame. Keep the
-  // resident frame at 48×96 logical units. Sole baselines exclude transparent
-  // padding; all residents use the same ground-depth rules as furniture.
-  host: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 812 / 889]), depthOffset: 0 }),
-  maker: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 817 / 889]), depthOffset: 0 }),
-  neighbor: Object.freeze({ width: 48, height: 96, anchor: Object.freeze([0.5, 819 / 889]), depthOffset: 0 }),
+  "cozy-bed": Object.freeze({ width: 92, height: 62, anchor: Object.freeze([0.5, 0.88]), depthOffset: 0 }),
+  "cozy-table": Object.freeze({ width: 88, height: 58, anchor: Object.freeze([0.5, 0.9]), depthOffset: 0 }),
+  "cozy-chair": Object.freeze({ width: 44, height: 44, anchor: Object.freeze([0.5, 0.91]), depthOffset: 0 }),
+  "cozy-bookcase": Object.freeze({ width: 54, height: 70, anchor: Object.freeze([0.5, 0.96]), depthOffset: 0 }),
+  "cozy-fireplace": Object.freeze({ width: 72, height: 58, anchor: Object.freeze([0.5, 0.92]), depthOffset: 0 }),
+  "cozy-chest": Object.freeze({ width: 58, height: 44, anchor: Object.freeze([0.5, 0.92]), depthOffset: 0 }),
+  "cozy-plant": Object.freeze({ width: 42, height: 70, anchor: Object.freeze([0.5, 0.95]), depthOffset: 0 }),
 });
 
 // Contact baselines measured in the original source images. Dedicated reverse
@@ -117,10 +131,9 @@ const DEFAULT_RENDER_METADATA = Object.freeze({
 const DEFAULT_OBJECT_HITBOX = Object.freeze({ x: 0.16, y: 0.62, width: 0.68, height: 0.3 });
 const ACTOR_HITBOX = Object.freeze({ x: 0.22, y: 0.58, width: 0.56, height: 0.38 });
 
-// Interaction zones stay close to the visible base of each prop. The source
-// art includes generous transparent padding for isometric overlap, which is
-// useful for rendering but makes the default full-texture Phaser hit area
-// frustrating when objects sit near one another.
+// Interaction zones stay close to the visible base of each prop. Keeping the
+// hit area near the support makes furniture easy to select without stealing
+// clicks from neighboring tiles or residents.
 const COMMONS_HITBOXES = Object.freeze({
   "orange-sofa": Object.freeze({ x: 0.08, y: 0.58, width: 0.84, height: 0.34 }),
   "green-loveseat": Object.freeze({ x: 0.1, y: 0.58, width: 0.8, height: 0.34 }),
@@ -151,12 +164,25 @@ export function getCommonsAssetSize(asset) {
 }
 
 export function getCommonsRenderMetadata(asset, orientation = "south") {
+  const composition = getCommonsPlayerComposition(asset);
+  if (composition) {
+    return {
+      width: composition.displayWidth,
+      height: composition.displayHeight,
+      anchor: composition.anchor,
+      depthOffset: 0,
+    };
+  }
   if (orientation === "north" && NORTH_RENDER_METADATA[asset]) return NORTH_RENDER_METADATA[asset];
   return COMMONS_RENDER_METADATA[asset] || DEFAULT_RENDER_METADATA;
 }
 
 export function getCommonsActorAnimation(asset) {
   return COMMONS_ACTOR_ANIMATIONS[asset] || null;
+}
+
+export function getCommonsActorTint(asset) {
+  return getCommonsPlayerComposition(asset)?.tint || 0xffffff;
 }
 
 export function getCommonsHitbox(asset, entityType = "object") {

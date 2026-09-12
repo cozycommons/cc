@@ -20,10 +20,10 @@ describe('Commons world geometry', () => {
 
   it('keeps floor perimeter on cell boundaries', () => {
     expect(COMMONS_FLOOR_BOUNDARY.map(({ u, v }) => projectGround(u, v))).toEqual([
-      { x: 256, y: 170 },
-      { x: 512, y: 330 },
-      { x: 256, y: 490 },
-      { x: 0, y: 330 },
+      { x: 0, y: 0 },
+      { x: 512, y: 0 },
+      { x: 512, y: 512 },
+      { x: 0, y: 512 },
     ]);
   });
 
@@ -33,17 +33,17 @@ describe('Commons world geometry', () => {
     expect(tileToGround(3, 4)).toEqual({ u: 3, v: 4 });
   });
 
-  it('maps isometric movement to registered character views', () => {
-    expect(directionForDelta(1, 0)).toBe('front_right');
-    expect(directionForDelta(0, 1)).toBe('front_left');
-    expect(directionForDelta(-1, 0)).toBe('back_left');
-    expect(directionForDelta(0, -1)).toBe('back_right');
+  it('maps cardinal movement to registered character views', () => {
+    expect(directionForDelta(1, 0)).toBe('right');
+    expect(directionForDelta(0, 1)).toBe('front');
+    expect(directionForDelta(-1, 0)).toBe('left');
+    expect(directionForDelta(0, -1)).toBe('back');
     expect(directionForDelta(1, 1)).toBeNull();
   });
 
   it('sorts equal ground positions by explicit depth offsets', () => {
-    expect(depthForGround(2, 3)).toBe(50);
-    expect(depthForGround(2, 3, -0.5)).toBe(49.5);
+    expect(depthForGround(2, 3)).toBe(96);
+    expect(depthForGround(2, 3, -0.5)).toBe(95.5);
   });
 
   it('allocates the framebuffer from displayed size and capped DPR', () => {
