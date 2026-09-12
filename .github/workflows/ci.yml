@@ -29,11 +29,39 @@ jobs:
       - name: Build frontend container
         run: >-
           docker build
+          --tag cozy-commons-frontend-ci
           -f Dockerfile
           --build-arg VITE_API_URL=http://127.0.0.1:8000
           --build-arg VITE_SUPABASE_URL=http://127.0.0.1:54321
           --build-arg VITE_SUPABASE_ANON_KEY=sb_publishable_ci_placeholder
           ..
+      - name: Smoke test frontend container
+        run: |
+          set -euo pipefail
+          container=cozy-commons-frontend-ci
+          cleanup() {
+            exit_code=$?
+            if [ "$exit_code" -ne 0 ]; then
+              docker logs "$container" || true
+            fi
+            docker rm --force "$container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run --detach --name "$container" --publish 8080:8080 \
+            --env PORT=8080 cozy-commons-frontend-ci
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:8080/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/ >/dev/null
+          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/dice >/dev/null
+          curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:8080/commons/cozy-commons-room-tile-base.png >/dev/null
 
   backend:
     runs-on: ubuntu-latest
@@ -56,6 +84,50 @@ jobs:
       - run: scripts/test-backend-predeployment.sh
       - name: Build backend container
         run: docker build --tag cozy-commons-backend-ci -f backend/Dockerfile .
+      - name: Smoke test backend container
+        run: |
+          set -euo pipefail
+          container=cozy-commons-backend-ci
+          cleanup() {
+            exit_code=$?
+            if [ "$exit_code" -ne 0 ]; then
+              docker logs "$container" || true
+            fi
+            docker rm --force "$container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run --detach --name "$container" --publish 8000:8000 \
+            --env DICE_LOCAL_HARNESS=true \
+            --env SUPABASE_URL=http://127.0.0.1:54321 \
+            --env SUPABASE_SERVICE_KEY=synthetic-ci-service-key \
+            cozy-commons-backend-ci
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8000/health >/dev/null
+
+          for attempt in $(seq 1 30); do
+            health_status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
+            if [ "$health_status" = healthy ]; then
+              break
+            fi
+            if [ "$health_status" = unhealthy ]; then
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = healthy
+
+          ready_status=$(curl --silent --show-error --max-time 5 --output /tmp/backend-ready.json \
+            --write-out '%{http_code}' http://127.0.0.1:8000/ready)
+          test "$ready_status" = 503
+          grep --fixed-strings '"status":"not_ready"' /tmp/backend-ready.json
       - name: Verify backend pre-deployment payload
         run: >-
           docker run --rm cozy-commons-backend-ci sh -c
