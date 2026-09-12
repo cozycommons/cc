@@ -1,8 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ getLiveGame: vi.fn(), getLivePrediction: vi.fn(), getLivePulse: vi.fn(), sendLiveCommand: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getLiveGame: vi.fn(), getLivePrediction: vi.fn(), getLivePulse: vi.fn(),
+  sendLiveCommand: vi.fn(), updateLiveSettings: vi.fn(),
+}));
 vi.mock('../api.js', () => ({ diceApi: mocks }));
 import LiveGame from './LiveGame.jsx';
 
@@ -16,12 +19,10 @@ const baseGame = {
   player_avatars: { alice: 'https://img.test/alice.jpg', cam: 'https://img.test/cam.jpg' },
   referees: [{ user_id: 'me', left_at: null }], events: [],
 };
+const enabledAuth = { token: 'token', user: { id: 'me' }, features: { dice_live_referee: { opted_in: true, effective: true } } };
 
 function renderGame({ effective = true } = {}) {
-  const auth = {
-    token: 'token', user: { id: 'me' },
-    features: { dice_live_referee: { opted_in: effective, effective } },
-  };
+  const auth = { ...enabledAuth, features: { dice_live_referee: { opted_in: effective, effective } } };
   return render(
     <MemoryRouter initialEntries={['/dice/live/match-1']}>
       <Routes><Route path="/dice/live/:matchId" element={<LiveGame auth={auth} />} /></Routes>
@@ -29,13 +30,31 @@ function renderGame({ effective = true } = {}) {
   );
 }
 
-describe('LiveGame common scoring', () => {
-  afterEach(() => vi.resetAllMocks());
+const renderRouteSwitch = () => render(
+  <MemoryRouter initialEntries={['/dice/live/match-1']}><RouteSwitch auth={enabledAuth} /></MemoryRouter>,
+);
 
-  it('does not request game data when the effective flag is off', () => {
+function RouteSwitch({ auth }) {
+  const navigate = useNavigate();
+  return <>
+    <button type="button" onClick={() => navigate('/dice/live/match-1')}>Open match 1</button>
+    <button type="button" onClick={() => navigate('/dice/live/match-2')}>Open match 2</button>
+    <Routes><Route path="/dice/live/:matchId" element={<LiveGame auth={auth} />} /></Routes>
+  </>;
+}
+
+describe('LiveGame common scoring', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    window.localStorage.clear();
+    vi.resetAllMocks();
+  });
+
+  it('ignores a stale opt-out and requests the released live game', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
     renderGame({ effective: false });
-    expect(screen.getByText('Live referee unavailable')).toBeInTheDocument();
-    expect(mocks.getLiveGame).not.toHaveBeenCalled();
+    expect(await screen.findByText('1–1')).toBeInTheDocument();
+    expect(mocks.getLiveGame).toHaveBeenCalled();
   });
 
   it('keeps the score, game state, and thrower dominant without internal metadata', async () => {
@@ -93,11 +112,15 @@ describe('LiveGame common scoring', () => {
     renderGame();
 
     const summary = await screen.findByRole('region', { name: 'Player game stats' });
-    expect(within(summary).getByText('2 points · 1 sink · 1 self-sink · 1 FIFA against')).toBeInTheDocument();
-    expect(within(summary).getByText('1 FIFA goal · 2 FIFA kicks')).toBeInTheDocument();
-    expect(within(summary).getByText('1 FIFA catch')).toBeInTheDocument();
-    expect(within(summary).getByText('1 FIFA save')).toBeInTheDocument();
-    expect(within(summary).getByText(/Some plays weren’t recorded./i)).toBeInTheDocument();
+    expect(within(summary).getByLabelText('2 points')).toBeInTheDocument();
+    expect(within(summary).getByLabelText('1 sink')).toBeInTheDocument();
+    expect(within(summary).getByLabelText('1 self-sink')).toBeInTheDocument();
+    expect(within(summary).getByLabelText('1 FIFA allowed')).toBeInTheDocument();
+    expect(within(summary).getByLabelText('1 FIFA goal')).toBeInTheDocument();
+    expect(within(summary).getByLabelText('2 FIFA kicks')).toBeInTheDocument();
+    expect(within(summary).getByLabelText('1 FIFA catch')).toBeInTheDocument();
+    expect(within(summary).getByLabelText('1 FIFA save')).toBeInTheDocument();
+    expect(within(summary).getByText('Missing plays are excluded, not counted as misses.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Fix this result' })).not.toBeInTheDocument();
     expect(screen.queryByText(/server|canonical|coverage/i)).not.toBeInTheDocument();
   });
@@ -406,6 +429,43 @@ describe('LiveGame common scoring', () => {
     expect(screen.getByRole('button', { name: 'Cam C' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('requires a referee to establish the thrower after a score gap', async () => {
+    mocks.getLiveGame.mockResolvedValue({
+      ...baseGame,
+      detail_coverage: 'partial',
+      events: [
+        { id: 'a1', kind: 'observation', outcome: 'miss', thrower_id: 'alice', throwing_team_id: 'blue', sequence: 1 },
+        { id: 'gap', kind: 'score_checkpoint', score: [2, 1], coverage: 'partial', sequence: 2 },
+      ],
+    });
+    renderGame();
+
+    expect(await screen.findByText('Order unknown · choose thrower')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    for (const name of ['Alice A', 'Bea B', 'Cam C', 'Dev D']) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false');
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Cam C' }));
+    expect(screen.getByRole('button', { name: 'Cam C' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+  });
+
+  it('coalesces foreground resync while a canonical refresh is in flight', async () => {
+    let finishRefresh;
+    mocks.getLiveGame
+      .mockResolvedValueOnce(baseGame)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishRefresh = resolve; }));
+    renderGame();
+    await screen.findByText('1–1');
+
+    fireEvent(window, new Event('focus'));
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(2));
+    fireEvent(document, new Event('visibilitychange'));
+    expect(mocks.getLiveGame).toHaveBeenCalledTimes(2);
+    finishRefresh(baseGame);
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(2));
+  });
+
   it('keeps advanced stat results reachable without slowing common scoring', async () => {
     mocks.getLiveGame.mockResolvedValue(baseGame);
     mocks.sendLiveCommand.mockResolvedValue({
@@ -420,6 +480,45 @@ describe('LiveGame common scoring', () => {
     expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
       kind: 'record_throw', thrower_id: 'alice', outcome: 'self_sink', expected_version: 7,
     });
+  });
+
+  it('records who caught an ordinary table hit', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8,
+      projection: { score: [1, 1], status: 'active', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Table hit' }));
+    expect(screen.getByRole('heading', { name: 'Table hit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'WHO CAUGHT IT?: Alice A' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: Cam C' }));
+
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
+      kind: 'record_throw', thrower_id: 'alice', outcome: 'caught', catcher_id: 'cam', expected_version: 7,
+    });
+    expect(await screen.findByText('Cam C caught Alice A’s table hit · 1–1')).toBeInTheDocument();
+  });
+
+  it('records an uncaught table hit without awarding a point or inventing a catcher', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8,
+      projection: { score: [1, 1], status: 'active', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Table hit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: No one' }));
+
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
+      kind: 'record_throw', thrower_id: 'alice', outcome: 'caught', expected_version: 7,
+    });
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).not.toHaveProperty('catcher_id');
+    expect(await screen.findByText('Alice A hit the table · no catch · 1–1')).toBeInTheDocument();
   });
 
   it('attributes advanced results to the selected player and shows that assignment', async () => {
@@ -540,6 +639,346 @@ describe('LiveGame common scoring', () => {
     expect(screen.getByText('2–1')).toBeInTheDocument();
   });
 
+  it('locks stale event actions after a saved command until canonical history refreshes', async () => {
+    const earlierPoint = { id: 'point-1', kind: 'observation', outcome: 'point', thrower_id: 'alice', sequence: 1 };
+    const savedPoint = { id: 'point-2', kind: 'observation', outcome: 'point', thrower_id: 'bea', sequence: 2 };
+    mocks.getLiveGame
+      .mockResolvedValueOnce({ ...baseGame, events: [earlierPoint] })
+      .mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValue({ ...baseGame, score: [2, 1], version: 8, events: [earlierPoint, savedPoint] });
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8, last_sequence: 2,
+      projection: { score: [2, 1], status: 'active', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    const pending = await screen.findByRole('region', { name: 'Refreshing saved result' });
+    expect(within(pending).getByRole('status')).toHaveTextContent(/Refreshing official history/i);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Fix this result' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Game options' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Ranked — Affects ELO' })).toBeDisabled();
+
+    fireEvent.click(within(pending).getByRole('button', { name: 'Refresh now' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Refreshing saved result' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+    expect(mocks.getLiveGame.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps the saved-result lock across reload until the accepted version is visible', async () => {
+    const earlierPoint = { id: 'point-1', kind: 'observation', outcome: 'point', thrower_id: 'alice', sequence: 1 };
+    const canonical = { ...baseGame, events: [earlierPoint] };
+    mocks.getLiveGame.mockResolvedValueOnce(canonical).mockResolvedValueOnce(canonical);
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8, last_sequence: 2,
+      projection: { score: [2, 1], status: 'active', coverage: 'complete' },
+    });
+    const firstView = renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    await screen.findByRole('region', { name: 'Refreshing saved result' });
+    firstView.unmount();
+
+    mocks.getLiveGame
+      .mockResolvedValueOnce(canonical)
+      .mockResolvedValue({ ...canonical, score: [2, 1], version: 8 });
+    renderGame();
+    const pending = await screen.findByRole('region', { name: 'Refreshing saved result' });
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    fireEvent.click(within(pending).getByRole('button', { name: 'Refresh now' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Refreshing saved result' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it('does not unlock when another tab has recorded a newer canonical version', async () => {
+    let resolveInitial;
+    window.localStorage.setItem('dice.live-canonical.v1:me:match-1:8', '1');
+    mocks.getLiveGame
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveInitial = resolve; }))
+      .mockResolvedValue({ ...baseGame, version: 9 });
+    renderGame();
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(1));
+    window.localStorage.setItem('dice.live-canonical.v1:me:match-1:9', '1');
+    await act(async () => resolveInitial({ ...baseGame, version: 8 }));
+
+    const pending = await screen.findByRole('region', { name: 'Refreshing saved result' });
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    fireEvent.click(within(pending).getByRole('button', { name: 'Refresh now' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Refreshing saved result' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+  });
+
+  it('locks when another tab records a newer canonical requirement after load', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    renderGame();
+    expect(await screen.findByText('1–1')).toBeInTheDocument();
+    act(() => {
+      window.localStorage.setItem('dice.live-canonical.v1:me:match-1:8', '1');
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'dice.live-canonical.v1:me:match-1:8', newValue: '1',
+      }));
+    });
+
+    expect(await screen.findByRole('region', { name: 'Refreshing saved result' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+  });
+
+  it('scopes a pending canonical version to its user and match', async () => {
+    mocks.getLiveGame.mockImplementation((_token, matchId) => Promise.resolve(
+      matchId === 'match-2' ? { ...baseGame, id: 'match-2', score: [0, 0], version: 1 } : baseGame,
+    ));
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8,
+      projection: { score: [2, 1], status: 'active', coverage: 'complete' },
+    });
+    renderRouteSwitch();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    await screen.findByRole('region', { name: 'Refreshing saved result' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    expect(await screen.findByText('0–0')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Refreshing saved result' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+  });
+
+  it('ignores an accepted command response after navigating to another match', async () => {
+    let accept;
+    mocks.getLiveGame.mockImplementation((_token, matchId) => Promise.resolve(
+      matchId === 'match-2' ? { ...baseGame, id: 'match-2', score: [0, 0], version: 1 } : baseGame,
+    ));
+    mocks.sendLiveCommand.mockImplementation(() => new Promise((resolve) => { accept = resolve; }));
+    renderRouteSwitch();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    await screen.findByText(/Saving this result/i);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    expect(await screen.findByText('0–0')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+    await act(async () => accept({
+      accepted_version: 8,
+      projection: { score: [2, 1], status: 'active', coverage: 'complete' },
+    }));
+    expect(screen.getByText('0–0')).toBeInTheDocument();
+    expect(screen.queryByText('2–1')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Refreshing saved result' })).not.toBeInTheDocument();
+  });
+
+  it('does not carry ambiguous recovery actions into another match', async () => {
+    mocks.getLiveGame.mockImplementation((_token, matchId) => Promise.resolve(
+      matchId === 'match-2' ? { ...baseGame, id: 'match-2', score: [0, 0], version: 1 } : baseGame,
+    ));
+    mocks.sendLiveCommand.mockRejectedValue(new Error('connection lost'));
+    renderRouteSwitch();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    await screen.findByRole('region', { name: 'Unsaved referee intent' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    expect(await screen.findByText('0–0')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Unsaved referee intent' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+  });
+
+  it('does not surface a failed stale-version refresh in another match', async () => {
+    let rejectRefresh;
+    mocks.getLiveGame
+      .mockResolvedValueOnce(baseGame)
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRefresh = reject; }))
+      .mockImplementation((_token, matchId) => Promise.resolve({ ...baseGame, id: matchId, score: [0, 0], version: 1 }));
+    mocks.sendLiveCommand.mockRejectedValue({ status: 409, detail: { code: 'dice_live.stale_version' } });
+    renderRouteSwitch();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    expect(await screen.findByText('0–0')).toBeInTheDocument();
+    await act(async () => rejectRefresh(new Error('connection lost')));
+    expect(screen.queryByRole('region', { name: 'Unsaved referee intent' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeEnabled();
+  });
+
+  it('locks and scopes ranked-setting requests', async () => {
+    let acceptSetting;
+    mocks.getLiveGame.mockImplementation((_token, matchId) => Promise.resolve(
+      matchId === 'match-2' ? { ...baseGame, id: 'match-2', score: [0, 0], version: 1, ranked: false } : { ...baseGame, ranked: false },
+    ));
+    mocks.updateLiveSettings.mockImplementation(() => new Promise((resolve) => { acceptSetting = resolve; }));
+    renderRouteSwitch();
+    const ranked = await screen.findByRole('radio', { name: 'Ranked — Affects ELO' });
+    fireEvent.click(ranked);
+    expect(ranked).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    const matchTwoRanked = await screen.findByRole('radio', { name: 'Ranked — Affects ELO' });
+    expect(matchTwoRanked).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 1' }));
+    const returnedRanked = await screen.findByRole('radio', { name: 'Ranked — Affects ELO' });
+    expect(returnedRanked).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    await screen.findByText('0–0');
+    await act(async () => acceptSetting({ ranked: true }));
+    const currentRanked = screen.getByRole('radio', { name: 'Ranked — Affects ELO' });
+    expect(currentRanked).not.toBeChecked();
+    expect(currentRanked).toBeEnabled();
+  });
+
+  it('does not let an older load undo a saved ranked setting', async () => {
+    let resolveOld;
+    mocks.getLiveGame
+      .mockResolvedValueOnce({ ...baseGame, ranked: false })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ ...baseGame, ranked: true });
+    mocks.updateLiveSettings.mockResolvedValue({ ranked: true });
+    renderGame();
+    const ranked = await screen.findByRole('radio', { name: 'Ranked — Affects ELO' });
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    fireEvent.click(ranked);
+    await waitFor(() => expect(ranked).toBeChecked());
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(3));
+    await act(async () => resolveOld({ ...baseGame, ranked: false }));
+    expect(ranked).toBeChecked();
+  });
+
+  it('ignores an accepted command from a prior visit to the same match', async () => {
+    let acceptCommand;
+    let resolveReturn;
+    mocks.getLiveGame
+      .mockResolvedValueOnce(baseGame)
+      .mockResolvedValueOnce({ ...baseGame, id: 'match-2', score: [0, 0], version: 1 })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveReturn = resolve; }));
+    mocks.sendLiveCommand.mockImplementation(() => new Promise((resolve) => { acceptCommand = resolve; }));
+    renderRouteSwitch();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    await screen.findByText('0–0');
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 1' }));
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(3));
+    await act(async () => acceptCommand({
+      accepted_version: 8, projection: { score: [2, 1], status: 'active', coverage: 'complete' },
+    }));
+    expect(screen.queryByText('2–1')).not.toBeInTheDocument();
+    await act(async () => resolveReturn({ ...baseGame, score: [2, 1], version: 8 }));
+    expect(await screen.findByText('2–1')).toBeInTheDocument();
+  });
+
+  it('does not crash when a ranked save returns during a new visit', async () => {
+    let acceptSetting;
+    let resolveReturn;
+    mocks.getLiveGame
+      .mockResolvedValueOnce({ ...baseGame, ranked: false })
+      .mockResolvedValueOnce({ ...baseGame, id: 'match-2', score: [0, 0], version: 1, ranked: false })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveReturn = resolve; }));
+    mocks.updateLiveSettings.mockImplementation(() => new Promise((resolve) => { acceptSetting = resolve; }));
+    renderRouteSwitch();
+    fireEvent.click(await screen.findByRole('radio', { name: 'Ranked — Affects ELO' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 2' }));
+    await screen.findByText('0–0');
+    fireEvent.click(screen.getByRole('button', { name: 'Open match 1' }));
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(3));
+    await act(async () => acceptSetting({ ranked: true }));
+    expect(screen.queryByText('0–0')).not.toBeInTheDocument();
+    await act(async () => resolveReturn({ ...baseGame, ranked: true }));
+    expect(await screen.findByText('1–1')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Ranked — Affects ELO' })).toBeChecked();
+  });
+
+  it('shows manual reload progress and completion', async () => {
+    let resolveReload;
+    mocks.getLiveGame
+      .mockResolvedValueOnce(baseGame)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveReload = resolve; }));
+    renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload' }));
+    expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled();
+    await act(async () => resolveReload({ ...baseGame, version: 8 }));
+    expect(await screen.findByText('Official game refreshed.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeEnabled();
+  });
+
+  it('reports a failed manual canonical refresh without releasing the saved-result lock', async () => {
+    window.localStorage.setItem('dice.live-canonical.v1:me:match-1:8', '1');
+    mocks.getLiveGame.mockResolvedValueOnce(baseGame).mockRejectedValueOnce(new Error('connection lost'));
+    renderGame();
+    const pending = await screen.findByRole('region', { name: 'Refreshing saved result' });
+    fireEvent.click(within(pending).getByRole('button', { name: 'Refresh now' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Official game could not refresh. Try again.');
+    expect(screen.getByRole('region', { name: 'Refreshing saved result' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Point' })).toBeDisabled();
+    expect(within(pending).getByRole('button', { name: 'Refresh now' })).toBeEnabled();
+  });
+
+  it('offers reload when a persisted canonical requirement meets an initial load failure', async () => {
+    window.localStorage.setItem('dice.live-canonical.v1:me:match-1:8', '1');
+    mocks.getLiveGame
+      .mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValue({ ...baseGame, version: 8 });
+    renderGame();
+    expect(await screen.findByRole('alert')).toHaveTextContent('connection lost');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(await screen.findByText('1–1')).toBeInTheDocument();
+    expect(screen.getByText('Official game refreshed.')).toBeInTheDocument();
+  });
+
+  it('does not retry retained intent through a newer cross-tab canonical lock', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockRejectedValue(new Error('connection lost'));
+    renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    const retry = await screen.findByRole('button', { name: 'Try saving again' });
+    expect(retry).toBeEnabled();
+    act(() => {
+      window.localStorage.setItem('dice.live-canonical.v1:me:match-1:8', '1');
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'dice.live-canonical.v1:me:match-1:8', newValue: '1',
+      }));
+    });
+
+    expect(retry).toBeDisabled();
+    act(() => window.dispatchEvent(new Event('online')));
+    await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(2));
+    expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a canonical command refresh after the page unmounts', async () => {
+    let acceptCommand;
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockImplementation(() => new Promise((resolve) => { acceptCommand = resolve; }));
+    const view = renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    view.unmount();
+    await act(async () => acceptCommand({
+      accepted_version: 8, projection: { score: [2, 1], status: 'active', coverage: 'complete' },
+    }));
+    expect(mocks.getLiveGame).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a canonical settings refresh after the page unmounts', async () => {
+    let acceptSetting;
+    mocks.getLiveGame.mockResolvedValue({ ...baseGame, ranked: false });
+    mocks.updateLiveSettings.mockImplementation(() => new Promise((resolve) => { acceptSetting = resolve; }));
+    const view = renderGame();
+    fireEvent.click(await screen.findByRole('radio', { name: 'Ranked — Affects ELO' }));
+    view.unmount();
+    await act(async () => acceptSetting({ ranked: true }));
+    expect(mocks.getLiveGame).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms completed-game rating recalculation after changing ranked', async () => {
+    const completed = { ...baseGame, status: 'completed', ranked: false };
+    mocks.getLiveGame.mockResolvedValueOnce(completed).mockResolvedValue({ ...completed, ranked: true });
+    mocks.updateLiveSettings.mockResolvedValue({ ranked: true });
+    renderGame();
+    fireEvent.click(await screen.findByRole('radio', { name: 'Ranked — Affects ELO' }));
+    expect(await screen.findByText('Ranked saved · ratings recalculated.')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Ranked — Affects ELO' })).toBeChecked();
+    expect(mocks.getLiveGame).toHaveBeenCalledTimes(2);
+  });
+
   it('shows recent server events and prevents scoring before joining', async () => {
     mocks.getLiveGame.mockResolvedValue({
       ...baseGame,
@@ -645,10 +1084,31 @@ describe('LiveGame common scoring', () => {
     expect(await screen.findAllByRole('button', { name: 'Fix this result' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Fix this result' }));
     fireEvent.change(screen.getByLabelText('Replacement result'), { target: { value: 'caught' } });
+    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: Cam C' }));
     fireEvent.click(screen.getByRole('button', { name: 'Change result' }));
 
     await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
-    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({ target_event_id: 'miss-1' });
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({ target_event_id: 'miss-1', catcher_id: 'cam' });
+  });
+
+  it('can correct a result to an uncaught table hit', async () => {
+    const point = { id: 'point-1', kind: 'observation', outcome: 'point', thrower_id: 'alice', sequence: 1 };
+    mocks.getLiveGame.mockResolvedValue({ ...baseGame, events: [point] });
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8, projection: { score: [1, 1], status: 'active', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix this result' }));
+    fireEvent.change(screen.getByLabelText('Replacement result'), { target: { value: 'caught' } });
+    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: No one' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change result' }));
+
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
+      kind: 'change_throw', target_event_id: 'point-1', outcome: 'caught',
+    });
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).not.toHaveProperty('catcher_id');
   });
 
   it('shows corrected and retossed plays without exposing decision events', async () => {
@@ -840,6 +1300,97 @@ describe('LiveGame common scoring', () => {
     expect(mocks.sendLiveCommand.mock.calls[1][2]).toEqual(first);
   });
 
+  it('retries the retained envelope when the phone returns online', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ accepted_version: 8, projection: { score: [2, 1], status: 'active', coverage: 'complete' } });
+    renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    await screen.findByText(/Retrying will not create a duplicate/i);
+    const first = mocks.sendLiveCommand.mock.calls[0][2];
+
+    act(() => window.dispatchEvent(new Event('online')));
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(2));
+    expect(mocks.sendLiveCommand.mock.calls[1][2]).toEqual(first);
+  });
+
+  it('shows an immediate pending state and permits only one in-flight command', async () => {
+    let settle;
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockImplementation(() => new Promise((resolve) => { settle = resolve; }));
+    renderGame();
+
+    const point = await screen.findByRole('button', { name: 'Point' });
+    fireEvent.click(point);
+    expect(await screen.findByRole('status')).toHaveTextContent('Saving this result');
+    expect(point).toBeDisabled();
+    fireEvent.click(point);
+    expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1);
+
+    settle({ accepted_version: 8, projection: { score: [2, 1], status: 'active', coverage: 'complete' } });
+    await waitFor(() => expect(screen.queryByLabelText('Unsaved referee intent')).not.toBeInTheDocument());
+  });
+
+  it('restores an unacknowledged command after reload and clears it after acknowledgement', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockRejectedValueOnce(new Error('connection lost'));
+    const firstView = renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    expect(await screen.findByText(/Retrying will not create a duplicate/i)).toBeInTheDocument();
+    const original = mocks.sendLiveCommand.mock.calls[0][2];
+    firstView.unmount();
+
+    mocks.getLiveGame
+      .mockReset()
+      .mockResolvedValueOnce(baseGame)
+      .mockResolvedValue({ ...baseGame, score: [2, 1], version: 8 });
+    mocks.sendLiveCommand.mockResolvedValueOnce({ accepted_version: 8, projection: { score: [2, 1], status: 'active', coverage: 'complete' } });
+    renderGame();
+    expect(await screen.findByText(/could not confirm whether this result saved/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try saving again' }));
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(2));
+    expect(mocks.sendLiveCommand.mock.calls[1][2]).toEqual(original);
+    await waitFor(() => expect(window.localStorage.length).toBe(0));
+  });
+
+  it('retains a command ID conflict for review instead of blindly retrying', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockRejectedValue({
+      status: 409,
+      detail: { code: 'dice_live.command_id_conflict' },
+      message: 'conflict',
+    });
+    renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+
+    expect(await screen.findByText(/save ID conflicts with another result/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try saving again' })).not.toBeInTheDocument();
+    expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears a retained command when the signed-in user logs out', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockRejectedValue(new Error('connection lost'));
+    const enabledAuth = { token: 'token', user: { id: 'me' }, features: { dice_live_referee: { opted_in: true, effective: true } } };
+    const view = render(
+      <MemoryRouter initialEntries={['/dice/live/match-1']}>
+        <Routes><Route path="/dice/live/:matchId" element={<LiveGame auth={enabledAuth} />} /></Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    await screen.findByText(/Retrying will not create a duplicate/i);
+    expect(window.localStorage.length).toBe(1);
+
+    const loggedOutAuth = { token: '', user: null, features: enabledAuth.features };
+    view.rerender(
+      <MemoryRouter initialEntries={['/dice/live/match-1']}>
+        <Routes><Route path="/dice/live/:matchId" element={<LiveGame auth={loggedOutAuth} />} /></Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(window.localStorage.length).toBe(0));
+  });
+
   it('safeguards append-only reopen and names its official target', async () => {
     const completion = { id: 'finish-1', kind: 'completion', recorded_by: 'me', sequence: 6 };
     const completed = { ...baseGame, score: [5, 3], status: 'completed', version: 8, detail_coverage: 'partial', events: [completion] };
@@ -855,6 +1406,134 @@ describe('LiveGame common scoring', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm reopen' }));
     await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
     expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({ kind: 'reopen', target_event_id: 'finish-1', expected_version: 8 });
+  });
+
+  it('locks an open reopen confirmation while its command is saving', async () => {
+    let accept;
+    const completion = { id: 'finish-1', kind: 'completion', recorded_by: 'me', sequence: 6 };
+    mocks.getLiveGame.mockResolvedValue({ ...baseGame, status: 'completed', version: 8, events: [completion] });
+    mocks.sendLiveCommand.mockImplementation(() => new Promise((resolve) => { accept = resolve; }));
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reopen game' }));
+    const confirm = screen.getByRole('button', { name: 'Confirm reopen' });
+    fireEvent.click(confirm);
+    expect(confirm).toBeDisabled();
+
+    accept({ accepted_version: 9, projection: { score: [1, 1], status: 'active', coverage: 'complete' } });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Confirm reopen game' })).not.toBeInTheDocument());
+  });
+
+  it('does not allow reopening an optimistically completed game before official history refreshes', async () => {
+    mocks.getLiveGame
+      .mockResolvedValueOnce(baseGame)
+      .mockRejectedValueOnce(new Error('connection lost'));
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8,
+      projection: { score: [5, 3], status: 'completed', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+
+    expect(await screen.findByRole('region', { name: 'Refreshing saved result' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reopen game' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Ranked — Affects ELO' })).toBeDisabled();
+  });
+
+  it('resets the visible timer baseline when a completed game is reopened', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T12:10:00.000Z'));
+    const completedAt = '2026-09-04T12:01:00.000Z';
+    const reopenedAt = '2026-09-04T12:09:55.000Z';
+    mocks.getLiveGame.mockResolvedValue({
+      ...baseGame,
+      created_at: '2026-09-04T12:00:00.000Z',
+      status: 'active',
+      events: [
+        { id: 'finish-1', kind: 'completion', recorded_at: completedAt },
+        { id: 'reopen-1', kind: 'correction', target_event_id: 'finish-1', recorded_at: reopenedAt },
+        { id: 'reopen-checkpoint-1', kind: 'score_checkpoint', replacement_for: 'finish-1' },
+      ],
+    });
+
+    const { container } = renderGame();
+    await act(async () => {});
+
+    expect(container.querySelector('.jk-live-status')).toHaveTextContent('In progress · 0:05');
+  });
+
+  it('times only the latest active cycle after repeated completion and reopen', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T12:10:00.000Z'));
+    mocks.getLiveGame.mockResolvedValue({
+      ...baseGame,
+      created_at: '2026-09-04T12:00:00.000Z',
+      status: 'active',
+      events: [
+        { id: 'finish-1', kind: 'completion', recorded_at: '2026-09-04T12:01:00.000Z', sequence: 1 },
+        { id: 'reopen-1', kind: 'correction', target_event_id: 'finish-1', recorded_at: '2026-09-04T12:05:00.000Z', sequence: 2 },
+        { id: 'finish-2', kind: 'completion', recorded_at: '2026-09-04T12:06:00.000Z', sequence: 3 },
+        { id: 'reopen-2', kind: 'correction', target_event_id: 'finish-2', recorded_at: '2026-09-04T12:09:55.000Z', sequence: 4 },
+      ],
+    });
+
+    const { container } = renderGame();
+    await act(async () => {});
+
+    expect(container.querySelector('.jk-live-status')).toHaveTextContent('In progress · 0:05');
+  });
+
+  it('does not reset the timer for an atomic replacement final', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T12:10:00.000Z'));
+    mocks.getLiveGame.mockResolvedValue({
+      ...baseGame,
+      created_at: '2026-09-04T12:00:00.000Z',
+      status: 'completed',
+      events: [
+        { id: 'finish-1', kind: 'completion', recorded_at: '2026-09-04T12:01:00.000Z', sequence: 1 },
+        { id: 'correct-1', kind: 'correction', target_event_id: 'finish-1', recorded_at: '2026-09-04T12:01:05.000Z', sequence: 2 },
+        { id: 'finish-2', kind: 'completion', replacement_for: 'finish-1', recorded_at: '2026-09-04T12:01:05.000Z', sequence: 3 },
+      ],
+    });
+
+    const { container } = renderGame();
+    await act(async () => {});
+
+    expect(container.querySelector('.jk-live-status')).toHaveTextContent('Final · 1:05');
+  });
+
+  it('guides score catch-up when a correction crosses an absolute checkpoint', async () => {
+    const earlierPoint = { id: 'point-1', kind: 'observation', outcome: 'point', thrower_id: 'alice', sequence: 1 };
+    const firstCorrection = { id: 'correction-1', kind: 'correction', target_event_id: 'point-1', sequence: 2 };
+    const firstReplacement = { id: 'replacement-1', kind: 'observation', outcome: 'miss', thrower_id: 'alice', replacement_for: 'point-1', sequence: 3 };
+    const earlierMiss = { id: 'miss-1', kind: 'observation', outcome: 'miss', thrower_id: 'bea', sequence: 4 };
+    const completion = { id: 'finish-1', kind: 'completion', sequence: 5 };
+    const reopen = { id: 'reopen-1', kind: 'correction', target_event_id: 'finish-1', sequence: 6 };
+    const checkpoint = { id: 'checkpoint-1', kind: 'score_checkpoint', score: [5, 3], replacement_for: 'finish-1', sequence: 7 };
+    const secondCorrection = { id: 'correction-2', kind: 'correction', target_event_id: 'replacement-1', sequence: 8 };
+    const activeReplacement = { id: 'replacement-2', kind: 'observation', outcome: 'point', thrower_id: 'alice', replacement_for: 'replacement-1', sequence: 9 };
+    mocks.getLiveGame.mockResolvedValue({
+      ...baseGame,
+      score: [5, 3],
+      events: [earlierPoint, firstCorrection, firstReplacement, earlierMiss, completion, reopen, checkpoint, secondCorrection, activeReplacement],
+    });
+    renderGame();
+
+    const catchup = await screen.findByRole('region', { name: 'Score checkpoint notice' });
+    expect(within(catchup).getByText(/official 5–3 checkpoint keeps the score fixed/i)).toBeInTheDocument();
+    fireEvent.click(within(catchup).getByRole('button', { name: 'Catch up score' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Catch up score');
+    expect(screen.getByLabelText('Team 1 score')).toHaveValue(5);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Fix this result' })[0]);
+    expect(screen.getByText(/before the official 5–3 score checkpoint/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change recorded result' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove mistaken entry' }));
+    expect(screen.getByText(/Recorded stats will update, but the official 5–3 checkpoint keeps the score fixed/i)).toBeInTheDocument();
+    expect(screen.queryByText('The score will update. History stays intact.')).not.toBeInTheDocument();
   });
 
   it('does not leave a second generic undo control in the referee flow', async () => {
@@ -907,12 +1586,25 @@ describe('LiveGame common scoring', () => {
     renderGame();
     fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
     expect(await screen.findByLabelText('Unsaved referee intent')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved intent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard unsaved intent' }));
     expect(screen.queryByLabelText('Unsaved referee intent')).not.toBeInTheDocument();
     expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1);
   });
 
-  it('fails closed immediately when the effective flag turns off after loading', async () => {
+  it('keeps retry recovery when a stale-version refresh is itself stale', async () => {
+    mocks.getLiveGame.mockResolvedValue(baseGame);
+    mocks.sendLiveCommand.mockRejectedValue({
+      status: 409, detail: { code: 'dice_live.stale_version', current_version: 8 }, message: 'stale',
+    });
+    renderGame();
+    fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
+    expect(await screen.findByText(/latest state could not load/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try saving again' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save my result now' })).not.toBeInTheDocument();
+    expect(screen.getByText('1–1')).toBeInTheDocument();
+  });
+
+  it('does not restore classic Dice when a stale flag changes after loading', async () => {
     mocks.getLiveGame.mockResolvedValue(baseGame);
     const enabledAuth = { token: 'token', user: { id: 'me' }, features: { dice_live_referee: { opted_in: true, effective: true } } };
     const disabledAuth = { ...enabledAuth, features: { dice_live_referee: { opted_in: true, effective: false } } };
@@ -927,8 +1619,8 @@ describe('LiveGame common scoring', () => {
         <Routes><Route path="/dice/live/:matchId" element={<LiveGame auth={disabledAuth} />} /></Routes>
       </MemoryRouter>,
     );
-    expect(screen.getByText('Live referee unavailable')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+    expect(screen.getByText('1–1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
     expect(mocks.getLiveGame).toHaveBeenCalledTimes(1);
   });
 });

@@ -9,12 +9,14 @@ import uuid
 from pathlib import Path
 
 import pytest
+from tests.dice_test_database import is_isolated_dice_test_database
+from supabase import create_client
 
 
 ROOT = Path(__file__).parents[2]
 MIGRATION = ROOT / "backend/migrations/0044_dice_live_store.sql"
 AUTH_CLAIMS_MIGRATION = ROOT / "backend/migrations/0046_dice_live_rpc_auth_claims.sql"
-LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+METRICS_MIGRATION = ROOT / "backend/migrations/0065_dice_live_command_metrics.sql"
 LOCAL_API_URL = "http://127.0.0.1:54321"
 REFEREE = "10000000-0000-0000-0000-000000000001"
 OTHER_REFEREE = "10000000-0000-0000-0000-000000000002"
@@ -136,9 +138,19 @@ def test_auth_claims_forward_migration_preserves_service_role_only_boundary():
     assert ") to service_role;" in sql
 
 
+def test_command_metrics_migration_is_private_and_deduplicated():
+    sql = METRICS_MIGRATION.read_text(encoding="utf-8")
+
+    assert "create table public.dice_live_command_metrics" in sql
+    assert "unique (match_id, referee_id, operation_id)" in sql
+    assert "alter table public.dice_live_command_metrics enable row level security" in sql
+    assert "revoke all on table public.dice_live_command_metrics from public, anon, authenticated" in sql
+    assert "grant all on table public.dice_live_command_metrics to service_role" in sql
+
+
 def test_live_store_schema_and_function_are_installed_on_loopback():
-    if os.environ.get("DB_URL") != LOCAL_DB_URL:
-        pytest.skip("requires the locked local Dice database")
+    if not is_isolated_dice_test_database(os.environ):
+        pytest.skip("requires an explicitly isolated Dice test database")
 
     tables = _sql("""
       select string_agg(table_name, ',' order by table_name)
@@ -146,16 +158,17 @@ def test_live_store_schema_and_function_are_installed_on_loopback():
        where table_schema = 'public'
          and table_name like 'dice_live_%';
     """)
-    assert tables == "dice_live_commands,dice_live_events,dice_live_matches,dice_live_referees"
+    assert tables == "dice_live_command_metrics,dice_live_commands,dice_live_events,dice_live_matches,dice_live_rating_repairs,dice_live_referees"
     assert _sql("select has_table_privilege('anon', 'public.dice_live_events', 'insert');") == "f"
     assert _sql("select has_table_privilege('authenticated', 'public.dice_live_matches', 'select');") == "f"
+    assert _sql("select has_table_privilege('authenticated', 'public.dice_live_command_metrics', 'insert');") == "f"
     assert _sql("select has_function_privilege('anon', 'public.dice_live_append_command(uuid,uuid,text,integer,jsonb,jsonb,jsonb,smallint[],text,text)', 'execute');") == "f"
 
 
 @pytest.fixture
 def live_match():
-    if os.environ.get("DB_URL") != LOCAL_DB_URL:
-        pytest.skip("requires the locked local Dice database")
+    if not is_isolated_dice_test_database(os.environ):
+        pytest.skip("requires an explicitly isolated Dice test database")
     match_id = str(uuid.uuid4())
     _sql(f"""
       insert into public.dice_live_matches
@@ -206,6 +219,38 @@ def test_service_role_rest_rpc_accepts_modern_jwt_claims(live_match):
     assert receipt["accepted_version"] == 1
     assert receipt["projection"]["score"] == [1, 0]
     assert _sql(f"select count(*) from public.dice_live_events where match_id = '{live_match}';") == "1"
+
+
+def test_service_role_postgrest_upsert_deduplicates_command_metrics(live_match):
+    if os.environ.get("API_URL") != LOCAL_API_URL or not os.environ.get("SECRET_KEY"):
+        pytest.skip("requires the locked local Dice REST API")
+
+    operation_id = str(uuid.uuid4())
+    row = {
+        "operation_id": operation_id,
+        "match_id": live_match,
+        "referee_id": REFEREE,
+        "attempts": 2,
+        "winner": "hedge",
+        "outcome": "resolved",
+        "status": 200,
+        "duration_ms": 900,
+        "hedge_delay_ms": 800,
+        "loser_cancelled": True,
+    }
+    client = create_client(os.environ["API_URL"], os.environ["SECRET_KEY"])
+    client.table("dice_live_command_metrics").upsert(
+        row, on_conflict="match_id,referee_id,operation_id"
+    ).execute()
+    client.table("dice_live_command_metrics").upsert(
+        {**row, "duration_ms": 850},
+        on_conflict="match_id,referee_id,operation_id",
+    ).execute()
+
+    assert _sql(
+        f"select count(*) || ':' || min(duration_ms) "
+        f"from public.dice_live_command_metrics where operation_id = '{operation_id}';"
+    ) == "1:850"
 
 
 def test_authenticated_claim_cannot_cross_the_service_role_rpc_boundary(live_match):

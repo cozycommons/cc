@@ -282,12 +282,12 @@ def test_local_harness_disables_sms_even_with_ambient_twilio_secrets(monkeypatch
     )
 
 
-def test_dice_notification_link_uses_the_service_site_url(monkeypatch):
+def test_dice_notification_link_uses_the_dice_site_url(monkeypatch):
     from types import SimpleNamespace
 
     from dice import notifications
 
-    monkeypatch.setattr(notifications, "SITE_URL", "https://cozycommons.dev")
+    monkeypatch.setattr(notifications, "DICE_SITE_URL", "https://cozycommons.dev/dice")
     game = SimpleNamespace(
         id="game-123",
         winner_team=1,

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import uuid
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -33,6 +33,7 @@ class LiveCommand(BaseModel):
     match_elapsed_ms: int = Field(default=0, ge=0)
     thrower_id: str | None = None
     outcome: Outcome | None = None
+    catcher_id: str | None = None
     characteristics: list[Literal["short", "low"]] | None = None
     fifa: dict[str, Any] | None = None
     replay_of: Any | None = None
@@ -49,8 +50,8 @@ class LiveCommand(BaseModel):
     def required_fields(self) -> "LiveCommand":
         common = {"kind", "client_command_id", "expected_version", "match_elapsed_ms"}
         allowed = {
-            "record_throw": {"thrower_id", "outcome", "characteristics", "fifa", "replay_of"},
-            "change_throw": {"target_event_id", "thrower_id", "outcome", "characteristics", "fifa", "reason", "decision_basis", "disputed_calls"},
+            "record_throw": {"thrower_id", "outcome", "catcher_id", "characteristics", "fifa", "replay_of"},
+            "change_throw": {"target_event_id", "thrower_id", "outcome", "catcher_id", "characteristics", "fifa", "reason", "decision_basis", "disputed_calls"},
             "remove_mistake": {"target_event_id", "reason"},
             "retoss": {"target_event_id", "thrower_id", "decision_basis", "disputed_calls", "characteristics"},
             "fix_score": {"score", "coverage"},
@@ -74,6 +75,9 @@ class LiveCommand(BaseModel):
             raise ValueError(f"{self.kind} requires {', '.join(required)}")
         if self.kind == "record_throw" and self.outcome == "invalid" and not self.characteristics:
             raise ValueError("invalid throws require characteristics")
+        if self.kind in {"record_throw", "change_throw"}:
+            if self.outcome != "caught" and self.catcher_id is not None:
+                raise ValueError("catcher_id is allowed only for caught throws")
         if self.kind == "retoss" and self.decision_basis is None:
             raise ValueError("retoss requires decision_basis")
         return self
@@ -169,7 +173,8 @@ def _translate_command(row: dict[str, Any], events: list[dict[str, Any]], comman
         replay_of = _validate_replay_target(events, command.replay_of) if kind == "record_throw" and command.replay_of is not None else None
         event = _envelope(command, str(row["id"]), user_id, "observation", thrower_id=command.thrower_id,
             throwing_team_id=_team(row, command.thrower_id), outcome=command.outcome,
-            score_delta=_delta(row, command.thrower_id, command.outcome, command.fifa), characteristics=command.characteristics,
+            score_delta=_delta(row, command.thrower_id, command.outcome, command.fifa), catcher_id=command.catcher_id,
+            characteristics=command.characteristics,
             fifa=command.fifa, replacement_for=command.target_event_id if kind == "change_throw" else None,
             replay_of=replay_of)
         if kind == "change_throw":
@@ -261,7 +266,16 @@ def _validated_prediction_profiles(client: Client) -> list[dict[str, Any]]:
     return snapshot["profiles"]
 
 
-def create_live_match(client: Client, user_id: str, team_order: list[str], teams: dict[str, list[str]], rules: dict[str, Any]) -> dict[str, Any]:
+def create_live_match(
+    client: Client,
+    user_id: str,
+    team_order: list[str],
+    teams: dict[str, list[str]],
+    rules: dict[str, Any],
+    ranked: bool = True,
+    creation_id: str | None = None,
+) -> dict[str, Any]:
+    match_id = str(uuid.UUID(creation_id)) if creation_id else str(uuid.uuid4())
     try:
         SavedRules.model_validate(rules)
     except ValidationError as exc:
@@ -305,11 +319,28 @@ def create_live_match(client: Client, user_id: str, team_order: list[str], teams
         "team2_prior_win_rate": team_prior_rates[team_order[1]],
         "team1_probability": predict_features(ACCEPTED_MODEL, rate_difference),
     }
-    row = client.table("dice_live_matches").insert({"created_by": user_id, "team_order": team_order, "teams": teams,
-        "rules_snapshot": rules, "rating_snapshot": rating_snapshot,
-        "prediction_snapshot": prediction_snapshot}).execute().data[0]
-    client.table("dice_live_referees").insert({"match_id": row["id"], "user_id": user_id}).execute()
-    return row
+    parameters = {
+        "p_match_id": match_id,
+        "p_created_by": user_id,
+        "p_team_order": team_order,
+        "p_teams": teams,
+        "p_rules_snapshot": rules,
+        "p_rating_snapshot": rating_snapshot,
+        "p_prediction_snapshot": prediction_snapshot,
+        "p_ranked": ranked,
+    }
+    for attempt in range(2):
+        try:
+            return client.rpc("dice_live_create_match", parameters).execute().data
+        except Exception as error:  # noqa: BLE001 - retry an ambiguous transport result
+            if "dice_live.create_idempotency_conflict" in str(error):
+                raise ValueError("idempotency key conflicts with an earlier request") from error
+            if attempt:
+                raise
+            clear_cache = getattr(client, "clear_cache", None)
+            if callable(clear_cache):
+                clear_cache()
+    raise AssertionError("unreachable")
 
 
 def set_membership(client: Client, match_id: str, user_id: str, joined: bool) -> dict[str, Any]:

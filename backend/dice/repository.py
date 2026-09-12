@@ -32,6 +32,7 @@ from dice.schemas import (
     SelfSinkEntry,
     SetBracketTeamsRequest,
     SinkEntry,
+    UpdateGameRequest,
     UpdateScheduledMatchRequest,
     UpdateTournamentRequest,
 )
@@ -62,8 +63,9 @@ PROFILE_COLUMNS = (
     "phone_number, sms_notifications_enabled"
 )
 
-GAME_COLUMNS = "id, created_by, ranked, team1_score, team2_score, winner_team, played_at, created_at, tournament_id"
+GAME_COLUMNS = "id, created_by, ranked, duo_only, team1_score, team2_score, winner_team, played_at, created_at, updated_at, tournament_id, source_live_match_id, recorded_stats"
 LIVE_RESULT_COLUMNS = "id, source_live_match_id, team1_score, team2_score, winner_team, live_result_state, termination_reason, detail_coverage, stats_complete"
+LIVE_RATING_PLAYER_COLUMNS = "id, game_id, user_id, team, counts_for_group_stage, self_sinks, sinks"
 
 
 def _official_games(query):
@@ -78,6 +80,86 @@ def get_live_result(supabase: Client, source_live_match_id: str) -> dict | None:
     rows = (supabase.table(GAMES_TABLE).select(LIVE_RESULT_COLUMNS)
             .eq("source_live_match_id", source_live_match_id).limit(1).execute().data or [])
     return rows[0] if rows else None
+
+
+def sync_live_result_rating(
+    supabase: Client,
+    match_id: str,
+    ranked: bool | None = None,
+    *,
+    bounded: bool = False,
+) -> None:
+    """Rebuild canonical ratings after a live projection changes ranking state."""
+    result = get_live_result(supabase, match_id)
+    if not result:
+        return
+    game = {"id": result["id"]}
+    if ranked is not None:
+        game["ranked"] = ranked
+    players = (supabase.table(GAME_PLAYERS_TABLE).select(LIVE_RATING_PLAYER_COLUMNS)
+               .eq("game_id", result["id"]).execute().data or [])
+    apply_game_rating_mutation(
+        supabase,
+        "update",
+        game,
+        players,
+        rpc_name=(
+            "dice_live_apply_ranked_rating_mutation"
+            if bounded
+            else "dice_rating_apply_game_mutation"
+        ),
+    )
+
+
+def has_pending_live_rating_repair(supabase: Client, match_id: str) -> bool:
+    rows = (
+        supabase.table("dice_live_rating_repairs")
+        .select("match_id")
+        .eq("match_id", match_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    return bool(rows)
+
+
+def list_pending_live_rating_repairs(supabase: Client, limit: int = 25) -> list[str]:
+    rows = (
+        supabase.table("dice_live_rating_repairs")
+        .select("match_id")
+        .order("updated_at")
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+    return [str(row["match_id"]) for row in rows]
+
+
+def record_live_rating_repair_failure(supabase: Client, match_id: str, error: Exception) -> None:
+    rows = (
+        supabase.table("dice_live_rating_repairs")
+        .select("attempts")
+        .eq("match_id", match_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return
+    supabase.table("dice_live_rating_repairs").update({
+        "attempts": int(rows[0].get("attempts") or 0) + 1,
+        "last_error": str(error)[:1000],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("match_id", match_id).execute()
+
+
+def get_game_source_live_match_id(supabase: Client, game_id: str) -> str | None:
+    rows = (supabase.table(GAMES_TABLE).select("source_live_match_id")
+            .eq("id", game_id).limit(1).execute().data or [])
+    return rows[0].get("source_live_match_id") if rows else None
 
 
 def _profile_from_row(row: dict) -> DiceProfile:
@@ -315,6 +397,7 @@ def _committed_game(
 def list_games(supabase: Client, limit: int, offset: int = 0) -> list[DiceGame]:
     rows = (
         _official_games(supabase.table(GAMES_TABLE).select(GAME_COLUMNS))
+        .eq("duo_only", False)
         .order("played_at", desc=True)
         .order("created_at", desc=True)
         .order("id", desc=True)
@@ -341,6 +424,7 @@ def list_games_for_user(supabase: Client, user_id: str, limit: int) -> list[Dice
         return []
     rows = (
         _official_games(supabase.table(GAMES_TABLE).select(GAME_COLUMNS))
+        .eq("duo_only", False)
         .in_("id", game_ids)
         .order("played_at", desc=True)
         .order("created_at", desc=True)
@@ -368,10 +452,13 @@ def get_rating_progress(supabase: Client, user_id: str) -> RatingProgress | None
     players_by_game: dict[str, list[dict]] = {}
     for player in snapshot.get("players") or []:
         players_by_game.setdefault(player["game_id"], []).append(player)
-    games = sorted(snapshot.get("games") or [], key=lambda row: (
+    games = sorted(
+        (row for row in snapshot.get("games") or [] if not row.get("duo_only", False)),
+        key=lambda row: (
         datetime.fromisoformat(row["played_at"].replace("Z", "+00:00")),
         datetime.fromisoformat(row["created_at"].replace("Z", "+00:00")), row["id"],
-    ))
+        ),
+    )
     ratings = {row["user_id"]: STARTING_ELO for row in profile_rows}
     ranked_games = {row["user_id"]: 0 for row in profile_rows}
     personal_best = STARTING_ELO
@@ -470,7 +557,8 @@ def get_head_to_head(supabase: Client, viewer_id: str, other_user_id: str) -> He
         return HeadToHeadRecord()
 
     game_rows = (
-        _official_games(supabase.table(GAMES_TABLE).select("id, winner_team"))
+        _official_games(supabase.table(GAMES_TABLE).select("id, winner_team, duo_only"))
+        .eq("duo_only", False)
         .in_("id", shared_game_ids)
         .execute()
         .data
@@ -495,10 +583,14 @@ def get_head_to_head(supabase: Client, viewer_id: str, other_user_id: str) -> He
     return record
 
 
-def get_game(supabase: Client, game_id: str) -> Optional[DiceGame]:
+def get_game(
+    supabase: Client, game_id: str, include_duo_only: bool = False
+) -> Optional[DiceGame]:
+    query = _official_games(supabase.table(GAMES_TABLE).select(GAME_COLUMNS)).eq("id", game_id)
+    if not include_duo_only:
+        query = query.eq("duo_only", False)
     rows = (
-        _official_games(supabase.table(GAMES_TABLE).select(GAME_COLUMNS))
-        .eq("id", game_id)
+        query
         .limit(1)
         .execute()
         .data
@@ -526,6 +618,7 @@ def list_games_for_tournament(supabase: Client, tournament_id: str, limit: int =
     rows = (
         _official_games(supabase.table(GAMES_TABLE).select(GAME_COLUMNS))
         .eq("tournament_id", tournament_id)
+        .eq("duo_only", False)
         .order("played_at", desc=True)
         .limit(limit)
         .execute()
@@ -627,7 +720,12 @@ def create_game(
             raise RuntimeError("dice_rating.idempotent_game_unavailable")
         return CreatedGame(prior_game, replayed=True)
     return CreatedGame(
-        _committed_game(result["game"], player_rows, profiles_by_id, result["plan"]),
+        _committed_game(
+            {**result["game"], "updated_at": result["game"]["created_at"]},
+            player_rows,
+            profiles_by_id,
+            result["plan"],
+        ),
         replayed=False,
     )
 
@@ -646,7 +744,7 @@ def _reject_live_result_mutation(supabase: Client, game_id: str) -> None:
         raise ValueError("live game results must be changed through the live match")
 
 
-def update_game(supabase: Client, game_id: str, payload: CreateGameRequest) -> DiceGame:
+def update_game(supabase: Client, game_id: str, payload: UpdateGameRequest) -> DiceGame:
     _reject_live_result_mutation(supabase, game_id)
     all_user_ids = [p.user_id for p in payload.players]
     existing = (
@@ -686,13 +784,99 @@ def update_game(supabase: Client, game_id: str, payload: CreateGameRequest) -> D
         }
         for p in payload.players
     ]
-    result = apply_game_rating_mutation(supabase, "update", game_updates, player_rows)
-    return _committed_game(result["game"], player_rows, profiles_by_id, result["plan"])
+    try:
+        apply_game_rating_mutation(
+            supabase,
+            "update",
+            game_updates,
+            player_rows,
+            rpc_name="dice_rating_apply_game_mutation_if_current",
+            rpc_parameters={"p_expected_updated_at": payload.expected_updated_at.isoformat()},
+        )
+    except Exception as exc:  # noqa: BLE001 - PostgREST exposes database errors by message
+        if "dice_game.stale_update" in str(exc):
+            raise ValueError("dice_game.stale_update") from exc
+        raise
+    committed = get_game(supabase, game_id)
+    if committed is None:
+        raise RuntimeError("updated game is unavailable")
+    return committed
 
 
-def delete_game(supabase: Client, game_id: str) -> None:
+def delete_game(
+    supabase: Client,
+    game_id: str,
+    deleted_by: str | None = None,
+    mutation_id: str | None = None,
+) -> None:
     _reject_live_result_mutation(supabase, game_id)
-    apply_game_rating_mutation(supabase, "delete", {"id": game_id}, [])
+    apply_game_rating_mutation(
+        supabase,
+        "delete",
+        {"id": game_id},
+        [],
+        mutation_id=mutation_id,
+        actor_id=deleted_by,
+        request_fingerprint=(
+            _game_delete_fingerprint(game_id, deleted_by) if deleted_by else None
+        ),
+    )
+
+
+def _game_delete_fingerprint(game_id: str, deleted_by: str) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {"operation": "delete_game", "game_id": game_id, "deleted_by": deleted_by},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+def game_delete_was_committed(
+    supabase: Client, mutation_id: str, game_id: str, deleted_by: str
+) -> bool:
+    mutation_id = str(uuid.UUID(mutation_id))
+    receipt = supabase.rpc(
+        "dice_rating_mutation_receipt", {"p_mutation_id": mutation_id}
+    ).execute().data
+    if not isinstance(receipt, dict):
+        return False
+    expected = {
+        "operation": "delete",
+        "game_id": game_id,
+        "actor_id": deleted_by,
+        "request_fingerprint": _game_delete_fingerprint(game_id, deleted_by),
+    }
+    if any(receipt.get(key) != value for key, value in expected.items()):
+        raise ValueError("idempotency key conflicts with an earlier request")
+    return True
+
+
+def delete_live_match(
+    supabase: Client,
+    match_id: str,
+    game_id: str,
+    deleted_by: str,
+    mutation_id: str | None = None,
+) -> None:
+    """Tombstone a live match and remove only its derived game projection."""
+    try:
+        apply_game_rating_mutation(
+            supabase,
+            "delete",
+            {"id": game_id},
+            [],
+            mutation_id=mutation_id,
+            actor_id=deleted_by,
+            request_fingerprint=_game_delete_fingerprint(game_id, deleted_by),
+            rpc_name="dice_live_delete_with_rating_mutation",
+            rpc_parameters={"p_match_id": match_id, "p_deleted_by": deleted_by},
+        )
+    except Exception as error:
+        if "dice_live.delete_source_changed" in str(error):
+            raise ValueError("Live match not found") from error
+        raise
 
 
 COMMENT_COLUMNS = "id, game_id, user_id, body, image_url, created_at"
@@ -926,6 +1110,23 @@ def _reconcile_scheduled_matches(
     return reconciled
 
 
+def _sanitize_scheduled_match_players(match: dict) -> dict:
+    """Render legacy duplicate player slots as open without mutating stored data."""
+    sanitized = dict(match)
+    seen: set[str] = set()
+    for team_key in ("team1_player_ids", "team2_player_ids"):
+        slots = []
+        for user_id in match.get(team_key) or []:
+            if user_id and user_id in seen:
+                slots.append(None)
+            else:
+                slots.append(user_id)
+                if user_id:
+                    seen.add(user_id)
+        sanitized[team_key] = slots
+    return sanitized
+
+
 def _tournament_from_row(
     row: dict,
     enrolled_user_ids: list[str],
@@ -939,9 +1140,11 @@ def _tournament_from_row(
     completed_games = completed_games or []
     bracket_game_ids = set((data.get("bracket_game_ids") or {}).values())
     group_stage_games = [g for g in completed_games if g.id not in bracket_game_ids]
-    raw_scheduled_matches = _reconcile_scheduled_matches(
-        list(data.get("scheduled_matches") or []), group_stage_games
-    )
+    stored_scheduled_matches = [
+        _sanitize_scheduled_match_players(match)
+        for match in (data.get("scheduled_matches") or [])
+    ]
+    raw_scheduled_matches = _reconcile_scheduled_matches(stored_scheduled_matches, group_stage_games)
     scheduled_matches = [
         {
             "id": m["id"],
@@ -1266,6 +1469,7 @@ def resolve_bracket_match(supabase: Client, tournament_id: str, slot_id: str, ga
 
     game_rows = (
         _official_games(supabase.table(GAMES_TABLE).select("id, tournament_id"))
+        .eq("duo_only", False)
         .eq("id", game_id)
         .limit(1)
         .execute()

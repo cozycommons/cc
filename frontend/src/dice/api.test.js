@@ -39,4 +39,30 @@ describe('Dice API', () => {
       }),
     );
   });
+
+  it('sends idempotency keys for live creation and deletion', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ id: 'match-1' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await diceApi.createLiveGame('token', { ranked: true }, 'live-create-key');
+    await diceApi.deleteGame('token', 'game-1', 'live-delete-key');
+
+    expect(fetchMock.mock.calls[0][1].headers['Idempotency-Key']).toBe('live-create-key');
+    expect(fetchMock.mock.calls[1][1].headers['Idempotency-Key']).toBe('live-delete-key');
+  });
+
+  it('URL-encodes duo detail identifiers and sends the auth token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({}) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await diceApi.getDuoDetail('token', '3:alpha3:bravo');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/dice/stats/duos/3%3Aalpha3%3Abravo'),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token' }) }),
+    );
+  });
 });

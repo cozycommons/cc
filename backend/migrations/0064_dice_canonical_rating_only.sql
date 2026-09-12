@@ -16,7 +16,18 @@ begin
        select 1 from pg_catalog.pg_constraint
        where conrelid = 'public.dice_games'::regclass
          and conname = 'dice_games_live_results_unranked'
-     ) then
+     )
+     and coalesce(
+       pg_catalog.obj_description(
+         pg_catalog.to_regprocedure('public.dice_live_result_write_guard()'),
+         'pg_proc'
+       ), ''
+     ) <> 'dice:live-ranked-canonical-mutation/v1'
+     and coalesce(
+       pg_catalog.pg_get_functiondef(
+         pg_catalog.to_regprocedure('public.dice_live_result_write_guard()')
+       ), ''
+     ) not like '%dice.rating_mutation%' then
     raise exception using
       errcode = '55000',
       message = 'dice_rating.canonical_control_required';
@@ -45,7 +56,13 @@ begin
     select 1 from pg_catalog.pg_constraint
     where conrelid = 'public.dice_games'::regclass
       and conname = 'dice_games_live_results_unranked'
-  ) then
+  )
+  and coalesce(
+    pg_catalog.obj_description(
+      pg_catalog.to_regprocedure('public.dice_live_result_write_guard()'),
+      'pg_proc'
+    ), ''
+  ) <> 'dice:live-ranked-canonical-mutation/v1' then
     alter table public.dice_games
       add constraint dice_games_live_results_unranked
       check (source_live_match_id is null or not ranked);

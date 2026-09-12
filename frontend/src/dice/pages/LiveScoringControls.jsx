@@ -7,6 +7,7 @@ const teamTone = (teamId, leftTeamId) => (teamId === leftTeamId ? 'var(--team1-c
 export default function LiveScoringControls({
   roster,
   throwOrder,
+  turnKnown,
   leftTeamId,
   effectiveThrowerId,
   throwerSelectionLocked,
@@ -16,6 +17,7 @@ export default function LiveScoringControls({
   saving,
   onSelectThrower,
   onRecord,
+  onTableHit,
   onFifa,
   onMoreResults,
 }) {
@@ -23,11 +25,15 @@ export default function LiveScoringControls({
     .map((playerId) => roster.find((player) => player.playerId === playerId))
     .filter(Boolean);
   const visibleRoster = orderedRoster.length === roster.length ? orderedRoster : roster;
+  const hasSelectedThrower = Boolean(effectiveThrowerId);
   return (
     <section className="jk-card jk-live-scoring-controls mt-5 overflow-hidden" aria-label="Live scoring controls">
       <div className="p-4">
-        <p className="jk-label">WHO THREW?</p>
-        <p className="sr-only" aria-live="polite">Next thrower: {playerLabel(effectiveThrowerId)}</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="jk-label">WHO THREW?</p>
+          {!turnKnown && !hasSelectedThrower && <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Order unknown · choose thrower</p>}
+        </div>
+        <p className="sr-only" aria-live="polite">{hasSelectedThrower ? `Next thrower: ${playerLabel(effectiveThrowerId)}` : 'Next thrower unknown. Choose a player.'}</p>
         <div className="grid grid-cols-2 gap-2 mt-2">
           {visibleRoster.map(({ teamId, playerId }, turnIndex) => {
             const active = effectiveThrowerId === playerId;
@@ -51,11 +57,11 @@ export default function LiveScoringControls({
               >
                 <span className={`relative shrink-0 transition-transform duration-200 ${active ? 'scale-105' : ''}`}>
                   <PlayerAvatar profile={playerProfile(playerId)} size={42} linkToProfile={false} />
-                  <span
+                  {turnKnown && <span
                     aria-hidden="true"
                     className="absolute -top-1 -left-1 w-4 h-4 rounded-full grid place-items-center text-[9px] font-bold"
                     style={{ background: tone, color: 'var(--surface-card)' }}
-                  >{turnIndex + 1}</span>
+                  >{turnIndex + 1}</span>}
                 </span>
                 <span className="truncate">{playerLabel(playerId).split(' ')[0]}</span>
               </button>
@@ -75,26 +81,26 @@ export default function LiveScoringControls({
                 <Button
                   className="jk-live-result-button min-h-14 px-2"
                   aria-label="Point"
-                  disabled={saving}
+                  disabled={saving || !hasSelectedThrower}
                   onClick={() => onRecord('point')}
                   style={{ background: 'var(--surface-strong)', color: 'var(--text-on-strong)' }}
                 >
                   Point <span className="ml-1 opacity-70">+1</span>
                 </Button>
-                <Button className="jk-live-result-button min-h-14 px-2" variant="outline" disabled={saving} onClick={() => onRecord('caught')}>Table hit</Button>
+                <Button className="jk-live-result-button min-h-14 px-2" variant="outline" disabled={saving || !hasSelectedThrower} onClick={onTableHit}>Table hit</Button>
                 <Button
                   className="jk-live-result-button min-h-14 px-2"
-                  disabled={saving}
+                  disabled={saving || !hasSelectedThrower}
                   onClick={onFifa}
                   style={{ background: 'var(--accent-gold)', color: 'var(--ink-950)' }}
                 >FIFA <span className="ml-1 opacity-70">+1</span></Button>
-                <Button className="jk-live-result-button min-h-14 px-2" variant="outline" disabled={saving} onClick={() => onRecord('miss')}>Miss</Button>
+                <Button className="jk-live-result-button min-h-14 px-2" variant="outline" disabled={saving || !hasSelectedThrower} onClick={() => onRecord('miss')}>Miss</Button>
               </div>
               <button
                 type="button"
                 className="w-full mt-3 py-2 text-sm font-semibold underline underline-offset-4"
                 aria-label="More results"
-                disabled={saving}
+                disabled={saving || !hasSelectedThrower}
                 onClick={onMoreResults}
               >More</button>
             </>

@@ -85,6 +85,7 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: "./src/setupTests.js",
       css: true,
+      exclude: ['e2e/**', 'node_modules/**'],
     },
     server: {
       port: 8080,

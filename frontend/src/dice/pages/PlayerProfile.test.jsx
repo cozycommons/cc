@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -44,14 +44,12 @@ function profile(userId) {
   };
 }
 
-function renderProfile({ viewedUserId = 'u1', state, updateFeature = vi.fn(), progress, games = [] }) {
+function renderProfile({ viewedUserId = 'u1', progress, games = [] }) {
   const auth = {
     user: { id: 'u1', email: 'player@example.com' },
     token: 'token',
-    features: { dice_live_referee: state },
     isAdmin: false,
     refreshProfile: vi.fn(),
-    updateFeature,
     signOut: vi.fn(),
   };
   mocks.getProfile.mockResolvedValue(profile(viewedUserId));
@@ -73,51 +71,21 @@ function renderProfile({ viewedUserId = 'u1', state, updateFeature = vi.fn(), pr
       </Routes>
     </MemoryRouter>,
   );
-  return { updateFeature };
 }
 
-describe('PlayerProfile experimental features', () => {
+describe('PlayerProfile released experience', () => {
   afterEach(() => vi.clearAllMocks());
 
-  it('shows profile access as the sole availability state', async () => {
-    renderProfile({ state: { opted_in: true, effective: true } });
-
-    expect(await screen.findByText('// EXPERIMENTAL FEATURES')).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /live referee beta/i })).toBeChecked();
-    expect(screen.getByText('Enabled for your account.')).toBeInTheDocument();
-  });
-
-  it.each([
-    { optedIn: false, nextValue: true },
-    { optedIn: true, nextValue: false },
-  ])('updates only the current user preference from $optedIn to $nextValue', async ({ optedIn, nextValue }) => {
-    const updateFeature = vi.fn().mockResolvedValue({});
-    renderProfile({ state: { opted_in: optedIn, effective: optedIn }, updateFeature });
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: /live referee beta/i }));
-
-    await waitFor(() => {
-      expect(updateFeature).toHaveBeenCalledWith('dice_live_referee', nextValue);
-    });
-  });
-
-  it('shows availability when profile access is on', async () => {
-    renderProfile({ state: { opted_in: true, effective: true } });
-
-    expect(await screen.findByText('Enabled for your account.')).toBeInTheDocument();
-    expect(screen.queryByText(/currently unavailable/i)).not.toBeInTheDocument();
-  });
-
-  it('does not show preference controls on another player public profile', async () => {
-    renderProfile({ viewedUserId: 'u2', state: { opted_in: true, effective: true } });
+  it('does not expose the retired experience preference', async () => {
+    renderProfile({ viewedUserId: 'u2' });
 
     expect(await screen.findByText('Player u2')).toBeInTheDocument();
-    expect(screen.queryByText('// EXPERIMENTAL FEATURES')).not.toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /live referee beta/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('// DICE EXPERIENCE')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /live referee experience/i })).not.toBeInTheDocument();
   });
 
   it('shows authoritative rating progress and last-match meaning', async () => {
-    renderProfile({ state: { opted_in: false, effective: false } });
+    renderProfile({});
 
     expect(await screen.findByText('2')).toBeInTheDocument();
     expect(screen.getByText('+18')).toBeInTheDocument();
@@ -127,7 +95,6 @@ describe('PlayerProfile experimental features', () => {
 
   it('shows a tied rank as the same plain rank number', async () => {
     renderProfile({
-      state: { opted_in: false, effective: false },
       progress: {
         current_rank: 1, current_rank_tied: true, is_provisional: false,
         personal_best: 1542, last_delta: 18, last_rank_change: null, history: [],
@@ -141,7 +108,6 @@ describe('PlayerProfile experimental features', () => {
 
   it('labels an established private player as hidden and uses authoritative row deltas', async () => {
     renderProfile({
-      state: { opted_in: false, effective: false },
       games: [{ id: 'g1', players: [{ user_id: 'u1', elo_before: 1500, elo_after: 1518 }] }],
       progress: {
         current_rank: null, current_rank_tied: false, is_provisional: false,
@@ -152,5 +118,24 @@ describe('PlayerProfile experimental features', () => {
 
     expect(await screen.findByText('Hidden')).toBeInTheDocument();
     expect(screen.getByText('g1:7')).toBeInTheDocument();
+  });
+
+  it('shows the player recorded-play sample from canonical game snapshots', async () => {
+    renderProfile({
+      state: { opted_in: true, effective: true },
+      games: [{
+        id: 'g1',
+        players: [{ user_id: 'u1', display_name: 'Player u1', team: 1 }],
+        recorded_stats: {
+          coverage: 'partial', observations: 6,
+          players: { u1: { outcomes: { point: 2, caught: 2, miss: 2 }, table_catches: 1, fifa_saves: 1 } },
+        },
+      }],
+    });
+
+    const recorded = await screen.findByRole('region', { name: 'Personal recorded play' });
+    expect(within(recorded).getByText('67%')).toBeInTheDocument();
+    expect(within(recorded).getByText('Missing plays are excluded, not counted as misses.')).toBeInTheDocument();
+    expect(mocks.getProfileGames).toHaveBeenCalledWith('u1', 200);
   });
 });

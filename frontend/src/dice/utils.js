@@ -44,6 +44,11 @@ export function isEnrolled(tournament, user) {
   return (tournament.enrolled_players || []).some((p) => p.user_id === user.id);
 }
 
+export function hasDuplicatePlayerIds(...teams) {
+  const filled = teams.flat().filter(Boolean);
+  return new Set(filled).size !== filled.length;
+}
+
 // Win/loss standings derived purely from the tournament's completed games —
 // no separate persisted state. Enrolled players who haven't played yet still
 // show up at 0-0; anyone who played but isn't (or is no longer) enrolled

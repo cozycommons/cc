@@ -8,6 +8,9 @@ alter table public.dice_games
   add column if not exists detail_coverage text not null default 'complete',
   add column if not exists stats_complete boolean not null default true;
 
+alter table public.dice_live_matches
+  add column if not exists ranked boolean not null default false;
+
 alter table public.dice_games alter column winner_team drop not null;
 
 create unique index if not exists dice_games_source_live_match_idx
@@ -59,7 +62,7 @@ begin
       insert into public.dice_games
         (created_by, ranked, team1_score, team2_score, winner_team, played_at,
          source_live_match_id, live_result_state, termination_reason, detail_coverage, stats_complete)
-      values (m.created_by, false, (p_projection->'score'->>0)::integer,
+      values (m.created_by, m.ranked, (p_projection->'score'->>0)::integer,
         (p_projection->'score'->>1)::integer, winner, now(), m.id, 'official',
         p_projection->>'termination_reason', p_projection->>'coverage',
         (p_projection->>'coverage') = 'complete') returning id into result_id;

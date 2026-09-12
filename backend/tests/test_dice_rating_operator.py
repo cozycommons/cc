@@ -104,3 +104,15 @@ def test_game_mutation_retries_stale_source_and_reconciles_dropped_response(
     assert client.mutation_attempts == 1 + source_changes
     assert result.get("reconciled_after_transport_error") is (True if mutate_then_raise else None)
     assert client.cache_clear_count == 1
+
+
+def test_custom_rpc_parameters_cannot_override_canonical_inputs():
+    with pytest.raises(ValueError, match="cannot override canonical fields: p_game"):
+        apply_game_rating_mutation(
+            object(),
+            "delete",
+            {"id": "g1"},
+            [],
+            mutation_id="77000000-0000-0000-0000-000000000001",
+            rpc_parameters={"p_game": {"id": "other"}},
+        )

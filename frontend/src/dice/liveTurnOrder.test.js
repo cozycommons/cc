@@ -78,4 +78,27 @@ describe('deriveLiveTurn', () => {
     ];
     expect(deriveLiveTurn(game(corrected)).nextThrowerId).toBe('alice');
   });
+
+  it('does not invent turn order after a score checkpoint', () => {
+    const turn = deriveLiveTurn(game([
+      observation('a1', 1, 'alice', 'blue'),
+      { id: 'gap', sequence: 2, kind: 'score_checkpoint', score: [2, 1], coverage: 'partial' },
+    ]));
+
+    expect(turn.nextThrowerId).toBe('');
+    expect(turn.isKnown).toBe(false);
+    expect(turn.throwOrder).toEqual(['alice', 'bea', 'cam', 'dev']);
+  });
+
+  it('re-establishes turn order from observations after a checkpoint', () => {
+    const turn = deriveLiveTurn(game([
+      observation('a1', 1, 'alice', 'blue'),
+      { id: 'gap', sequence: 2, kind: 'score_checkpoint', score: [2, 1], coverage: 'unknown' },
+      observation('c1', 3, 'cam', 'clay'),
+    ]));
+
+    expect(turn.nextThrowerId).toBe('dev');
+    expect(turn.isKnown).toBe(true);
+    expect(turn.throwOrder).toEqual(['dev', 'cam', 'alice', 'bea']);
+  });
 });

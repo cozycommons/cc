@@ -18,9 +18,16 @@ const activeObservations = (events = []) => {
 
   return events
     .filter((event) => event.kind === 'observation' && !event.replacement_for)
-    .map((event) => ({ rootId: event.id, event: effective(event) }))
+    .map((event) => ({ rootId: event.id, rootSequence: event.sequence, event: effective(event) }))
     .filter(({ event }) => event?.kind === 'observation');
 };
+
+const latestScoreBoundary = (events = []) => events.reduce((latest, event) => (
+  ['score_checkpoint', 'completion'].includes(event.kind)
+  && Number(event.sequence) > Number(latest?.sequence || 0)
+    ? event
+    : latest
+), null);
 
 /**
  * Suggest the next physical throw without persisting a separate lineup model.
@@ -31,14 +38,27 @@ const activeObservations = (events = []) => {
 export const deriveLiveTurn = (game) => {
   const teamOrder = game?.team_order || [];
   const teams = game?.teams || {};
-  const observations = activeObservations(game?.events);
+  const events = game?.events || [];
+  const boundary = latestScoreBoundary(events);
+  const observations = activeObservations(events).filter(
+    ({ rootSequence }) => !boundary || Number(rootSequence) > Number(boundary.sequence),
+  );
   const fallback = teams[teamOrder[0]]?.[0] || '';
 
   if (!observations.length) {
+    if (boundary) {
+      return {
+        nextThrowerId: '',
+        throwOrder: teamOrder.flatMap((teamId) => teams[teamId] || []),
+        historyKey: `boundary:${boundary.id}`,
+        isKnown: false,
+      };
+    }
     return {
       nextThrowerId: fallback,
       throwOrder: teamOrder.flatMap((teamId) => teams[teamId] || []),
       historyKey: 'empty',
+      isKnown: true,
     };
   }
 
@@ -67,6 +87,7 @@ export const deriveLiveTurn = (game) => {
   return {
     nextThrowerId,
     throwOrder,
-    historyKey: observations.map(({ rootId, event }) => `${rootId}:${event.id}`).join('|'),
+    historyKey: [boundary && `boundary:${boundary.id}`, ...observations.map(({ rootId, event }) => `${rootId}:${event.id}`)].filter(Boolean).join('|'),
+    isKnown: true,
   };
 };

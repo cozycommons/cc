@@ -124,6 +124,7 @@ class LiveCreateRequest(BaseModel):
     team_order: list[str] = Field(min_length=2, max_length=2)
     teams: dict[str, list[str]]
     rules_snapshot: dict
+    ranked: bool = True
 
     @model_validator(mode="after")
     def validate_roster(self) -> "LiveCreateRequest":
@@ -155,6 +156,7 @@ class LiveMatchOut(BaseModel):
     rules_snapshot: dict
     version: int
     status: str
+    ranked: bool = False
     score: list[int]
     detail_coverage: str
     projection: dict
@@ -166,6 +168,12 @@ class LiveMatchOut(BaseModel):
 
 class LiveMatchDetailOut(LiveMatchOut):
     events: list[dict] = Field(default_factory=list)
+
+
+class LiveSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    ranked: bool
 
 
 class LiveMembershipOut(BaseModel):
@@ -180,6 +188,19 @@ class LiveReceiptOut(BaseModel):
     last_sequence: int
     projection: dict
     official_result: dict | None = None
+
+
+class LiveCommandMetricRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    operation_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    attempts: Literal[1, 2]
+    winner: Literal["original", "hedge", "retry"]
+    outcome: Literal["resolved", "rejected"]
+    status: int = Field(ge=0, le=599)
+    duration_ms: int = Field(ge=0, le=120_000)
+    hedge_delay_ms: int = Field(ge=750, le=2500)
+    loser_cancelled: bool
 
 
 class VirtualBankrollOut(BaseModel):
@@ -315,7 +336,7 @@ class GamePlayerOut(BaseModel):
 
 
 class CreateGameRequest(BaseModel):
-    ranked: bool = False
+    ranked: bool = True
     team1_score: int = Field(ge=0)
     team2_score: int = Field(ge=0)
     played_at: Optional[datetime] = None
@@ -339,20 +360,25 @@ class CreateGameRequest(BaseModel):
 
 
 class UpdateGameRequest(CreateGameRequest):
-    pass
+    ranked: bool
+    expected_updated_at: datetime
 
 
 class DiceGame(BaseModel):
     id: str
     created_by: str
     ranked: bool
+    duo_only: bool = False
+    source_live_match_id: Optional[str] = None
     team1_score: int
     team2_score: int
     winner_team: Optional[int] = None
     played_at: datetime
     created_at: datetime
+    updated_at: Optional[datetime] = None
     tournament_id: Optional[str] = None
     players: list[GamePlayerOut]
+    recorded_stats: Optional[dict] = None
 
 
 class LeaderboardEntry(_ProvisionalRatingMixin):
@@ -377,6 +403,63 @@ class RatingProgressPoint(BaseModel):
     rank_after: Optional[int] = Field(default=None, gt=0)
     rank_change: Optional[int] = None
     is_personal_best: bool = False
+
+
+class DuoMember(BaseModel):
+    user_id: str
+    display_name: str
+    avatar_url: Optional[str] = None
+
+
+class DuoSummary(BaseModel):
+    duo_id: str
+    members: tuple[DuoMember, DuoMember]
+    elo: int
+    rating_deviation: float
+    conservative_score: float
+    wins: int
+    losses: int
+    games: int
+    win_rate: float
+    placed: bool
+    homepage_eligible: bool
+    rank: Optional[int] = None
+    current_streak: int = 0
+    best_streak: int = 0
+    game_ids: list[str] = Field(default_factory=list)
+
+
+class DuoTransitionOut(BaseModel):
+    game_id: str
+    opponent_duo_id: str
+    before_elo: int
+    after_elo: int
+    delta: int
+    result: Literal["win", "loss"]
+    score: tuple[int, int]
+    played_at: datetime
+
+
+class DuoLadderOut(BaseModel):
+    ranked: list[DuoSummary]
+    to_watch: list[DuoSummary]
+
+
+class DuoHeadToHead(BaseModel):
+    opponent_duo_id: str
+    opponent_members: tuple[DuoMember, DuoMember] | None = None
+    wins: int
+    losses: int
+    games: int
+    latest_meeting: Optional[datetime] = None
+    game_ids: list[str] = Field(default_factory=list)
+
+
+class DuoDetailOut(BaseModel):
+    summary: DuoSummary
+    rating_history: list[DuoTransitionOut]
+    games: list[DuoTransitionOut]
+    head_to_head: list[DuoHeadToHead]
 
 
 class RatingProgress(BaseModel):
@@ -532,6 +615,9 @@ class CreateScheduledMatchRequest(BaseModel):
     def _teams_match_format(self) -> "CreateScheduledMatchRequest":
         if len(self.team1_player_ids) != len(self.team2_player_ids):
             raise ValueError("both teams must have the same number of slots (1v1 or 2v2)")
+        filled = [uid for uid in self.team1_player_ids + self.team2_player_ids if uid]
+        if len(set(filled)) != len(filled):
+            raise ValueError("a player can only appear once in a scheduled match")
         return self
 
     @field_validator("label")

@@ -38,4 +38,16 @@ describe('SinkLeadersChart', () => {
     expect(screen.getByRole('link', { name: 'Full board →' })).toHaveAttribute('href', '/dice/leaderboard/self-sinks');
     expect(container.querySelector('.jk-vertical-bar')).toHaveClass('is-clay');
   });
+
+  it('does not cut off players tied at the preview boundary', () => {
+    const tiedAtFifth = [10, 9, 8, 7, 6, 6].map((value, index) => ({
+      user_id: `p${index}`,
+      display_name: `Player ${index + 1}`,
+      sinks: value,
+    }));
+    render(<MemoryRouter><SinkLeadersChart sinks={tiedAtFifth} selfSinks={[]} /></MemoryRouter>);
+
+    expect(screen.getByRole('link', { name: 'Tied rank 5, Player 5, 6 Sinks' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Tied rank 5, Player 6, 6 Sinks' })).toBeInTheDocument();
+  });
 });

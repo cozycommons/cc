@@ -9,6 +9,7 @@ import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import { AVATAR_IMAGE_MAX_EDGE, compactImage, uniqueImageFolder } from '../imageUpload.js';
 import GameRow from '../components/GameRow.jsx';
 import EloHistoryChart from '../components/EloHistoryChart.jsx';
+import { aggregateRecordedStats } from '../recordedStats.js';
 
 const AVATAR_BUCKET = 'dice-profile-photos';
 
@@ -56,10 +57,44 @@ function ProvisionalBadge({ gamesRemaining }) {
   );
 }
 
+function PersonalRecordedStats({ games, userId }) {
+  if (games === null) return null;
+  const aggregate = aggregateRecordedStats(games);
+  const player = aggregate.players.find((entry) => entry.user_id === userId);
+  if (!player) return null;
+  return (
+    <section className="mb-8" aria-label="Personal recorded play">
+      <div className="flex items-end justify-between gap-3 mb-3">
+        <p className="jk-label">// RECORDED PLAY</p>
+        <p className="jk-label" style={{ fontSize: 9 }}>{player.gamesRecorded} logged game{player.gamesRecorded === 1 ? '' : 's'}</p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatTile label="Throws" value={player.throws} />
+        <StatTile label="Table Rate" value={`${player.tableHitRate}%`} />
+        <StatTile label="Scores" value={player.scoringThrows} />
+        <StatTile label="Catches" value={player.catches} />
+      </div>
+      {player.fifaActions > 0 && (
+        <div className="jk-card grid grid-cols-4 gap-2 p-3 mt-3 text-center">
+          {[
+            ['Goals', player.fifa_goals], ['Kicks', player.fifa_kicks],
+            ['Catches', player.fifa_catches], ['Saves', player.fifa_saves],
+          ].map(([label, value]) => (
+            <div key={label}><strong className="jk-display text-xl">{value}</strong><p className="jk-label" style={{ fontSize: 8 }}>{label}</p></div>
+          ))}
+        </div>
+      )}
+      {aggregate.completeGames < aggregate.recordedGames && (
+        <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>Missing plays are excluded, not counted as misses.</p>
+      )}
+    </section>
+  );
+}
+
 export default function PlayerProfile({ auth }) {
   const { userId } = useParams();
   const { supabase } = useSupabase();
-  const { user, token, features, isAdmin, refreshProfile, updateFeature, signOut } = auth;
+  const { user, token, isAdmin, refreshProfile, signOut } = auth;
   const [profile, setProfile] = useState(null);
   const [games, setGames] = useState(null);
   const [ratingProgress, setRatingProgress] = useState(undefined);
@@ -74,12 +109,9 @@ export default function PlayerProfile({ auth }) {
   const [savingSms, setSavingSms] = useState(false);
   const [smsError, setSmsError] = useState(null);
   const [smsSaved, setSmsSaved] = useState(false);
-  const [savingFeature, setSavingFeature] = useState(false);
-  const [featureError, setFeatureError] = useState(null);
 
   const isOwnProfile = user?.id === userId;
   const canEdit = isOwnProfile || isAdmin;
-  const liveReferee = features?.dice_live_referee ?? { opted_in: false, effective: false };
 
   const load = () => {
     setRatingProgress(undefined);
@@ -89,7 +121,7 @@ export default function PlayerProfile({ auth }) {
       setPhone(p.phone_number || '');
       setSmsEnabled(p.sms_notifications_enabled);
     }).catch(() => setProfile(null));
-    diceApi.getProfileGames(userId, 100).then(setGames).catch(() => setGames([]));
+    diceApi.getProfileGames(userId, 200).then(setGames).catch(() => setGames([]));
     diceApi.getRatingProgress(userId).then(setRatingProgress).catch(() => setRatingProgress(null));
   };
 
@@ -212,18 +244,6 @@ export default function PlayerProfile({ auth }) {
     }
   };
 
-  const toggleLiveReferee = async () => {
-    setSavingFeature(true);
-    setFeatureError(null);
-    try {
-      await updateFeature('dice_live_referee', !liveReferee.opted_in);
-    } catch (err) {
-      setFeatureError('Failed to save beta preference.');
-    } finally {
-      setSavingFeature(false);
-    }
-  };
-
   if (profile === null) {
     return <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">Loading…</div>;
   }
@@ -326,6 +346,8 @@ export default function PlayerProfile({ auth }) {
         )}
       </div>
 
+      <PersonalRecordedStats games={games} userId={userId} />
+
       {!isOwnProfile && profile.head_to_head && (
         <div className="mb-8">
           <p className="jk-label mb-3">// HEAD TO HEAD</p>
@@ -374,33 +396,6 @@ export default function PlayerProfile({ auth }) {
               />
               Hide my profile from leaderboard
             </label>
-          </div>
-        </div>
-      )}
-
-      {isOwnProfile && (
-        <div className="mb-8">
-          <p className="jk-label mb-3">// EXPERIMENTAL FEATURES</p>
-          <div className="jk-card p-4">
-            <label className="flex items-start gap-2" style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--text-primary)' }}>
-              <input
-                type="checkbox"
-                checked={liveReferee.opted_in}
-                onChange={toggleLiveReferee}
-                disabled={savingFeature}
-                className="mt-1"
-              />
-              <span>
-                <span className="block font-medium">Live referee beta</span>
-                <span className="block mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                  Enables the new home, stats, and live referee.
-                </span>
-              </span>
-            </label>
-            {liveReferee.opted_in && (
-              <p className="mt-3 text-xs" style={{ color: 'var(--state-success)' }}>Enabled for your account.</p>
-            )}
-            {featureError && <p className="mt-3 text-xs" style={{ color: 'var(--state-danger)' }}>{featureError}</p>}
           </div>
         </div>
       )}
@@ -463,3 +458,5 @@ export default function PlayerProfile({ auth }) {
     </div>
   );
 }
+
+export { PersonalRecordedStats };

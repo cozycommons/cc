@@ -51,17 +51,14 @@ export default function LeaderboardRow({
           </span>
         )}
       </div>
-      {barMode && !unranked && (
-        <div
-          className={`jk-leaderboard-track mt-2 ${barMode === 'elo' ? 'jk-leaderboard-track-elo' : ''}`}
-          role="img"
-          aria-label={barMode === 'elo' ? `${Math.abs(value - 1500)} points ${value >= 1500 ? 'above' : 'below'} 1500` : `${value} out of ${maxValue}`}
-        >
-          {barMode === 'elo' ? (
-            <span className={`jk-leaderboard-bar jk-leaderboard-bar-elo ${eloOffset >= 0 ? 'is-positive' : 'is-negative'}`} style={{ width: `${eloWidth}%` }} />
-          ) : (
-            <span className={`jk-leaderboard-bar is-${barTone}`} style={{ width: `${countWidth}%` }} />
-          )}
+      {barMode === 'count' && !unranked && (
+        <div className="jk-leaderboard-track mt-2" role="img" aria-label={`${value} out of ${maxValue}`}>
+          <span className={`jk-leaderboard-bar is-${barTone}`} style={{ width: `${countWidth}%` }} />
+        </div>
+      )}
+      {barMode === 'elo' && !unranked && (
+        <div className="jk-leaderboard-track jk-leaderboard-track-elo mt-2" role="img" aria-label={`${Math.abs(value - 1500)} points ${value >= 1500 ? 'above' : 'below'} 1500`}>
+          <span className={`jk-leaderboard-bar jk-leaderboard-bar-elo ${eloOffset >= 0 ? 'is-positive' : 'is-negative'}`} style={{ width: `${eloWidth}%` }} />
         </div>
       )}
     </Link>

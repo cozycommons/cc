@@ -29,11 +29,9 @@ created an unranked 12–9 match, and reopened its detail page:
 
 ## Start locally
 
-Prerequisites are Docker, PostgreSQL's `psql`, Node.js 22, and Python 3.12 or
-3.13. Production and CI use Python 3.12.
+Prerequisites are Docker, PostgreSQL's `psql`, Node.js, and Python 3.12.
 
 ```bash
-scripts/dice-dev.sh doctor
 scripts/dice-dev.sh setup
 scripts/dice-dev.sh local
 ```
@@ -44,27 +42,75 @@ In a second terminal:
 scripts/dice-dev.sh status
 ```
 
-`doctor` checks prerequisites without changing local state. `install` installs
-locked dependencies without starting services or resetting data. `setup` also
-installs dependencies, then starts local Supabase, applies the Dice migrations,
-and loads synthetic fixtures.
+`setup` installs locked dependencies, starts local Supabase, applies the Dice
+migrations, and loads synthetic fixtures.
 
-If another local project needs the default web ports, choose temporary loopback
-ports for both services:
+## Run the regression suite
+
+Use one entry point instead of reconstructing the known bug-bash journeys by
+hand:
 
 ```bash
-DICE_BACKEND_PORT=9100 DICE_FRONTEND_PORT=4100 scripts/dice-dev.sh local
+scripts/test-dice-regressions.sh source
 ```
 
-Open `http://localhost:4100/dice` and pass the same variables to
-`scripts/dice-dev.sh status` from another terminal. Supabase stays on its
-loopback ports `54321–54327`.
+`source` runs the migration preflight, every Dice backend test, and every Dice
+frontend test. When local Supabase is ready, the database-backed transaction
+tests run against its exact loopback URL; an ambient or hosted `DB_URL` is never
+used.
 
-Run the repository validation suite without starting services or resetting the
-database:
+After this checkout starts and owns the browser-QA stack, exercise the real API
+with short, normal, continued-ready, and long/deuce histories:
 
 ```bash
-scripts/dice-dev.sh verify
+scripts/test-dice-regressions.sh sandbox
+```
+
+Use `all` to run both phases. The sandbox phase leaves its uniquely identified
+synthetic games available for browser inspection and refuses to use processes
+owned by another checkout.
+
+## Recreate completed-game scenarios
+
+Use the owned browser-QA lifecycle when a reproduction needs a durable game URL
+and API assertions before clicking through the UI:
+
+```bash
+scripts/dice-browser-qa.sh start
+scripts/dice-browser-qa.sh scenario
+```
+
+`scenario` creates a synthetic completed 4–5 unranked 2v2 game, temporarily
+ranks it, verifies individual ELO snapshots and both exact-duo replay counts,
+unranks it again, and prints the live referee URL. The game is deliberately left
+completed and unranked so a tester can reproduce the production flow by checking
+**Ranked (affects ELO)** without reopening it, then clicking **Reload**.
+
+Vary the score and rules to exercise short, long, and deuce histories:
+
+```bash
+scripts/dice-browser-qa.sh scenario --score 1-0 --target 1
+scripts/dice-browser-qa.sh scenario --score 5-0
+scripts/dice-browser-qa.sh scenario --score 6-5 --target 5 --win-by 1
+scripts/dice-browser-qa.sh scenario --score 25-23 --target 5 --win-by 2
+```
+
+`ready_to_finish` is deliberately nonterminal: referees may keep recording
+before explicitly finishing, including through another tie. The 6–5 example
+recreates that continuation path after the score first became ready at 5–4.
+
+The lifecycle refuses to create a scenario unless this checkout owns both app
+processes. This prevents a browser from silently combining one checkout's
+frontend with another checkout's backend. Direct frontend launches may override
+`VITE_API_URL`, but only with an explicit loopback HTTP URL and port.
+When the default ports are already owned, choose explicit alternatives for the
+whole lifecycle:
+
+```bash
+export DICE_QA_BACKEND_PORT=8002
+export DICE_QA_FRONTEND_PORT=8082
+scripts/dice-browser-qa.sh start
+scripts/test-dice-regressions.sh sandbox
 ```
 
 ## Start in GitHub Codespaces

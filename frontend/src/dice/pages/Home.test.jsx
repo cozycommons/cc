@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getTournaments: vi.fn(),
   getLiveGames: vi.fn(),
   getLivePrediction: vi.fn(),
+  getDuoLadder: vi.fn(),
 }));
 
 vi.mock('../api.js', () => ({ diceApi: mocks }));
@@ -23,28 +24,29 @@ vi.mock('../components/LeaderboardRow.jsx', () => ({
   ),
 }));
 vi.mock('../components/TournamentRow.jsx', () => ({ default: ({ tournament }) => <div>Tournament {tournament.name}</div> }));
-vi.mock('../components/PlayerAvatar.jsx', () => ({ default: () => <span>Avatar</span> }));
+vi.mock('../components/PlayerAvatar.jsx', () => ({ default: ({ profile }) => <span>{profile.display_name} avatar</span> }));
 
 import Home, { calculateStreaks, calculateSynergies, matchStory, splitTournaments } from './Home.jsx';
 
-const disabledAuth = {
+const releasedAuth = {
   token: 'token',
   user: { id: 'u1' },
+  profile: { user_id: 'u1', display_name: 'Player' },
+};
+const staleOptOutAuth = {
+  ...releasedAuth,
   features: { dice_live_referee: { opted_in: false, effective: false } },
 };
-const enabledAuth = {
-  ...disabledAuth,
-  features: { dice_live_referee: { opted_in: true, effective: true } },
-};
 
-function arrange({ tournaments = [], liveGames = [], elo = [], sinks = [], selfSinks = [] } = {}) {
-  mocks.getGames.mockResolvedValue([{ id: 'recent-1' }]);
+function arrange({ games = [{ id: 'recent-1' }], tournaments = [], liveGames = [], elo = [], sinks = [], selfSinks = [], duos = { ranked: [], to_watch: [] } } = {}) {
+  mocks.getGames.mockResolvedValue(games);
   mocks.getEloLeaderboard.mockResolvedValue(elo);
   mocks.getSinkLeaderboard.mockResolvedValue(sinks);
   mocks.getSelfSinkLeaderboard.mockResolvedValue(selfSinks);
   mocks.getTournaments.mockResolvedValue(tournaments);
   mocks.getLiveGames.mockResolvedValue(liveGames);
   mocks.getLivePrediction.mockResolvedValue({ status: 'available', match_version: 1, team1_win_probability: 0.55, team2_win_probability: 0.45 });
+  mocks.getDuoLadder.mockResolvedValue(duos);
 }
 
 function renderHome(auth) {
@@ -54,13 +56,22 @@ function renderHome(auth) {
 describe('Dice home dashboard', () => {
   afterEach(() => vi.clearAllMocks());
 
-  it('waits for feature hydration before choosing a homepage', () => {
+  it('waits for authentication hydration before loading the homepage', () => {
     arrange();
-    renderHome({ ...disabledAuth, loading: true });
+    renderHome({ ...releasedAuth, loading: true });
 
     expect(screen.getByText('Loading…')).toBeInTheDocument();
     expect(mocks.getGames).not.toHaveBeenCalled();
     expect(mocks.getLiveGames).not.toHaveBeenCalled();
+  });
+
+  it('does not request private home data without a registered profile', async () => {
+    arrange();
+    renderHome({ ...releasedAuth, profile: null, loading: false });
+
+    await waitFor(() => expect(mocks.getGames).toHaveBeenCalled());
+    expect(mocks.getLiveGames).not.toHaveBeenCalled();
+    expect(mocks.getDuoLadder).not.toHaveBeenCalled();
   });
 
   it('partitions and orders tournaments around the current time', () => {
@@ -76,29 +87,89 @@ describe('Dice home dashboard', () => {
     expect(result.past.map((item) => item.id)).toEqual(['past-recent', 'past-old']);
   });
 
+  it('keeps the tournament directory visible when no tournament is scheduled', async () => {
+    arrange({ tournaments: [] });
+    renderHome(releasedAuth);
+
+    const emptyLink = await screen.findByRole('link', { name: 'Browse tournament history →' });
+    const section = emptyLink.closest('section');
+    expect(within(section).getByRole('link', { name: 'View all →' })).toHaveAttribute('href', '/dice/tournaments');
+    expect(emptyLink).toHaveAttribute('href', '/dice/tournaments');
+  });
+
   it('turns match data into a concise, factual story', () => {
     expect(matchStory({
       ranked: true,
       team1_score: 11,
       team2_score: 9,
-      players: [{ display_name: 'Jaycee', self_sinks: 0, elo_before: 1400, elo_after: 1418 }],
-    })).toBe('Jaycee +18 ELO');
+      players: [
+        { display_name: 'Jaycee', self_sinks: 0, elo_before: 1400, elo_after: 1418 },
+        { display_name: 'Charlie', self_sinks: 0, elo_before: 1500, elo_after: 1518 },
+      ],
+    })).toBeNull();
     expect(matchStory({
       ranked: false,
       team1_score: 11,
       team2_score: 8,
-      players: [{ display_name: 'Charlie', self_sinks: 2 }],
-    })).toBe('2 self-sinks');
+      players: [
+        { display_name: 'Charlie', sinks: 2, self_sinks: 1 },
+        { display_name: 'Jaycee', sinks: 1, self_sinks: 1 },
+      ],
+    })).toBe('3 sinks · 2 self-sinks');
   });
 
   it('calculates current and best win streaks from match history', () => {
     const games = [
-      { played_at: '2026-08-20', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
-      { played_at: '2026-08-21', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
-      { played_at: '2026-08-22', winner_team: 2, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
-      { played_at: '2026-08-23', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'g1', ranked: true, played_at: '2026-08-20', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'g2', ranked: true, played_at: '2026-08-21', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'g3', ranked: true, played_at: '2026-08-22', winner_team: 2, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'g4', ranked: true, played_at: '2026-08-23', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
     ];
-    expect(calculateStreaks(games)).toEqual([{ user_id: 'u1', display_name: 'Jason', current: 1, best: 2, latest: true }]);
+    expect(calculateStreaks(games)).toEqual([{ user_id: 'u1', display_name: 'Jason', current: 1, best: 2, latest: true, current_game_ids: ['g4'], best_game_ids: ['g1', 'g2'] }]);
+  });
+
+  it('ignores unranked games without interrupting a ranked win streak', () => {
+    const games = [
+      { id: 'g1', ranked: true, played_at: '2026-08-20', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'casual', ranked: false, played_at: '2026-08-21', winner_team: 2, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'g2', ranked: true, played_at: '2026-08-22', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+    ];
+    expect(calculateStreaks(games)[0]).toMatchObject({
+      current: 2,
+      best: 2,
+      current_game_ids: ['g1', 'g2'],
+      best_game_ids: ['g1', 'g2'],
+    });
+  });
+
+  it('does not create a streak from only unranked games', () => {
+    const games = [
+      { id: 'g1', ranked: false, played_at: '2026-08-20', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'g2', ranked: false, played_at: '2026-08-21', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+    ];
+    expect(calculateStreaks(games)).toEqual([]);
+  });
+
+  it('keeps duo-only matches out of individual streaks', () => {
+    const games = [
+      { id: 'g1', ranked: true, duo_only: true, played_at: '2026-08-20', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+      { id: 'g2', ranked: true, played_at: '2026-08-21', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }] },
+    ];
+    expect(calculateStreaks(games)).toEqual([]);
+  });
+
+  it('shows player identity and sends the streak preview to the streaks view', async () => {
+    arrange({ games: [
+      { id: 'g1', ranked: true, played_at: '2026-08-20', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', avatar_url: '/jason.webp', team: 1 }] },
+      { id: 'g2', ranked: true, played_at: '2026-08-21', winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', avatar_url: '/jason.webp', team: 1 }] },
+    ] });
+    renderHome(releasedAuth);
+
+    const streak = (await screen.findByText('CURRENT STREAK')).closest('a');
+    expect(streak).toHaveAttribute('href', '/dice/stats/streaks/u1');
+    expect(within(streak).getByText('Jason avatar')).toBeInTheDocument();
+    expect(within(streak).getByText('2')).toBeInTheDocument();
+    expect(within(streak.closest('section')).getByRole('link', { name: 'View all →' })).toHaveAttribute('href', '/dice/stats?view=streaks');
   });
 
   it('ranks teammate pairings by their combined record', () => {
@@ -110,7 +181,7 @@ describe('Dice home dashboard', () => {
     expect(calculateSynergies(games)[0]).toMatchObject({ players: ['Jason', 'Jaycee'], wins: 2, losses: 1 });
   });
 
-  it('puts live activity first for an enabled profile', async () => {
+  it('puts live activity first for a signed-in profile', async () => {
     arrange({
       tournaments: [
         { id: 'past', name: 'August 8', starts_at: '2020-08-08T12:00:00Z' },
@@ -131,7 +202,7 @@ describe('Dice home dashboard', () => {
         referees: [{ user_id: 'u1', left_at: null }],
       }],
     });
-    const { container } = renderHome(enabledAuth);
+    const { container } = renderHome(releasedAuth);
 
     expect(await screen.findByText('// LIVE GAMES')).toBeInTheDocument();
     expect(screen.getByText('3–2')).toBeInTheDocument();
@@ -150,7 +221,7 @@ describe('Dice home dashboard', () => {
 
   it('does not reserve homepage space when there are no live games', async () => {
     arrange();
-    renderHome(enabledAuth);
+    renderHome(releasedAuth);
 
     await waitFor(() => expect(mocks.getLiveGames).toHaveBeenCalledWith('token'));
     expect(screen.queryByText('// LIVE GAMES')).not.toBeInTheDocument();
@@ -168,7 +239,7 @@ describe('Dice home dashboard', () => {
         ] },
       }],
     });
-    renderHome(enabledAuth);
+    renderHome(releasedAuth);
 
     expect(await screen.findByText('LATEST CHAMPIONS')).toBeInTheDocument();
     expect(screen.getByText('Echo Ace + Hotel Hop')).toBeInTheDocument();
@@ -181,7 +252,7 @@ describe('Dice home dashboard', () => {
       sinks: [{ user_id: 'u2', display_name: 'Sink Friend', sinks: 7 }],
       selfSinks: [{ user_id: 'u3', display_name: 'Self-sink Friend', self_sinks: 3 }],
     });
-    renderHome(enabledAuth);
+    renderHome(releasedAuth);
 
     expect(await screen.findByText('ELO Friend')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Sink Friend/ })).toBeInTheDocument();
@@ -192,6 +263,37 @@ describe('Dice home dashboard', () => {
     expect(screen.queryByText('// RECORDS')).not.toBeInTheDocument();
   });
 
+  it('shows only three-game-qualified duos in the compact homepage preview', async () => {
+    arrange({
+      duos: {
+        ranked: [{
+          duo_id: '2:u12:u2',
+          members: [{ user_id: 'u1', display_name: 'Qualified Alpha' }, { user_id: 'u2', display_name: 'Qualified Bravo' }],
+          elo: 1600,
+          wins: 2,
+          losses: 1,
+          games: 3,
+          homepage_eligible: true,
+        }],
+        to_watch: [{
+          duo_id: '2:u32:u4',
+          members: [{ user_id: 'u3', display_name: 'Provisional Charlie' }, { user_id: 'u4', display_name: 'Provisional Delta' }],
+          elo: 1500,
+          wins: 2,
+          losses: 0,
+          games: 2,
+          homepage_eligible: false,
+        }],
+      },
+    });
+    renderHome(releasedAuth);
+
+    expect(await screen.findByText('Qualified Alpha + Qualified Bravo')).toBeInTheDocument();
+    expect(screen.getByText('// TOP DUOS')).toBeInTheDocument();
+    expect(screen.queryByText('Provisional Charlie + Provisional Delta')).not.toBeInTheDocument();
+    expect(mocks.getDuoLadder).toHaveBeenCalledWith('token', 3, true);
+  });
+
   it('shows the top three and pins the signed-in player outside them', async () => {
     const elo = [
       { user_id: 'u2', display_name: 'First', elo_rating: 1600 },
@@ -200,32 +302,30 @@ describe('Dice home dashboard', () => {
       { user_id: 'u1', display_name: 'Me', elo_rating: 1490 },
     ];
     arrange({ elo });
-    renderHome(enabledAuth);
+    renderHome(releasedAuth);
 
     const me = await screen.findByText('Me');
     expect(me).toHaveAttribute('data-rank', '4');
     expect(me).toHaveAttribute('data-current-user', 'true');
-    expect(me).toHaveAttribute('data-bar-mode', 'elo');
+    expect(me).not.toHaveAttribute('data-bar-mode');
     expect(mocks.getEloLeaderboard).toHaveBeenCalledWith(500, true);
     expect(mocks.getSinkLeaderboard).toHaveBeenCalledWith(500, false);
     expect(mocks.getSelfSinkLeaderboard).toHaveBeenCalledWith(500, false);
   });
 
-  it('preserves the production homepage and avoids experimental requests for a disabled profile', async () => {
-    arrange({ tournaments: [{ id: 'past', name: 'August 8', starts_at: '2020-08-08T12:00:00Z' }] });
-    renderHome(disabledAuth);
+  it('ignores a stale opt-out and renders only the released homepage', async () => {
+    arrange({ tournaments: [{ id: 'future', name: 'Next Tournament', starts_at: '2099-08-08T12:00:00Z' }] });
+    renderHome(staleOptOutAuth);
 
     await waitFor(() => expect(screen.getByText('Game recent-1')).toBeInTheDocument());
-    expect(mocks.getLiveGames).not.toHaveBeenCalled();
+    expect(mocks.getLiveGames).toHaveBeenCalledWith('token');
     expect(screen.queryByText('// LIVE GAMES')).not.toBeInTheDocument();
     expect(screen.getByText('// TOURNAMENTS')).toBeInTheDocument();
-    expect(screen.getByText('Tournament August 8')).toBeInTheDocument();
-    expect(screen.getByText('// ELO LEADERBOARD')).toBeInTheDocument();
-    expect(screen.queryByText('// ELO STANDINGS')).not.toBeInTheDocument();
-    expect(screen.queryByText('// SINK LEADERS')).not.toBeInTheDocument();
-    expect(mocks.getGames).toHaveBeenCalledWith(5);
-    expect(mocks.getEloLeaderboard).toHaveBeenCalledWith(5);
-    expect(mocks.getSinkLeaderboard).toHaveBeenCalledWith(5, true);
-    expect(mocks.getSelfSinkLeaderboard).toHaveBeenCalledWith(5, true);
+    expect(screen.getByText('Tournament Next Tournament')).toBeInTheDocument();
+    expect(screen.getByText('// ELO STANDINGS')).toBeInTheDocument();
+    expect(screen.getByText('// SINK LEADERS')).toBeInTheDocument();
+    expect(mocks.getEloLeaderboard).toHaveBeenCalledWith(500, true);
+    expect(mocks.getSinkLeaderboard).toHaveBeenCalledWith(500, false);
+    expect(mocks.getSelfSinkLeaderboard).toHaveBeenCalledWith(500, false);
   });
 });

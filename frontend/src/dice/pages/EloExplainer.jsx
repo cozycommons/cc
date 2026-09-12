@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 function P({ children }) {
   return (
@@ -11,37 +12,26 @@ function P({ children }) {
 export default function EloExplainer() {
   return (
     <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">
+      <Link className="jk-label inline-block underline mb-5" to="/dice/leaderboard/elo">← ELO leaderboard</Link>
       <p className="jk-display mb-4" style={{ fontSize: 28 }}>How ELO works</p>
       <div className="jk-card p-5">
         <P>
-          Every player starts at <strong>1500 ELO</strong>. Only <strong>ranked</strong> matches move your rating —
-          normal matches still count toward your wins/losses and history, but leave ELO untouched.
+          Everyone starts at <strong>1500 ELO</strong>. Win ranked games and climb. Lose, and you give some back.
+          Normal games still count toward your record, but they never move your ELO.
         </P>
         <P>
-          A team's rating is the average of its two players' ratings. Before a ranked match, we work out each
-          team's <em>expected</em> chance of winning from the gap between the two team ratings — a 100-point edge
-          gives a team roughly a 64% expected win rate, 400 points is roughly 91%.
+          Not every win is equal. Beat a stronger team or win big and you earn more. Win a matchup you were
+          expected to win, or squeak out a close one, and the move is smaller. One great result can matter,
+          but no single game can blow up your rating.
         </P>
         <P>
-          After the match, everyone's rating shifts based on how surprising the result was:
-          winning as the underdog gains you more than winning as the favorite, and losing as
-          the favorite costs you more than losing as the underdog. Both players on a team move by the same amount
-          for that game.
+          Your first <strong>3 ranked games</strong> are placements. Your rating moves faster while the system
+          learns your level, then settles as it gets more confident. A long break never changes your ELO by
+          itself — it just lets your next result say a little more.
         </P>
         <P>
-          The score matters too. Games are played to a target score that can vary night to night, so we treat
-          the winning team's score as that game's target and compare the losing team's score to it. A razor-close
-          finish barely adds anything on top of the base result, while a shutout (or something close to it) can
-          move ratings up to twice as much.
-        </P>
-        <P>
-          New players move faster: for your first 3 ranked games, a bigger adjustment
-          (a "K-factor" of 40) is used so your rating finds its true level quickly. After that, the
-          K-factor drops to 20 and ratings settle down.
-        </P>
-        <P>
-          Editing or deleting a past ranked match automatically recalculates every ranked match after it in
-          chronological order, so the leaderboard is always consistent.
+          If an old result gets corrected, we rebuild the rankings from the games that actually happened.
+          The leaderboard stays fair, current, and earned.
         </P>
       </div>
     </div>

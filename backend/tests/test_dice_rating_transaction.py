@@ -6,12 +6,17 @@ from pathlib import Path
 
 import pytest
 
+from tests.dice_test_database import is_isolated_dice_test_database
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_MIGRATION = ROOT / "backend" / "migrations" / "0055_dice_canonical_rating_transaction.sql"
 DB_URL = os.environ.get("DB_URL")
 
-pytestmark = pytest.mark.skipif(not DB_URL, reason="requires an isolated PostgreSQL database")
+pytestmark = pytest.mark.skipif(
+    not is_isolated_dice_test_database(os.environ),
+    reason="requires an allowlisted isolated PostgreSQL database",
+)
 
 
 def _psql(sql: str) -> subprocess.CompletedProcess[str]:

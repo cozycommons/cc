@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { computeTournamentStandings } from './utils.js';
+import { computeTournamentStandings, hasDuplicatePlayerIds } from './utils.js';
 
 const player = (id, name) => ({ user_id: id, display_name: name, avatar_url: null });
+
+describe('hasDuplicatePlayerIds', () => {
+  it('ignores open slots and detects a player reused anywhere in a match', () => {
+    expect(hasDuplicatePlayerIds(['u1', null], ['u2', null])).toBe(false);
+    expect(hasDuplicatePlayerIds(['u1', 'u2'], ['u3', 'u1'])).toBe(true);
+  });
+});
 
 function game(winnerTeam, team1, team2) {
   return {

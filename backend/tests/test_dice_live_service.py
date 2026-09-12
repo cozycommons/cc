@@ -13,12 +13,10 @@ from dice.live_projector import project_dice_live
 from dice.live_service import LiveCommand, append_command, translate_command
 from dice.live_types import DiceLiveError, DiceLiveErrorCode, SavedRules
 from dice.schemas import LiveReceiptOut, VirtualMarketCreateRequest
+from tests.dice_test_database import is_isolated_dice_test_database
 
 
 RESULT_MIGRATION = Path(__file__).parents[1] / "migrations/0045_dice_live_results.sql"
-LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-
-
 USER = "p1"
 ROW = {
     "id": "match-1", "team_order": ["team1", "team2"], "teams": {"team1": ["p1"], "team2": ["p2"]},
@@ -104,32 +102,19 @@ def test_prediction_profile_source_fails_closed_for_an_inconsistent_snapshot():
 def test_create_captures_server_rating_snapshot_at_match_start(monkeypatch):
     class Client:
         def __init__(self):
-            self.name = None
             self.inserted = None
 
-        def table(self, name):
-            self.name = name
-            return self
-
-        def select(self, *_args):
-            return self
-
-        def in_(self, *_args):
-            return self
-
-        def insert(self, payload):
+        def rpc(self, name, payload):
+            assert name == "dice_live_create_match"
             self.inserted = payload
             return self
 
         def execute(self):
-            if self.name == "dice_profiles":
-                return type("Response", (), {"data": [
-                    {"user_id": "p1", "elo_rating": 1600, "ranked_wins": 6, "ranked_games_played": 8},
-                    {"user_id": "p2", "elo_rating": 1400, "ranked_wins": 2, "ranked_games_played": 8},
-                ]})()
-            if self.name == "dice_live_matches":
-                return type("Response", (), {"data": [{"id": "match-1", **self.inserted}]})()
-            return type("Response", (), {"data": []})()
+            return type("Response", (), {"data": {
+                "id": "match-1",
+                "rating_snapshot": self.inserted["p_rating_snapshot"],
+                "prediction_snapshot": self.inserted["p_prediction_snapshot"],
+            }})()
 
     client = Client()
     from dice.live_service import create_live_match
@@ -147,6 +132,69 @@ def test_create_captures_server_rating_snapshot_at_match_start(monkeypatch):
     assert row["prediction_snapshot"]["model_version"] == "1.0.0"
     assert row["prediction_snapshot"]["team1_probability"] > 0.5
     assert "captured_at" in row["prediction_snapshot"]
+    assert client.inserted["p_created_by"] == "p1"
+    assert client.inserted["p_ranked"] is True
+    assert uuid.UUID(client.inserted["p_match_id"])
+
+
+def test_create_retries_same_id_after_dropped_response(monkeypatch):
+    from dice.live_service import create_live_match
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def rpc(self, name, payload):
+            assert name == "dice_live_create_match"
+            self.calls.append(payload)
+            return self
+
+        def execute(self):
+            if len(self.calls) == 1:
+                raise RuntimeError("connection dropped")
+            return type("Response", (), {"data": {"id": self.calls[-1]["p_match_id"]}})()
+
+    client = Client()
+    monkeypatch.setattr("dice.live_service._validated_prediction_profiles", lambda _client: [
+        {"user_id": "p1", "elo_rating": 1500, "ranked_wins": 0, "ranked_games_played": 0},
+        {"user_id": "p2", "elo_rating": 1500, "ranked_wins": 0, "ranked_games_played": 0},
+    ])
+    creation_id = "71000000-0000-0000-0000-000000000001"
+
+    row = create_live_match(
+        client, "p1", ROW["team_order"], ROW["teams"], ROW["rules_snapshot"],
+        creation_id=creation_id,
+    )
+
+    assert row["id"] == creation_id
+    assert len(client.calls) == 2
+    assert client.calls[0] == client.calls[1]
+
+
+def test_live_delete_uses_one_canonical_lifecycle_mutation(monkeypatch):
+    captured = []
+    client = object()
+    monkeypatch.setattr(
+        repository,
+        "apply_game_rating_mutation",
+        lambda *args, **kwargs: captured.append((args, kwargs)),
+    )
+
+    mutation_id = "72000000-0000-0000-0000-000000000001"
+    repository.delete_live_match(
+        client, "match-1", "game-1", "user-1", mutation_id=mutation_id
+    )
+
+    args, kwargs = captured[0]
+    assert args[0] is client
+    assert args[1:] == ("delete", {"id": "game-1"}, [])
+    assert kwargs == {
+        "mutation_id": mutation_id,
+        "actor_id": "user-1",
+        "request_fingerprint": repository._game_delete_fingerprint("game-1", "user-1"),
+        "rpc_name": "dice_live_delete_with_rating_mutation",
+        "rpc_parameters": {"p_match_id": "match-1", "p_deleted_by": "user-1"},
+    }
 
 
 def test_valid_rules_remain_projectable_for_the_first_point():
@@ -193,6 +241,65 @@ def test_record_throw_derives_team_and_score_from_roster_and_outcome():
     assert event["throwing_team_id"] == "team1"
     assert event["score_delta"] == [1, 0]
     assert project_dice_live({"match_id": "match-1", "team_order": ROW["team_order"], "teams": ROW["teams"]}, ROW["rules_snapshot"], [event]).score == [1, 0]
+
+
+def test_table_hit_without_a_catcher_scores_nothing_and_credits_no_catch():
+    event = translate_command(
+        ROW,
+        [],
+        command("record_throw", thrower_id="p1", outcome="caught"),
+        USER,
+    )[0]
+    projection = project_dice_live(
+        {"match_id": "match-1", "team_order": ROW["team_order"], "teams": ROW["teams"]},
+        ROW["rules_snapshot"],
+        [event],
+    )
+
+    assert event["catcher_id"] is None
+    assert projection.score == [0, 0]
+    assert projection.player_stats["p1"].outcomes.caught == 1
+    assert sum(player.table_catches for player in projection.player_stats.values()) == 0
+
+
+def test_caught_throw_preserves_receiving_player():
+
+    event = translate_command(
+        ROW,
+        [],
+        command("record_throw", thrower_id="p1", outcome="caught", catcher_id="p2"),
+        USER,
+    )[0]
+    projection = project_dice_live(
+        {"match_id": "match-1", "team_order": ROW["team_order"], "teams": ROW["teams"]},
+        ROW["rules_snapshot"],
+        [event],
+    )
+
+    assert event["catcher_id"] == "p2"
+    assert projection.player_stats["p1"].outcomes.caught == 1
+    assert projection.player_stats["p2"].table_catches == 1
+
+
+def test_table_hit_catcher_must_be_on_receiving_team():
+    event = translate_command(
+        ROW,
+        [],
+        command("record_throw", thrower_id="p1", outcome="caught", catcher_id="p1"),
+        USER,
+    )[0]
+
+    with pytest.raises(DiceLiveError, match="receiving team"):
+        project_dice_live(
+            {"match_id": "match-1", "team_order": ROW["team_order"], "teams": ROW["teams"]},
+            ROW["rules_snapshot"],
+            [event],
+        )
+
+
+def test_non_caught_throw_rejects_catcher_attribution():
+    with pytest.raises(ValidationError, match="only for caught throws"):
+        command("record_throw", thrower_id="p1", outcome="miss", catcher_id="p2")
 
 
 def test_saved_fifa_goal_is_server_derived_as_no_point():
@@ -385,6 +492,45 @@ def test_fix_score_after_reopen_continues_from_the_active_checkpoint():
     assert projection.status == "active" and projection.score == [2, 3]
 
 
+def test_change_throw_after_reopen_preserves_the_authoritative_score():
+    point = translate_command(
+        ROW, [], command("record_throw", thrower_id="p1", outcome="point"), USER
+    )[0]
+    finish = translate_command(
+        {**ROW, "score": [1, 0]},
+        [point],
+        command(
+            "finish", client_command_id="c2", expected_version=1,
+            coverage="complete", termination_reason="mutual_end",
+        ),
+        USER,
+    )[0]
+    reopened = translate_command(
+        {**ROW, "score": [1, 0]},
+        [point, finish],
+        command("reopen", client_command_id="c3", expected_version=2),
+        USER,
+    )
+    correction = translate_command(
+        {**ROW, "score": [1, 0]},
+        [point, finish, *reopened],
+        command(
+            "change_throw", client_command_id="c4", expected_version=3,
+            target_event_id=point["id"], thrower_id="p1", outcome="miss",
+        ),
+        USER,
+    )
+
+    projection = project_dice_live(
+        {"match_id": "match-1", "team_order": ROW["team_order"], "teams": ROW["teams"]},
+        ROW["rules_snapshot"],
+        [point, finish, *reopened, *correction],
+    )
+
+    assert projection.status == "active"
+    assert projection.score == [1, 0]
+
+
 def test_off_roof_is_attributed_immediately_and_reopen_is_append_only():
     off_roof = translate_command(ROW, [], command("off_roof", responsible_player_id="p1"), USER)[0]
     assert off_roof["losing_team_id"] == "team1"
@@ -461,8 +607,8 @@ def test_result_bridge_materializes_ties_as_draws_without_win_loss_changes():
 
 
 def test_loopback_bridge_publishes_partial_result_reopens_and_reuses_identity():
-    if os.environ.get("DB_URL") != LOCAL_DB_URL:
-        pytest.skip("requires the locked local Dice database")
+    if not is_isolated_dice_test_database(os.environ):
+        pytest.skip("requires an explicitly isolated Dice test database")
     match_id = str(uuid.uuid4())
     p1, p2, p3, p4 = [f"10000000-0000-0000-0000-00000000000{i}" for i in range(1, 5)]
     teams = {"team1": [p1, p2], "team2": [p3, p4]}

@@ -9,7 +9,6 @@ import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { leaderboardPreview, rankLeaderboard } from '../leaderboard.js';
 import { usePageviewTracking } from '../../analytics/usePageviewTracking';
-import LegacyHome from './LegacyHome.jsx';
 
 function SectionHeader({ label, viewAllTo }) {
   return (
@@ -46,43 +45,47 @@ function splitTournaments(tournaments, now = Date.now()) {
 
 function matchStory(game) {
   const players = game.players || [];
+  const sinks = players.reduce((total, player) => total + (player.sinks || 0), 0);
   const selfSinks = players.reduce((total, player) => total + (player.self_sinks || 0), 0);
-  if (selfSinks > 0) return `${selfSinks} self-sink${selfSinks === 1 ? '' : 's'}`;
-
-  if (game.ranked) {
-    const biggestGain = players
-      .map((player) => ({ ...player, change: (player.elo_after ?? 0) - (player.elo_before ?? 0) }))
-      .filter((player) => player.elo_before != null && player.elo_after != null && player.change > 0)
-      .sort((left, right) => right.change - left.change)[0];
-    if (biggestGain) return `${biggestGain.display_name} +${biggestGain.change} ELO`;
-  }
-
-  const margin = Math.abs(game.team1_score - game.team2_score);
-  if (margin <= 2) return 'Down to the wire';
-  if (margin >= 8) return 'Statement win';
-  return null;
+  const facts = [];
+  if (sinks > 0) facts.push(`${sinks} sink${sinks === 1 ? '' : 's'}`);
+  if (selfSinks > 0) facts.push(`${selfSinks} self-sink${selfSinks === 1 ? '' : 's'}`);
+  return facts.join(' · ') || null;
 }
 
 function calculateStreaks(games) {
   const byPlayer = new Map();
-  [...(games || [])].sort((left, right) => new Date(left.played_at) - new Date(right.played_at)).forEach((game) => {
+  [...(games || [])]
+    .filter((game) => game.ranked && !game.duo_only && (game.winner_team === 1 || game.winner_team === 2))
+    .sort((left, right) => new Date(left.played_at) - new Date(right.played_at))
+    .forEach((game) => {
     (game.players || []).forEach((player) => {
-      const record = byPlayer.get(player.user_id) || { user_id: player.user_id, display_name: player.display_name, current: 0, best: 0, latest: null };
+      const record = byPlayer.get(player.user_id) || { user_id: player.user_id, display_name: player.display_name, avatar_url: player.avatar_url, current: 0, best: 0, latest: null, current_game_ids: [], best_game_ids: [] };
       const won = game.winner_team === player.team;
       record.latest = won;
       if (won) {
         record.current += 1;
+        record.current_game_ids = [...record.current_game_ids, game.id];
         record.best = Math.max(record.best, record.current);
+        if (record.current > record.best_game_ids.length) record.best_game_ids = [...record.current_game_ids];
       } else {
         record.current = 0;
+        record.current_game_ids = [];
       }
       byPlayer.set(player.user_id, record);
     });
-  });
+    });
   return [...byPlayer.values()]
     .map((record) => ({ ...record, current: record.latest ? record.current : 0 }))
     .filter((record) => record.current > 1 || record.best > 1)
     .sort((left, right) => right.current - left.current || right.best - left.best);
+}
+
+function rankedStreakGames(games, gameIds) {
+  const wanted = new Set(gameIds || []);
+  return [...(games || [])]
+    .filter((game) => wanted.has(game.id))
+    .sort((left, right) => new Date(left.played_at) - new Date(right.played_at));
 }
 
 function calculateSynergies(games) {
@@ -205,7 +208,6 @@ function LiveHomeSection({ auth, games, predictions }) {
 function EloSection({ entries, currentUserId }) {
   const ranked = rankLeaderboard(entries, 'elo_rating', { provisionalKey: 'is_provisional' });
   const preview = leaderboardPreview(ranked, currentUserId);
-  const eloRange = Math.max(1, ...ranked.filter((profile) => !profile.is_provisional).map((profile) => Math.abs(profile.elo_rating - 1500)));
   return (
     <section className="mb-10">
       <SectionHeader label="// ELO STANDINGS" viewAllTo="/dice/leaderboard/elo" />
@@ -213,13 +215,33 @@ function EloSection({ entries, currentUserId }) {
         {entries === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
         {entries?.length === 0 && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No standings yet.</p>}
         {preview.leaders.map((profile) => (
-          <LeaderboardRow key={profile.user_id} rank={profile.rank} profile={profile} value={profile.elo_rating} valueLabel="ELO" barMode="elo" maxValue={eloRange} unranked={profile.is_provisional} isCurrentUser={profile.user_id === currentUserId} />
+          <LeaderboardRow key={profile.user_id} rank={profile.rank} profile={profile} value={profile.elo_rating} valueLabel="ELO" unranked={profile.is_provisional} tied={profile.tied} isCurrentUser={profile.user_id === currentUserId} />
         ))}
-        {preview.current && <LeaderboardRow rank={preview.current.rank} profile={preview.current} value={preview.current.elo_rating} valueLabel="ELO" barMode="elo" maxValue={eloRange} unranked={preview.current.is_provisional} isCurrentUser />}
+        {preview.current && <LeaderboardRow rank={preview.current.rank} profile={preview.current} value={preview.current.elo_rating} valueLabel="ELO" unranked={preview.current.is_provisional} tied={preview.current.tied} isCurrentUser />}
       </div>
       <Link to="/dice/elo-explained" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-tertiary)' }} className="inline-block mt-2">
         How does ELO work? →
       </Link>
+    </section>
+  );
+}
+
+function DuoHomeSection({ ladder }) {
+  const duos = ladder?.ranked?.filter((duo) => duo.homepage_eligible)?.slice(0, 3) || [];
+  if (!duos.length) return null;
+  return (
+    <section className="mb-10">
+      <SectionHeader label="// TOP DUOS" viewAllTo="/dice/stats?view=duos" />
+      <div className="jk-card overflow-hidden">
+        {duos.map((duo, index) => (
+          <Link key={duo.duo_id} to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-row flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+            <span className="jk-label w-4 text-center">{index + 1}</span>
+            <div className="flex -space-x-2 shrink-0">{duo.members.map((member) => <PlayerAvatar key={member.user_id} profile={member} size={30} linkToProfile={false} />)}</div>
+            <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p><p className="jk-label mt-0.5" style={{ fontSize: 9 }}>{duo.wins}–{duo.losses} · {duo.games} games</p></div>
+            <span className="jk-display text-lg tabular-nums">{duo.elo}</span>
+          </Link>
+        ))}
+      </div>
     </section>
   );
 }
@@ -233,20 +255,31 @@ function SinkLeadersSection({ sinks, selfSinks, currentUserId }) {
   );
 }
 
-function CurrentStreaksSection({ games, limit = 3, viewAllTo = '/dice/stats' }) {
+function CurrentStreaksSection({ games, limit = 3, viewAllTo = '/dice/stats?view=streaks' }) {
   const streaks = calculateStreaks(games);
   const current = streaks.filter((record) => record.current > 1).slice(0, limit);
   if (current.length === 0) return null;
+  const longest = current[0].current;
 
   return (
     <section className="mb-10">
       <SectionHeader label="// CURRENT WIN STREAKS" viewAllTo={viewAllTo} />
-      <div className="jk-card overflow-hidden">
+      <div className="jk-home-streaks">
         {current.map((record) => (
-          <div key={record.user_id} className="flex items-center justify-between gap-2 px-4 py-2.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-            <span className="truncate text-sm font-medium">{record.display_name}</span>
-            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{record.current} wins</span>
-          </div>
+          <Link key={record.user_id} to={`/dice/stats/streaks/${encodeURIComponent(record.user_id)}`} className="jk-home-streak">
+            <PlayerAvatar profile={record} size={44} linkToProfile={false} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-semibold">{record.display_name}</span>
+              <span className="jk-label block mt-0.5">CURRENT STREAK</span>
+            </span>
+            <span className="text-right shrink-0">
+              <strong className="jk-display tabular-nums">{record.current}</strong>
+              <span className="jk-label block">STRAIGHT</span>
+            </span>
+            <span className="jk-home-streak-track" aria-hidden="true">
+              <span style={{ width: `${(record.current / longest) * 100}%` }} />
+            </span>
+          </Link>
         ))}
       </div>
     </section>
@@ -255,33 +288,20 @@ function CurrentStreaksSection({ games, limit = 3, viewAllTo = '/dice/stats' }) 
 
 function HistoricalRecordsSection({ games }) {
   const streaks = calculateStreaks(games);
-  const synergies = calculateSynergies(games);
-  if (streaks.length === 0 && synergies.length === 0) return null;
+  if (streaks.length === 0) return null;
   const best = [...streaks].sort((left, right) => right.best - left.best || right.current - left.current).slice(0, 3);
 
   return (
     <section className="mb-10">
       <SectionHeader label="// RECORDS" />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="jk-card overflow-hidden">
+      <div className="jk-card overflow-hidden">
           <p className="jk-label px-3 pt-3" style={{ fontSize: 10 }}>BEST RUNS</p>
           {best.map((record) => (
-            <div key={record.user_id} className="flex items-center justify-between gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+            <Link key={record.user_id} to={`/dice/stats/streaks/${encodeURIComponent(record.user_id)}`} className="flex items-center justify-between gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <span className="truncate text-sm font-medium">{record.display_name}</span>
               <span className="jk-display text-lg tabular-nums">{record.best}W</span>
-            </div>
+            </Link>
           ))}
-        </div>
-        <div className="jk-card overflow-hidden">
-          <p className="jk-label px-3 pt-3" style={{ fontSize: 10 }}>TOP SYNERGY</p>
-          {synergies.slice(0, 3).map((record) => (
-            <div key={record.user_id} className="px-3 py-2" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-              <p className="truncate text-sm font-medium">{record.players.join(' + ')}</p>
-              <p className="jk-label mt-1" style={{ fontSize: 10 }}>{record.wins}–{record.losses} together</p>
-            </div>
-          ))}
-          {synergies.length === 0 && <p className="p-3 text-xs" style={{ color: 'var(--text-tertiary)' }}>No repeat pairings yet.</p>}
-        </div>
       </div>
     </section>
   );
@@ -295,8 +315,6 @@ function TournamentHighlights({ tournaments }) {
   const playedBracketGames = recentTournament ? ['semi1', 'semi2', 'final']
     .map((round) => recentTournament.bracket?.[round]?.game)
     .filter(Boolean).length : 0;
-
-  if (!nextTournament && champions.length === 0) return null;
 
   return (
     <section className="mb-10">
@@ -332,23 +350,24 @@ function TournamentHighlights({ tournaments }) {
   );
 }
 
-export { calculateStreaks, calculateSynergies, HistoricalRecordsSection, CurrentStreaksSection, matchStory, splitTournaments };
+export { calculateStreaks, calculateSynergies, rankedStreakGames, HistoricalRecordsSection, CurrentStreaksSection, matchStory, splitTournaments };
 
-function ExperimentalHome({ auth }) {
+function ReleasedHome({ auth }) {
   const [games, setGames] = useState(null);
   const [elo, setElo] = useState(null);
   const [sinks, setSinks] = useState(null);
   const [selfSinks, setSelfSinks] = useState(null);
   const [tournaments, setTournaments] = useState(null);
   const [liveGames, setLiveGames] = useState(null);
+  const [duoLadder, setDuoLadder] = useState(null);
   const [livePredictions, setLivePredictions] = useState({});
-  const liveEnabled = auth?.features?.dice_live_referee?.effective === true;
+  const signedIn = Boolean(auth?.token && auth?.profile);
   const currentUserId = auth?.profile?.user_id || auth?.user?.id;
 
   usePageviewTracking('dice', 'home', '/dice');
 
   useEffect(() => {
-    diceApi.getGames(100).then(setGames).catch(() => setGames([]));
+    (typeof diceApi.getAllGames === 'function' ? diceApi.getAllGames() : diceApi.getGames(100)).then(setGames).catch(() => setGames([]));
     diceApi.getEloLeaderboard(LEADERBOARD_LIMIT, true).then(setElo).catch(() => setElo([]));
     diceApi.getSinkLeaderboard(LEADERBOARD_LIMIT, false).then(setSinks).catch(() => setSinks([]));
     diceApi.getSelfSinkLeaderboard(LEADERBOARD_LIMIT, false).then(setSelfSinks).catch(() => setSelfSinks([]));
@@ -356,7 +375,16 @@ function ExperimentalHome({ auth }) {
   }, []);
 
   useEffect(() => {
-    if (!liveEnabled || !auth?.token) {
+    if (!signedIn) {
+      setDuoLadder(null);
+      return;
+    }
+    if (typeof diceApi.getDuoLadder !== 'function') return;
+    diceApi.getDuoLadder(auth.token, 3, true).then(setDuoLadder).catch(() => setDuoLadder({ ranked: [], to_watch: [] }));
+  }, [auth?.token, signedIn]);
+
+  useEffect(() => {
+    if (!signedIn) {
       setLiveGames(null);
       return undefined;
     }
@@ -366,19 +394,19 @@ function ExperimentalHome({ auth }) {
     loadLiveGames();
     const timer = window.setInterval(loadLiveGames, 15000);
     return () => window.clearInterval(timer);
-  }, [auth?.token, liveEnabled]);
+  }, [auth?.token, signedIn]);
 
   useEffect(() => {
-    if (!liveEnabled || !auth?.token || !liveGames?.length) {
+    if (!signedIn || !liveGames?.length) {
       setLivePredictions({});
       return;
     }
     Promise.all(liveGames.map(async (game) => [game.id, await diceApi.getLivePrediction(auth.token, game.id).catch(() => null)]))
       .then((entries) => setLivePredictions(Object.fromEntries(entries)));
-  }, [auth?.token, liveEnabled, liveGames]);
+  }, [auth?.token, signedIn, liveGames]);
 
   const hasLiveGames = Array.isArray(liveGames) && liveGames.length > 0;
-  const liveSection = liveEnabled && hasLiveGames
+  const liveSection = signedIn && hasLiveGames
     ? <LiveHomeSection auth={auth} games={liveGames} predictions={livePredictions} />
     : null;
   const matchesSection = <section className="mb-10">
@@ -393,6 +421,7 @@ function ExperimentalHome({ auth }) {
       </section>;
   const streaksSection = <CurrentStreaksSection games={games} />;
   const eloSection = <EloSection entries={elo} currentUserId={currentUserId} />;
+  const duoSection = <DuoHomeSection ladder={duoLadder} />;
   const tournamentSection = tournaments === null ? (
         <section className="mb-10"><SectionHeader label="// TOURNAMENTS" viewAllTo="/dice/tournaments" /><div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</div></section>
       ) : <TournamentHighlights tournaments={tournaments} />;
@@ -401,7 +430,7 @@ function ExperimentalHome({ auth }) {
         <SectionHeader label="// PHOTOS" />
         <PhotoGallery />
       </section>;
-  const sections = [liveSection, matchesSection, streaksSection, eloSection, tournamentSection, sinksSection, photosSection];
+  const sections = [liveSection, matchesSection, streaksSection, eloSection, duoSection, tournamentSection, sinksSection, photosSection];
 
   return (
     <div className="jk-home max-w-2xl mx-auto px-4 sm:px-6 py-8">
@@ -414,7 +443,5 @@ export default function Home({ auth }) {
   if (auth?.loading) {
     return <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</div>;
   }
-  return auth?.features?.dice_live_referee?.effective === true
-    ? <ExperimentalHome auth={auth} />
-    : <LegacyHome />;
+  return <ReleasedHome auth={auth} />;
 }

@@ -10,6 +10,7 @@ describe('leaderboard helpers', () => {
     ], 'sinks');
 
     expect(ranked.map((entry) => entry.rank)).toEqual([1, 1, 3]);
+    expect(ranked.map((entry) => entry.tied)).toEqual([true, true, false]);
   });
 
   it('pins the current player only when they are outside the preview', () => {

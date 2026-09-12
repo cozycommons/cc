@@ -37,7 +37,7 @@ def _production_inputs(document, abbreviated_events):
 def test_live_projection_contract_golden_vectors():
     document = json.loads(VECTORS.read_text(encoding="utf-8"))
     assert len(document["cases"]) == 31
-    assert len(document["rejects"]) == 32
+    assert len(document["rejects"]) == 33
 
     for case in document["cases"]:
         match, rules, events = _production_inputs(document, case["events"])
@@ -61,6 +61,7 @@ def test_player_stats_have_stable_defaults_and_fifa_roles():
             "miss": 1, "caught": 1, "point": 1, "sink": 1,
             "self_sink": 1, "fifa": 3, "invalid": 1,
         },
+        "table_catches": 0,
         "fifa_goals": 0,
         "fifa_kicks": 0,
         "fifa_catches": 0,
@@ -74,6 +75,35 @@ def test_player_stats_have_stable_defaults_and_fifa_roles():
     assert dumped["player_stats"]["p4"]["fifa_catches"] == 1
     assert dumped["player_stats"]["p2"]["fifa_saves"] == 1
     assert set(dumped["player_stats"]) == {"p1", "p2", "p3", "p4"}
+
+
+def test_table_catcher_attribution_is_separate_from_throw_outcome():
+    document, events = _accepted_case(
+        "v1 outcomes derive score from throw and participant roles"
+    )
+    caught = next(event for event in events if event.get("outcome") == "caught")
+    caught["catcher_id"] = "p3"
+    match, rules, production_events = _production_inputs(document, events)
+
+    player_stats = project_dice_live(match, rules, production_events).player_stats
+
+    assert player_stats["p1"].outcomes.caught == 1
+    assert player_stats["p3"].table_catches == 1
+
+
+def test_correction_moves_table_catch_credit_with_the_whole_throw():
+    document = json.loads(VECTORS.read_text(encoding="utf-8"))
+    events = [
+        {"id": "o", "sequence": 1, "kind": "observation", "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "catcher_id": "p3", "score_delta": [0, 0]},
+        {"id": "c", "sequence": 2, "kind": "correction", "client_command_id": "change-catcher", "command_index": 0, "target_event_id": "o", "reason": "mistaken_entry"},
+        {"id": "r", "sequence": 3, "kind": "observation", "client_command_id": "change-catcher", "command_index": 1, "thrower_id": "p1", "throwing_team_id": "team1", "outcome": "caught", "catcher_id": "p4", "score_delta": [0, 0], "replacement_for": "o"},
+    ]
+    match, rules, production_events = _production_inputs(document, events)
+
+    player_stats = project_dice_live(match, rules, production_events).player_stats
+
+    assert player_stats["p3"].table_catches == 0
+    assert player_stats["p4"].table_catches == 1
 
 
 @pytest.mark.parametrize(
