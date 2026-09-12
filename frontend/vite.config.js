@@ -87,6 +87,17 @@ export default defineConfig(({ mode }) => {
       css: true,
       exclude: ['e2e/**', 'node_modules/**'],
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+            'supabase-vendor': ['@supabase/supabase-js'],
+            recharts: ['recharts'],
+          },
+        },
+      },
+    },
     server: {
       port: 8080,
       host: true,

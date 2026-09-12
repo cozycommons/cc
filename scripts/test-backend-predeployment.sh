@@ -25,7 +25,7 @@ run_case() {
 }
 
 run_case fresh 0
-for marker in dice:20 dice:25 dice:64 commons:1 commons:7; do
+for marker in dice:20 dice:25 dice:64 dice:78 commons:1 commons:7; do
   grep -qx "$marker" "$PSQL_APPLIED"
 done
 
@@ -33,6 +33,7 @@ run_case existing 1
 grep -qx 'dice:42' "$PSQL_APPLIED"
 grep -qx 'dice:43' "$PSQL_APPLIED"
 grep -qx 'dice:64' "$PSQL_APPLIED"
+grep -qx 'dice:78' "$PSQL_APPLIED"
 grep -qx 'commons:1' "$PSQL_APPLIED"
 grep -qx 'commons:7' "$PSQL_APPLIED"
 if grep -qx 'dice:20' "$PSQL_APPLIED"; then
