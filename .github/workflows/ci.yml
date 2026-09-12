@@ -29,10 +29,11 @@ jobs:
       - name: Build frontend container
         run: >-
           docker build
+          -f Dockerfile
           --build-arg VITE_API_URL=http://127.0.0.1:8000
           --build-arg VITE_SUPABASE_URL=http://127.0.0.1:54321
           --build-arg VITE_SUPABASE_ANON_KEY=sb_publishable_ci_placeholder
-          .
+          ..
 
   backend:
     runs-on: ubuntu-latest

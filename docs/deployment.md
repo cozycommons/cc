@@ -42,8 +42,8 @@ never add it to the repository, frontend resource, or frontend build.
 ### Frontend
 
 - Build pack: `Dockerfile`
-- Base directory: `/frontend`
-- Dockerfile location: `/Dockerfile`
+- Base directory: `/`
+- Dockerfile location: `/frontend/Dockerfile`
 - Exposed port: `80`
 
 Build-time environment variables:
