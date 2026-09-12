@@ -2,6 +2,8 @@
 
 Monorepo for Cozy Commons projects. Dice is the first application.
 
+https://cozycommons.dev
+
 ## Layout
 
 - `frontend/` — Vite + React Dice web app
