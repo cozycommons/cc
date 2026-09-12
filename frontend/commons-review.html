@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Commons grounding review</title>
+  <title>Cozy room tile review</title>
   <style>
     body { margin: 0; padding: 24px; background: #151019; color: #f3e4c9; font: 15px system-ui; }
     main { max-width: 1100px; margin: auto; display: grid; grid-template-columns: minmax(320px, 760px) 260px; gap: 24px; }
@@ -20,15 +20,17 @@
   <main>
     <div id="room" aria-label="Rendered Commons test fixture"></div>
     <aside>
-      <h1>Grounding review</h1>
+        <h1>Cozy room tile review</h1>
       <p>Development fixture. These controls change only this preview.</p>
       <label for="prop">Furniture</label>
       <select id="prop">
-        <option value="orange-sofa">Sofa</option>
-        <option value="dining-table">Dining table</option>
-        <option value="palm">Palm</option>
-        <option value="area-rug">Rug</option>
-        <option value="floor-lamp">Floor lamp</option>
+        <option value="cozy-bed">Bed</option>
+        <option value="cozy-table">Work table</option>
+        <option value="cozy-chair">Chair</option>
+        <option value="cozy-bookcase">Bookcase</option>
+        <option value="cozy-fireplace">Fireplace</option>
+        <option value="cozy-chest">Chest</option>
+        <option value="cozy-plant">Plant</option>
       </select>
       <label for="orientation">View</label>
       <select id="orientation"><option value="south">South</option><option value="north">North</option></select>
@@ -36,7 +38,7 @@
       <output id="viewport"></output>
       <button id="previous">Previous tile</button><button id="next">Next tile</button>
       <button id="shuffle">Shuffle entity order</button>
-      <p id="result">Compare every side and corner. Feet must remain above the rug; furniture should cover a resident only when its support lies in front.</p>
+      <p id="result">Compare every side and corner. Furniture should stay grounded to its square footprint and sort in front of residents only when its support lies lower in the room.</p>
     </aside>
   </main>
   <script type="module" src="/src/commons/dev/review.js"></script>

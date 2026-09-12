@@ -1,4 +1,12 @@
-export function createSnapshotTransition({ prepare, install, fade, cancelFade, needsCorrection = () => false, onError = () => {} }) {
+export function createSnapshotTransition({
+  prepare,
+  install,
+  fade,
+  cancelFade,
+  needsCorrection = () => false,
+  shouldFade,
+  onError = () => {},
+}) {
   let current = null;
   let pending = null;
   let busy = false;
@@ -20,8 +28,11 @@ export function createSnapshotTransition({ prepare, install, fade, cancelFade, n
           if (disposed) break;
           if (pending) continue;
           if (frozen()) { pending = candidate; break; }
-          const changesWorld = current && (candidate.version !== current.version
-            || candidate.state?.ambient?.revision !== current.state?.ambient?.revision || needsCorrection());
+          const changesWorld = current && (shouldFade
+            ? shouldFade(candidate, current)
+            : candidate.version !== current.version
+              || candidate.state?.ambient?.revision !== current.state?.ambient?.revision
+              || needsCorrection());
           if (changesWorld && !policy.reducedMotion) await fade(0);
           if (disposed) break;
           if (frozen()) { pending ??= candidate; break; }

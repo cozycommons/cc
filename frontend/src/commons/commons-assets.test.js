@@ -23,15 +23,15 @@ describe('Commons furniture assets', () => {
     expect(shouldMirrorCommonsAsset('orange-sofa')).toBe(false);
   });
 
-  it('exposes a consistent four-frame host walk strip', () => {
+  it('exposes a consistent four-direction resident walk atlas', () => {
     expect(getCommonsActorAnimation('host')).toMatchObject({
-      path: '/commons/assets/host-walk.png',
-      frameWidth: 444,
-      frameHeight: 889,
-      frames: 4,
+      path: '/commons/assets/resident-host-walk.svg',
+      frameWidth: 64,
+      frameHeight: 96,
+      frames: 16,
     });
-    expect(getCommonsActorAnimation('maker')?.path).toBe('/commons/assets/maker-walk.png');
-    expect(getCommonsActorAnimation('neighbor')?.path).toBe('/commons/assets/neighbor-walk.png');
+    expect(getCommonsActorAnimation('maker')?.path).toBe('/commons/assets/resident-maker-walk.svg');
+    expect(getCommonsActorAnimation('neighbor')?.path).toBe('/commons/assets/resident-neighbor-walk.svg');
   });
 
   it('keeps interaction zones on the visible base of props and actors', () => {
@@ -41,7 +41,7 @@ describe('Commons furniture assets', () => {
 
   it('exposes stable logical render metadata for grounded sizing', () => {
     expect(getCommonsRenderMetadata('orange-sofa')).toMatchObject({ width: 200, depthOffset: 0 });
-    expect(getCommonsRenderMetadata('host')).toMatchObject({ width: 48, height: 96, depthOffset: 0 });
+    expect(getCommonsRenderMetadata('host')).toMatchObject({ width: 30, height: 46, depthOffset: 0 });
     expect(getCommonsRenderMetadata('area-rug')).toMatchObject({ floorDecoration: true, depthOffset: -900 });
     expect(getCommonsRenderMetadata('unknown')).toMatchObject({ width: 82, anchor: [0.5, 1] });
   });

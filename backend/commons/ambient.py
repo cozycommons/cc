@@ -82,10 +82,12 @@ def _state_tile(entity: Any) -> tuple[int, int] | None:
             pixel_y = float(y) * float(_WORLD["height"])
         except (OverflowError, TypeError):
             return None
-        tile_u = (pixel_x - float(_WORLD["origin_x"])) / (float(_WORLD["tile_width"]) / 2)
-        tile_v = (pixel_y - float(_WORLD["origin_y"])) / (float(_WORLD["tile_height"]) / 2)
-        tile_x = math.floor(((tile_u + tile_v) / 2) + 0.5)
-        tile_y = math.floor(((tile_v - tile_u) / 2) + 0.5)
+        tile_x = math.floor(
+            ((pixel_x - float(_WORLD["origin_x"])) / float(_WORLD["tile_width"])) + 0.5
+        )
+        tile_y = math.floor(
+            ((pixel_y - float(_WORLD["origin_y"])) / float(_WORLD["tile_height"])) + 0.5
+        )
         if 0 <= tile_x < GRID_COLUMNS and 0 <= tile_y < GRID_ROWS:
             return tile_x, tile_y
     return None
@@ -462,7 +464,7 @@ def _disabled_pose(home: dict[str, Any] | None) -> dict[str, Any]:
         "tile_y": tile_y,
         "u": float(tile_x),
         "v": float(tile_y),
-        "facing": home.get("facing", "front_right"),
+        "facing": home.get("facing", "front"),
         "segment_index": -1,
         "edge_index": -1,
         "progress": 0.0,

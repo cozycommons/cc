@@ -5,7 +5,7 @@
 }
 
 .commons-scene__frame {
-  touch-action: auto;
+  touch-action: none;
 }
 
 .commons-scene__fallback {
@@ -25,7 +25,7 @@
   inset: 0;
   overflow: hidden;
   border-radius: 2px;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .commons-scene__phaser canvas {
@@ -52,6 +52,42 @@
   height: 1px;
   padding: 0;
   border: 0;
+}
+
+.commons-scene__controls {
+  position: absolute;
+  z-index: 5;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 10px;
+  border: 1px solid rgba(237, 179, 109, 0.28);
+  border-radius: 3px;
+  background: rgba(34, 21, 28, 0.82);
+  color: rgba(243, 228, 201, 0.84);
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.commons-scene__controls span:last-child {
+  color: var(--commons-amber, #edb36d);
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .commons-scene__controls {
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .commons-scene__controls span:last-child {
+    text-align: left;
+  }
 }
 
 .commons-scene__world {

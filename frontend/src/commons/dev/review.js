@@ -26,21 +26,30 @@ function snapshot() {
   const [tile_x, tile_y] = perimeter[cursor];
   const prop = propInput.value;
   const entries = [
-    ['rug', { id: 'rug', asset: 'area-rug', tile_x: 8, tile_y: 8 }],
+    ['bed', { id: 'bed', asset: 'cozy-bed', tile_x: 2, tile_y: 3 }],
+    ['table', { id: 'table', asset: 'cozy-table', tile_x: 8, tile_y: 4 }],
+    ['chair', { id: 'chair', asset: 'cozy-chair', tile_x: 9, tile_y: 6 }],
+    ['bookcase', { id: 'bookcase', asset: 'cozy-bookcase', tile_x: 12, tile_y: 2 }],
+    ['fireplace', { id: 'fireplace', asset: 'cozy-fireplace', tile_x: 7, tile_y: 1, state: { on: true } }],
+    ['chest', { id: 'chest', asset: 'cozy-chest', tile_x: 2, tile_y: 11 }],
+    ['plant', { id: 'plant', asset: 'cozy-plant', tile_x: 13, tile_y: 11 }],
     ['prop', { id: 'prop', asset: prop, tile_x: 8, tile_y: 8, orientation: orientationInput.value }],
   ];
-  if (prop === 'area-rug') entries.pop();
   if (reversed) entries.reverse();
   const metadata = getCommonsRenderMetadata(prop, orientationInput.value);
   const propDepth = metadata.floorDecoration ? 'floor pass' : (160 + supportDepthOffset(metadata)).toFixed(1);
-  position.textContent = `Resident (${tile_x}, ${tile_y}) · depth ${10 * (tile_x + tile_y)}; furniture (8, 8) · depth ${propDepth}`;
+  position.textContent = `Resident (${tile_x}, ${tile_y}) · depth ${tile_y * 32}; furniture (8, 8) · depth ${propDepth}`;
   return {
-    id: 'commons-review', version, layout_version: 9, server_time_ms: Date.now(),
+    id: 'commons-review', version, layout_version: 10, server_time_ms: Date.now(),
     state: {
-      schema_version: 7, catalog_version: 'commons-v2',
+      schema_version: 8, contract_version: 1, catalog_version: 'commons-room-v1',
       objects: Object.fromEntries(entries),
-      actors: { host: { id: 'host', asset: 'host', tile_x, tile_y, view: 'front_right' } },
-      ambient: { enabled: false, revision: 1, reason: 'resting_only' },
+      actors: {
+        host: { id: 'host', asset: 'host', tile_x, tile_y, view: 'front' },
+        maker: { id: 'maker', asset: 'maker', tile_x: 5, tile_y: 8, view: 'right' },
+        neighbor: { id: 'neighbor', asset: 'neighbor', tile_x: 10, tile_y: 10, view: 'back' },
+      },
+      ambient: { enabled: false, revision: 4, reason: 'resting_only' },
     },
   };
 }

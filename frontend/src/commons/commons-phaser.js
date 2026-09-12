@@ -2,6 +2,7 @@ import {
   COMMONS_ACTOR_ANIMATIONS,
   COMMONS_ASSETS,
   getCommonsActorAnimation,
+  getCommonsActorTint,
   getCommonsAsset,
   getCommonsHitbox,
   getCommonsRenderMetadata,
@@ -19,7 +20,7 @@ import {
 } from './commons-grid.js';
 import { evaluateAmbientPose, settleAmbientPose, validateAmbientProgram } from './ambient/timeline.js';
 import { createPresentationClock } from './ambient/clock.js';
-import { depthForGround, projectGround } from './world/geometry.js';
+import { depthForGround, directionForDelta, projectGround } from './world/geometry.js';
 import { createSnapshotTransition } from './render/snapshot-transition.js';
 import { supportDepthOffset } from './render/grounding.js';
 import { observeCommonsViewport } from './render/viewport.js';
@@ -27,7 +28,7 @@ import { validateSceneSnapshot } from './world/contracts.js';
 
 const ROOM_WIDTH = COMMONS_GRID.width;
 const ROOM_HEIGHT = COMMONS_GRID.height;
-const ROOM_ASSET = '/commons/cozy-commons-room-tile-base.png';
+const ROOM_ASSET = '/commons/cozy-room-shell.png';
 const FLOOR_ATLAS = '/commons/commons-floor-atlas.png';
 export const COMMONS_SNAPSHOT_FADE_MS = 200;
 const STATIC_ORIENTATIONS = ['south', 'north'];
@@ -147,38 +148,27 @@ function actorAnimationKey(asset) {
 
 function homeFacing(actor) {
   const facing = actor?.view || actor?.facing;
-  if (typeof facing === 'string' && facing.startsWith('front_')) return facing;
-  if (typeof facing === 'string' && facing.startsWith('back_')) return facing;
+  if (['front', 'back', 'left', 'right'].includes(facing)) return facing;
   return {
-    north: 'back_right',
-    south: 'front_right',
-    east: 'front_right',
-    west: 'front_left',
-  }[facing] || 'front_right';
+    north: 'back',
+    south: 'front',
+    east: 'right',
+    west: 'left',
+  }[facing] || 'front';
 }
 
 function isLeftFacing(facing) {
-  return facing === 'front_left' || facing === 'back_left';
+  return facing === 'left';
 }
 
 function drawDiamond(graphics, tileX, tileY, options = {}) {
   const point = projectGround(tileX, tileY);
-  const halfWidth = COMMONS_GRID.tileWidth / 2;
-  const halfHeight = COMMONS_GRID.tileHeight / 2;
+  const x = point.x - COMMONS_GRID.tileWidth / 2;
+  const y = point.y - COMMONS_GRID.tileHeight / 2;
   graphics.lineStyle(options.lineWidth || 1, options.lineColor || 0xedb36d, options.alpha ?? 0.42);
   graphics.fillStyle(options.fillColor || 0xedb36d, options.fillAlpha ?? 0.12);
-  graphics.beginPath();
-  graphics.moveTo(point.x, point.y - halfHeight);
-  graphics.lineTo(point.x + halfWidth, point.y);
-  graphics.lineTo(point.x, point.y + halfHeight);
-  graphics.lineTo(point.x - halfWidth, point.y);
-  graphics.closePath();
-  graphics.fillPath();
-  graphics.strokePath();
-}
-
-function floorFrame(tileX, tileY) {
-  return (tileX * 5 + tileY * 3) % 8;
+  graphics.fillRect(x, y, COMMONS_GRID.tileWidth, COMMONS_GRID.tileHeight);
+  graphics.strokeRect(x, y, COMMONS_GRID.tileWidth, COMMONS_GRID.tileHeight);
 }
 
 function interactionHitArea(Phaser, sprite, entity) {
@@ -206,7 +196,8 @@ export function createCommonsPhaserGame({
       super({ key: 'CommonsTileScene' });
       this.sprites = new Map();
       this.objectEffects = new Map();
-      this.floorTiles = [];
+      this.movementTweens = new Map();
+      this.floorLayer = null;
       this.gridGuide = null;
       this.targetOverlay = null;
       this.pathOverlay = null;
@@ -289,7 +280,7 @@ export function createCommonsPhaserGame({
       this.room = this.add.image(ROOM_WIDTH / 2, ROOM_HEIGHT / 2, 'commons-room-base')
         .setDisplaySize(ROOM_WIDTH, ROOM_HEIGHT)
         .setDepth(-1000);
-      if (inspector) this.buildFloorTiles();
+      this.buildFloorTiles();
       this.tileOverlay = this.add.graphics().setDepth(10000).setVisible(inspector);
       this.targetOverlay = this.add.graphics().setDepth(10001).setVisible(inspector);
       this.pathOverlay = this.add.graphics().setDepth(9998).setVisible(inspector);
@@ -314,6 +305,14 @@ export function createCommonsPhaserGame({
           });
         },
         needsCorrection: () => Boolean(this.presentationClock.getPendingCorrection()),
+        shouldFade: (candidate, current) => {
+          const currentAmbient = current?.state?.ambient;
+          const nextAmbient = candidate?.state?.ambient;
+          const ambientChanged = currentAmbient?.enabled === true
+            && nextAmbient?.enabled === true
+            && currentAmbient.revision !== nextAmbient.revision;
+          return Boolean(ambientChanged || this.presentationClock.getPendingCorrection());
+        },
         install: (candidate) => this.installState(candidate),
         fade: (alpha) => this.fadeSnapshot(alpha),
         cancelFade: () => this.cancelSnapshotFade(),
@@ -381,11 +380,34 @@ export function createCommonsPhaserGame({
       };
       this.input.on('pointerup', (pointer) => finishObjectDrag(pointer, true));
       this.input.on('pointerupoutside', (pointer) => finishObjectDrag(pointer, false));
+      this.input.keyboard?.on('keydown', (event) => {
+        const key = String(event.key || '').toLowerCase();
+        const delta = {
+          arrowup: { tile_x: 0, tile_y: -1 },
+          w: { tile_x: 0, tile_y: -1 },
+          arrowdown: { tile_x: 0, tile_y: 1 },
+          s: { tile_x: 0, tile_y: 1 },
+          arrowleft: { tile_x: -1, tile_y: 0 },
+          a: { tile_x: -1, tile_y: 0 },
+          arrowright: { tile_x: 1, tile_y: 0 },
+          d: { tile_x: 1, tile_y: 0 },
+        }[key];
+        if (key === 'escape') {
+          this.drag = null;
+          this.objectPointerDown = false;
+          callbacks.onCancelInteraction?.();
+          return;
+        }
+        if (!delta || this.motionPolicy.paused || this.motionPolicy.stale) return;
+        event.preventDefault?.();
+        callbacks.onWalkDirection?.(delta);
+      });
     }
 
     update() {
       if (this.snapshotTransition?.isTransitioning() || !this.motionPolicy.animate || !this.currentScene || !this.ambientValid) return;
       const ambient = this.currentScene.state?.ambient;
+      if (ambient?.enabled !== true) return;
       const now = this.presentationClock.now();
       this.currentEntities
         .filter((entity) => entity.entityType === 'actor')
@@ -415,6 +437,7 @@ export function createCommonsPhaserGame({
     }
 
     renderHomePoses() {
+      this.stopMovementTweens();
       this.currentEntities
         .filter((entity) => entity.entityType === 'actor')
         .forEach((actor) => {
@@ -471,15 +494,18 @@ export function createCommonsPhaserGame({
     }
 
     buildFloorTiles() {
+      this.floorLayer?.destroy();
+      this.floorLayer = this.add.graphics().setDepth(-950);
       for (let tileY = 0; tileY < COMMONS_GRID.rows; tileY += 1) {
         for (let tileX = 0; tileX < COMMONS_GRID.columns; tileX += 1) {
           const point = projectGround(tileX, tileY);
-          const tile = this.add.sprite(point.x, point.y, 'commons-floor-atlas', floorFrame(tileX, tileY))
-            .setOrigin(0.5, 0.5)
-            .setDisplaySize(COMMONS_GRID.tileWidth, COMMONS_GRID.tileHeight + 4)
-            .setAlpha(0.46)
-            .setDepth(-900 + point.y / 10000);
-          this.floorTiles.push(tile);
+          const x = point.x - COMMONS_GRID.tileWidth / 2;
+          const y = point.y - COMMONS_GRID.tileHeight / 2;
+          const alternate = (tileX + tileY) % 2 === 0;
+          this.floorLayer.fillStyle(alternate ? 0xf1bf74 : 0xb97355, 0.025);
+          this.floorLayer.fillRect(x, y, COMMONS_GRID.tileWidth, COMMONS_GRID.tileHeight);
+          this.floorLayer.lineStyle(1, 0x3a2530, 0.14);
+          this.floorLayer.strokeRect(x, y, COMMONS_GRID.tileWidth, COMMONS_GRID.tileHeight);
         }
       }
     }
@@ -544,6 +570,7 @@ export function createCommonsPhaserGame({
     }
 
     renderStalePoses() {
+      this.stopMovementTweens();
       const ambient = this.currentScene?.state?.ambient;
       const now = this.presentationClock.now();
       this.currentEntities
@@ -568,7 +595,12 @@ export function createCommonsPhaserGame({
       if (!this.targetTile) return;
       const point = projectGround(this.targetTile.tile_x, this.targetTile.tile_y);
       this.targetOverlay.lineStyle(2, 0xedb36d, 0.9);
-      this.targetOverlay.strokeEllipse(point.x, point.y, 22, 10);
+      this.targetOverlay.strokeRect(
+        point.x - COMMONS_GRID.tileWidth / 2 + 3,
+        point.y - COMMONS_GRID.tileHeight / 2 + 3,
+        COMMONS_GRID.tileWidth - 6,
+        COMMONS_GRID.tileHeight - 6,
+      );
       this.targetOverlay.setAlpha(1);
       this.tweens.add({ targets: this.targetOverlay, alpha: 0, duration: 900, ease: 'Cubic.easeOut' });
     }
@@ -627,6 +659,10 @@ export function createCommonsPhaserGame({
     installState(nextScene) {
       if (!nextScene || !this.textures.exists('commons-room-base')) return;
       if (this.motionPolicy.paused && this.currentScene) return;
+      const previousScene = this.currentScene;
+      const previousActorTiles = new Map(
+        Object.values(previousScene?.state?.actors || {}).map((actor) => [actor.id, entityTile(actor)]),
+      );
       this.currentScene = nextScene;
       this.currentEntities = entitiesFromScene(nextScene);
       this.depthRanks = new Map(
@@ -674,6 +710,7 @@ export function createCommonsPhaserGame({
             ? this.add.sprite(0, 0, textureKey, 0)
             : this.add.image(0, 0, textureKey);
           sprite.setData('entityType', entity.entityType);
+          sprite.setData('actorAsset', entity.asset);
           sprite.setData('walkAnimation', animation ? actorAnimationKey(entity.asset) : null);
           this.sprites.set(id, sprite);
           if (interactive && entity.entityType === 'object' && entity.movable) {
@@ -693,6 +730,7 @@ export function createCommonsPhaserGame({
           sprite.setTexture(textureKey);
         }
         sprite.setData('depthRank', this.depthRanks.get(id) ?? 0);
+        if (entity.entityType === 'actor') sprite.setTint?.(getCommonsActorTint(entity.asset));
 
         const metadata = getCommonsRenderMetadata(entity.asset, orientation);
         const sourceWidth = Math.max(1, sprite.width);
@@ -710,6 +748,7 @@ export function createCommonsPhaserGame({
         const tile = entityTile(entity);
         const ambientCanDrive = entity.entityType === 'actor'
           && this.ambientValid
+          && ambient?.enabled === true
           && this.motionPolicy.animate
           && !this.motionPolicy.reducedMotion;
         if (entity.entityType === 'actor' && ambientCanDrive) {
@@ -719,9 +758,18 @@ export function createCommonsPhaserGame({
           this.placeContinuousSprite(sprite, pose.u, pose.v);
           this.applyActorPose(sprite, pose);
         } else if (!(this.motionPolicy.paused && sprite.getData('positioned'))) {
-          this.placeContinuousSprite(sprite, tile.tile_x, tile.tile_y);
-          if (entity.entityType === 'actor') {
-            this.applyActorPose(sprite, { mode: 'home', progress: 0, facing: homeFacing(entity) });
+          const previousTile = previousActorTiles.get(entity.id);
+          const moved = entity.entityType === 'actor'
+            && previousTile
+            && (previousTile.tile_x !== tile.tile_x || previousTile.tile_y !== tile.tile_y);
+          if (moved && this.motionPolicy.animate && !this.motionPolicy.reducedMotion) {
+            this.tweenActorToTile(sprite, previousTile, tile, homeFacing(entity));
+          } else {
+            this.stopMovementTween(sprite);
+            this.placeContinuousSprite(sprite, tile.tile_x, tile.tile_y);
+            if (entity.entityType === 'actor') {
+              this.applyActorPose(sprite, { mode: 'home', progress: 0, facing: homeFacing(entity) });
+            }
           }
         }
         if (entity.entityType === 'object') this.syncObjectEffect(entity, tile);
@@ -734,19 +782,57 @@ export function createCommonsPhaserGame({
     applyActorPose(sprite, pose) {
       const animationAsset = sprite.getData('walkAnimation');
       if (!animationAsset) return;
-      const animation = COMMONS_ACTOR_ANIMATIONS[sprite.getData('entityType') === 'actor'
-        ? sprite.texture.key.replace('actor-animation-', '')
-        : ''];
-      const frameCount = animation?.frames || 4;
-      const frame = pose.mode === 'walk'
+      const asset = sprite.getData('actorAsset');
+      const animation = COMMONS_ACTOR_ANIMATIONS[asset];
+      const frameCount = 4;
+      const directionRow = animation?.directionRows?.[pose.facing || 'front'] ?? 3;
+      const frame = directionRow * frameCount + (pose.mode === 'walk'
         ? Math.min(frameCount - 1, Math.floor((pose.progress || 0) * frameCount))
-        : 0;
+        : 0);
       sprite.anims?.stop();
       sprite.setFrame?.(frame);
-      const facing = pose.facing || 'front_right';
+      const facing = pose.facing || 'front';
       sprite.setFlipX(isLeftFacing(facing));
       sprite.setData('facing', facing);
       sprite.setData('ambientMode', pose.mode);
+    }
+
+    stopMovementTween(sprite) {
+      const tween = this.movementTweens.get(sprite);
+      if (!tween) return;
+      tween.stop();
+      this.movementTweens.delete(sprite);
+    }
+
+    stopMovementTweens() {
+      this.movementTweens.forEach((tween) => tween.stop());
+      this.movementTweens.clear();
+    }
+
+    tweenActorToTile(sprite, from, to, arrivalFacing) {
+      this.stopMovementTween(sprite);
+      const deltaU = to.tile_x - from.tile_x;
+      const deltaV = to.tile_y - from.tile_y;
+      const facing = directionForDelta(deltaU, deltaV) || arrivalFacing || 'front';
+      const position = { u: from.tile_x, v: from.tile_y, progress: 0 };
+      const tween = this.tweens.add({
+        targets: position,
+        u: to.tile_x,
+        v: to.tile_y,
+        progress: 1,
+        duration: 180,
+        ease: 'Linear',
+        onUpdate: () => {
+          this.placeContinuousSprite(sprite, position.u, position.v);
+          this.applyActorPose(sprite, { mode: 'walk', progress: position.progress, facing });
+        },
+        onComplete: () => {
+          this.movementTweens.delete(sprite);
+          this.placeContinuousSprite(sprite, to.tile_x, to.tile_y);
+          this.applyActorPose(sprite, { mode: 'home', progress: 0, facing: arrivalFacing || facing });
+        },
+      });
+      this.movementTweens.set(sprite, tween);
     }
 
     syncObjectEffect(entity, tile) {

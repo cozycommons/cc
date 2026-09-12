@@ -11,7 +11,7 @@ import {
 } from './commons-grid.js';
 
 describe('Commons tile projection', () => {
-  it('round-trips tile centers through the isometric projection', () => {
+  it('round-trips tile centers through the orthographic projection', () => {
     const pixel = tileToPixel(7, 5);
     expect(pixelToTile(pixel.x, pixel.y)).toEqual({ tile_x: 7, tile_y: 5 });
   });
@@ -26,7 +26,7 @@ describe('Commons tile projection', () => {
   });
 
   it('keeps movement inside the finite room grid', () => {
-    expect(pixelToTile(-100, 300)).toEqual({
+    expect(pixelToTile(-100, 700)).toEqual({
       tile_x: 0,
       tile_y: COMMONS_GRID.rows - 1,
     });

@@ -1,20 +1,24 @@
+import contract from '../../../../shared/commons/scene-contract-v1.json';
+
+const world = contract.world;
+
 export const COMMONS_WORLD = Object.freeze({
-  columns: 16,
-  rows: 16,
-  width: 512,
-  height: 512,
-  tileWidth: 32,
-  tileHeight: 20,
-  originX: 256,
-  originY: 180,
-  sourceScale: 3,
+  columns: world.columns,
+  rows: world.rows,
+  width: world.width,
+  height: world.height,
+  tileWidth: world.tile_width,
+  tileHeight: world.tile_height,
+  originX: world.origin_x,
+  originY: world.origin_y,
+  sourceScale: world.source_scale,
 });
 
 export const COMMONS_DIRECTION_BY_DELTA = Object.freeze({
-  '1,0': 'front_right',
-  '-1,0': 'back_left',
-  '0,1': 'front_left',
-  '0,-1': 'back_right',
+  '1,0': 'right',
+  '-1,0': 'left',
+  '0,1': 'front',
+  '0,-1': 'back',
 });
 
 export const COMMONS_FLOOR_BOUNDARY = Object.freeze([
@@ -52,8 +56,8 @@ export function projectGround(u, v, h = 0, grid = COMMONS_WORLD) {
   finite(v, 'v');
   finite(h, 'h');
   return {
-    x: grid.originX + (u - v) * (grid.tileWidth / 2),
-    y: grid.originY + (u + v) * (grid.tileHeight / 2) - h,
+    x: grid.originX + u * grid.tileWidth,
+    y: grid.originY + v * grid.tileHeight - h,
   };
 }
 
@@ -61,11 +65,9 @@ export function unprojectGround(pixelX, pixelY, h = 0, grid = COMMONS_WORLD) {
   finite(pixelX, 'pixelX');
   finite(pixelY, 'pixelY');
   finite(h, 'h');
-  const u = (pixelX - grid.originX) / (grid.tileWidth / 2);
-  const v = (pixelY + h - grid.originY) / (grid.tileHeight / 2);
   return {
-    u: (u + v) / 2,
-    v: (v - u) / 2,
+    u: (pixelX - grid.originX) / grid.tileWidth,
+    v: (pixelY + h - grid.originY) / grid.tileHeight,
   };
 }
 
@@ -92,7 +94,7 @@ export function depthForGround(u, v, depthOffset = 0, grid = COMMONS_WORLD) {
   finite(u, 'u');
   finite(v, 'v');
   finite(depthOffset, 'depthOffset');
-  return (u + v) * (grid.tileHeight / 2) + depthOffset;
+  return v * grid.tileHeight + depthOffset;
 }
 
 export function getBackingStoreSize(displayWidth, displayHeight, devicePixelRatio = 1, maxDpr = 2) {

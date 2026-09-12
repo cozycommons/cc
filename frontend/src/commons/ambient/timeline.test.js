@@ -10,7 +10,7 @@ const program = {
   max_walkers: 1,
   actors: {
     host: [
-      { kind: 'hold', duration_ms: 176400, tile: [4, 4], facing: 'front_right' },
+      { kind: 'hold', duration_ms: 176400, tile: [4, 4], facing: 'front' },
       { kind: 'walk', waypoints: [[4, 4], [5, 4], [6, 4]], edge_durations_ms: [900, 900] },
       { kind: 'walk', waypoints: [[6, 4], [5, 4], [4, 4]], edge_durations_ms: [900, 900] },
     ],
@@ -25,7 +25,7 @@ describe('Commons ambient timeline', () => {
   it('rejects a disconnected hold or a track with an incomplete cycle', () => {
     expect(validateAmbientProgram({
       ...program,
-      actors: { host: [{ kind: 'hold', duration_ms: 180000, tile: [4, 4], facing: 'front_right' }, { kind: 'hold', duration_ms: 1, tile: [5, 4], facing: 'front_right' }] },
+      actors: { host: [{ kind: 'hold', duration_ms: 180000, tile: [4, 4], facing: 'front' }, { kind: 'hold', duration_ms: 1, tile: [5, 4], facing: 'front' }] },
     }, ['host']).valid).toBe(false);
   });
 
@@ -34,7 +34,7 @@ describe('Commons ambient timeline', () => {
     expect(pose.mode).toBe('walk');
     expect(pose.u).toBe(5);
     expect(pose.v).toBe(4);
-    expect(pose.facing).toBe('front_right');
+    expect(pose.facing).toBe('right');
   });
 
   it('uses nonnegative cycle time before the epoch', () => {
@@ -42,15 +42,15 @@ describe('Commons ambient timeline', () => {
     expect(pose.mode).toBe('walk');
     expect(pose.u).toBeCloseTo(5);
     expect(pose.v).toBeCloseTo(4);
-    expect(pose.facing).toBe('back_left');
+    expect(pose.facing).toBe('left');
   });
 
   it('returns a safe home pose for an explicitly disabled program', () => {
     expect(evaluateAmbientPose({ enabled: false, revision: 2, reason: 'invalidated' }, 'host', Date.now(), {
       tile_x: 7,
       tile_y: 8,
-      facing: 'back_right',
-    })).toMatchObject({ mode: 'home', tile_x: 7, tile_y: 8, facing: 'back_right' });
+      facing: 'back',
+    })).toMatchObject({ mode: 'home', tile_x: 7, tile_y: 8, facing: 'back' });
   });
 
   it('rejects a resident schedule that spends more than twenty seconds walking', () => {
@@ -59,10 +59,10 @@ describe('Commons ambient timeline', () => {
       cycle_ms: 260000,
       actors: {
         host: [
-          { kind: 'hold', duration_ms: 200000, tile: [4, 4], facing: 'front_right' },
+          { kind: 'hold', duration_ms: 200000, tile: [4, 4], facing: 'front' },
           { kind: 'walk', waypoints: [[4, 4], [5, 4]], edge_durations_ms: [21000] },
           { kind: 'walk', waypoints: [[5, 4], [4, 4]], edge_durations_ms: [21000] },
-          { kind: 'hold', duration_ms: 18000, tile: [4, 4], facing: 'front_right' },
+          { kind: 'hold', duration_ms: 18000, tile: [4, 4], facing: 'front' },
         ],
       },
     }, ['host']).valid).toBe(false);
