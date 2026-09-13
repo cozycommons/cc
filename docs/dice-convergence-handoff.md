@@ -1,148 +1,83 @@
-# Dice convergence: active work
+# Dice convergence handoff
 
-Goal: make Cozy Commons the sole working home for Dice, complete the release
-and data reconciliation, and deliver the remaining referee/play-log enhancements.
-The user authorized this long-running implementation on 2026-09-13.
+## Released September 13, 2026
 
-## Starting evidence
+Dice now lives in Cozy Commons at https://cozycommons.dev/dice.
+PR #5 merged as `36b9472669fd0527015c3809c43b1a739d969bb7`.
+Main CI run 34782070480 passed. Candidate CI passed 410 backend tests with
+zero skips and 338 frontend tests, including real PostgreSQL/PostgREST,
+incoming-image migration, maintenance, readiness failure and container smoke checks.
+PR #1 is closed as superseded; its branch and the retired Dummi source remain
+recovery material. Do not import the old candidate wholesale or replay the data copy.
 
-- Commons baseline: `915c1411ac4f40d1a6d4203d1d7daf6781bcdeb5`.
-- Earlier candidate: `79b03345520e40e20a9429af67d9d0c816337aec`, PR #1.
-- Dummi main: `41fa1ef3`, including Dice retirement `7e78148f`.
-- Commons' 86 Dice frontend files, 22 backend files, both rating job modules
-  and nine checked-in asset files exactly match Dummi before retirement.
-- September 13 read-only comparison reconciled all 17 hosted Dice tables
-  after the existing single-account UUID mapping and Storage origin changes.
-  Both projects have 98 Storage objects; target avatar/comment fields contain
-  no old Storage URLs. Original and compressed objects were hash-verified during
-  the September 10 copy. Do not run another blind bulk import.
-- Target database records Dice 0079 and Commons 0012. Current main only carries
-  Dice through 0078. Preserve applied 0079 bytes from the earlier candidate.
-- Main CI: 372 backend tests passed, 29 skipped. One Commons scene frontend
-  test failed because it checks loaded scene text after waiting for an image
-  container which is present before scene data arrives.
-- Old /dice URLs return 308 to the Commons Dice homepage; old Dice API returns
-  404. Retirement was done upstream, not by this migration task.
+## Deployment and maintenance
 
-## Decisions
+Coolify: https://admin.cozycommons.dev/, Root Team.
+Project `myslnzrcuucdffkthj0tswam`, environment `gudimtlnyhv3mrz7bqcjkifg`.
+The environment is named production; the user explicitly identifies it as staging
+with no real users.
 
-Use current Commons main as the base. Preserve new Commons scenes and /scene,
-shared contracts, root Docker build contexts, vendor chunks and runtime smoke
-tests. Bring across only missing migration/verification tooling and the accepted
-referee enhancements. Supersede PR #1 once a green replacement exists.
+- Backend `ira6t1lrdcckadpn2jf1brdg`: deployment `qmhz6uxoa42ci6npii0x3zfj`
+  succeeded at the merge commit. Root context, `/backend/Dockerfile`, port 8000.
+  Incoming release applies both migration families before HTTP. Docker `/ready`
+  passed; public `/health` and `/ready` returned 200.
+- Frontend `rrmtxvricbf8ifbldflw2brb`: deployment `rtcnre5jrtfapjfhnnmo8ext`
+  succeeded at the same commit. Root context, `/frontend/Dockerfile`, port 80.
+  Watch paths include `frontend/**`, `shared/commons/scene-contract-v1.json`
+  and `design/**` (the latter became a build dependency in upstream PR #6).
+- Both resources were restored to **Deploy on push (webhooks)** after the controlled
+  rollout; each setting was reloaded and verified. GitHub App `coolify-cc` targets main.
+- GitHub ruleset 23201531 requires frontend/backend CI with strict freshness and
+  no bypass actors. The previous disabled ruleset remains untouched.
+- Old pre-deploy migration command removed. Post-deploy command is
+  `python -m dice_maintenance --rebuild`. Actual deployment logs reported
+  **Canonical games reconciled: 52; Pending live repairs processed: 0**.
+- Enabled scheduled task `kcjwptv0vovrqgmjfwg6o3wr`, Dice rating repairs, runs
+  every minute with timeout 300 seconds:
+  `flock -n -E 0 /tmp/dice-maintenance.lock python -m dice_maintenance`.
+  Automatic executions at 20:56 and 20:57 UTC succeeded; inspected output was
+  **Pending live repairs processed: 0**.
+- Runtime EXPECTED_SUPABASE_PROJECT is `dhjnrnhjghsulbevfhno`; SITE_URL is
+  `https://cozycommons.dev`. Existing six environment values were preserved.
+  Credentials remain in Coolify. No additional MCP/token was needed.
 
-Do not edit or replay applied migrations. Main already changed historical
-0045/0064 during its import; document and test both known histories rather than
-silently reverting these files. Add forward readiness coverage for Commons 0012.
+## Data and identity reconciliation
 
-Release must run migrations from the incoming release before accepting traffic.
-Coolify's ordinary pre-deploy hook runs in the existing container and is not a
-sufficient mechanism. Container health currently checks /health; release needs
-actual database readiness. Rating modules define run_job functions but no
-invocation is wired into main. Establish a verified maintenance invocation.
+All 17 Dice tables reconciled against the source before release, accounting for
+one existing account UUID mapping and Storage origin rewrites. The earlier copy
+hash-verified all 98 objects (227,606,101 bytes), including originals, compressed
+images and avatars. Nine checked-in sandbox assets match the pre-retirement source.
+Target schema now records Dice 0080 and Commons 0012; applied migration 0079 was
+preserved byte-for-byte. No historical migration was rewritten by this task.
 
-## Immediate delivery and stopping point
+Live Google login exposed NULL token fields on 19 imported accounts. The
+[documented targeted normalization](dice-imported-auth-repair.md) repaired all 19,
+with SQL confirming every other account field unchanged. A separate read returned
+zero affected accounts. Real Google login then returned the existing Matt profile.
+The read-only Supabase connector could audit but could not apply the repair;
+it ran through the backend's existing database connection in Coolify Terminal.
 
-Construct a focused candidate on this branch with database-backed CI, current
-schema attestation, the integration fixes and referee enhancements. Verify on an
-owned isolated environment; keep the shared Supabase stack untouched. Stop this
-increment when the candidate is reviewed and green, then continue toward merge
-and release under the active goal.
+Final counts: 20 profiles, 55 games, 218 game-player rows and 98 Storage objects.
+The increase from 54/214 is exactly one unranked staging verification game with
+four players: live match `76d065ec-91bb-46ce-b1e2-666cabbad05a`. It was completed
+at 0-0, termination other, complete observed coverage. Preserve it as QA evidence;
+do not mistake it for a source reconciliation discrepancy.
 
-## Access dependency
+## Browser verification and continuing work
 
-Coolify dashboard URL, team access, active deployment settings and maintenance
-schedules are still unknown. GitHub and Supabase access are available. Do all
-independent implementation before requesting missing release access again.
+Real deployed UI verified login/profile continuity, dead table hit versus named
+catch, point and append-only correction back to 0-0, FIFA thrower/kicker/saver,
+per-player credits, and completed-game stats. The 320px page has no horizontal
+overflow. Migrated gallery thumbnails and display images loaded from target
+Storage, with the lightbox linking the original object. Local evidence lives under
+`.dice-verification/20260913-release/`; it is intentionally ignored by Git.
 
-## Candidate progress (September 13)
+Enhancements now ship in Commons. Use `.agents/skills/verify-dice/` and
+`docs/dice-feature-map.md` for future work, on fresh branches from Commons main.
+Keep `/dice`, current Commons scenes/shared contracts, incoming-release migrations
+and the database CI checks. The separate local `supabase_*_dummi-dice` stack was
+never reset or stopped. No access dependency remains for this release.
 
-The working diff now carries the missing referee/play-log improvements, asset
-copy and verification tooling, migration runner, readiness attestation and
-maintenance CLI. Applied 0079 was copied unchanged; new 0080 advances readiness
-to Dice 0080 and Commons 0012. Historical 0045/0064 remain unchanged from main.
-The incoming image starts through `release.py`, applying both migration families
-before HTTP, and Docker health checks `/ready`. CI now exercises real PostgreSQL
-and PostgREST plus an incoming-image release/maintenance scenario. Deployment
-documentation describes the required runtime database configuration and schedule.
-
-Verification: 409 backend tests passed with zero skips against the owned
-loopback database; 338 frontend tests passed. The Commons scene test now waits
-for loaded data. Notification tests use the Commons origin, and virtual-currency
-tests use the same isolated-database guard as the other integration tests.
-`git diff --check` passed. Hosted state has not changed during this increment.
-
-Additional checks passed: clean frontend install, lint and bundle budget; backend
-image build; fresh incoming-image migration to 0080/0012; maintenance rebuild on
-the empty fixture database; Docker healthy state; liveness 200/readiness 503
-when PostgREST is stopped. Both histories are now checked before either family
-applies pending SQL, with a real database regression covering a damaged Commons
-receipt blocking pending Dice work. The focused runner tests pass.
-
-Still pending: verify the referee journey in the browser and finish reviewing
-the replacement PR. GitHub CI passes the complete container failure checks.
-Do not merge or report a successful deployed release yet. Coolify access remains
-necessary to inspect the actual trigger, deployed revisions, health configuration,
-scheduled maintenance and post-deploy results.
-
-Replacement draft PR: https://github.com/cozycommons/cc/pull/5. CI run
-34776355374 passed both jobs for 5e85dc43, including the complete incoming-image
-release/maintenance scenario. Local frontend container smoke checks also passed
-for `/`, `/dice`, `/scene` and the room asset; a corrupt receipt prevented backend
-startup. A subsequent fix makes the maintenance CLI fail visibly after draining
-a batch containing failed repairs; five focused rating-job tests passed.
-CI run 34776484434 passed both jobs for c1998efa, verifying that follow-up.
-
-GitHub initially had no active protection on `main`; its existing ruleset was
-disabled. Created and read back active ruleset 23201531, requiring `frontend`
-and `backend` from GitHub Actions app 15368, strict branch freshness and no bypass
-actors. The older disabled ruleset is untouched. `gh pr checks 5 --required`
-now recognizes both checks. Coolify trigger configuration remains unverified.
-
-## Coolify access verified
-
-The user supplied https://admin.cozycommons.dev/ and browser sign-in succeeded.
-Root Team has project `myslnzrcuucdffkthj0tswam`, environment
-`gudimtlnyhv3mrz7bqcjkifg` (named production, but this is the user's staging app).
-Backend resource: `ira6t1lrdcckadpn2jf1brdg`; frontend:
-`rrmtxvricbf8ifbldflw2brb`. Both deploy on push through GitHub App `coolify-cc`.
-Latest observed backend deployment `1u45onvw9gz92p7fqyfuzdl4` succeeded for
-915c1411ac4f40d1a6d4203d1d7daf6781bcdeb5. No deployment was triggered here.
-
-Backend uses root build context, `/backend/Dockerfile`, port 8000 and
-https://api.cozycommons.dev. Supabase URL was verified as target
-dhjnrnhjghsulbevfhno.supabase.co; service key, DB URL and pooler host variables
-exist. The URL is runtime-only. Existing pre-deploy command is
-`bash apply-commons-migrations.sh`; post-deploy is empty; no scheduled tasks.
-Coolify's HTTP health override is disabled and its UI detects the image's custom
-health check. Keep the image check when the PR switches it to `/ready`.
-
-Frontend uses root context, `/frontend/Dockerfile`, port 80 and
-https://cozycommons.dev. Watch paths currently contain only `frontend/**`, so add
-the shared scene contract when configuring the cutover. Backend watch paths are
-empty. Both resources still run main; PR #5 is not merged.
-
-Next configuration work: verify DB URL/pooler scope, add
-EXPECTED_SUPABASE_PROJECT and SITE_URL, remove the old migration hook at cutover,
-wire post-deploy rebuild and serialized maintenance, then verify real execution.
-The individual variable form failed to persist changes; browser logs show an
-Alpine syntax error containing an uncompiled @js expression. The bulk editor
-worked: production EXPECTED_SUPABASE_PROJECT=dhjnrnhjghsulbevfhno and
-SITE_URL=https://cozycommons.dev are now saved. Reload and readback verified both
-values and exact preservation of all six pre-existing production values. The
-new non-secret variables use the bulk editor's default build/runtime scopes.
-DB URL targets db.dhjnrnhjghsulbevfhno.supabase.co and has a pooler host configured.
-No deployment or hook change has been made yet. Coolify access is no longer a
-blocker; the authenticated Chrome tab is retained.
-
-Main advanced to 74a57514 (PR #7, CI async hardening and merge_group trigger).
-Merged it into this candidate without conflicts. Re-run CI before rollout.
-The user explicitly identified this hosted app as staging with no real users,
-so final browser verification can run on the staged deployment without touching
-the unrelated local sandbox. Complete the controlled rollout and user journey
-before claiming the goal is achieved.
-
-Browser QA launcher currently reports the Commons sandbox stopped. A separate
-`dummi-dice` Supabase stack occupies 54321/54322. Do not stop/reset it or change
-its project identity. An ownership question is pending with the user about using
-that synthetic sandbox for QA. No browser verification has been claimed.
+Upstream PR #6 subsequently merged as 8fb3ed0d, adding the hosted design system.
+The release-record follow-up incorporates that main update without changing its
+code; Coolify frontend watch paths were expanded to cover its design directory.
