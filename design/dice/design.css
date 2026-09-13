@@ -1,0 +1,367 @@
+/* ============================================================
+   Jason Keung — Design System, live demo (/design)
+   Ported from .agents/skills/jason-keung-design/tokens/*.css.
+   Scoped under .jk-design so it never leaks into the rest of the
+   site (which runs Tailwind + shadcn tokens with different names).
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600&family=DM+Mono:wght@400;500&family=Karla:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+.jk-design {
+  /* ---- Base neutrals ---- */
+  --ink-950: #02020A;
+  --paper-50: #F9F4EC;
+
+  --neutral-900: #131019;
+  --neutral-800: #211D28;
+  --neutral-700: #3A3542;
+  --neutral-600: #58525C;
+  --neutral-500: #7A7480;
+  --neutral-400: #A39CA0;
+  --neutral-300: #C9C0B4;
+  --neutral-200: #E2D9C8;
+  --neutral-100: #EEE7D8;
+  --neutral-50: #FBF8F1;
+
+  /* ---- Farm-inspired accents ---- */
+  --accent-moss: #4F7942;
+  --accent-moss-deep: #34532A;
+  --accent-clay: #B0512E;
+  --accent-clay-deep: #82391E;
+  --accent-sky: #5C82B0;
+  --accent-sky-deep: #3E5E85;
+  --accent-blossom: #E2A0C4;
+  --accent-blossom-deep: #B8679A;
+  --accent-gold: #E3AE3F;
+  --accent-gold-deep: #B5820C;
+  --accent-berry: #9C3B3B;
+
+  /* ---- Semantic surface ---- */
+  --surface-page: var(--paper-50);
+  --surface-page-dark: var(--ink-950);
+  --surface-card: #FFFFFF;
+  --surface-card-dark: var(--neutral-900);
+  --surface-sunken: var(--neutral-100);
+  --surface-inverse: var(--ink-950);
+
+  /* ---- Semantic text ---- */
+  --text-primary: var(--ink-950);
+  --text-secondary: var(--neutral-600);
+  --text-tertiary: var(--neutral-500);
+  --text-inverse: var(--paper-50);
+  --text-inverse-secondary: var(--neutral-300);
+
+  /* ---- Semantic borders ---- */
+  --border-subtle: var(--neutral-200);
+  --border-default: var(--neutral-300);
+  --border-strong: var(--neutral-700);
+  --border-inverse: var(--neutral-700);
+
+  /* ---- Semantic accent roles ---- */
+  --accent-primary: var(--accent-moss);
+  --accent-primary-hover: var(--accent-moss-deep);
+  --accent-secondary: var(--accent-clay);
+  --accent-tertiary: var(--accent-sky);
+
+  --state-success: var(--accent-moss);
+  --state-warning: var(--accent-gold);
+  --state-danger: var(--accent-berry);
+  --state-info: var(--accent-sky);
+
+  --focus-ring: var(--accent-sky);
+
+  /* "Strong" surface — the max-contrast chip used by primary buttons,
+     solid icon buttons, and active tags. Deliberately flips with theme
+     (ink-on-paper in light mode, paper-on-ink in dark mode) so those
+     components always read as high-contrast against the page. */
+  --surface-strong: var(--ink-950);
+  --surface-strong-hover: var(--neutral-800);
+  --text-on-strong: var(--paper-50);
+
+  /* ---- Type ---- */
+  --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --font-mono: 'DM Mono', 'IBM Plex Mono', monospace;
+  --font-body: 'Karla', 'Helvetica Neue', sans-serif;
+
+  --text-display-xl: 96px;
+  --text-display-lg: 72px;
+  --text-display-md: 56px;
+  --text-display-sm: 40px;
+  --text-display-xs: 28px;
+
+  --tracking-display-xl: -0.03em;
+  --tracking-display-lg: -0.025em;
+  --tracking-display-md: -0.02em;
+  --tracking-display-sm: -0.015em;
+  --tracking-display-xs: -0.01em;
+
+  --text-body-lg: 20px;
+  --text-body-md: 17px;
+  --text-body-sm: 15px;
+  --text-body-xs: 13px;
+
+  --text-label-md: 14px;
+  --text-label-sm: 12px;
+  --text-label-xs: 11px;
+  --tracking-label: 0.06em;
+
+  --leading-tight: 1.02;
+  --leading-snug: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+
+  /* ---- Spacing / layout ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+
+  --content-max-width: 1120px;
+  --content-max-width-narrow: 760px;
+  --gutter: var(--space-6);
+
+  /* ---- Effects ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  --shadow-xs: 0 1px 2px rgba(2, 2, 10, 0.06);
+  --shadow-sm: 0 2px 6px rgba(2, 2, 10, 0.08);
+  --shadow-md: 0 8px 24px rgba(2, 2, 10, 0.10);
+  --shadow-lg: 0 16px 48px rgba(2, 2, 10, 0.14);
+
+  --glow-accent: 0 0 0 1px rgba(79, 121, 66, 0.25), 0 12px 32px rgba(79, 121, 66, 0.18);
+
+  --border-width-hairline: 1px;
+  --border-width-default: 1.5px;
+
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 360ms;
+
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  transition: background var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard);
+}
+
+/* ---- Dark mode — toggled via data-theme="dark" on the .jk-design root ----
+   Only the tokens that are meant to flip are redeclared here; accents,
+   spacing, type, and radii stay identical in both themes. */
+.jk-design[data-theme='dark'] {
+  --surface-page: var(--ink-950);
+  --surface-card: var(--neutral-900);
+  --surface-sunken: var(--neutral-800);
+
+  --text-primary: var(--paper-50);
+  --text-secondary: var(--neutral-300);
+  --text-tertiary: var(--neutral-400);
+
+  --border-subtle: var(--neutral-700);
+  --border-default: var(--neutral-600);
+  --border-strong: var(--neutral-300);
+
+  --surface-strong: var(--paper-50);
+  --surface-strong-hover: var(--neutral-200);
+  --text-on-strong: var(--ink-950);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 54px rgba(0, 0, 0, 0.55);
+
+  --glow-accent: 0 0 0 1px rgba(140, 190, 120, 0.35), 0 14px 36px rgba(79, 121, 66, 0.35);
+}
+
+/* ---- Jaycee mode — toggled via data-theme="jaycee" on the .jk-design root ----
+   Unlike dark mode (which only flips surface/text/border), Jaycee mode also
+   reinterprets the six named accent tokens themselves — hot pink stands in
+   for the primary accent (moss), light purples cover the secondary/tertiary
+   roles (clay, sky). Everything downstream that already reads from the
+   accent/semantic tokens (buttons, badges, tags, checkboxes, focus rings,
+   card glows) inherits the new palette automatically. Type, spacing, radii,
+   and motion are untouched — same system, new colorway. */
+.jk-design[data-theme='jaycee'] {
+  --surface-page: #FCEEF6;
+  --surface-card: #FFFFFF;
+  --surface-sunken: #F6DEEE;
+  --surface-inverse: #2A1330;
+
+  --text-primary: #2A1330;
+  --text-secondary: #8A5E86;
+  --text-tertiary: #B98FB4;
+  --text-inverse: #FCEEF6;
+  --text-inverse-secondary: #E3BFDB;
+
+  --border-subtle: #F1D9EB;
+  --border-default: #E3B8DC;
+  --border-strong: #9C5296;
+  --border-inverse: #6E3E68;
+
+  /* ---- Farm accents, reinterpreted as pink/purple ---- */
+  --accent-moss: #E31C79;
+  --accent-moss-deep: #B01062;
+  --accent-clay: #9D5FD1;
+  --accent-clay-deep: #723F9C;
+  --accent-sky: #B47AE0;
+  --accent-sky-deep: #8A54B8;
+  --accent-blossom: #F5A0D4;
+  --accent-blossom-deep: #C9599F;
+  --accent-gold: #E85C9A;
+  --accent-gold-deep: #B93E78;
+  --accent-berry: #A81155;
+
+  --accent-primary: var(--accent-moss);
+  --accent-primary-hover: var(--accent-moss-deep);
+  --accent-secondary: var(--accent-clay);
+  --accent-tertiary: var(--accent-sky);
+
+  --state-success: var(--accent-clay);
+  --state-warning: var(--accent-gold);
+  --state-danger: var(--accent-berry);
+  --state-info: var(--accent-sky);
+
+  --focus-ring: var(--accent-moss);
+
+  --surface-strong: #2A1330;
+  --surface-strong-hover: #3D1D45;
+  --text-on-strong: #FCEEF6;
+
+  --shadow-xs: 0 1px 2px rgba(90, 10, 65, 0.08);
+  --shadow-sm: 0 2px 6px rgba(90, 10, 65, 0.10);
+  --shadow-md: 0 8px 24px rgba(90, 10, 65, 0.13);
+  --shadow-lg: 0 16px 48px rgba(90, 10, 65, 0.17);
+
+  --glow-accent: 0 0 0 1px rgba(227, 28, 121, 0.28), 0 12px 32px rgba(227, 28, 121, 0.22);
+}
+
+.jk-design * { box-sizing: border-box; }
+
+.jk-design h1,
+.jk-design h2,
+.jk-design h3,
+.jk-design h4 {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  margin: 0;
+}
+
+.jk-design h1 { font-size: var(--text-display-lg); letter-spacing: var(--tracking-display-lg); }
+.jk-design h2 { font-size: var(--text-display-md); letter-spacing: var(--tracking-display-md); }
+.jk-design h3 { font-size: var(--text-display-sm); letter-spacing: var(--tracking-display-sm); }
+.jk-design h4 { font-size: var(--text-display-xs); letter-spacing: var(--tracking-display-xs); }
+
+.jk-design p {
+  font-family: var(--font-body);
+  font-size: var(--text-body-md);
+  line-height: var(--leading-normal);
+  margin: 0;
+}
+
+.jk-design a { color: var(--accent-primary); text-decoration: none; }
+.jk-design a:hover { color: var(--accent-primary-hover); text-decoration: underline; }
+
+.jk-design button { font-family: var(--font-body); }
+
+/* ---- Shared demo-page utility classes ---- */
+
+.jk-design .ds-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-label-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--text-tertiary);
+}
+
+.jk-design .ds-section {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space-24) var(--gutter);
+  scroll-margin-top: 84px;
+}
+
+.jk-design .ds-section + .ds-section {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.jk-design .ds-grid {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.jk-design .ds-swatch {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-base) var(--ease-standard), box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.jk-design .ds-swatch:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.jk-design .ds-window {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  border: 1.5px dashed var(--border-default);
+  background: var(--surface-sunken);
+  display: flex;
+  align-items: flex-end;
+  transition: box-shadow var(--duration-base) var(--ease-standard), border-color var(--duration-base) var(--ease-standard), transform var(--duration-base) var(--ease-standard);
+}
+
+.jk-design .ds-window:hover {
+  border-color: var(--accent-sky);
+  box-shadow: var(--glow-accent);
+  transform: translateY(-2px);
+}
+
+.jk-design .ds-window-label {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(0deg, rgba(2,2,10,0.55) 0%, rgba(2,2,10,0) 100%);
+  color: var(--paper-50);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+
+.jk-design .ds-fade-up {
+  animation: jk-ds-fade-up 560ms var(--ease-out) both;
+}
+
+@keyframes jk-ds-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.jk-design .ds-scrollbar::-webkit-scrollbar { height: 6px; }
+.jk-design .ds-scrollbar::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: var(--radius-pill); }
+
+@media (max-width: 640px) {
+  .jk-design h1 { font-size: var(--text-display-sm); }
+  .jk-design h2 { font-size: var(--text-display-xs); }
+  .jk-design .ds-section { padding: var(--space-16) var(--space-4); }
+}
