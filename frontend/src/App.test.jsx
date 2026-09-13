@@ -15,6 +15,10 @@ vi.mock('./commons/CommonsScenePage.jsx', () => ({
   default: () => <div>Commons scene page</div>,
 }));
 
+vi.mock('../../design/dice/App.jsx', () => ({
+  default: () => <div>Dice design system</div>,
+}));
+
 describe('top-level routes', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/');
@@ -47,5 +51,22 @@ describe('top-level routes', () => {
 
     expect(screen.getByText('Dice application')).toBeInTheDocument();
     expect(screen.getByTestId('supabase-provider')).toBeInTheDocument();
+  });
+
+  it('serves a design-system index at /design', () => {
+    window.history.replaceState({}, '', '/design');
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'A home for the visual languages we use.' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open Dice design system/ })).toHaveAttribute('href', '/design/dice');
+  });
+
+  it('serves the Dice design system at /design/dice', () => {
+    window.history.replaceState({}, '', '/design/dice');
+
+    render(<App />);
+
+    expect(screen.getByText('Dice design system')).toBeInTheDocument();
   });
 });
