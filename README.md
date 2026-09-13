@@ -1,6 +1,6 @@
 # Cozy Commons
 
-Monorepo for Cozy Commons projects. Dice is the first application.
+Monorepo for Cozy Commons projects
 
 https://cozycommons.dev
 
