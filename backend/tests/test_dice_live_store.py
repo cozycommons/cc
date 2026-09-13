@@ -18,6 +18,8 @@ MIGRATION = ROOT / "backend/migrations/0044_dice_live_store.sql"
 AUTH_CLAIMS_MIGRATION = ROOT / "backend/migrations/0046_dice_live_rpc_auth_claims.sql"
 METRICS_MIGRATION = ROOT / "backend/migrations/0065_dice_live_command_metrics.sql"
 LOCAL_API_URL = "http://127.0.0.1:54321"
+if is_isolated_dice_test_database(os.environ) and os.environ.get("DICE_TEST_REST_URL") == "http://127.0.0.1:55431":
+    LOCAL_API_URL = "http://127.0.0.1:55431"
 REFEREE = "10000000-0000-0000-0000-000000000001"
 OTHER_REFEREE = "10000000-0000-0000-0000-000000000002"
 

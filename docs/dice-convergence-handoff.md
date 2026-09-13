@@ -55,6 +55,32 @@ Coolify dashboard URL, team access, active deployment settings and maintenance
 schedules are still unknown. GitHub and Supabase access are available. Do all
 independent implementation before requesting missing release access again.
 
-No code or hosted state has changed in this new branch yet. Next: import the
-missing tooling from the earlier candidate, preserving current main's build and
-Commons changes, and add forward readiness coverage without changing 0079.
+## Candidate progress (September 13)
+
+The working diff now carries the missing referee/play-log improvements, asset
+copy and verification tooling, migration runner, readiness attestation and
+maintenance CLI. Applied 0079 was copied unchanged; new 0080 advances readiness
+to Dice 0080 and Commons 0012. Historical 0045/0064 remain unchanged from main.
+The incoming image starts through `release.py`, applying both migration families
+before HTTP, and Docker health checks `/ready`. CI now exercises real PostgreSQL
+and PostgREST plus an incoming-image release/maintenance scenario. Deployment
+documentation describes the required runtime database configuration and schedule.
+
+Verification: 409 backend tests passed with zero skips against the owned
+loopback database; 338 frontend tests passed. The Commons scene test now waits
+for loaded data. Notification tests use the Commons origin, and virtual-currency
+tests use the same isolated-database guard as the other integration tests.
+`git diff --check` passed. Hosted state has not changed during this increment.
+
+Additional checks passed: clean frontend install, lint and bundle budget; backend
+image build; fresh incoming-image migration to 0080/0012; maintenance rebuild on
+the empty fixture database; Docker healthy state; liveness 200/readiness 503
+when PostgREST is stopped. Both histories are now checked before either family
+applies pending SQL, with a real database regression covering a damaged Commons
+receipt blocking pending Dice work. The focused runner tests pass.
+
+Still pending: complete GitHub CI including the final container failure checks,
+verify the referee journey in the browser, and review the replacement PR.
+Do not merge or report a successful deployed release yet. Coolify access remains
+necessary to inspect the actual trigger, deployed revisions, health configuration,
+scheduled maintenance and post-deploy results.

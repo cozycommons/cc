@@ -863,6 +863,26 @@
   transform: scale(0.96);
 }
 
+.jk-dice .jk-live-log-row + .jk-live-log-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.jk-dice .jk-live-log-detail {
+  color: var(--text-secondary);
+}
+
+.jk-dice .jk-live-log-fix {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--accent-clay-deep);
+  border-radius: var(--radius-md);
+}
+
+.jk-dice .jk-live-log-fix:active {
+  background: var(--surface-sunken);
+}
+
 .jk-dice .jk-live-action-sheet {
   animation: jk-live-sheet-enter 280ms var(--ease-standard);
 }

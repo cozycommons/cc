@@ -511,7 +511,7 @@ describe('LiveGame common scoring', () => {
     renderGame();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Table hit' }));
-    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: No one' }));
+    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: Dead — no one caught it' }));
 
     await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
     expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
@@ -986,10 +986,32 @@ describe('LiveGame common scoring', () => {
       events: [{ id: 'e1', kind: 'observation', outcome: 'point', thrower_id: 'cam', sequence: 3 }],
     });
     renderGame();
-    expect(await screen.findByText('point')).toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'Recent plays' })).getByText('Cam')).toBeInTheDocument();
+    expect(await screen.findByText('Cam · point')).toBeInTheDocument();
     expect(screen.getByText(/join from the live games list/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Point' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the play log compact while preserving table-hit and FIFA attribution', async () => {
+    mocks.getLiveGame.mockResolvedValue({
+      ...baseGame,
+      events: [
+        { id: 'dead', kind: 'observation', outcome: 'caught', thrower_id: 'alice', sequence: 1 },
+        { id: 'caught', kind: 'observation', outcome: 'caught', thrower_id: 'alice', catcher_id: 'cam', sequence: 2 },
+        { id: 'goal', kind: 'observation', outcome: 'fifa', thrower_id: 'bea', fifa: { finish: 'goal', kicker_id: 'dev' }, sequence: 3 },
+        { id: 'fifa-catch', kind: 'observation', outcome: 'fifa', thrower_id: 'bea', fifa: { finish: 'kick_catch', kicker_id: 'dev', catcher_id: 'cam' }, sequence: 4 },
+        { id: 'saved', kind: 'observation', outcome: 'fifa', thrower_id: 'alice', fifa: { finish: 'goal_saved', kicker_id: 'cam', saver_id: 'bea' }, sequence: 5 },
+      ],
+    });
+    renderGame();
+
+    const log = await screen.findByRole('region', { name: 'Recent plays' });
+    expect(within(log).getAllByRole('listitem')).toHaveLength(5);
+    expect(within(log).getAllByText('Alice · Table hit')).toHaveLength(2);
+    expect(within(log).getByText('Dead · no catch')).toBeInTheDocument();
+    expect(within(log).getByText('Caught by Cam')).toBeInTheDocument();
+    expect(within(log).getByText('Dev scored')).toBeInTheDocument();
+    expect(within(log).getByText('Dev → Cam')).toBeInTheDocument();
+    expect(within(log).getByText('Cam → Bea saved')).toBeInTheDocument();
   });
 
   it('replaces a whole mistaken result atomically without calling it a retoss', async () => {
@@ -1101,7 +1123,7 @@ describe('LiveGame common scoring', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Fix this result' }));
     fireEvent.change(screen.getByLabelText('Replacement result'), { target: { value: 'caught' } });
-    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: No one' }));
+    fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: Dead — no one caught it' }));
     fireEvent.click(screen.getByRole('button', { name: 'Change result' }));
 
     await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));

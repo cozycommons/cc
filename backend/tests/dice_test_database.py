@@ -16,8 +16,8 @@ def is_isolated_dice_test_database(environment: Mapping[str, str]) -> bool:
             and not parsed.query
             and not parsed.fragment
             and parsed.hostname == "127.0.0.1"
-            and parsed.port == 54322
-            and LOCAL_DATABASE.fullmatch(database) is not None
+            and parsed.port in {54322, 55432}
+            and (LOCAL_DATABASE.fullmatch(database) is not None or (parsed.port == 55432 and database == "dummi_test"))
         )
         ci_database = (
             environment.get("GITHUB_ACTIONS") == "true"

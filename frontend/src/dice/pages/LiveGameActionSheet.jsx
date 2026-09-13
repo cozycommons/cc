@@ -58,7 +58,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
         {allowNobody && (
           <button
             type="button"
-            aria-label={`${legend}: No one`}
+            aria-label={`${legend}: Dead — no one caught it`}
             aria-pressed={selectedId === 'none'}
             disabled={saving}
             className="col-span-2 min-h-14 p-3 rounded-lg border text-left transition-transform active:scale-[.97]"
@@ -68,7 +68,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
               background: selectedId === 'none' ? 'color-mix(in srgb, var(--accent-gold) 15%, var(--surface-card))' : 'var(--surface-card)',
             }}
           >
-            <span className="font-semibold">No one</span>
+            <span className="font-semibold">Dead</span>
             <span className="jk-label block mt-0.5">No catch · 0 points</span>
           </button>
         )}

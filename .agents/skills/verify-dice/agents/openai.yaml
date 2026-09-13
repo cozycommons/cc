@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Dice"
+  short_description: "Drive and prove core Dice user journeys"
+  default_prompt: "Use $verify-dice to verify the changed Dice flow on the real sandbox."

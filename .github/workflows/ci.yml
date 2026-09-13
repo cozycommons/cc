@@ -65,6 +65,20 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    env:
+      DB_URL: postgresql://postgres:postgres@localhost:5432/dummi_test
+      DICE_REQUIRE_DATABASE_TESTS: "1"
+      PGPASSWORD: postgres
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: dummi_test
+          POSTGRES_PASSWORD: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dummi_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -74,43 +88,61 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: python -m venv backend/.venv
       - run: backend/.venv/bin/python -m pip install -r backend/requirements.txt
+      - name: Bootstrap isolated database
+        run: bash scripts/bootstrap-dice-test-db.sh
+      - name: Start real PostgREST
+        run: |
+          docker run -d --name dice-ci-rest --network host \
+            -e PGRST_DB_URI=postgresql://postgres:postgres@localhost:5432/dummi_test \
+            -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon \
+            -e PGRST_SERVER_PORT=55433 \
+            -e PGRST_JWT_SECRET=local-dice-test-jwt-secret-at-least-32-characters \
+            postgrest/postgrest:v14.14
+          python3 scripts/ci-rest-proxy.py > /tmp/dice-ci-rest.log 2>&1 &
+          curl --fail --retry 20 --retry-delay 1 --retry-connrefused --retry-all-errors http://127.0.0.1:55431/rest/v1/ > /dev/null
+          echo 'API_URL=http://127.0.0.1:55431' >> "$GITHUB_ENV"
+          echo 'DICE_TEST_REST_URL=http://127.0.0.1:55431' >> "$GITHUB_ENV"
+          backend/.venv/bin/python -c "import jwt; print('SECRET_KEY='+jwt.encode({'role':'service_role'},'local-dice-test-jwt-secret-at-least-32-characters',algorithm='HS256'))" >> "$GITHUB_ENV"
       - run: backend/.venv/bin/python -m pytest backend/tests -q
         env:
           PYTHONPATH: backend
       - run: scripts/check-dice-migration-contract.sh
       - run: scripts/check-commons-migration-contract.sh
       - run: scripts/test-supabase-db-url.sh
-      - run: scripts/test-commons-migrations.sh
-      - run: scripts/test-backend-predeployment.sh
       - name: Build backend container
         run: docker build --tag cozy-commons-backend-ci -f backend/Dockerfile .
-      - name: Smoke test backend container
+      - name: Exercise incoming release and maintenance
         run: |
           set -euo pipefail
+          # Reset only this job's disposable service database. The incoming
+          # image must apply all migrations, starting from Supabase's scaffold.
+          docker stop dice-ci-rest
+          dropdb -h localhost -U postgres --force dummi_test
+          createdb -h localhost -U postgres dummi_test
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c 'create schema auth; create table auth.users(id uuid primary key); alter default privileges in schema public grant all on tables to service_role; alter default privileges in schema public grant all on sequences to service_role;'
+          docker start dice-ci-rest
           container=cozy-commons-backend-ci
           cleanup() {
             exit_code=$?
             if [ "$exit_code" -ne 0 ]; then
               docker logs "$container" || true
+              docker logs dice-ci-rest || true
+              cat /tmp/dice-ci-rest.log || true
             fi
             docker rm --force "$container" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
-          docker run --detach --name "$container" --publish 8000:8000 \
-            --env DICE_LOCAL_HARNESS=true \
-            --env SUPABASE_URL=http://127.0.0.1:54321 \
-            --env SUPABASE_SERVICE_KEY=synthetic-ci-service-key \
+          docker run --detach --name "$container" --network host \
+            --env SUPABASE_DB_URL="$DB_URL" \
+            --env SUPABASE_URL=http://127.0.0.1:55431 \
+            --env SUPABASE_SERVICE_KEY="$SECRET_KEY" \
             cozy-commons-backend-ci
 
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
-              break
-            fi
-            sleep 1
-          done
-
-          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8000/health >/dev/null
+          curl --fail --silent --show-error --retry 30 --retry-delay 1 --retry-connrefused --retry-all-errors --max-time 5 http://127.0.0.1:8000/ready
+          test "$(psql "$DB_URL" -Atc 'select max(version) from dice_schema_migrations')" = 80
+          test "$(psql "$DB_URL" -Atc 'select max(version) from commons_schema_migrations')" = 12
+          docker exec "$container" python -m dice_maintenance --rebuild
 
           for attempt in $(seq 1 30); do
             health_status=$(docker inspect --format '{{.State.Health.Status}}' "$container")
@@ -124,13 +156,22 @@ jobs:
           done
           test "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = healthy
 
-          ready_status=$(curl --silent --show-error --max-time 5 --output /tmp/backend-ready.json \
+          docker stop dice-ci-rest
+          curl --fail --silent http://127.0.0.1:8000/health >/dev/null
+          ready_status=$(curl --silent --show-error --max-time 10 --output /tmp/backend-ready.json \
             --write-out '%{http_code}' http://127.0.0.1:8000/ready)
           test "$ready_status" = 503
           grep --fixed-strings '"status":"not_ready"' /tmp/backend-ready.json
-      - name: Verify backend pre-deployment payload
+          docker rm --force "$container"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "update dice_schema_migrations set checksum='invalid' where version=80"
+          if docker run --rm --network host --env SUPABASE_DB_URL="$DB_URL" cozy-commons-backend-ci; then
+            echo 'Release incorrectly accepted a corrupt migration receipt' >&2
+            exit 1
+          fi
+      - name: Verify backend release payload
         run: >-
           docker run --rm cozy-commons-backend-ci sh -c
-          'test -x /app/apply-shared-migrations.sh &&
+          'test -f /app/release.py && test -f /app/migration_runner.py &&
+          test -x /app/apply-shared-migrations.sh &&
           test -x /app/apply-commons-migrations.sh &&
           test -f /app/shared/commons/scene-contract-v1.json && command -v psql'
