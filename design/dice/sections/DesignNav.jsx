@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { IconButton } from '../components/core/IconButton';
 import { SunIcon, MoonIcon, SparkleIcon } from '../components/decor/icons';
 
@@ -58,8 +57,8 @@ export function DesignNav({ theme, onToggleTheme }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-          <Link
-            to="/"
+          <a
+            href="/"
             style={{
               fontFamily: 'var(--font-display)',
               textTransform: 'uppercase',
@@ -69,7 +68,7 @@ export function DesignNav({ theme, onToggleTheme }) {
             }}
           >
             Jason Keung
-          </Link>
+          </a>
           <span
             style={{
               fontFamily: 'var(--font-mono)',

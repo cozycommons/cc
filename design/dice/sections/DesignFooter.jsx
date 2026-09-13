@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 
 export function DesignFooter() {
   return (
@@ -13,7 +12,7 @@ export function DesignFooter() {
       >
         <span>jasonkeung.com/design — living reference, replaces the static deck</span>
         <div style={{ display: 'flex', gap: 20 }}>
-          <Link to="/" style={{ color: 'var(--text-secondary)' }}>Home</Link>
+          <a href="/" style={{ color: 'var(--text-secondary)' }}>Home</a>
           <a href="#foundations" style={{ color: 'var(--text-secondary)' }}>Foundations</a>
           <a href="#art" style={{ color: 'var(--text-secondary)' }}>Art</a>
         </div>
