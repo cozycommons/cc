@@ -9,3 +9,4 @@ __pycache__/
 *.py[cod]
 .dice-dev/
 artifacts/
+.dice-verification/

@@ -7,11 +7,11 @@ import uuid
 from pathlib import Path
 
 import pytest
+from tests.dice_test_database import is_isolated_dice_test_database
 
 
 ROOT = Path(__file__).parents[2]
 MIGRATION = ROOT / "backend/migrations/0048_dice_virtual_currency.sql"
-LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 TOURNAMENT = "30000000-0000-0000-0000-000000000001"
 PLAYER = "10000000-0000-0000-0000-000000000002"
 CREATOR = "10000000-0000-0000-0000-000000000001"
@@ -57,7 +57,7 @@ def test_migration_is_private_append_only_and_tournament_scoped():
 
 
 def test_virtual_currency_schema_is_private_on_loopback():
-    if os.environ.get("DB_URL") != LOCAL_DB_URL:
+    if not is_isolated_dice_test_database(os.environ):
         pytest.skip("requires the locked local Dice database")
     assert _sql("select has_table_privilege('anon', 'dice_virtual_ledger', 'select');") == "f"
     assert _sql("select has_table_privilege('authenticated', 'dice_virtual_picks', 'insert');") == "f"
@@ -67,7 +67,7 @@ def test_virtual_currency_schema_is_private_on_loopback():
 
 @pytest.fixture
 def market_id():
-    if os.environ.get("DB_URL") != LOCAL_DB_URL:
+    if not is_isolated_dice_test_database(os.environ):
         pytest.skip("requires the locked local Dice database")
     _sql("truncate public.dice_virtual_ledger, public.dice_virtual_picks, public.dice_virtual_markets restart identity;")
     match_id = str(uuid.uuid4())

@@ -17,18 +17,22 @@ from dice.repository import (
 logger = logging.getLogger(__name__)
 
 
-def repair_pending_live_ratings(client, limit: int = 25) -> int:
+def repair_pending_live_ratings(client, limit: int = 25, *, raise_on_error: bool = False) -> int:
     repaired = 0
+    failed = 0
     for match_id in list_pending_live_rating_repairs(client, limit):
         try:
             sync_live_result_rating(client, match_id, bounded=True)
             repaired += 1
         except Exception as error:  # noqa: BLE001 - transport errors vary
+            failed += 1
             logger.exception("Dice live rating repair failed for match %s", match_id)
             try:
                 record_live_rating_repair_failure(client, match_id, error)
             except Exception:  # noqa: BLE001 - the durable queue already exists
                 logger.exception("Could not annotate Dice live rating repair for match %s", match_id)
+    if failed and raise_on_error:
+        raise RuntimeError(f"Dice rating maintenance failed for {failed} match(es); {repaired} repaired")
     return repaired
 
 

@@ -16,7 +16,8 @@ Create both applications from the `cozycommons/cc` GitHub repository and the
 - Base directory: `/`
 - Dockerfile location: `/backend/Dockerfile`
 - Exposed port: `8000`
-- Health endpoint: `/health` (defined in the Dockerfile)
+- Health endpoint: `/ready` (defined in the Dockerfile); `/health` is liveness only
+- Startup command: keep the image default, `python -m release`
 
 Runtime-only environment variables:
 
@@ -24,6 +25,7 @@ Runtime-only environment variables:
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_KEY=your-secret-or-service-role-key
 SUPABASE_DB_URL=postgresql://postgres.your-project-ref:your-db-password@your-session-pooler.supabase.com:5432/postgres?sslmode=require
+EXPECTED_SUPABASE_PROJECT=your-project-ref
 # Only needed when SUPABASE_DB_URL uses db.your-project-ref.supabase.co:5432.
 SUPABASE_DB_POOLER_HOST=your-session-pooler.supabase.com
 CORS_EXTRA_ORIGINS=https://your-frontend-hostname
@@ -68,7 +70,7 @@ smoke test succeed. When enabled, use Coolify watch paths so frontend-only
 changes do not rebuild the backend and vice versa:
 
 - Backend: `/backend/**`, `/shared/commons/scene-contract-v1.json`
-- Frontend: `/frontend/**`
+- Frontend: `/frontend/**`, `/shared/commons/scene-contract-v1.json`
 
 ## GitHub Actions
 
@@ -77,35 +79,66 @@ does not require production credentials. It also checks frontend lint, both
 container builds, migration family ownership, duplicate migration versions, and
 the migration runners' fresh and existing-database behavior.
 
-Configure the following as a protected, serialized Coolify pre-deploy command
-for the Commons backend:
+The incoming backend image runs both migration families before starting HTTP:
 
 ```bash
-bash apply-commons-migrations.sh
+python -m release
 ```
 
-Give only this command `SUPABASE_DB_URL` (and, when using a direct Supabase
-database hostname, `SUPABASE_DB_POOLER_HOST`); runtime application secrets
-remain in Coolify. The Commons command applies only the Commons migration
-family and verifies its checked-in schema contract before the new backend
-starts. Dice migrations remain owned by the Dice deployment and its existing
-protected workflow.
+Keep this Docker command in Coolify. Remove any old Commons-only migration hook:
+it cannot replace running the incoming image's SQL. The runner uses a database
+advisory lock, verifies recorded checksums and schema contracts, and exits before
+HTTP starts on failure. Both Dice and Commons migrations now belong to this
+release. The backend needs the database URL at runtime; keep it in Coolify's
+secret configuration. `EXPECTED_SUPABASE_PROJECT` must match the intended hosted
+database, preventing an accidental deployment against another project.
+
+CI exercises fresh PostgreSQL and PostgREST, requires the database tests to run,
+starts the built release image, runs maintenance, checks readiness failure when
+the database API is unavailable, and rejects a release with a corrupted migration
+receipt. CI does not itself trigger Coolify. Verify the actual auto-deploy trigger
+and required-check gating in Coolify before enabling it; a push webhook alone
+does not establish that tests passed.
+
+GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
+is active on `main`. It requires the GitHub Actions `frontend` and `backend`
+checks against an up-to-date branch, with no bypass actors. The older disabled
+`main protection` ruleset remains unchanged. Keep these check names aligned with
+the workflow when changing CI.
 
 ## Supabase provisioning
 
 Before smoke testing the deployment:
 
-1. Apply the checked-in Commons migrations to the new project using the
-   protected backend pre-deploy command above. Apply Dice and analytics
-   migrations only through the separate Dice deployment workflow.
+1. Let the incoming backend apply both checked-in migration families. For an
+   existing database, reconcile its real schema and migration ledger first;
+   never fabricate baseline receipts or replay historical SQL blindly.
 2. Create the `dice-profile-photos` and `dice-comment-photos` storage buckets
    and verify their policies.
 3. Configure the frontend URL in Supabase Auth URL configuration and in any
    enabled OAuth provider.
 4. Verify RLS before inviting real users or importing production data.
 
-Production data migration, if desired, is a separate operation and must not use
-production data as local fixtures.
+Data migration is separate from release schema migration. The September 13
+staging audit already reconciled all 17 Dice tables and 98 Storage objects after
+the prior UUID and URL transformations. Do not repeat the bulk import. Preserve
+originals, compressed images and source backups; use synthetic local fixtures.
+
+## Post-deploy maintenance
+
+Run the following once in the successfully deployed backend container, using
+that resource's environment, and retain its exit status and output:
+
+```bash
+python -m dice_maintenance --rebuild
+```
+
+Configure one serialized scheduled task in Coolify to run
+`python -m dice_maintenance` every minute. Avoid overlapping invocations and do
+not enable another scheduler for the same job. Verify a successful scheduled
+execution in Coolify after configuration; importing the rating modules does not
+schedule them. Neither this schedule nor a hosted post-deploy run is confirmed
+until deployment access is available.
 
 ## First-deployment checks
 

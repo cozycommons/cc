@@ -19,6 +19,8 @@ class _Query:
     def execute(self):
         if self.error:
             raise self.error
+        from types import SimpleNamespace
+        return SimpleNamespace(data=True)
 
 
 class _Supabase:
@@ -26,7 +28,7 @@ class _Supabase:
         self.error = error
         self.tables = []
 
-    def table(self, name):
+    def rpc(self, name):
         self.tables.append(name)
         return _Query(self.error)
 
@@ -50,7 +52,7 @@ def test_ready_checks_database_and_core_schema():
     response = _client(supabase).get("/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
-    assert supabase.tables == ["dice_profiles"]
+    assert supabase.tables == ["dice_release_readiness"]
 
 
 def test_ready_fails_when_database_is_unavailable():

@@ -29,6 +29,39 @@ const resultLabel = (event) => {
   return { caught: 'table hit' }[event.outcome]
     || event.outcome || event.kind.replaceAll('_', ' ');
 };
+
+const playLogEntry = (event, playerLabel) => {
+  const thrower = playerLabel(event.thrower_id);
+  if (event.outcome === 'caught') {
+    return {
+      title: `${thrower} · Table hit`,
+      detail: event.catcher_id ? `Caught by ${playerLabel(event.catcher_id)}` : 'Dead · no catch',
+    };
+  }
+  if (event.outcome === 'fifa') {
+    const fifa = event.fifa || {};
+    if (fifa.finish === 'goal') {
+      return { title: `${thrower} · FIFA goal`, detail: `${playerLabel(fifa.kicker_id)} scored` };
+    }
+    if (fifa.finish === 'kick_catch') {
+      return {
+        title: `${thrower} · FIFA catch`,
+        detail: `${playerLabel(fifa.kicker_id)} → ${playerLabel(fifa.catcher_id)}`,
+      };
+    }
+    if (fifa.finish === 'goal_saved') {
+      return {
+        title: `${thrower} · FIFA saved`,
+        detail: `${playerLabel(fifa.kicker_id)} → ${playerLabel(fifa.saver_id)} saved`,
+      };
+    }
+  }
+  if (event.outcome === 'invalid') {
+    const calls = Array.isArray(event.characteristics) ? event.characteristics.join(' + ') : '';
+    return { title: `${thrower} · Invalid`, detail: calls || null };
+  }
+  return { title: `${thrower} · ${resultLabel(event)}`, detail: null };
+};
 const shortId = (value) => {
   const text = String(value || '');
   return text.split('-').length === 5 ? text.slice(-4) : text.split('-')[0];
@@ -630,7 +663,7 @@ export default function LiveGame({ auth }) {
     avatar_url: game?.player_avatars?.[playerId] || null,
   });
   const compactPlayerLabel = (playerId) => playerLabel(playerId).split(' ')[0];
-  const recentPlays = game?.events.filter((event) => event.kind === 'observation').slice(-5).reverse() || [];
+  const recentPlays = game?.events.filter((event) => event.kind === 'observation').slice(-8).reverse() || [];
   const gameStatus = game?.status === 'completed' ? 'Final' : game?.status === 'ready_to_finish' ? 'Ready to finish' : 'In progress';
   const hasRecordedStats = Object.values(stats).some((count) => Number(count) > 0);
   const aggregateStatsCard = hasRecordedStats && (
@@ -866,29 +899,31 @@ export default function LiveGame({ auth }) {
         </div>
       )}
 
-      {(game.status === 'completed' || !joined || liveMode === 'referee') && <section className="mt-7" aria-label="Recent plays">
-        <p className="jk-label mb-2">// RECENT PLAYS</p>
-        <div className="jk-card overflow-hidden">
-          {recentPlays.length === 0 && <p className="p-4 text-sm">No results recorded yet.</p>}
-          {recentPlays.map((event) => (
-            <div key={event.id} className="p-3 flex items-start gap-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-              <PlayerAvatar profile={playerProfile(event.thrower_id)} size={30} linkToProfile={false} />
-              <div className="min-w-0 flex-1">
-                <span className="font-semibold capitalize">{resultLabel(event)}</span>
-                {eventDisposition(event) && <span className="ml-2 text-xs capitalize" style={{ color: 'var(--text-tertiary)' }}>{eventDisposition(event)}</span>}
-                <span className="block text-xs mt-0.5 truncate" style={{ color: 'var(--text-secondary)' }}>{compactPlayerLabel(event.thrower_id)}</span>
-                {event.outcome === 'caught' && (
-                  <span className="block text-xs mt-0.5 truncate" style={{ color: 'var(--text-secondary)' }}>{event.catcher_id ? `Caught by ${compactPlayerLabel(event.catcher_id)}` : 'No catch'}</span>
-                )}
-                {game.status !== 'completed' && event.kind === 'observation' && !correctedEventIds.has(event.id) && (
-                  <button type="button" aria-label="Fix this result" className="block mt-1 text-xs underline" disabled={commandLocked} onClick={() => openCorrection(event)}>
+      {(game.status === 'completed' || !joined || liveMode === 'referee') && <section className="mt-5" aria-label="Recent plays">
+        <p className="jk-label mb-2">PLAY LOG</p>
+        <ol className="jk-card overflow-hidden">
+          {recentPlays.length === 0 && <li className="px-3 py-3 text-sm">No plays yet.</li>}
+          {recentPlays.map((event) => {
+            const entry = playLogEntry(event, compactPlayerLabel);
+            return (
+              <li key={event.id} className="jk-live-log-row px-3 py-2 flex items-center gap-2.5">
+                <PlayerAvatar profile={playerProfile(event.thrower_id)} size={28} linkToProfile={false} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="font-semibold text-sm truncate capitalize">{entry.title}</span>
+                    {eventDisposition(event) && <span className="shrink-0 text-[11px] capitalize" style={{ color: 'var(--text-tertiary)' }}>{eventDisposition(event)}</span>}
+                  </div>
+                  {entry.detail && <span className="jk-live-log-detail block text-xs truncate">{entry.detail}</span>}
+                </div>
+                {game.status !== 'completed' && !correctedEventIds.has(event.id) && (
+                  <button type="button" aria-label="Fix this result" className="jk-live-log-fix shrink-0 text-xs font-semibold" disabled={commandLocked} onClick={() => openCorrection(event)}>
                     Fix
                   </button>
                 )}
-              </div>
-            </div>
-          ))}
-        </div>
+              </li>
+            );
+          })}
+        </ol>
       </section>}
 
       {game.status !== 'completed' && (!joined || liveMode === 'stats') && aggregateStatsCard}
