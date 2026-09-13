@@ -79,8 +79,8 @@ when PostgREST is stopped. Both histories are now checked before either family
 applies pending SQL, with a real database regression covering a damaged Commons
 receipt blocking pending Dice work. The focused runner tests pass.
 
-Still pending: complete GitHub CI including the final container failure checks,
-verify the referee journey in the browser, and review the replacement PR.
+Still pending: verify the referee journey in the browser and finish reviewing
+the replacement PR. GitHub CI passes the complete container failure checks.
 Do not merge or report a successful deployed release yet. Coolify access remains
 necessary to inspect the actual trigger, deployed revisions, health configuration,
 scheduled maintenance and post-deploy results.
@@ -90,8 +90,14 @@ Replacement draft PR: https://github.com/cozycommons/cc/pull/5. CI run
 release/maintenance scenario. Local frontend container smoke checks also passed
 for `/`, `/dice`, `/scene` and the room asset; a corrupt receipt prevented backend
 startup. A subsequent fix makes the maintenance CLI fail visibly after draining
-a batch containing failed repairs; five focused rating-job tests passed. Check
-the PR's latest CI before treating that follow-up as green.
+a batch containing failed repairs; five focused rating-job tests passed.
+CI run 34776484434 passed both jobs for c1998efa, verifying that follow-up.
+
+GitHub initially had no active protection on `main`; its existing ruleset was
+disabled. Created and read back active ruleset 23201531, requiring `frontend`
+and `backend` from GitHub Actions app 15368, strict branch freshness and no bypass
+actors. The older disabled ruleset is untouched. `gh pr checks 5 --required`
+now recognizes both checks. Coolify trigger configuration remains unverified.
 
 Browser QA launcher currently reports the Commons sandbox stopped. A separate
 `dummi-dice` Supabase stack occupies 54321/54322. Do not stop/reset it or change

@@ -100,6 +100,12 @@ receipt. CI does not itself trigger Coolify. Verify the actual auto-deploy trigg
 and required-check gating in Coolify before enabling it; a push webhook alone
 does not establish that tests passed.
 
+GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
+is active on `main`. It requires the GitHub Actions `frontend` and `backend`
+checks against an up-to-date branch, with no bypass actors. The older disabled
+`main protection` ruleset remains unchanged. Keep these check names aligned with
+the workflow when changing CI.
+
 ## Supabase provisioning
 
 Before smoke testing the deployment:
