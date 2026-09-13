@@ -20,7 +20,7 @@ def main():
     client = create_client(url, os.environ["SUPABASE_SERVICE_KEY"])
     if args.rebuild:
         print("Canonical games reconciled:", rebuild_canonical_ratings(client))
-    print("Pending live repairs processed:", repair_pending_live_ratings(client))
+    print("Pending live repairs processed:", repair_pending_live_ratings(client, raise_on_error=True))
 
 
 if __name__ == "__main__":

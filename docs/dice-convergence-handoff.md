@@ -84,3 +84,16 @@ verify the referee journey in the browser, and review the replacement PR.
 Do not merge or report a successful deployed release yet. Coolify access remains
 necessary to inspect the actual trigger, deployed revisions, health configuration,
 scheduled maintenance and post-deploy results.
+
+Replacement draft PR: https://github.com/cozycommons/cc/pull/5. CI run
+34776355374 passed both jobs for 5e85dc43, including the complete incoming-image
+release/maintenance scenario. Local frontend container smoke checks also passed
+for `/`, `/dice`, `/scene` and the room asset; a corrupt receipt prevented backend
+startup. A subsequent fix makes the maintenance CLI fail visibly after draining
+a batch containing failed repairs; five focused rating-job tests passed. Check
+the PR's latest CI before treating that follow-up as green.
+
+Browser QA launcher currently reports the Commons sandbox stopped. A separate
+`dummi-dice` Supabase stack occupies 54321/54322. Do not stop/reset it or change
+its project identity. An ownership question is pending with the user about using
+that synthetic sandbox for QA. No browser verification has been claimed.
