@@ -99,6 +99,36 @@ and `backend` from GitHub Actions app 15368, strict branch freshness and no bypa
 actors. The older disabled ruleset is untouched. `gh pr checks 5 --required`
 now recognizes both checks. Coolify trigger configuration remains unverified.
 
+## Coolify access verified
+
+The user supplied https://admin.cozycommons.dev/ and browser sign-in succeeded.
+Root Team has project `myslnzrcuucdffkthj0tswam`, environment
+`gudimtlnyhv3mrz7bqcjkifg` (named production, but this is the user's staging app).
+Backend resource: `ira6t1lrdcckadpn2jf1brdg`; frontend:
+`rrmtxvricbf8ifbldflw2brb`. Both deploy on push through GitHub App `coolify-cc`.
+Latest observed backend deployment `1u45onvw9gz92p7fqyfuzdl4` succeeded for
+915c1411ac4f40d1a6d4203d1d7daf6781bcdeb5. No deployment was triggered here.
+
+Backend uses root build context, `/backend/Dockerfile`, port 8000 and
+https://api.cozycommons.dev. Supabase URL was verified as target
+dhjnrnhjghsulbevfhno.supabase.co; service key, DB URL and pooler host variables
+exist. The URL is runtime-only. Existing pre-deploy command is
+`bash apply-commons-migrations.sh`; post-deploy is empty; no scheduled tasks.
+Coolify's HTTP health override is disabled and its UI detects the image's custom
+health check. Keep the image check when the PR switches it to `/ready`.
+
+Frontend uses root context, `/frontend/Dockerfile`, port 80 and
+https://cozycommons.dev. Watch paths currently contain only `frontend/**`, so add
+the shared scene contract when configuring the cutover. Backend watch paths are
+empty. Both resources still run main; PR #5 is not merged.
+
+Next configuration work: verify DB URL/pooler scope, add
+EXPECTED_SUPABASE_PROJECT and SITE_URL, remove the old migration hook at cutover,
+wire post-deploy rebuild and serialized maintenance, then verify real execution.
+An attempted UI add of EXPECTED_SUPABASE_PROJECT did not persist: search returned
+no matching variable. No setting change is claimed. The authenticated Chrome tab
+was retained for continued work. Coolify access is no longer a blocker.
+
 Browser QA launcher currently reports the Commons sandbox stopped. A separate
 `dummi-dice` Supabase stack occupies 54321/54322. Do not stop/reset it or change
 its project identity. An ownership question is pending with the user about using
