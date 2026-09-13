@@ -11,6 +11,10 @@ vi.mock('./dice/App.jsx', () => ({
   default: () => <div>Dice application</div>,
 }));
 
+vi.mock('./commons/CommonsScenePage.jsx', () => ({
+  default: () => <div>Commons scene page</div>,
+}));
+
 describe('top-level routes', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/');
@@ -18,12 +22,22 @@ describe('top-level routes', () => {
 
   afterEach(cleanup);
 
-  it('serves the Cozy Commons home page', () => {
+  it('serves a simple home page with a Dice project card', () => {
     const { container } = render(<App />);
 
     expect(container).not.toBeEmptyDOMElement();
     expect(screen.getByRole('main')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'A small room for things we make.' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute('href', '/dice');
+    expect(screen.queryByText('Commons scene page')).not.toBeInTheDocument();
+  });
+
+  it('serves the shared room at /scene', () => {
+    window.history.replaceState({}, '', '/scene');
+
+    render(<App />);
+
+    expect(screen.getByText('Commons scene page')).toBeInTheDocument();
   });
 
   it('serves Dice and initializes Supabase under /dice', () => {
