@@ -1031,7 +1031,7 @@ describe('LiveGame common scoring', () => {
     expect(screen.getByText(/The old throw won’t count. The next one will./i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm new physical retoss' }));
     await waitFor(() => expect(mocks.getLiveGame).toHaveBeenCalledTimes(2));
-    expect(screen.getByText('Retoss · old throw removed · 0–1')).toBeInTheDocument();
+    expect(await screen.findByText('Retoss · old throw removed · 0–1')).toBeInTheDocument();
     expect(await screen.findByText('RETOSS')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Point' }));

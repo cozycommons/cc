@@ -52,8 +52,8 @@ describe('Dice Stats', () => {
   it('shows rating, scoring, and recorded player attribution as one rich player view', async () => {
     render(<MemoryRouter><Stats auth={{ profile: { user_id: 'u1' } }} /></MemoryRouter>);
 
+    expect(await screen.findByText('Rating distribution chart')).toBeInTheDocument();
     expect(await screen.findByLabelText('Recorded player attribution')).toBeInTheDocument();
-    expect(screen.getByText('Rating distribution chart')).toBeInTheDocument();
     expect(screen.getByText('Scoring chart')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getAllByText('67%')).toHaveLength(2);
