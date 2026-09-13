@@ -25,26 +25,30 @@ end
 $$;
 
 create schema if not exists auth;
+-- Match Supabase's service-role access for tables created by migrations.
+grant usage on schema public to service_role;
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
 create table if not exists auth.users (
   id uuid primary key,
   created_at timestamptz not null default now()
 );
 SQL
 
-while IFS= read -r migration; do
-  psql "$db_url" --no-psqlrc --set ON_ERROR_STOP=1 \
-    --single-transaction --file "$migration"
-done < <(
-  find "$repo_dir/backend/migrations" -maxdepth 1 -type f \
-    -name '[0-9][0-9][0-9][0-9]_dice_*.sql' | sort
-)
+SUPABASE_DB_URL="$db_url" python3 "$repo_dir/backend/migration_runner.py" --family all
 
 psql "$db_url" --no-psqlrc --set ON_ERROR_STOP=1 <<'SQL'
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000000001'),
   ('00000000-0000-0000-0000-000000000002'),
   ('00000000-0000-0000-0000-000000000003'),
-  ('00000000-0000-0000-0000-000000000004')
+  ('00000000-0000-0000-0000-000000000004'),
+  ('10000000-0000-0000-0000-000000000001'),
+  ('10000000-0000-0000-0000-000000000002'),
+  ('10000000-0000-0000-0000-000000000003'),
+  ('10000000-0000-0000-0000-000000000004')
 on conflict (id) do nothing;
 
 insert into public.dice_profiles (
@@ -56,6 +60,26 @@ insert into public.dice_profiles (
   ('00000000-0000-0000-0000-000000000003', 'Test Three', 1477, 297.5, 1, 1, 0, 1, 0, 1),
   ('00000000-0000-0000-0000-000000000004', 'Test Four', 1477, 297.5, 1, 1, 0, 1, 0, 1)
 on conflict (user_id) do nothing;
+
+insert into public.dice_profiles (user_id, display_name) values
+  ('10000000-0000-0000-0000-000000000001', 'Live Test One'),
+  ('10000000-0000-0000-0000-000000000002', 'Live Test Two'),
+  ('10000000-0000-0000-0000-000000000003', 'Live Test Three'),
+  ('10000000-0000-0000-0000-000000000004', 'Live Test Four')
+on conflict (user_id) do nothing;
+
+insert into public.dice_tournaments (id, name, starts_at, host_user_ids, created_by)
+values (
+  '30000000-0000-0000-0000-000000000001', 'Virtual Dice Test',
+  '2026-01-01', array['10000000-0000-0000-0000-000000000001'::uuid],
+  '10000000-0000-0000-0000-000000000001'
+)
+on conflict (id) do nothing;
+
+insert into public.dice_tournament_enrollments (tournament_id, user_id) values
+  ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002'),
+  ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003')
+on conflict (tournament_id, user_id) do nothing;
 
 insert into public.dice_games (
   id, created_by, ranked, team1_score, team2_score, winner_team, played_at

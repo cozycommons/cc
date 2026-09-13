@@ -49,7 +49,7 @@ describe('CommonsScene', () => {
     await act(async () => {
       resolveAbandoned({ ...scene, version: 8, state: { ...scene.state, actors: {} } });
     });
-    expect(screen.getByText(/2 residents and 1 placed object/)).toBeInTheDocument();
+    expect(await screen.findByText(/2 residents and 1 placed object/)).toBeInTheDocument();
   });
 
   it('renders the canonical room as an interactive top-down scene', async () => {

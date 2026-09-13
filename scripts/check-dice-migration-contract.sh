@@ -56,7 +56,7 @@ if (( contract_number != latest_number )); then
 fi
 
 if (( latest_number > baseline_number )); then
-  echo "Migrations after baseline $baseline must run through the protected pre-deploy command (latest: $latest)."
+  echo "Incoming releases apply migrations after baseline $baseline before starting HTTP (latest: $latest)."
 else
   echo "Migration baseline and repository history are aligned at $baseline."
 fi
