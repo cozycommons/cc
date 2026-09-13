@@ -125,9 +125,22 @@ empty. Both resources still run main; PR #5 is not merged.
 Next configuration work: verify DB URL/pooler scope, add
 EXPECTED_SUPABASE_PROJECT and SITE_URL, remove the old migration hook at cutover,
 wire post-deploy rebuild and serialized maintenance, then verify real execution.
-An attempted UI add of EXPECTED_SUPABASE_PROJECT did not persist: search returned
-no matching variable. No setting change is claimed. The authenticated Chrome tab
-was retained for continued work. Coolify access is no longer a blocker.
+The individual variable form failed to persist changes; browser logs show an
+Alpine syntax error containing an uncompiled @js expression. The bulk editor
+worked: production EXPECTED_SUPABASE_PROJECT=dhjnrnhjghsulbevfhno and
+SITE_URL=https://cozycommons.dev are now saved. Reload and readback verified both
+values and exact preservation of all six pre-existing production values. The
+new non-secret variables use the bulk editor's default build/runtime scopes.
+DB URL targets db.dhjnrnhjghsulbevfhno.supabase.co and has a pooler host configured.
+No deployment or hook change has been made yet. Coolify access is no longer a
+blocker; the authenticated Chrome tab is retained.
+
+Main advanced to 74a57514 (PR #7, CI async hardening and merge_group trigger).
+Merged it into this candidate without conflicts. Re-run CI before rollout.
+The user explicitly identified this hosted app as staging with no real users,
+so final browser verification can run on the staged deployment without touching
+the unrelated local sandbox. Complete the controlled rollout and user journey
+before claiming the goal is achieved.
 
 Browser QA launcher currently reports the Commons sandbox stopped. A separate
 `dummi-dice` Supabase stack occupies 54321/54322. Do not stop/reset it or change
