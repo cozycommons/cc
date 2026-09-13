@@ -18,6 +18,9 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY frontend/ ./
 COPY shared/commons/ /shared/commons/
+# The app imports hosted design systems from the repository-level design/ tree.
+# Keep that path available in the build image as new systems are added.
+COPY design/ /design/
 
 # Browser-visible deployment configuration is supplied explicitly at build time.
 ARG VITE_API_URL
