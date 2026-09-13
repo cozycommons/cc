@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -221,9 +221,14 @@ describe('Dice home dashboard', () => {
 
   it('does not reserve homepage space when there are no live games', async () => {
     arrange();
+    let resolveLiveGames;
+    mocks.getLiveGames.mockImplementation(() => new Promise((resolve) => {
+      resolveLiveGames = resolve;
+    }));
     renderHome(releasedAuth);
 
     await waitFor(() => expect(mocks.getLiveGames).toHaveBeenCalledWith('token'));
+    await act(async () => resolveLiveGames([]));
     expect(screen.queryByText('// LIVE GAMES')).not.toBeInTheDocument();
   });
 
@@ -255,9 +260,9 @@ describe('Dice home dashboard', () => {
     renderHome(releasedAuth);
 
     expect(await screen.findByText('ELO Friend')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Sink Friend/ })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Sink Friend/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Self-sinks' }));
-    expect(screen.getByRole('link', { name: /Self-sink Friend/ })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /Self-sink Friend/ })).toBeInTheDocument();
     expect(screen.getByText('// ELO STANDINGS')).toBeInTheDocument();
     expect(screen.getByText('// SINK LEADERS')).toBeInTheDocument();
     expect(screen.queryByText('// RECORDS')).not.toBeInTheDocument();
@@ -315,13 +320,18 @@ describe('Dice home dashboard', () => {
 
   it('ignores a stale opt-out and renders only the released homepage', async () => {
     arrange({ tournaments: [{ id: 'future', name: 'Next Tournament', starts_at: '2099-08-08T12:00:00Z' }] });
+    let resolveLiveGames;
+    mocks.getLiveGames.mockImplementation(() => new Promise((resolve) => {
+      resolveLiveGames = resolve;
+    }));
     renderHome(staleOptOutAuth);
 
-    await waitFor(() => expect(screen.getByText('Game recent-1')).toBeInTheDocument());
+    await screen.findByText('Game recent-1');
+    await screen.findByText('Tournament Next Tournament');
     expect(mocks.getLiveGames).toHaveBeenCalledWith('token');
+    await act(async () => resolveLiveGames([]));
     expect(screen.queryByText('// LIVE GAMES')).not.toBeInTheDocument();
     expect(screen.getByText('// TOURNAMENTS')).toBeInTheDocument();
-    expect(screen.getByText('Tournament Next Tournament')).toBeInTheDocument();
     expect(screen.getByText('// ELO STANDINGS')).toBeInTheDocument();
     expect(screen.getByText('// SINK LEADERS')).toBeInTheDocument();
     expect(mocks.getEloLeaderboard).toHaveBeenCalledWith(500, true);
