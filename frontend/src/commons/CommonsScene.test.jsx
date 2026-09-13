@@ -56,7 +56,7 @@ describe('CommonsScene', () => {
     render(<CommonsScene />);
 
     expect(await screen.findByRole('img', { name: 'Interactive top-down tile-based Cozy Commons room' })).toBeInTheDocument();
-    expect(screen.getByText(/2 residents and 1 placed object/)).toBeInTheDocument();
+    expect(await screen.findByText(/2 residents and 1 placed object/)).toBeInTheDocument();
     expect(screen.getByText(/WASD \/ arrows to walk/)).toBeInTheDocument();
     expect(mocks.sendSceneCommand).not.toHaveBeenCalled();
   });

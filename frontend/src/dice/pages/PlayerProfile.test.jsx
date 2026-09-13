@@ -117,7 +117,7 @@ describe('PlayerProfile released experience', () => {
     });
 
     expect(await screen.findByText('Hidden')).toBeInTheDocument();
-    expect(screen.getByText('g1:7')).toBeInTheDocument();
+    expect(await screen.findByText('g1:7')).toBeInTheDocument();
   });
 
   it('shows the player recorded-play sample from canonical game snapshots', async () => {
