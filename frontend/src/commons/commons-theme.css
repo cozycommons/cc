@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Karla:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 
-.commons-home {
+.commons-scene-page {
   --commons-night: #0d0915;
   --commons-plum: #211326;
   --commons-plum-light: #45253d;
@@ -19,7 +19,7 @@
   font-family: Karla, 'Helvetica Neue', sans-serif;
 }
 
-.commons-home__grain {
+.commons-scene-page__grain {
   position: absolute;
   z-index: 2;
   inset: 0;
@@ -29,13 +29,13 @@
   mix-blend-mode: soft-light;
 }
 
-.commons-home__header,
-.commons-home__footer,
+.commons-scene-page__header,
+.commons-scene-page__footer,
 .commons-shelf {
   z-index: 3;
 }
 
-.commons-home__header {
+.commons-scene-page__header {
   position: absolute;
   top: clamp(20px, 4vw, 44px);
   right: clamp(20px, 4vw, 54px);
@@ -46,7 +46,7 @@
   pointer-events: none;
 }
 
-.commons-home__wordmark {
+.commons-scene-page__wordmark {
   display: inline-flex;
   flex-direction: column;
   color: var(--commons-cream);
@@ -60,12 +60,12 @@
   pointer-events: auto;
 }
 
-.commons-home__wordmark span:last-child {
+.commons-scene-page__wordmark span:last-child {
   color: var(--commons-amber);
 }
 
-.commons-home__quiet-note,
-.commons-home__footer,
+.commons-scene-page__quiet-note,
+.commons-scene-page__footer,
 .commons-label,
 .commons-project__number {
   margin: 0;
@@ -75,7 +75,7 @@
   text-transform: uppercase;
 }
 
-.commons-home__quiet-note {
+.commons-scene-page__quiet-note {
   max-width: 190px;
   color: var(--commons-muted);
   line-height: 1.5;
@@ -212,7 +212,7 @@
   color: rgba(192, 169, 140, 0.58);
 }
 
-.commons-home__footer {
+.commons-scene-page__footer {
   position: absolute;
   bottom: clamp(20px, 4vw, 44px);
   left: clamp(20px, 4vw, 54px);
@@ -222,7 +222,7 @@
   color: rgba(192, 169, 140, 0.82);
 }
 
-.commons-home__status-dot {
+.commons-scene-page__status-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -231,7 +231,7 @@
 }
 
 @media (max-width: 820px) {
-  .commons-home__quiet-note {
+  .commons-scene-page__quiet-note {
     display: none;
   }
 
@@ -269,7 +269,7 @@
     font-size: 11px;
   }
 
-  .commons-home__footer {
+  .commons-scene-page__footer {
     top: 23px;
     right: 20px;
     bottom: auto;
