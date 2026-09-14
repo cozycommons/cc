@@ -61,6 +61,12 @@ jobs:
 
           curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/ >/dev/null
           curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/dice >/dev/null
+          curl --fail --silent --show-error --max-time 2 --location \
+            http://127.0.0.1:8080/design >/dev/null
+          curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:8080/design/cozy-clay/components.html >/dev/null
+          curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:8080/design/dice >/dev/null
           curl --fail --silent --show-error --max-time 2 \
             http://127.0.0.1:8080/commons/cozy-commons-room-tile-base.png >/dev/null
 
