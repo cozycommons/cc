@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Cozy Commons — a small room for things we make." />
+    <title>Cozy Commons — Skeuo room</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#projects">skip to projects</a>
+    <main class="commons-page" data-page id="main-content">
+      <div class="page-grain" aria-hidden="true"></div>
+      <div class="page-vignette" aria-hidden="true"></div>
+
+      <header class="site-header cc-navbar" id="top">
+        <a class="wordmark cc-navbar__brand" href="./index.html" aria-label="Cozy Commons home">
+          <span class="wordmark__stamp" aria-hidden="true">cc</span>
+          <span class="wordmark__words">
+            <span>cozy</span>
+            <span>commons</span>
+          </span>
+        </a>
+
+        <p class="header-note cc-navbar__note">
+          a small room<br />
+          for things we make
+        </p>
+
+        <div class="cc-navbar__tools">
+          <div class="header-status" role="status" aria-live="polite">
+            <span class="status-lamp" aria-hidden="true"></span>
+            <span data-global-status>the room is quiet</span>
+          </div>
+
+          <details class="cc-navbar__menu">
+            <summary class="nav-menu-toggle">menu <span aria-hidden="true">⌄</span></summary>
+            <div class="cc-navbar__menu-panel">
+              <a class="cc-navbar__link" href="./index.html#top">home</a>
+              <a class="cc-navbar__link" href="./components.html">common UI library</a>
+              <a class="cc-navbar__link" href="../index.html">design lab</a>
+            </div>
+          </details>
+        </div>
+
+        <nav class="cc-navbar__links" aria-label="Primary navigation">
+          <a class="cc-navbar__link" href="./index.html#top" aria-current="page">home</a>
+          <a class="cc-navbar__link" href="./components.html">common UI library</a>
+          <a class="cc-navbar__link" href="../index.html">design lab</a>
+        </nav>
+      </header>
+
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow__rule"></span>the front room · edition 01</p>
+          <h1 id="hero-title">Things made<br /><em>slowly,</em> shared<br /><em>warmly.</em></h1>
+          <p class="hero-description">
+            A little place for useful experiments, friendly games, and the ideas
+            that are better when they have somewhere to live.
+          </p>
+
+          <a class="brass-action" href="#projects">
+            <span>look around</span>
+            <span class="brass-action__icon" aria-hidden="true">↓</span>
+          </a>
+          <a class="library-link" href="./components.html">open the common UI library <span aria-hidden="true">↗</span></a>
+        </div>
+
+        <div class="room-scene" aria-describedby="scene-description">
+          <p class="sr-only" id="scene-description">A warmly lit cottage desk with a shelf, houseplant, books, and a small brass lamp.</p>
+          <div class="room-wall" aria-hidden="true">
+            <span class="wall-seam wall-seam--one"></span>
+            <span class="wall-seam wall-seam--two"></span>
+            <span class="wall-nail wall-nail--one"></span>
+            <span class="wall-nail wall-nail--two"></span>
+          </div>
+
+          <div class="window" aria-hidden="true">
+            <div class="window__glow"></div>
+            <div class="window__frame">
+              <span class="window__pane window__pane--a"></span>
+              <span class="window__pane window__pane--b"></span>
+              <span class="window__pane window__pane--c"></span>
+              <span class="window__pane window__pane--d"></span>
+            </div>
+            <span class="window__moon"></span>
+            <span class="window__star window__star--one">✦</span>
+            <span class="window__star window__star--two">·</span>
+          </div>
+
+          <div class="wall-shelf wall-shelf--upper" aria-hidden="true">
+            <span class="shelf-board"></span>
+            <span class="shelf-bracket shelf-bracket--left"></span>
+            <span class="shelf-bracket shelf-bracket--right"></span>
+            <span class="tiny-vase">
+              <span class="tiny-vase__neck"></span>
+              <span class="tiny-vase__body"></span>
+            </span>
+            <span class="book-stack book-stack--small">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="framed-note">
+              <span>make room</span>
+              <span>for good things</span>
+            </span>
+          </div>
+
+          <div class="lamp-glow" aria-hidden="true"></div>
+
+          <div class="desk-lamp" aria-hidden="true">
+            <span class="lamp-shade"></span>
+            <span class="lamp-neck"></span>
+            <span class="lamp-base"></span>
+            <span class="lamp-pull"></span>
+            <span class="lamp-pull-bead"></span>
+          </div>
+
+          <div class="desk-shelf" aria-hidden="true">
+            <span class="desk-shelf__lip"></span>
+            <span class="desk-shelf__wood"></span>
+            <span class="paper-stack paper-stack--left">
+              <span></span><span></span><span></span>
+            </span>
+            <span class="ink-bottle">
+              <span class="ink-bottle__neck"></span>
+              <span class="ink-bottle__body"></span>
+            </span>
+            <span class="pencil pencil--one"></span>
+            <span class="pencil pencil--two"></span>
+            <span class="dice-object">
+              <span class="pip pip--one"></span>
+              <span class="pip pip--two"></span>
+              <span class="pip pip--three"></span>
+            </span>
+            <span class="mug">
+              <span class="mug__handle"></span>
+              <span class="mug__coffee"></span>
+            </span>
+          </div>
+
+          <span class="desk-front" aria-hidden="true"></span>
+          <span class="desk-drawer" aria-hidden="true">
+            <span class="desk-drawer__label">notes</span>
+            <span class="desk-drawer__pull"></span>
+          </span>
+
+          <div class="lamp-control">
+            <span class="lamp-control__label">ambient light</span>
+            <button class="toggle-switch" type="button" data-lamp-switch aria-pressed="true">
+              <span class="toggle-switch__track"><span class="toggle-switch__knob"></span></span>
+              <span class="toggle-switch__text" data-lamp-label>on</span>
+            </button>
+          </div>
+
+          <span class="room-caption" aria-hidden="true">a good place to begin</span>
+        </div>
+      </section>
+
+      <section class="project-area" id="projects" aria-labelledby="projects-title">
+        <div class="project-heading">
+          <div>
+            <p class="eyebrow"><span class="eyebrow__rule"></span>on the shelf</p>
+            <h2 id="projects-title">A few things<br /><em>to pick up.</em></h2>
+          </div>
+          <p class="project-heading__note">The room has a little space<br />left for what comes next.</p>
+        </div>
+
+        <div class="project-shelf">
+          <span class="project-shelf__back" aria-hidden="true"></span>
+          <div class="project-cards">
+            <a class="project-card project-card--dice" href="/dice">
+              <div class="project-card__topline">
+                <span class="project-card__number">01</span>
+                <span class="project-card__type">featured project</span>
+                <span class="project-card__arrow" aria-hidden="true">↗</span>
+              </div>
+              <div class="project-card__body">
+                <div class="dice-emblem" aria-hidden="true">
+                  <span class="dice-emblem__pip dice-emblem__pip--one"></span>
+                  <span class="dice-emblem__pip dice-emblem__pip--two"></span>
+                  <span class="dice-emblem__pip dice-emblem__pip--three"></span>
+                  <span class="dice-emblem__pip dice-emblem__pip--four"></span>
+                  <span class="dice-emblem__pip dice-emblem__pip--five"></span>
+                </div>
+                <div>
+                  <h3>Dice</h3>
+                  <p>beer die records<br />and stats</p>
+                </div>
+              </div>
+              <span class="project-card__cta">open the drawer <span aria-hidden="true">→</span></span>
+            </a>
+
+            <div class="project-card project-card--soon" aria-label="More projects coming soon">
+              <div class="project-card__topline">
+                <span class="project-card__number">02</span>
+                <span class="project-card__type">reserved space</span>
+                <span class="project-card__mark" aria-hidden="true">✦</span>
+              </div>
+              <div class="project-card__body">
+                <div class="empty-slot" aria-hidden="true"><span>+</span></div>
+                <div>
+                  <h3>more soon</h3>
+                  <p>there is room<br />on the shelf</p>
+                </div>
+              </div>
+              <span class="project-card__cta">keep an eye out</span>
+            </div>
+          </div>
+          <span class="project-shelf__front" aria-hidden="true"></span>
+        </div>
+      </section>
+
+      <footer class="site-footer">
+        <p><span class="status-lamp" aria-hidden="true"></span><span data-footer-status>the room is quiet</span></p>
+        <p>cozy commons <span aria-hidden="true">·</span> made with patient hands</p>
+        <div class="site-footer__links">
+          <a href="./components.html">common UI library <span aria-hidden="true">↗</span></a>
+          <a href="#hero-title">back to the top <span aria-hidden="true">↑</span></a>
+        </div>
+      </footer>
+
+      <aside class="token-link" aria-label="Design exploration notes">
+        <a href="./README.md">design notes <span aria-hidden="true">↗</span></a>
+        <a href="../index.html">all directions <span aria-hidden="true">↗</span></a>
+      </aside>
+    </main>
+  </body>
+</html>

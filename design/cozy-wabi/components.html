@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#e7dcc5">
+    <meta name="description" content="Cozy Commons common UI component library — a static, accessible specimen page.">
+    <title>Common UI library — Cozy Commons</title>
+    <link rel="stylesheet" href="./components.css">
+    <script src="./components.js" defer></script>
+  </head>
+  <body class="cc-body">
+    <div class="cc-page">
+      <header class="cc-navbar">
+        <a class="cc-brand" href="./index.html" aria-label="Return to Cozy Commons room">
+          <span class="cc-brand__cozy">cozy</span>
+          <span class="cc-brand__commons">commons / common UI</span>
+        </a>
+
+        <p class="cc-navbar__note">static specimen / no live data</p>
+        <button class="cc-menu-toggle" type="button" aria-expanded="false" aria-controls="cc-site-navigation">
+          <span class="cc-menu-toggle__label">open menu</span>
+        </button>
+        <nav class="cc-navbar__links is-collapsed" id="cc-site-navigation" aria-label="Component library navigation">
+          <a href="./index.html">landing room</a>
+          <a href="#buttons">inventory</a>
+          <a href="/dice">Dice ↗</a>
+          <a href="../index.html">design lab ↗</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="cc-hero" aria-labelledby="library-title">
+          <div class="cc-hero__copy">
+            <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> common room / reusable pieces</p>
+            <h1 class="cc-display" id="library-title">A small kit<br><em>close at hand.</em></h1>
+            <p class="cc-lead">A static kit of tactile controls, paper surfaces, and quiet local interactions.</p>
+            <div class="cc-hero__actions">
+              <a class="cc-button cc-button--primary" href="#buttons">browse inventory <span aria-hidden="true">↘</span></a>
+              <a class="cc-button cc-button--ghost" href="./index.html">back to the room</a>
+            </div>
+          </div>
+        </section>
+
+        <div class="cc-inventory-bar" aria-label="Specimen inventory">
+          <span>01 actions</span><span>02 surfaces</span><span>03 type</span><span>04 controls</span><span>05 feedback</span><span>06 overlays</span>
+          <span class="cc-inventory-bar__palette">demo specimen / warm washi · iron glaze · burnt sienna · local amber</span>
+        </div>
+
+        <section class="cc-section" id="buttons" aria-labelledby="buttons-title">
+          <div class="cc-section-heading cc-section-heading--compact">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 01 / actions</p>
+              <h2 class="cc-h2" id="buttons-title">Raised keys<br><em>with a soft landing.</em></h2>
+            </div>
+            <p class="cc-section-heading__aside">Hover, focus, press,<br>disabled, and loading.</p>
+          </div>
+
+          <div class="cc-plate cc-action-plate">
+            <div class="cc-button-row" aria-label="Button variants">
+              <button class="cc-button cc-button--primary" type="button">primary</button>
+              <button class="cc-button cc-button--secondary" type="button">secondary</button>
+              <button class="cc-button cc-button--ghost" type="button">ghost</button>
+              <button class="cc-button cc-button--destructive" type="button">destructive</button>
+              <button class="cc-button cc-button--secondary cc-button--icon" type="button" aria-label="Add a sample record" title="Add a sample record">+</button>
+              <button class="cc-button cc-button--primary cc-button--small" type="button">small</button>
+              <button class="cc-button cc-button--secondary cc-button--active" type="button" aria-pressed="true">active</button>
+              <button class="cc-button cc-button--primary" type="button" disabled>disabled</button>
+              <button class="cc-button cc-button--primary cc-button--loading" type="button" aria-busy="true"><span class="cc-spinner" aria-hidden="true"></span>loading</button>
+            </div>
+            <p class="cc-caption">Every action keeps a 44px minimum target. The pressed sample is a static state; the loading sample is intentionally local.</p>
+          </div>
+        </section>
+
+        <section class="cc-section" id="cards" aria-labelledby="cards-title">
+          <div class="cc-section-heading cc-section-heading--compact">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 02 / surfaces</p>
+              <h2 class="cc-h2" id="cards-title">Four ways to<br><em>hold a thought.</em></h2>
+            </div>
+            <p class="cc-section-heading__aside">Different materials,<br>different jobs.</p>
+          </div>
+
+          <div class="cc-card-grid">
+            <article class="cc-card cc-card--elevated">
+              <p class="cc-label">elevated card</p>
+              <h3 class="cc-h3">A little lift</h3>
+              <p class="cc-body">For an item that needs to sit forward from the page.</p>
+              <span class="cc-card__rule" aria-hidden="true"></span>
+              <span class="cc-caption">paper / low shadow</span>
+            </article>
+            <article class="cc-card cc-card--inset">
+              <p class="cc-label">inset card</p>
+              <h3 class="cc-h3">A quiet well</h3>
+              <p class="cc-body">For grouped settings and details that belong together.</p>
+              <span class="cc-card__rule" aria-hidden="true"></span>
+              <span class="cc-caption">recessed / close at hand</span>
+            </article>
+            <button class="cc-card cc-card--interactive" type="button" data-toast-trigger="Interactive card acknowledged">
+              <span class="cc-label">interactive card</span>
+              <span class="cc-h3">Touch the edge</span>
+              <span class="cc-body">A card can carry a whole action when the affordance is clear.</span>
+              <span class="cc-card__arrow" aria-hidden="true">↗</span>
+            </button>
+            <a class="cc-card cc-card--project" href="/dice" aria-label="Open Dice beer die records and stats">
+              <span class="cc-badge cc-badge--accent">demo route</span>
+              <span class="cc-card__project-icon" aria-hidden="true"><span>1</span></span>
+              <span class="cc-label">project card / 01</span>
+              <span class="cc-h3">Dice</span>
+              <span class="cc-body">Beer die records, rivalries, and stats worth arguing about.</span>
+              <span class="cc-caption">open / sample records</span>
+            </a>
+          </div>
+          <p class="cc-note"><span class="cc-badge cc-badge--demo">static note</span> The Dice card points to <code>/dice</code>; this document preview does not host that route.</p>
+        </section>
+
+        <section class="cc-section cc-section--type" id="typography" aria-labelledby="typography-title">
+          <div class="cc-section-heading cc-section-heading--compact">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 03 / typography</p>
+              <h2 class="cc-h2" id="typography-title">A modest voice<br><em>with room to breathe.</em></h2>
+            </div>
+            <p class="cc-section-heading__aside">Editorial serif for feeling.<br>Ledger type for finding.</p>
+          </div>
+
+          <div class="cc-plate cc-type-grid">
+            <article class="cc-type-specimen cc-type-specimen--wide">
+              <p class="cc-label">display</p>
+              <p class="cc-display">Leave a little<br><em>space for wonder.</em></p>
+            </article>
+            <article class="cc-type-specimen">
+              <p class="cc-label">h1 / h2 / h3</p>
+              <p class="cc-h1">A generous title</p>
+              <p class="cc-h2">A section title</p>
+              <p class="cc-h3">A useful subheading</p>
+            </article>
+            <article class="cc-type-specimen">
+              <p class="cc-label">body / lead</p>
+              <p class="cc-body">The body style keeps longer notes calm, clear, and close to the paper.</p>
+              <p class="cc-lead">Lead copy can open a small door into the next thing.</p>
+            </article>
+            <article class="cc-type-specimen">
+              <p class="cc-label">caption / label / mono</p>
+              <p class="cc-caption">a caption for the quiet detail</p>
+              <p class="cc-label">small practical label</p>
+              <p class="cc-mono">DEMO / SAMPLE RECORD / 08:42</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="cc-section" id="controls" aria-labelledby="controls-title">
+          <div class="cc-section-heading">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 04 / controls</p>
+              <h2 class="cc-h2" id="controls-title">Recessed wells<br><em>for making a mark.</em></h2>
+            </div>
+            <p class="cc-section-heading__aside">Native controls first.<br>Clear labels always.</p>
+          </div>
+
+          <div class="cc-controls-layout">
+            <article class="cc-plate cc-form-plate">
+              <div class="cc-panel-heading">
+                <p class="cc-label">interactive demonstration</p>
+                <h3 class="cc-h3">Add a sample beer die record</h3>
+                <p class="cc-body">This form validates and confirms locally. Nothing leaves the page.</p>
+              </div>
+
+              <form class="cc-form" data-demo-form novalidate>
+                <div class="cc-form__grid">
+                  <div class="cc-field">
+                    <label class="cc-label" for="record-name">your name <span class="cc-field__required">required</span></label>
+                    <input class="cc-input" id="record-name" name="name" type="text" autocomplete="name" required aria-describedby="record-name-help">
+                    <p class="cc-help" id="record-name-help">A local sample player name.</p>
+                  </div>
+                  <div class="cc-field">
+                    <label class="cc-label" for="record-email">email <span class="cc-field__required">required</span></label>
+                    <input class="cc-input" id="record-email" name="email" type="email" autocomplete="email" required>
+                  </div>
+                  <div class="cc-field">
+                    <label class="cc-label" for="record-search">search records</label>
+                    <input class="cc-input" id="record-search" name="search" type="search" placeholder="e.g. patio rematch">
+                  </div>
+                  <div class="cc-field">
+                    <label class="cc-label" for="record-kind">record type <span class="cc-field__required">required</span></label>
+                    <select class="cc-select" id="record-kind" name="kind" required>
+                      <option value="">Choose a type</option>
+                      <option value="round">round</option>
+                      <option value="rematch">rematch</option>
+                      <option value="tournament">tiny tournament</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="cc-field">
+                  <label class="cc-label" for="record-note">field note</label>
+                  <textarea class="cc-textarea" id="record-note" name="note" rows="4" placeholder="What is worth remembering?"></textarea>
+                </div>
+
+                <fieldset class="cc-fieldset">
+                  <legend class="cc-label">record mood</legend>
+                  <div class="cc-choice-row">
+                    <label class="cc-choice"><input type="radio" name="mood" value="steady" checked> steady</label>
+                    <label class="cc-choice"><input type="radio" name="mood" value="lively"> lively</label>
+                    <label class="cc-choice"><input type="radio" name="mood" value="legendary"> legendary</label>
+                  </div>
+                </fieldset>
+
+                <div class="cc-form__split">
+                  <label class="cc-switch">
+                    <input id="record-reminder" name="reminder" type="checkbox" role="switch" checked>
+                    <span class="cc-switch__track" aria-hidden="true"><span class="cc-switch__thumb"></span></span>
+                    <span class="cc-label">keep a local reminder</span>
+                  </label>
+                  <div class="cc-range-field">
+                    <label class="cc-label" for="record-warmth">paper warmth <output id="record-warmth-output" for="record-warmth">68%</output></label>
+                    <input class="cc-range" id="record-warmth" name="warmth" type="range" min="0" max="100" value="68">
+                  </div>
+                </div>
+
+                <label class="cc-choice cc-choice--consent"><input id="record-remember" name="remember" type="checkbox" required> I understand this is demo data.</label>
+                <div class="cc-form__actions">
+                  <button class="cc-button cc-button--primary" type="submit">confirm locally <span aria-hidden="true">↗</span></button>
+                  <p class="cc-form__status" data-form-status role="status" aria-live="polite"></p>
+                </div>
+              </form>
+            </article>
+
+            <aside class="cc-plate cc-control-rail" aria-labelledby="control-states-title">
+              <div class="cc-panel-heading">
+                <p class="cc-label">control states</p>
+                <h3 class="cc-h3" id="control-states-title">A clear error is kind.</h3>
+              </div>
+              <div class="cc-field cc-field--error">
+                <label class="cc-label" for="error-email">email / error specimen</label>
+                <input class="cc-input" id="error-email" type="email" value="not-an-email" aria-invalid="true" aria-describedby="error-email-message">
+                <p class="cc-field__error" id="error-email-message" role="alert">Use an email like hello@example.com.</p>
+              </div>
+              <div class="cc-control-rail__rule" aria-hidden="true"></div>
+              <div class="cc-field">
+                <label class="cc-label" for="native-select">native select</label>
+                <select class="cc-select" id="native-select">
+                  <option>one small choice</option>
+                  <option>another small choice</option>
+                </select>
+              </div>
+              <div class="cc-choice-row cc-choice-row--stacked">
+                <label class="cc-choice"><input type="checkbox" checked> checkbox / selected</label>
+                <label class="cc-choice"><input type="radio" name="state-radio" checked> radio / selected</label>
+                <label class="cc-choice cc-choice--muted"><input type="checkbox" disabled> disabled native control</label>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="cc-section" id="tabs" aria-labelledby="tabs-title">
+          <div class="cc-section-heading cc-section-heading--compact">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 05 / segmented views</p>
+              <h2 class="cc-h2" id="tabs-title">Three small views<br><em>of the same shelf.</em></h2>
+            </div>
+            <p class="cc-section-heading__aside">Use arrow keys in the tabs.<br>Enter or Space to choose.</p>
+          </div>
+
+          <div class="cc-tabs cc-plate" data-tabs>
+            <div class="cc-segmented" role="tablist" aria-label="Demo shelf views">
+              <button class="cc-segmented__item" id="tab-room" type="button" role="tab" aria-controls="panel-room" aria-selected="true" data-tab-target="panel-room">room notes</button>
+              <button class="cc-segmented__item" id="tab-records" type="button" role="tab" aria-controls="panel-records" aria-selected="false" data-tab-target="panel-records">records</button>
+              <button class="cc-segmented__item" id="tab-rituals" type="button" role="tab" aria-controls="panel-rituals" aria-selected="false" data-tab-target="panel-rituals">rituals</button>
+            </div>
+            <div class="cc-tabs__panels">
+              <section class="cc-tabs__panel" id="panel-room" role="tabpanel" aria-labelledby="tab-room" tabindex="0">
+                <p class="cc-label">demo room</p>
+                <h3 class="cc-h3">The lamp is a local pool of amber.</h3>
+                <p class="cc-body">Nothing here claims to be live. It is a composed little room for seeing how a surface might feel.</p>
+              </section>
+              <section class="cc-tabs__panel" id="panel-records" role="tabpanel" aria-labelledby="tab-records" tabindex="0">
+                <p class="cc-label">sample stats</p>
+                <h3 class="cc-h3">Dice keeps the friendly arguments.</h3>
+                <p class="cc-body">Demo record: patio rematch / 3 rounds / 2 players. The actual app lives at <a class="cc-inline-link" href="/dice">/dice</a>.</p>
+              </section>
+              <section class="cc-tabs__panel" id="panel-rituals" role="tabpanel" aria-labelledby="tab-rituals" tabindex="0">
+                <p class="cc-label">quiet ritual</p>
+                <h3 class="cc-h3">Open, notice, leave a light on.</h3>
+                <p class="cc-body">A tab is useful when the content changes but the place stays familiar.</p>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="cc-section" id="feedback" aria-labelledby="feedback-title">
+          <div class="cc-section-heading cc-section-heading--compact">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 06 / feedback</p>
+              <h2 class="cc-h2" id="feedback-title">A few signals<br><em>worth listening for.</em></h2>
+            </div>
+          </div>
+
+          <div class="cc-feedback-grid">
+            <div class="cc-notice cc-notice--success" role="status">
+              <span class="cc-notice__mark" aria-hidden="true">✓</span>
+              <div><strong>success notice</strong><p>Saved locally. The sample stays in this page.</p></div>
+            </div>
+            <div class="cc-notice cc-notice--error" role="alert">
+              <span class="cc-notice__mark" aria-hidden="true">!</span>
+              <div><strong>error notice</strong><p>There is one small thing to fix before continuing.</p></div>
+            </div>
+          </div>
+
+          <div class="cc-metrics-grid">
+            <article class="cc-card cc-card--inset">
+              <p class="cc-label">badge set</p>
+              <div class="cc-badge-row">
+                <span class="cc-badge cc-badge--accent">accent</span>
+                <span class="cc-badge cc-badge--soft">quiet</span>
+                <span class="cc-badge cc-badge--outline">outline</span>
+                <span class="cc-badge cc-badge--demo">demo</span>
+              </div>
+            </article>
+            <article class="cc-card cc-card--elevated">
+              <p class="cc-label">avatar / sample circle</p>
+              <div class="cc-avatar-row">
+                <span class="cc-avatar cc-avatar--clay" aria-label="Mina, demo player">M</span>
+                <span class="cc-avatar cc-avatar--moss" aria-label="Jo, demo player">J</span>
+                <span class="cc-avatar cc-avatar--walnut" aria-label="Kai, demo player">K</span>
+                <span class="cc-mono">3 demo players</span>
+              </div>
+            </article>
+            <article class="cc-card cc-card--elevated cc-progress-card">
+              <div class="cc-progress-card__heading"><p class="cc-label">progress / sample stat</p><output for="shelf-progress">68%</output></div>
+              <progress id="shelf-progress" value="68" max="100" aria-label="Demo shelf completion">68%</progress>
+              <p class="cc-caption">demo shelf completion / not live activity</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="cc-section" id="disclosure" aria-labelledby="disclosure-title">
+          <div class="cc-section-heading cc-section-heading--compact">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 07 / disclosure</p>
+              <h2 class="cc-h2" id="disclosure-title">Details can stay<br><em>under a fold.</em></h2>
+            </div>
+          </div>
+
+          <div class="cc-accordion-stack">
+            <details class="cc-accordion" open>
+              <summary>What does the inset surface mean?</summary>
+              <div class="cc-accordion__content"><p class="cc-body">Use it for a related group that is present but not asking to be noticed first. Its shadow falls inward, like a shallow ceramic well.</p></div>
+            </details>
+            <details class="cc-accordion">
+              <summary>Why are the corners a little uneven?</summary>
+              <div class="cc-accordion__content"><p class="cc-body">The asymmetry is a material cue, not a usability tax. Borders, labels, and target sizes stay predictable even when the paper edge does not.</p></div>
+            </details>
+            <details class="cc-accordion">
+              <summary>What happens without JavaScript?</summary>
+              <div class="cc-accordion__content"><p class="cc-body">The room link, navigation, native form controls, notices, and every tab panel remain in the document. Tabs become a visible set of panels; the accordion remains native HTML.</p></div>
+            </details>
+          </div>
+        </section>
+
+        <section class="cc-section cc-overlay-section" id="overlays" aria-labelledby="overlays-title">
+          <div class="cc-section-heading cc-section-heading--compact">
+            <div>
+              <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> 08 / overlays</p>
+              <h2 class="cc-h2" id="overlays-title">A small pause<br><em>when it helps.</em></h2>
+            </div>
+            <p class="cc-section-heading__aside">Dialog closes by button<br>or Escape.</p>
+          </div>
+
+          <div class="cc-overlay-actions cc-plate">
+            <div>
+              <p class="cc-label">dialog</p>
+              <h3 class="cc-h3">Ask before the next step.</h3>
+              <p class="cc-body">The native dialog carries focus, backdrop, and Escape behavior.</p>
+            </div>
+            <div class="cc-button-row">
+              <button class="cc-button cc-button--secondary" type="button" data-dialog-open="sample-dialog">open dialog</button>
+              <button class="cc-button cc-button--ghost" type="button" data-toast-trigger="Toast shown — still on this page">show a toast</button>
+            </div>
+          </div>
+        </section>
+
+        <dialog class="cc-dialog" id="sample-dialog" aria-labelledby="sample-dialog-title">
+          <form method="dialog">
+            <button class="cc-dialog__close" type="submit" value="cancel" aria-label="Close dialog" data-dialog-close>×</button>
+            <p class="cc-kicker"><span class="cc-kicker__dot" aria-hidden="true"></span> local confirmation</p>
+            <h2 class="cc-h2" id="sample-dialog-title">Leave a light on?</h2>
+            <p class="cc-body">This is a native dialog demonstration. No record is created and no network request is made.</p>
+            <div class="cc-dialog__actions">
+              <button class="cc-button cc-button--ghost" type="submit" value="cancel">not now</button>
+              <button class="cc-button cc-button--primary" type="submit" value="keep">keep the note</button>
+            </div>
+          </form>
+        </dialog>
+
+        <div class="cc-toast" data-toast role="status" aria-live="polite" hidden>
+          <span class="cc-toast__mark" aria-hidden="true">·</span>
+          <span data-toast-message>Toast shown — still on this page.</span>
+          <button class="cc-toast__close" type="button" data-toast-dismiss aria-label="Dismiss toast">×</button>
+        </div>
+      </main>
+
+      <footer class="cc-footer">
+        <p class="cc-mono">cozy commons / common UI / demo specimen</p>
+        <div class="cc-footer__links">
+          <a href="./index.html">return to landing room</a>
+          <a href="../index.html">all explorations ↗</a>
+          <a href="/dice">Dice app ↗</a>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

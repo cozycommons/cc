@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Cozy Commons is a small home on the web for the things we make."
+    />
+    <title>Cozy Commons — a small home on the web</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="site-header shell" data-site-header aria-label="Primary navigation">
+      <a class="wordmark" href="#top" aria-label="Cozy Commons home">
+        <span class="wordmark-mark" aria-hidden="true">
+          <svg viewBox="0 0 28 28" role="presentation">
+            <path d="M4 12.5 14 4l10 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 4 22.5z" />
+            <path class="mark-cut" d="M10.5 24v-6.5h7V24" />
+            <path class="mark-spark" d="M5.5 7.5 7 5.8m15.5 1.7-1.5-1.7" />
+          </svg>
+        </span>
+        <span>cozy commons</span>
+      </a>
+
+      <nav class="nav-links" id="page-nav" aria-label="Page sections">
+        <a href="#shelf">The shelf</a>
+        <a href="#room-status">Room status <span class="nav-note">demo</span></a>
+        <a href="./components.html">UI library</a>
+      </nav>
+
+      <button class="nav-menu-button clay-button clay-button-icon" type="button" data-menu-button aria-expanded="false" aria-controls="page-nav">
+        <span class="menu-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="sr-only">Open navigation</span>
+      </button>
+
+      <a class="nav-cta clay-button clay-button-small" href="./components.html">
+        <span>View library</span>
+        <span aria-hidden="true">↗</span>
+      </a>
+    </header>
+
+    <main id="main-content">
+      <section class="hero shell" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy" data-reveal>
+          <div class="eyebrow">
+            <span class="eyebrow-dot" aria-hidden="true"></span>
+            <span>A small home on the web</span>
+          </div>
+          <h1 id="hero-title">A warm place for<br /><em>things we make.</em></h1>
+          <p class="hero-intro">
+            Cozy Commons is a shared corner for half-finished ideas, curious
+            projects, and the people who make them. Pull up a chair.
+          </p>
+          <div class="hero-actions">
+            <a class="clay-button clay-button-primary" href="#shelf">
+              <span>Explore the shelf</span>
+              <span class="button-arrow" aria-hidden="true">↗</span>
+            </a>
+            <a class="text-link" href="#room-status">
+              <span class="play-dot" aria-hidden="true">▶</span>
+              <span>See what’s happening</span>
+            </a>
+          </div>
+          <div class="hero-note">
+            <span class="mini-avatar mini-avatar-rust" aria-hidden="true">J</span>
+            <span>made slowly, shared openly</span>
+          </div>
+        </div>
+
+        <div class="hero-room" data-reveal data-reveal-delay="120">
+          <div class="room-glow room-glow-one" aria-hidden="true"></div>
+          <div class="room-glow room-glow-two" aria-hidden="true"></div>
+          <div class="room-card">
+            <div class="room-card-top">
+              <span class="room-label">the common room</span>
+              <span class="live-pill"><span aria-hidden="true"></span> demo scene</span>
+            </div>
+            <div class="room-scene" role="img" aria-label="A cozy clay room with a lamp, a moss green sofa, a plant, and a small shelf">
+              <div class="scene-window" aria-hidden="true">
+                <span class="window-moon"></span>
+                <span class="window-star window-star-one"></span>
+                <span class="window-star window-star-two"></span>
+                <span class="window-glow"></span>
+              </div>
+              <div class="scene-wall-line" aria-hidden="true"></div>
+              <div class="scene-shelf" aria-hidden="true">
+                <span class="shelf-board"></span>
+                <span class="shelf-book book-one"></span>
+                <span class="shelf-book book-two"></span>
+                <span class="shelf-pot"></span>
+                <span class="shelf-leaf leaf-one"></span>
+                <span class="shelf-leaf leaf-two"></span>
+              </div>
+              <div class="scene-lamp" aria-hidden="true">
+                <span class="lamp-shade"></span>
+                <span class="lamp-stem"></span>
+                <span class="lamp-base"></span>
+              </div>
+              <div class="scene-sofa" aria-hidden="true">
+                <span class="sofa-back"></span>
+                <span class="sofa-seat"></span>
+                <span class="sofa-arm sofa-arm-left"></span>
+                <span class="sofa-arm sofa-arm-right"></span>
+                <span class="sofa-pillow"></span>
+              </div>
+              <div class="scene-table" aria-hidden="true">
+                <span class="table-top"></span>
+                <span class="table-leg table-leg-left"></span>
+                <span class="table-leg table-leg-right"></span>
+                <span class="table-cup"></span>
+              </div>
+              <div class="scene-plant" aria-hidden="true">
+                <span class="plant-pot"></span>
+                <span class="plant-stem plant-stem-one"></span>
+                <span class="plant-stem plant-stem-two"></span>
+                <span class="plant-leaf plant-leaf-one"></span>
+                <span class="plant-leaf plant-leaf-two"></span>
+                <span class="plant-leaf plant-leaf-three"></span>
+                <span class="plant-leaf plant-leaf-four"></span>
+              </div>
+              <span class="scene-rug" aria-hidden="true"></span>
+              <span class="scene-person" aria-hidden="true"><span></span></span>
+            </div>
+            <div class="room-card-bottom">
+              <div>
+                <strong>lamps on, ideas out</strong>
+                <span>CSS artwork / no live feed</span>
+              </div>
+              <span class="room-crumb" aria-hidden="true">✦</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="shelf shell" id="shelf" aria-labelledby="shelf-title">
+        <div class="section-heading" data-reveal>
+          <div>
+            <div class="eyebrow eyebrow-moss">
+              <span class="eyebrow-dot" aria-hidden="true"></span>
+              <span>Things on the shelf</span>
+            </div>
+            <h2 id="shelf-title">Doors worth<br /><em>leaving open.</em></h2>
+          </div>
+          <p>
+            A few places to wander into. Some are polished, some are still
+            gathering their edges.
+          </p>
+        </div>
+
+        <div class="shelf-grid">
+          <article class="project-card project-card-featured" data-reveal data-reveal-delay="80">
+            <div class="project-card-content">
+              <div class="card-kicker"><span class="card-number">01</span> featured project</div>
+              <div class="project-title-line">
+                <h3>Dice</h3>
+                <span class="status-chip"><span aria-hidden="true"></span> in play</span>
+              </div>
+              <p>
+                Beer die records, friendly rivalries, and seeing how your
+                instincts change over time.
+              </p>
+              <a class="card-link" href="/dice" aria-label="Open Dice beer die app">
+                <span>Open Dice app</span>
+                <span aria-hidden="true">↗</span>
+              </a>
+            </div>
+            <div class="dice-preview" id="dice-preview" role="img" aria-label="A clay dice project card with a six-sided die and prediction tokens">
+              <div class="dice-sun" aria-hidden="true"></div>
+              <div class="dice-die" aria-hidden="true">
+                <span class="pip pip-a"></span>
+                <span class="pip pip-b"></span>
+                <span class="pip pip-c"></span>
+                <span class="pip pip-d"></span>
+                <span class="pip pip-e"></span>
+                <span class="pip pip-f"></span>
+                <span class="pip pip-g"></span>
+              </div>
+              <span class="dice-token token-one" aria-hidden="true">?</span>
+              <span class="dice-token token-two" aria-hidden="true">✦</span>
+              <span class="dice-token token-three" aria-hidden="true">3</span>
+              <div class="dice-stats" aria-hidden="true">
+                <span><b>12</b> sample records</span>
+                <span><b>68%</b> sample rate</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="project-card project-card-next" data-reveal data-reveal-delay="160">
+            <div class="project-card-content">
+              <div class="card-kicker"><span class="card-number">02</span> next on the shelf</div>
+              <h3>A little room<br /><em>to grow.</em></h3>
+              <p>
+                This spot is being saved for a new experiment. No rush — good
+                things like a little breathing room.
+              </p>
+              <span class="making-note"><span class="making-orb" aria-hidden="true"></span> quietly making</span>
+            </div>
+            <div class="next-preview" role="img" aria-label="A small clay planter growing a new sprout">
+              <div class="next-sun" aria-hidden="true"></div>
+              <div class="next-pot" aria-hidden="true"></div>
+              <div class="next-stem" aria-hidden="true"></div>
+              <div class="next-leaf next-leaf-left" aria-hidden="true"></div>
+              <div class="next-leaf next-leaf-right" aria-hidden="true"></div>
+              <span class="next-spark spark-one" aria-hidden="true">✦</span>
+              <span class="next-spark spark-two" aria-hidden="true">·</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="status shell" id="room-status" aria-labelledby="status-title">
+        <div class="status-intro" data-reveal>
+          <div class="eyebrow eyebrow-rust">
+            <span class="eyebrow-dot" aria-hidden="true"></span>
+            <span>Demo room status</span>
+          </div>
+          <h2 id="status-title">The room is<br /><em>softly staged.</em></h2>
+          <p>
+            A quiet, static signal that the lights are on and someone could be
+            making something nearby. This is illustration, not live activity.
+          </p>
+        </div>
+        <div class="status-panel clay-panel" data-reveal data-reveal-delay="120">
+          <div class="status-panel-header">
+            <span class="status-live-mark"><span aria-hidden="true"></span> demo snapshot</span>
+            <span class="local-time" data-local-time aria-label="Sample local time">sample clock</span>
+          </div>
+          <div class="status-main">
+            <div class="status-orbit" aria-hidden="true">
+              <span class="orbit-ring orbit-ring-one"></span>
+              <span class="orbit-ring orbit-ring-two"></span>
+              <span class="orbit-core">✦</span>
+            </div>
+            <div>
+              <strong>3 sample neighbors</strong>
+              <span>illustrative room data · no live feed</span>
+            </div>
+          </div>
+          <div class="status-list" aria-label="Room details">
+            <div><span class="detail-icon detail-icon-lamp" aria-hidden="true"></span><span>Sample lamps</span><b>steady</b></div>
+            <div><span class="detail-icon detail-icon-leaf" aria-hidden="true">⌁</span><span>Plant corner</span><b>illustrated</b></div>
+            <div><span class="detail-icon detail-icon-dice" aria-hidden="true">·</span><span>Beer die records</span><b>sample</b></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tokens shell" aria-labelledby="tokens-title" data-reveal>
+        <div class="tokens-heading">
+          <div class="eyebrow eyebrow-charcoal"><span class="eyebrow-dot" aria-hidden="true"></span><span>Clay system / 01</span></div>
+          <h2 id="tokens-title">A small language<br /><em>of soft edges.</em></h2>
+        </div>
+        <div class="token-panel clay-panel">
+          <div class="token-row token-palette">
+            <span class="token-label">palette</span>
+            <span class="swatch swatch-clay"><i></i> baked clay</span>
+            <span class="swatch swatch-moss"><i></i> moss</span>
+            <span class="swatch swatch-oat"><i></i> oat</span>
+            <span class="swatch swatch-charcoal"><i></i> charcoal</span>
+          </div>
+          <div class="token-row token-measures">
+            <span class="token-label">texture</span>
+            <span class="measure"><i class="measure-radius"></i> 32px soft radius</span>
+            <span class="measure"><i class="measure-shadow"></i> inset + outset light</span>
+            <button class="token-toggle" type="button" aria-expanded="true" aria-controls="token-details">hide details <span aria-hidden="true">−</span></button>
+          </div>
+          <div class="token-details" id="token-details">
+            Type is friendly and compact; motion is a slow breath; every control has a visible focus ring; color never carries meaning alone.
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer shell">
+      <a class="wordmark" href="#top" aria-label="Back to Cozy Commons home">
+        <span class="wordmark-mark" aria-hidden="true">
+          <svg viewBox="0 0 28 28" role="presentation">
+            <path d="M4 12.5 14 4l10 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 4 22.5z" />
+            <path class="mark-cut" d="M10.5 24v-6.5h7V24" />
+            <path class="mark-spark" d="M5.5 7.5 7 5.8m15.5 1.7-1.5-1.7" />
+          </svg>
+        </span>
+        <span>cozy commons</span>
+      </a>
+      <p>made for wandering, staying awhile, and making a little noise.</p>
+      <div class="footer-links">
+        <a href="./components.html">UI library</a>
+        <a href="../index.html">All directions</a>
+        <span class="footer-mark" aria-hidden="true">✦</span>
+      </div>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

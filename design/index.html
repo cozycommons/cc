@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cozy Commons — design explorations</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #f4e6cb;
+        --muted: #b8a88e;
+        --bg: #17120f;
+        --panel: #241b16;
+        --line: rgba(244, 230, 203, 0.16);
+        --accent: #e8a15d;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-width: 320px;
+        margin: 0;
+        background:
+          radial-gradient(circle at 18% 5%, rgba(152, 100, 56, 0.2), transparent 28rem),
+          var(--bg);
+        color: var(--ink);
+        font-family: Georgia, 'Times New Roman', serif;
+      }
+
+      .lab {
+        width: min(1440px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: clamp(32px, 6vw, 88px) 0 72px;
+      }
+
+      .masthead {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+        padding-bottom: 32px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        color: var(--accent);
+        font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 760px;
+        margin: 0;
+        font-size: clamp(42px, 7vw, 92px);
+        font-weight: 400;
+        letter-spacing: -0.06em;
+        line-height: 0.9;
+      }
+
+      .intro {
+        max-width: 330px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      .directions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 24px;
+      }
+
+      .direction {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+      }
+
+      .direction__meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 18px;
+      }
+
+      .direction__name,
+      .direction__link {
+        color: var(--ink);
+        font: 14px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.05em;
+        text-decoration: none;
+        text-transform: uppercase;
+      }
+
+      .direction__link { color: var(--accent); }
+      .direction__links { display: flex; gap: 16px; padding: 0 18px 16px; }
+      .direction__links a { min-height: 44px; display: inline-flex; align-items: center; font-size: 11px; }
+      .direction__description { margin: 0; padding: 0 18px 12px; color: var(--muted); line-height: 1.5; font-size: 15px; }
+      a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+      .view-controls { display: flex; align-items: center; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
+      .view-controls button { min-height: 44px; padding: 10px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; cursor: pointer; }
+      .view-controls button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
+      .view-controls span { color: var(--muted); margin-left: auto; font-size: 14px; }
+      .direction__link:hover,
+      .direction__link:focus-visible { text-decoration: underline; }
+
+      iframe {
+        display: block;
+        width: 100%;
+        height: 620px;
+        border: 0;
+        border-top: 1px solid var(--line);
+        background: #241b16;
+      }
+
+      .note {
+        margin: 28px 0 0;
+        color: var(--muted);
+        font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      @media (max-width: 980px) {
+        .masthead { align-items: start; flex-direction: column; }
+        .intro { max-width: 560px; }
+        .directions { grid-template-columns: 1fr; }
+        iframe { height: min(760px, 118vw); min-height: 560px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="lab">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Cozy Commons / design lab</p>
+          <h1>Three ways to make room.</h1>
+        </div>
+        <p class="intro">Three material worlds, from the front room to the smallest switch. Explore each landing page and its working library of everyday components.</p>
+      </header>
+
+      <div class="view-controls" role="group" aria-label="Comparison preview">
+        <button type="button" data-view="landing" aria-pressed="false">Landing pages</button>
+        <button type="button" data-view="components" aria-pressed="true">Component libraries</button>
+        <span>Open a direction for a full-size view.</span>
+      </div>
+
+      <section class="directions" aria-label="Cozy Commons design directions">
+        <article class="direction">
+          <div class="direction__meta">
+            <span class="direction__name">01 / Wabi-sabi</span>
+          </div>
+          <p class="direction__description">Washi paper, iron glaze, hand-cut edges. A quiet cottage atelier.</p>
+          <div class="direction__links"><a class="direction__link" href="./cozy-wabi/">Landing ↗</a><a class="direction__link" href="./cozy-wabi/components.html">Components ↗</a></div>
+          <iframe title="Wabi-sabi component library" data-direction="cozy-wabi" src="./cozy-wabi/components.html"></iframe>
+        </article>
+
+        <article class="direction">
+          <div class="direction__meta">
+            <span class="direction__name">02 / Clay</span>
+          </div>
+          <p class="direction__description">Baked terracotta, moss, deep soft wells. Objects you want to press.</p>
+          <div class="direction__links"><a class="direction__link" href="./cozy-clay/">Landing ↗</a><a class="direction__link" href="./cozy-clay/components.html">Components ↗</a></div>
+          <iframe title="Claymorphism component library" data-direction="cozy-clay" src="./cozy-clay/components.html"></iframe>
+        </article>
+
+        <article class="direction">
+          <div class="direction__meta">
+            <span class="direction__name">03 / Skeuo</span>
+          </div>
+          <p class="direction__description">Walnut, stitched leather, worn brass. A workshop by lamplight.</p>
+          <div class="direction__links"><a class="direction__link" href="./cozy-skeuo/">Landing ↗</a><a class="direction__link" href="./cozy-skeuo/components.html">Components ↗</a></div>
+          <iframe title="Skeuomorphic component library" data-direction="cozy-skeuo" src="./cozy-skeuo/components.html"></iframe>
+        </article>
+      </section>
+
+      <p class="note">Exploration notes and run instructions live in design/README.md. Each direction is intentionally self-contained so its token choices can be lifted into a future production system.</p>
+    </main>
+    <script>
+      document.querySelectorAll('[data-view]').forEach(button => {
+        button.addEventListener('click', () => {
+          const components = button.dataset.view === 'components';
+          document.querySelectorAll('[data-view]').forEach(control => control.setAttribute('aria-pressed', String(control === button)));
+          document.querySelectorAll('[data-direction]').forEach(frame => {
+            frame.src = './' + frame.dataset.direction + '/' + (components ? 'components.html' : 'index.html');
+            frame.title = frame.dataset.direction + (components ? ' component library' : ' landing page');
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

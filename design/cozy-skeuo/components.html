@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Cozy Commons common UI component library — a tactile skeuomorphic reference." />
+    <title>Cozy Commons — Common UI library</title>
+    <link rel="stylesheet" href="./components.css" />
+    <script src="./components.js" defer></script>
+  </head>
+  <body class="cc-body">
+    <a class="cc-skip-link" href="#inventory">skip to component tray</a>
+
+    <main class="cc-library" id="main-content">
+      <div class="cc-page-grain" aria-hidden="true"></div>
+      <div class="cc-page-vignette" aria-hidden="true"></div>
+
+      <header class="cc-navbar" id="top">
+        <a class="cc-navbar__brand" href="./index.html" aria-label="Cozy Commons home">
+          <span class="cc-navbar__brand-stamp" aria-hidden="true">cc</span>
+          <span class="cc-navbar__brand-words">
+            <span>cozy</span>
+            <span>commons</span>
+          </span>
+        </a>
+
+        <p class="cc-navbar__note">
+          common UI<br />
+          specimen tray
+        </p>
+
+        <div class="cc-navbar__tools">
+          <div class="cc-navbar__status" role="status" aria-live="polite">
+            <span class="cc-status-lamp" aria-hidden="true"></span>
+            <span>demo surface</span>
+          </div>
+
+          <details class="cc-navbar__menu">
+            <summary>menu <span aria-hidden="true">⌄</span></summary>
+            <div class="cc-navbar__menu-panel">
+              <a class="cc-navbar__link" href="./index.html#top">landing room</a>
+              <a class="cc-navbar__link" href="./components.html#top" aria-current="page">common UI library</a>
+              <a class="cc-navbar__link" href="../index.html">design lab</a>
+            </div>
+          </details>
+        </div>
+
+        <nav class="cc-navbar__links" aria-label="Primary navigation">
+          <a class="cc-navbar__link" href="./index.html#top">landing room</a>
+          <a class="cc-navbar__link" href="./components.html#top" aria-current="page">common UI library</a>
+          <a class="cc-navbar__link" href="../index.html">design lab</a>
+        </nav>
+      </header>
+
+      <div class="cc-library__content">
+        <section class="cc-hero cc-hero--compact" aria-labelledby="library-title">
+          <p class="cc-kicker">the common room · reusable reference</p>
+          <h1 class="cc-type-h1" id="library-title">Common pieces, kept tactile.</h1>
+          <p class="cc-hero__description">
+            A compact, local-only shelf of named controls, surfaces, and interaction patterns for Cozy Commons. The material language stays consistent: walnut structure, stitched moss, paper ledgers, and light-catching brass.
+          </p>
+          <div class="cc-hero__actions">
+            <a class="cc-button cc-button--primary" href="#inventory">browse the tray <span aria-hidden="true">↓</span></a>
+            <a class="cc-button cc-button--ghost" href="./index.html">return to landing</a>
+          </div>
+          <p class="cc-demo-note cc-hero__note">All counts and activity labels on this page are demo content. No network calls or persistent state are used.</p>
+        </section>
+
+        <section class="cc-section cc-tray" id="inventory" aria-labelledby="tray-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">01 · the working tray</p>
+              <h2 class="cc-section__title" id="tray-title">Raised keys.<br />Recessed wells.</h2>
+            </div>
+            <p class="cc-section__description">The first stop is a dense reference shelf: use the controls, then lift the named classes into a page.</p>
+          </header>
+
+          <div class="cc-tray__grid">
+            <article class="cc-specimen cc-tray__block cc-tray__block--wide">
+              <p class="cc-tray__label">Buttons / tactile keys</p>
+              <div class="cc-button-row" aria-label="Button specimens">
+                <a class="cc-button cc-button--primary" href="#forms">primary action</a>
+                <button class="cc-button cc-button--secondary" type="button">secondary</button>
+                <button class="cc-button cc-button--ghost" type="button">ghost</button>
+                <button class="cc-button cc-button--destructive" type="button">destructive</button>
+                <button class="cc-button cc-button--icon" type="button" aria-label="Bookmark button specimen">☆</button>
+                <button class="cc-button cc-button--secondary cc-button--small" type="button">small</button>
+                <button class="cc-button cc-button--secondary" type="button" disabled>disabled</button>
+                <button class="cc-button cc-button--primary is-loading" type="button" aria-busy="true" disabled>
+                  <span class="cc-button__spinner" aria-hidden="true"></span>
+                  loading
+                </button>
+                <button class="cc-button cc-button--secondary is-active" type="button" aria-pressed="true">active</button>
+              </div>
+              <p class="cc-demo-note">Hover lifts the key, focus gets a brass ring, press travels into the hard lower edge. The final key is a visible active state; the last two show disabled and loading.</p>
+
+              <div class="cc-tray__rule" aria-hidden="true"></div>
+              <p class="cc-tray__label">Cards / paper and leather</p>
+              <div class="cc-tray__cards">
+                <a class="cc-card cc-card--elevated cc-card--interactive cc-card--mini" href="#cards">
+                  <p class="cc-card__eyebrow">elevated · interactive</p>
+                  <h3 class="cc-card__title">Paper card</h3>
+                  <p class="cc-card__copy">A lifted ledger surface.</p>
+                </a>
+                <div class="cc-card cc-card--inset cc-card--mini">
+                  <p class="cc-card__eyebrow">inset · quiet</p>
+                  <h3 class="cc-card__title">Leather well</h3>
+                  <p class="cc-card__copy">A resting surface for detail.</p>
+                </div>
+              </div>
+            </article>
+
+            <article class="cc-specimen cc-tray__block">
+              <p class="cc-tray__label">Controls / recessed wells</p>
+              <div class="cc-field">
+                <label class="cc-field__label" for="tray-text">Text input</label>
+                <input class="cc-input" id="tray-text" type="text" value="walnut note" />
+              </div>
+              <div class="cc-field">
+                <label class="cc-field__label" for="tray-search">Search input</label>
+                <input class="cc-input" id="tray-search" type="search" placeholder="find a specimen" data-component-search />
+                <p class="cc-field__message" data-search-status>Try “button”, “card”, or “field”.</p>
+              </div>
+              <div class="cc-switch-row">
+                <div class="cc-switch-row__copy">
+                  <strong>Ambient detail</strong>
+                  <span>Physical switch, local only.</span>
+                </div>
+                <button class="cc-switch" type="button" aria-label="Toggle ambient detail" aria-pressed="true" data-demo-switch>
+                  <span class="cc-switch__track" aria-hidden="true"><span class="cc-switch__knob"></span></span>
+                  <span data-switch-label>on</span>
+                </button>
+              </div>
+            </article>
+
+            <article class="cc-specimen cc-tray__block">
+              <p class="cc-tray__label">Range / native output</p>
+              <div class="cc-field">
+                <label class="cc-field__label" for="tray-range">Lamplight warmth</label>
+                <div class="cc-range-wrap">
+                  <input class="cc-range" id="tray-range" type="range" min="0" max="100" value="68" data-range-output="tray-range-output" />
+                  <output class="cc-range-readout" id="tray-range-output" for="tray-range">68</output>
+                </div>
+              </div>
+              <p class="cc-demo-note">Native range, output, checkbox, radio, select, textarea, and search controls are used throughout the form below.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="cc-section" id="typography" aria-labelledby="type-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">02 · type drawer</p>
+              <h2 class="cc-section__title" id="type-title">Bookish, then crisp.</h2>
+            </div>
+            <p class="cc-section__description">Display and heading faces carry the story. Small interface labels stay legible in a compact sans and mono register.</p>
+          </header>
+
+          <div class="cc-specimen cc-specimen--paper cc-type-stack">
+            <div class="cc-type-sample">
+              <p class="cc-type-label">Display</p>
+              <p class="cc-type-display">Things made slowly.</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">H1</p>
+              <p class="cc-type-h1">A good place to begin.</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">H2</p>
+              <p class="cc-type-h2">On the shelf.</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">H3</p>
+              <p class="cc-type-h3">A few things to pick up.</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">Body</p>
+              <p class="cc-type-body">A friendly paragraph has enough room to breathe and enough contrast to stay useful in a dim room.</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">Lead</p>
+              <p class="cc-type-lead">A little more presence for an introduction or a short invitation.</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">Caption</p>
+              <p class="cc-type-caption">a note left beside the lamp · demo specimen</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">Label</p>
+              <p class="cc-type-label">ambient light · featured project · demo only</p>
+            </div>
+            <div class="cc-type-sample">
+              <p class="cc-type-label">Mono</p>
+              <p class="cc-type-mono">.cc-button.cc-button--primary</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="cc-section" id="cards" aria-labelledby="cards-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">03 · card drawer</p>
+              <h2 class="cc-section__title" id="cards-title">Surfaces with a job.</h2>
+            </div>
+            <p class="cc-section__description">Choose elevation for an object to pick up, inset for a well to read in, and interactive for a card that answers touch.</p>
+          </header>
+
+          <div class="cc-card-grid">
+            <article class="cc-card cc-card--elevated">
+              <p class="cc-card__eyebrow">elevated card</p>
+              <h3 class="cc-card__title">Paper ledger</h3>
+              <p class="cc-card__copy">Warm upper-left highlight, paper grain, and a grounded contact shadow.</p>
+              <p class="cc-card__meta">static specimen</p>
+            </article>
+            <article class="cc-card cc-card--inset">
+              <p class="cc-card__eyebrow">inset card</p>
+              <h3 class="cc-card__title">Leather well</h3>
+              <p class="cc-card__copy">A dark recess for quiet metadata, forms, or a secondary reading state.</p>
+              <p class="cc-card__meta">static specimen</p>
+            </article>
+            <a class="cc-card cc-card--elevated cc-card--interactive" href="#forms">
+              <p class="cc-card__eyebrow">interactive card</p>
+              <h3 class="cc-card__title">Open drawer</h3>
+              <p class="cc-card__copy">Hover, focus, and click all have a physical response.</p>
+              <div class="cc-card__actions"><span class="cc-badge cc-badge--success">ready</span><span class="cc-card__arrow" aria-hidden="true">↗</span></div>
+            </a>
+            <a class="cc-card cc-card--project cc-card--interactive" href="/dice">
+              <p class="cc-card__eyebrow">project card · demo link</p>
+              <h3 class="cc-card__title">Dice</h3>
+              <p class="cc-card__copy">Beer die records<br />and stats.</p>
+              <div class="cc-card__actions"><span class="cc-card__meta">12 demo throws · no live activity</span><span class="cc-card__arrow" aria-hidden="true">↗</span></div>
+            </a>
+          </div>
+        </section>
+
+        <section class="cc-section" id="forms" aria-labelledby="forms-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">04 · form drawer</p>
+              <h2 class="cc-section__title" id="forms-title">Fill a small card.</h2>
+            </div>
+            <p class="cc-section__description">Every field is labeled, keyboard reachable, and wired to native constraints. Submit to see a local confirmation.</p>
+          </header>
+
+          <form class="cc-card cc-card--inset cc-form" data-demo-form novalidate>
+            <div class="cc-form-grid">
+              <div class="cc-field">
+                <label class="cc-field__label" for="demo-name">Display name</label>
+                <input class="cc-input" id="demo-name" name="name" type="text" autocomplete="name" placeholder="Your name" required />
+              </div>
+
+              <div class="cc-field">
+                <label class="cc-field__label" for="demo-email">Email</label>
+                <input class="cc-input" id="demo-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+              </div>
+
+              <div class="cc-field">
+                <label class="cc-field__label" for="demo-select">Favorite surface</label>
+                <select class="cc-select" id="demo-select" name="surface" required>
+                  <option value="">Choose a material</option>
+                  <option value="walnut">Walnut</option>
+                  <option value="paper">Paper</option>
+                  <option value="moss">Stitched moss</option>
+                  <option value="brass">Worn brass</option>
+                </select>
+              </div>
+
+              <div class="cc-field">
+                <label class="cc-field__label" for="demo-search">Search this library</label>
+                <input class="cc-input" id="demo-search" name="search" type="search" placeholder="Try “card”" data-component-search />
+              </div>
+
+              <div class="cc-field cc-field--full">
+                <label class="cc-field__label" for="demo-note">Ledger note</label>
+                <textarea class="cc-textarea" id="demo-note" name="note" placeholder="Leave a short note" required></textarea>
+                <p class="cc-field__hint">This value stays in the browser and is never sent.</p>
+              </div>
+
+              <fieldset class="cc-field cc-fieldset">
+                <legend>Round type</legend>
+                <div class="cc-choice-list">
+                  <label class="cc-choice"><input type="radio" name="round" value="casual" required /> casual</label>
+                  <label class="cc-choice"><input type="radio" name="round" value="tournament" /> tournament</label>
+                </div>
+              </fieldset>
+
+              <div class="cc-field">
+                <span class="cc-field__label">Local preference</span>
+                <div class="cc-switch-row">
+                  <div class="cc-switch-row__copy">
+                    <strong>Keep the lamp on</strong>
+                    <span>Presentation setting only.</span>
+                  </div>
+                  <button class="cc-switch" type="button" aria-label="Toggle keep the lamp on" aria-pressed="false" data-demo-switch>
+                    <span class="cc-switch__track" aria-hidden="true"><span class="cc-switch__knob"></span></span>
+                    <span data-switch-label>off</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="cc-field cc-field--full">
+                <label class="cc-choice"><input type="checkbox" name="agree" required /> I understand this is a local demo.</label>
+              </div>
+            </div>
+
+            <div class="cc-form__footer">
+              <button class="cc-button cc-button--primary" type="submit">confirm locally <span aria-hidden="true">→</span></button>
+              <p class="cc-form__feedback" data-form-feedback role="status" aria-live="polite"></p>
+            </div>
+          </form>
+
+          <div class="cc-state-grid cc-state-grid--spaced">
+            <div class="cc-field is-error">
+              <label class="cc-field__label" for="error-email">Error state example</label>
+              <input class="cc-input" id="error-email" type="email" value="not-an-email" aria-invalid="true" aria-describedby="error-email-message" />
+              <p class="cc-field__message cc-field__message--error" id="error-email-message">Enter an email in the form name@example.com.</p>
+            </div>
+            <div class="cc-field">
+              <p class="cc-field__label">Search feedback</p>
+              <p class="cc-card cc-card--elevated cc-type-body" id="search-result" data-search-status>Search is local to this specimen page.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="cc-section" id="interactions" aria-labelledby="interactions-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">05 · selectors</p>
+              <h2 class="cc-section__title" id="interactions-title">Choose a drawer.</h2>
+            </div>
+            <p class="cc-section__description">Segmented controls and tabs are real buttons. Tab arrows, Home, and End move focus without leaving the tray.</p>
+          </header>
+
+          <div class="cc-interaction-grid">
+            <article class="cc-card cc-card--inset cc-interaction-card">
+              <h3>Segmented selector</h3>
+              <p>Use this for a small mutually exclusive setting. It updates the readout locally.</p>
+              <div class="cc-segmented" role="group" aria-label="Sample density">
+                <button class="cc-segment" type="button" data-segment data-segment-value="quiet" aria-pressed="true">quiet</button>
+                <button class="cc-segment" type="button" data-segment data-segment-value="even" aria-pressed="false">even</button>
+                <button class="cc-segment" type="button" data-segment data-segment-value="full" aria-pressed="false">full</button>
+              </div>
+              <p class="cc-segmented__output" data-segment-output role="status" aria-live="polite">density: quiet</p>
+            </article>
+
+            <article class="cc-card cc-card--inset cc-interaction-card cc-tabs" data-tabs>
+              <h3>Tabs</h3>
+              <div class="cc-tabs__list" role="tablist" aria-label="Material notes">
+                <button class="cc-tab" type="button" role="tab" id="tab-walnut" aria-controls="panel-walnut" aria-selected="true" tabindex="0" data-tab-target="panel-walnut">walnut</button>
+                <button class="cc-tab" type="button" role="tab" id="tab-paper" aria-controls="panel-paper" aria-selected="false" tabindex="-1" data-tab-target="panel-paper">paper</button>
+                <button class="cc-tab" type="button" role="tab" id="tab-brass" aria-controls="panel-brass" aria-selected="false" tabindex="-1" data-tab-target="panel-brass">brass</button>
+              </div>
+              <section class="cc-tab-panel" id="panel-walnut" role="tabpanel" aria-labelledby="tab-walnut" tabindex="0" data-tab-panel>
+                <h4>Walnut structure</h4>
+                <p>Deep edges, contact shadows, and a grain line that keeps the page grounded.</p>
+              </section>
+              <section class="cc-tab-panel" id="panel-paper" role="tabpanel" aria-labelledby="tab-paper" tabindex="0" data-tab-panel hidden>
+                <h4>Paper reading</h4>
+                <p>Warm cream surfaces carry the longer copy, ledger details, and project records.</p>
+              </section>
+              <section class="cc-tab-panel" id="panel-brass" role="tabpanel" aria-labelledby="tab-brass" tabindex="0" data-tab-panel hidden>
+                <h4>Brass response</h4>
+                <p>Reserve the warm highlight for actions, focus rings, status lamps, and small points of attention.</p>
+              </section>
+              <noscript><p class="cc-demo-note">With JavaScript off, the first tab panel is the default reading panel.</p></noscript>
+            </article>
+          </div>
+        </section>
+
+        <section class="cc-section" id="feedback" aria-labelledby="feedback-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">06 · signals</p>
+              <h2 class="cc-section__title" id="feedback-title">Small signs of life.</h2>
+            </div>
+            <p class="cc-section__description">Badges, avatars, progress, and notices keep status legible without pretending this static page has live activity.</p>
+          </header>
+
+          <div class="cc-feedback-grid">
+            <div class="cc-card cc-card--inset cc-inline-media">
+              <span class="cc-avatar" aria-label="Demo avatar for Casey">CC</span>
+              <div class="cc-inline-media__copy">
+                <strong>Casey’s shelf</strong>
+                <span>demo profile · local only</span>
+                <div class="cc-chip-row"><span class="cc-badge cc-badge--success">ready</span><span class="cc-badge cc-badge--quiet">demo</span></div>
+              </div>
+            </div>
+            <div class="cc-card cc-card--inset cc-progress-wrap">
+              <div class="cc-progress-wrap__header"><span>drawer stocked</span><span>72%</span></div>
+              <progress class="cc-progress" max="100" value="72" aria-label="Demo drawer stocked 72 percent">72%</progress>
+              <p class="cc-demo-note">Progress is a static sample, not a live measurement.</p>
+            </div>
+            <div class="cc-notice cc-notice--success" role="status">
+              <span class="cc-notice__mark" aria-hidden="true">✓</span>
+              <div><p class="cc-notice__title">Saved locally</p><p class="cc-notice__copy">A success notice pairs a clear mark with a short, readable sentence.</p></div>
+            </div>
+            <div class="cc-notice cc-notice--error" role="alert">
+              <span class="cc-notice__mark" aria-hidden="true">!</span>
+              <div><p class="cc-notice__title">Needs a look</p><p class="cc-notice__copy">An error notice uses terracotta contrast and names the next action.</p></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="cc-section" id="disclosure" aria-labelledby="disclosure-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">07 · native disclosure</p>
+              <h2 class="cc-section__title" id="disclosure-title">Open the notebook.</h2>
+            </div>
+            <p class="cc-section__description">The accordion uses native details/summary, so its copy remains present and readable even before scripting.</p>
+          </header>
+
+          <div class="cc-accordion">
+            <details class="cc-accordion__item" open>
+              <summary class="cc-accordion__summary">What makes a surface feel physical?<span class="cc-accordion__chevron" aria-hidden="true">⌄</span></summary>
+              <div class="cc-accordion__content"><p>Keep light direction consistent: upper-left highlights describe the material, while a lower-right contact edge anchors it. Wood, paper, moss, leather, and brass should each get a different kind of response.</p></div>
+            </details>
+            <details class="cc-accordion__item" open>
+              <summary class="cc-accordion__summary">What belongs in the shared API?<span class="cc-accordion__chevron" aria-hidden="true">⌄</span></summary>
+              <div class="cc-accordion__content"><p>Use the stable <span class="cc-type-mono">cc-*</span> class names for structure and modifiers, then keep project-specific illustration classes beside them. The landing room’s scene remains its own preserved artwork.</p></div>
+            </details>
+          </div>
+        </section>
+
+        <section class="cc-section" id="modal-toast" aria-labelledby="modal-toast-title">
+          <header class="cc-section__header">
+            <div>
+              <p class="cc-section__eyebrow">08 · transient states</p>
+              <h2 class="cc-section__title" id="modal-toast-title">Knock on the drawer.</h2>
+            </div>
+            <p class="cc-section__description">Both examples are local interactions: the dialog closes with its button or Escape, and the toast can be dismissed or expires.</p>
+          </header>
+
+          <div class="cc-specimen cc-interaction-card">
+            <h3>Dialog + toast</h3>
+            <p>Native dialog semantics provide a modal focus path. The toast is a live status message with its own 44px dismiss target.</p>
+            <div class="cc-button-row">
+              <button class="cc-button cc-button--primary" type="button" data-dialog-open>open local dialog</button>
+              <button class="cc-button cc-button--secondary" type="button" data-toast-trigger>show toast</button>
+            </div>
+            <p class="cc-dialog-status" data-dialog-status role="status" aria-live="polite"></p>
+          </div>
+
+          <dialog class="cc-dialog" data-dialog aria-labelledby="dialog-title">
+            <form class="cc-dialog__inner" method="dialog">
+              <div class="cc-dialog__header">
+                <h2 id="dialog-title">A local note.</h2>
+                <button class="cc-button cc-button--icon cc-button--small cc-dialog__close" type="submit" value="cancel" aria-label="Close dialog">×</button>
+              </div>
+              <p class="cc-dialog__copy">This modal is only a component demonstration. Nothing is submitted, stored, or sent. Press Escape or choose an action to close it.</p>
+              <div class="cc-dialog__actions">
+                <button class="cc-button cc-button--ghost" type="submit" value="cancel">keep browsing</button>
+                <button class="cc-button cc-button--primary" type="submit" value="confirm">use sample</button>
+              </div>
+            </form>
+          </dialog>
+
+          <div class="cc-toast" data-toast role="status" aria-live="polite" hidden>
+            <p class="cc-toast__copy">A toast from the workbench, kept local.</p>
+            <button class="cc-toast__dismiss" type="button" data-toast-dismiss aria-label="Dismiss toast">×</button>
+          </div>
+        </section>
+      </div>
+
+      <footer class="cc-footer">
+        <p>cozy commons · common UI / demo surface</p>
+        <div class="cc-footer__links">
+          <a href="./index.html">landing room ↗</a>
+          <a href="../index.html">design lab ↗</a>
+          <a href="#top">back to top ↑</a>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>
