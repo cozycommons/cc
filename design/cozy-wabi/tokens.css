@@ -1,0 +1,33 @@
+:root {
+  --paper: #e7dcc5;
+  --paper-light: #f2eadb;
+  --paper-deep: #d6c5a7;
+  --ink: #3d2f29;
+  --ink-soft: #6f6256;
+  --espresso: #2d2422;
+  --walnut: #694b36;
+  --walnut-dark: #473328;
+  --clay: #b76845;
+  --clay-light: #d68b61;
+  --moss: #69755a;
+  --moss-dark: #465243;
+  --amber: #d39155;
+  --butter: #f0c477;
+  --blue-dusk: #6e7b7e;
+  --line: rgba(61, 47, 41, 0.24);
+  --line-strong: rgba(61, 47, 41, 0.42);
+  --hairline: 1px solid var(--line);
+  --soft-shadow: 0 20px 38px rgba(70, 47, 32, 0.15), 0 3px 5px rgba(70, 47, 32, 0.08);
+  --paper-shadow: 0 12px 25px rgba(70, 47, 32, 0.12), 0 2px 3px rgba(70, 47, 32, 0.09);
+  --inset-shadow: inset 3px 3px 7px rgba(69, 47, 35, 0.18), inset -2px -2px 4px rgba(255, 247, 229, 0.5);
+  --key-shadow: 0 3px 0 rgba(73, 47, 34, 0.2), 0 7px 13px rgba(70, 47, 32, 0.1), inset 0 1px 0 rgba(255, 242, 216, 0.42);
+  --key-shadow-pressed: inset 2px 3px 5px rgba(69, 43, 31, 0.23), 0 1px 0 rgba(255, 242, 216, 0.22);
+  --radius-card: 22px 17px 25px 15px / 18px 23px 15px 25px;
+  --radius-small: 11px 8px 13px 7px;
+  --radius-button: 9px 7px 10px 6px;
+  --serif: Georgia, 'Times New Roman', serif;
+  --sans: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  --mono: 'Courier New', Courier, monospace;
+  --focus-ring: 3px solid var(--clay);
+  --ease: 180ms ease;
+}
