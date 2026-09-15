@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
 
@@ -26,13 +26,13 @@ describe('top-level routes', () => {
 
   afterEach(cleanup);
 
-  it('serves a simple home page with a Dice project card', () => {
+  it('serves the Wabi project picker home page with a Dice project card', () => {
     const { container } = render(<App />);
 
     expect(container).not.toBeEmptyDOMElement();
     expect(screen.getByRole('main')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'A small room for things we make.' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute('href', '/dice');
+    expect(screen.getByRole('heading', { name: /Make room.*good things\./ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Dice beer die records and stats' })).toHaveAttribute('href', '/dice');
     expect(screen.queryByText('Commons scene page')).not.toBeInTheDocument();
   });
 
@@ -53,20 +53,21 @@ describe('top-level routes', () => {
     expect(screen.getByTestId('supabase-provider')).toBeInTheDocument();
   });
 
-  it('serves a design-system index at /design', () => {
+  it('serves the chosen Wabi component library at /design', async () => {
     window.history.replaceState({}, '', '/design');
 
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: 'A home for the visual languages we use.' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open Dice design system/ })).toHaveAttribute('href', '/design/dice');
+    await waitFor(() => expect(screen.getByRole('heading', { name: /A small kit.*close at hand\./ })).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'landing room' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('heading', { name: /Raised keys.*soft landing\./ })).toBeInTheDocument();
   });
 
-  it('serves the Dice design system at /design/dice', () => {
+  it('serves the Dice design system at /design/dice', async () => {
     window.history.replaceState({}, '', '/design/dice');
 
     render(<App />);
 
-    expect(screen.getByText('Dice design system')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Dice design system')).toBeInTheDocument());
   });
 });
