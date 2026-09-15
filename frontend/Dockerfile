@@ -22,15 +22,6 @@ COPY shared/commons/ /shared/commons/
 # Keep that path available in the build image as new systems are added.
 COPY design/ /design/
 
-# The comparison board is a static design reference. Copy only its three
-# landing-page explorations into Vite's public tree so it is emitted alongside
-# the SPA without publishing the source-only Dice design files.
-RUN mkdir -p public/design \
-    && cp /design/index.html public/design/index.html \
-    && cp -R /design/cozy-wabi public/design/cozy-wabi \
-    && cp -R /design/cozy-clay public/design/cozy-clay \
-    && cp -R /design/cozy-skeuo public/design/cozy-skeuo
-
 # Browser-visible deployment configuration is supplied explicitly at build time.
 ARG VITE_API_URL
 ARG VITE_SUPABASE_URL

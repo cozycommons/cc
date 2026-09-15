@@ -10,7 +10,7 @@ html {
   scroll-behavior: smooth;
 }
 
-body {
+body.cc-components-body {
   min-width: 320px;
   margin: 0;
   background:
@@ -22,7 +22,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-body::before {
+body.cc-components-body::before {
   position: fixed;
   z-index: 10;
   inset: 0;
@@ -34,10 +34,10 @@ body::before {
 }
 
 a,
-button,
-input,
-select,
-textarea {
+.cc-page button,
+.cc-page input,
+.cc-page select,
+.cc-page textarea {
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -58,7 +58,7 @@ textarea {
   font: inherit;
 }
 
-button {
+.cc-page button {
   cursor: pointer;
 }
 
@@ -170,8 +170,12 @@ button {
   transform: translateY(2px);
 }
 
-.cc-navbar__links.is-collapsed {
-  display: none;
+@media (min-width: 761px) {
+  .cc-navbar__links.is-collapsed { display: flex; }
+}
+
+@media (max-width: 760px) {
+  .cc-navbar__links.is-collapsed { display: none; }
 }
 
 .cc-hero {
