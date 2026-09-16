@@ -34,7 +34,7 @@ export default function LiveScoringControls({
           {!turnKnown && !hasSelectedThrower && <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Order unknown · choose thrower</p>}
         </div>
         <p className="sr-only" aria-live="polite">{hasSelectedThrower ? `Next thrower: ${playerLabel(effectiveThrowerId)}` : 'Next thrower unknown. Choose a player.'}</p>
-        <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="grid grid-cols-2 gap-1.5 mt-2">
           {visibleRoster.map(({ teamId, playerId }, turnIndex) => {
             const active = effectiveThrowerId === playerId;
             const tone = teamTone(teamId, leftTeamId);
@@ -46,7 +46,7 @@ export default function LiveScoringControls({
                 disabled={throwerSelectionLocked}
                 aria-pressed={active}
                 aria-label={playerLabel(playerId)}
-                className="jk-live-player-choice min-h-16 px-2 py-2 rounded-md text-left font-semibold transition-all duration-200 flex items-center gap-2"
+                className="jk-live-player-choice min-h-14 px-2 py-1.5 rounded-md text-left font-semibold transition-all duration-200 flex items-center gap-2"
                 style={{
                   border: `1.5px solid ${active ? tone : 'var(--border-subtle)'}`,
                   background: active
@@ -56,7 +56,7 @@ export default function LiveScoringControls({
                 }}
               >
                 <span className={`relative shrink-0 transition-transform duration-200 ${active ? 'scale-105' : ''}`}>
-                  <PlayerAvatar profile={playerProfile(playerId)} size={42} linkToProfile={false} />
+                  <PlayerAvatar profile={playerProfile(playerId)} size={36} linkToProfile={false} />
                   {turnKnown && <span
                     aria-hidden="true"
                     className="absolute -top-1 -left-1 w-4 h-4 rounded-full grid place-items-center text-[9px] font-bold"
@@ -77,9 +77,9 @@ export default function LiveScoringControls({
             </p>
           ) : (
             <>
-              <div className="jk-live-result-grid grid grid-cols-2 gap-2 mt-2">
+              <div className="jk-live-result-grid grid grid-cols-4 gap-1.5 mt-2">
                 <Button
-                  className="jk-live-result-button min-h-14 px-2"
+                  className="jk-live-result-button min-h-14 px-1 text-xs leading-tight"
                   aria-label="Point"
                   disabled={saving || !hasSelectedThrower}
                   onClick={() => onRecord('point')}
@@ -87,14 +87,14 @@ export default function LiveScoringControls({
                 >
                   Point <span className="ml-1 opacity-70">+1</span>
                 </Button>
-                <Button className="jk-live-result-button min-h-14 px-2" variant="outline" disabled={saving || !hasSelectedThrower} onClick={onTableHit}>Table hit</Button>
+                <Button className="jk-live-result-button min-h-14 px-1 text-xs leading-tight" variant="outline" disabled={saving || !hasSelectedThrower} onClick={onTableHit}>Table hit</Button>
                 <Button
-                  className="jk-live-result-button min-h-14 px-2"
+                  className="jk-live-result-button min-h-14 px-1 text-xs leading-tight"
                   disabled={saving || !hasSelectedThrower}
                   onClick={onFifa}
                   style={{ background: 'var(--accent-gold)', color: 'var(--ink-950)' }}
                 >FIFA <span className="ml-1 opacity-70">+1</span></Button>
-                <Button className="jk-live-result-button min-h-14 px-2" variant="outline" disabled={saving || !hasSelectedThrower} onClick={() => onRecord('miss')}>Miss</Button>
+                <Button className="jk-live-result-button min-h-14 px-1 text-xs leading-tight" variant="outline" disabled={saving || !hasSelectedThrower} onClick={() => onRecord('miss')}>Miss</Button>
               </div>
               <button
                 type="button"
