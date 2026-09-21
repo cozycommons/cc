@@ -54,14 +54,14 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
   const playerButtons = (legend, players, onPick, selectedId = '', allowNobody = false) => (
     <fieldset className="mt-4">
       <legend className="jk-label">{legend}</legend>
-      <div className="grid grid-cols-2 gap-2 mt-2">
+      <div className="grid grid-cols-2 gap-1.5 mt-2">
         {allowNobody && (
           <button
             type="button"
             aria-label={`${legend}: Dead — no one caught it`}
             aria-pressed={selectedId === 'none'}
             disabled={saving}
-            className="col-span-2 min-h-14 p-3 rounded-lg border text-left transition-transform active:scale-[.97]"
+            className="col-span-2 min-h-12 p-2.5 rounded-lg border text-left transition-transform active:scale-[.97]"
             onClick={() => onPick('none')}
             style={{
               borderColor: selectedId === 'none' ? 'var(--accent-gold)' : 'var(--border-subtle)',
@@ -79,14 +79,14 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
             aria-label={`${legend}: ${playerLabel(playerId)}`}
             aria-pressed={selectedId === playerId}
             disabled={saving}
-            className="min-w-0 min-h-16 p-3 rounded-lg border flex items-center gap-3 text-left transition-transform active:scale-[.97]"
+            className="min-w-0 min-h-14 p-2 rounded-lg border flex items-center gap-2 text-left transition-transform active:scale-[.97]"
             onClick={() => onPick(playerId)}
             style={{
               borderColor: selectedId === playerId ? 'var(--accent-gold)' : 'var(--border-subtle)',
               background: selectedId === playerId ? 'color-mix(in srgb, var(--accent-gold) 15%, var(--surface-card))' : 'var(--surface-card)',
             }}
           >
-            <PlayerAvatar profile={playerProfile?.(playerId) || { user_id: playerId, display_name: playerLabel(playerId) }} size={40} linkToProfile={false} />
+            <PlayerAvatar profile={playerProfile?.(playerId) || { user_id: playerId, display_name: playerLabel(playerId) }} size={36} linkToProfile={false} />
             <span className="font-semibold truncate">{playerLabel(playerId).split(' ')[0]}</span>
           </button>
         ))}
@@ -111,7 +111,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
 
   const select = (id, label, value, setter, options) => (
     <label className="jk-label block mt-3" htmlFor={id}>{label}
-      <select id={id} className="block w-full mt-1 p-3 rounded-md border text-base normal-case" value={value} onChange={(event) => setter(event.target.value)}>
+      <select id={id} className="block w-full min-h-11 mt-1 p-2.5 rounded-md border text-base normal-case" value={value} onChange={(event) => setter(event.target.value)}>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
@@ -119,7 +119,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onCancel(); }} style={{ background: 'rgba(2,2,10,.48)' }}>
-      <section role="dialog" aria-modal="true" aria-labelledby={titleId} className="jk-live-action-sheet w-full max-w-xl max-h-[88vh] overflow-y-auto rounded-t-2xl p-5" onMouseDown={(event) => event.stopPropagation()} style={{ background: 'var(--surface-card)' }}>
+      <section role="dialog" aria-modal="true" aria-labelledby={titleId} className="jk-live-action-sheet w-full max-w-xl max-h-[88vh] overflow-y-auto rounded-t-2xl p-4" onMouseDown={(event) => event.stopPropagation()} style={{ background: 'var(--surface-card)' }}>
         <div className="flex items-start justify-between gap-3">
         {correction && <p className="jk-label">{playerLabel(correction.thrower_id)} · {correction.outcome}</p>}
           <Button variant="ghost" size="sm" aria-label="Close game actions" onClick={onCancel}>Close</Button>
@@ -178,7 +178,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
           {advancedOutcome === 'fifa' && <>
             <fieldset className="mt-4">
               <legend className="jk-label">WHAT HAPPENED?</legend>
-              <div className="grid grid-cols-3 gap-2 mt-2">
+              <div className="grid grid-cols-3 gap-1.5 mt-2">
                 {[
                   ['goal', 'Goal', '+1'],
                   ['kick_catch', 'Catch', '+1'],
@@ -189,7 +189,7 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
                     type="button"
                     aria-pressed={fifaFinish === value}
                     disabled={saving}
-                    className="min-h-14 px-2 rounded-lg border font-semibold transition-transform active:scale-[.97]"
+                    className="min-h-12 px-1.5 rounded-lg border text-sm font-semibold transition-transform active:scale-[.97]"
                     onClick={() => { setFifaFinish(value); setFifaKicker(''); }}
                     style={{
                       borderColor: fifaFinish === value ? 'var(--accent-gold)' : 'var(--border-subtle)',
