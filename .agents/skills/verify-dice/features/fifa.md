@@ -15,6 +15,8 @@ In Referee view, choose **FIFA** alongside the other common outcomes, then choos
 3. Record a FIFA goal saved by the throwing team. Verify the saver is attributed and play continues with no point.
 4. Correct each finish into another and confirm old role credits and score effects are replaced rather than accumulated.
 5. Exercise the choices at mobile width and confirm the common FIFA entry remains as easy to reach as a regular point.
+6. In the FIFA sheet, confirm only the participant selector for the chosen finish is revealed, and that the final valid player selection saves immediately without an extra confirmation step.
+7. At about 320px and 390px wide, confirm the four common referee actions, player selectors, score/probability context, and action-sheet controls stay inside their containers with at least 44px touch targets.
 
 ## Gotchas
 

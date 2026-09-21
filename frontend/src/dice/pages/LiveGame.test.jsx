@@ -396,6 +396,8 @@ describe('LiveGame common scoring', () => {
       .map((button) => button.textContent.trim())
       .filter((label) => ['Miss', 'Table hit', 'Point +1', 'FIFA +1'].includes(label));
     expect(commonResults).toEqual(['Point +1', 'Table hit', 'FIFA +1', 'Miss']);
+    expect(within(controls).getByRole('button', { name: 'Point' })).toHaveClass('min-h-14');
+    expect(controls.querySelector('.jk-live-result-grid')).toHaveClass('grid-cols-4');
     fireEvent.click(await screen.findByRole('button', { name: 'Point' }));
     await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
     expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
@@ -551,6 +553,8 @@ describe('LiveGame common scoring', () => {
     fireEvent.click(await screen.findByRole('button', { name: /FIFA/i }));
     expect(screen.getByRole('heading', { name: 'FIFA' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Result')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /WHO SCORED/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /WHO SAVED/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Catch.*\+1/i }));
     fireEvent.click(screen.getByRole('button', { name: 'WHO CAUGHT IT?: Cam C' }));
     await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
