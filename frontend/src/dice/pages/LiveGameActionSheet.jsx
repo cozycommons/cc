@@ -17,8 +17,10 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
   const [characteristics, setCharacteristics] = useState(correction?.characteristics || []);
   const [thrower, setThrower] = useState(correction?.thrower_id || selectedThrowerId || roster[0]?.playerId || '');
   const [advancedOutcome, setAdvancedOutcome] = useState(target === 'fifa' ? 'fifa' : target === 'caught' ? 'caught' : 'sink');
-  const [fifaFinish, setFifaFinish] = useState(null);
-  const [fifaKicker, setFifaKicker] = useState('');
+  const [fifaFinish, setFifaFinish] = useState(correction?.fifa?.finish || null);
+  const [fifaKicker, setFifaKicker] = useState(correction?.fifa?.kicker_id || '');
+  const [fifaCatcher, setFifaCatcher] = useState(correction?.fifa?.catcher_id || '');
+  const [fifaSaver, setFifaSaver] = useState(correction?.fifa?.saver_id || '');
   const [score, setScore] = useState(game.score.map(String));
   const [coverage, setCoverage] = useState(game.detail_coverage === 'complete' ? 'partial' : game.detail_coverage);
   const [reason, setReason] = useState(game.status === 'ready_to_finish' ? 'target_reached' : 'other');
@@ -31,10 +33,21 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
   const throwerTeamId = roster.find(({ playerId }) => playerId === thrower)?.teamId;
   const fifaRoster = throwerTeamId ? roster.filter(({ teamId }) => teamId !== throwerTeamId) : [];
   const savingTeam = throwerTeamId ? roster.filter(({ teamId }) => teamId === throwerTeamId) : [];
-  useEffect(() => {
+  const clearFifa = () => {
     setFifaFinish(null);
     setFifaKicker('');
-  }, [thrower]);
+    setFifaCatcher('');
+    setFifaSaver('');
+  };
+  const correctedFifa = fifaFinish && fifaKicker ? {
+    finish: fifaFinish,
+    kicker_id: fifaKicker,
+    ...(fifaFinish === 'kick_catch' && fifaCatcher ? { catcher_id: fifaCatcher } : {}),
+    ...(fifaFinish === 'goal_saved' && fifaSaver ? { saver_id: fifaSaver } : {}),
+  } : null;
+  const validCorrectedFifa = correctedFifa && (fifaFinish === 'goal'
+    || (fifaFinish === 'kick_catch' && fifaCatcher && fifaCatcher !== fifaKicker)
+    || (fifaFinish === 'goal_saved' && fifaSaver));
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape' && !saving) onCancel();
@@ -131,11 +144,31 @@ export default function LiveGameActionSheet({ target, game, roster, selectedThro
           {scoreAnchor && <p className="text-sm mt-3 p-3 rounded-md" style={{ background: 'var(--surface-sunken)' }}>
             This result is before the official {scoreAnchor.score.join('–')} score checkpoint. Changing it updates recorded stats, but the score stays fixed. Use Catch up score afterward if the official score should change.
           </p>}
-          {select('replacement-thrower', 'Replacement thrower', thrower, (playerId) => { setThrower(playerId); setCatcher(''); }, roster.map(({ playerId }) => ({ value: playerId, label: playerLabel(playerId) })))}
-          {select('replacement-outcome', 'Replacement result', outcome, (value) => { setOutcome(value); if (value !== 'caught') setCatcher(''); }, ['point', 'miss', 'caught', 'sink', 'self_sink', 'invalid'].map((value) => ({ value, label: value.replaceAll('_', ' ') })))}
+          {select('replacement-thrower', 'Replacement thrower', thrower, (playerId) => { setThrower(playerId); setCatcher(''); clearFifa(); }, roster.map(({ playerId }) => ({ value: playerId, label: playerLabel(playerId) })))}
+          {select('replacement-outcome', 'Replacement result', outcome, (value) => { setOutcome(value); if (value !== 'caught') setCatcher(''); if (value !== 'fifa') clearFifa(); }, ['point', 'miss', 'caught', 'sink', 'self_sink', 'fifa', 'invalid'].map((value) => ({ value, label: value.replaceAll('_', ' ') })))}
           {outcome === 'caught' && tableCatchButtons(setCatcher, catcher)}
           {outcome === 'invalid' && characteristicControls()}
-          <Button className="w-full min-h-12 mt-4" disabled={saving || (outcome === 'caught' && !catcher) || (outcome === 'invalid' && characteristics.length === 0)} onClick={() => onCommand({ kind: 'change_throw', target_event_id: correction.id, thrower_id: thrower, outcome, ...(outcome === 'caught' ? catcherField : {}), ...(outcome === 'invalid' ? { characteristics } : {}), reason: 'mistaken_entry' })}>{scoreAnchor ? 'Change recorded result' : 'Change result'}</Button>
+          {outcome === 'fifa' && <>
+            {select('replacement-fifa-finish', 'FIFA finish', fifaFinish || '', (value) => { setFifaFinish(value || null); setFifaKicker(''); setFifaCatcher(''); setFifaSaver(''); }, [
+              { value: '', label: 'Choose finish' },
+              { value: 'goal', label: 'Goal' },
+              { value: 'kick_catch', label: 'Catch' },
+              { value: 'goal_saved', label: 'Saved' },
+            ])}
+            {fifaFinish && select('replacement-fifa-kicker', fifaFinish === 'goal' ? 'Who scored?' : 'Who kicked it?', fifaKicker, (value) => { setFifaKicker(value); setFifaCatcher(''); }, [
+              { value: '', label: 'Choose player' },
+              ...fifaRoster.map(({ playerId }) => ({ value: playerId, label: playerLabel(playerId) })),
+            ])}
+            {fifaFinish === 'kick_catch' && fifaKicker && select('replacement-fifa-catcher', 'Who caught it?', fifaCatcher, setFifaCatcher, [
+              { value: '', label: 'Choose player' },
+              ...fifaRoster.filter(({ playerId }) => playerId !== fifaKicker).map(({ playerId }) => ({ value: playerId, label: playerLabel(playerId) })),
+            ])}
+            {fifaFinish === 'goal_saved' && fifaKicker && select('replacement-fifa-saver', 'Who saved it?', fifaSaver, setFifaSaver, [
+              { value: '', label: 'Choose player' },
+              ...savingTeam.map(({ playerId }) => ({ value: playerId, label: playerLabel(playerId) })),
+            ])}
+          </>}
+          <Button className="w-full min-h-12 mt-4" disabled={saving || (outcome === 'caught' && !catcher) || (outcome === 'invalid' && characteristics.length === 0) || (outcome === 'fifa' && !validCorrectedFifa)} onClick={() => onCommand({ kind: 'change_throw', target_event_id: correction.id, thrower_id: thrower, outcome, ...(outcome === 'caught' ? catcherField : {}), ...(outcome === 'invalid' ? { characteristics } : {}), ...(outcome === 'fifa' ? { fifa: correctedFifa } : {}), reason: 'mistaken_entry' })}>{scoreAnchor ? 'Change recorded result' : 'Change result'}</Button>
           <div className="grid grid-cols-2 gap-2 mt-2"><Button variant="outline" onClick={() => setStep('retoss')}>Retoss — new physical throw</Button><Button variant="outline" onClick={() => setStep('remove')}>Remove mistaken entry</Button></div>
         </>}
 

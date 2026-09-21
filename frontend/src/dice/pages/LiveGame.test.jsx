@@ -1133,6 +1133,76 @@ describe('LiveGame common scoring', () => {
     expect(mocks.sendLiveCommand.mock.calls[0][2]).not.toHaveProperty('catcher_id');
   });
 
+  it('corrects FIFA participants in the same logical throw', async () => {
+    const goal = {
+      id: 'fifa-1', kind: 'observation', outcome: 'fifa', thrower_id: 'alice', sequence: 1,
+      fifa: { finish: 'goal', kicker_id: 'cam' },
+    };
+    mocks.getLiveGame.mockResolvedValue({ ...baseGame, events: [goal] });
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8, projection: { score: [1, 1], status: 'active', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix this result' }));
+    fireEvent.change(screen.getByLabelText('FIFA finish'), { target: { value: 'goal_saved' } });
+    fireEvent.change(screen.getByLabelText('Who kicked it?'), { target: { value: 'dev' } });
+    expect(mocks.sendLiveCommand).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Who saved it?'), { target: { value: 'bea' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change result' }));
+
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
+      kind: 'change_throw', target_event_id: 'fifa-1', thrower_id: 'alice', outcome: 'fifa',
+      fifa: { finish: 'goal_saved', kicker_id: 'dev', saver_id: 'bea' },
+    });
+  });
+
+  it('can correct a non-FIFA result to an attributed FIFA catch', async () => {
+    const point = { id: 'point-1', kind: 'observation', outcome: 'point', thrower_id: 'alice', sequence: 1 };
+    mocks.getLiveGame.mockResolvedValue({ ...baseGame, events: [point] });
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8, projection: { score: [1, 1], status: 'active', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix this result' }));
+    fireEvent.change(screen.getByLabelText('Replacement result'), { target: { value: 'fifa' } });
+    expect(screen.getByRole('button', { name: 'Change result' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('FIFA finish'), { target: { value: 'kick_catch' } });
+    fireEvent.change(screen.getByLabelText('Who kicked it?'), { target: { value: 'cam' } });
+    fireEvent.change(screen.getByLabelText('Who caught it?'), { target: { value: 'dev' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change result' }));
+
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
+      kind: 'change_throw', target_event_id: 'point-1', outcome: 'fifa',
+      fifa: { finish: 'kick_catch', kicker_id: 'cam', catcher_id: 'dev' },
+    });
+  });
+
+  it('drops FIFA attribution when correcting the result to a miss', async () => {
+    const goal = {
+      id: 'fifa-1', kind: 'observation', outcome: 'fifa', thrower_id: 'alice', sequence: 1,
+      fifa: { finish: 'goal', kicker_id: 'cam' },
+    };
+    mocks.getLiveGame.mockResolvedValue({ ...baseGame, events: [goal] });
+    mocks.sendLiveCommand.mockResolvedValue({
+      accepted_version: 8, projection: { score: [1, 1], status: 'active', coverage: 'complete' },
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fix this result' }));
+    fireEvent.change(screen.getByLabelText('Replacement result'), { target: { value: 'miss' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change result' }));
+
+    await waitFor(() => expect(mocks.sendLiveCommand).toHaveBeenCalledTimes(1));
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).toMatchObject({
+      kind: 'change_throw', target_event_id: 'fifa-1', outcome: 'miss',
+    });
+    expect(mocks.sendLiveCommand.mock.calls[0][2]).not.toHaveProperty('fifa');
+  });
+
   it('shows corrected and retossed plays without exposing decision events', async () => {
     const corrected = { id: 'point-1', kind: 'observation', outcome: 'point', thrower_id: 'alice', sequence: 1 };
     const correction = { id: 'correction-1', kind: 'correction', target_event_id: 'point-1', sequence: 2 };
