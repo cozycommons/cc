@@ -27,6 +27,6 @@ COPY --chown=app:app shared/commons/scene-contract-v1.json /app/shared/commons/s
 USER app
 
 EXPOSE 8000
-HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=12 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).read()" || exit 1
+HEALTHCHECK --interval=30s --timeout=4s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()" || exit 1
 CMD ["python", "-m", "release"]
