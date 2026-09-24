@@ -47,6 +47,7 @@ never add it to the repository, frontend resource, or frontend build.
 - Base directory: `/`
 - Dockerfile location: `/frontend/Dockerfile`
 - Exposed port: `80`
+- Health endpoint: `/healthz` (defined in the Dockerfile)
 
 Build-time environment variables:
 
@@ -146,11 +147,39 @@ until deployment access is available.
 2. Open `/ready` and verify it returns `{"status":"ready"}`. Treat a `503` as
    a failed rollout: the process is alive, but Supabase or the required Dice
    schema is unavailable.
-3. Open the frontend `/dice` route.
+3. Open the frontend `/healthz` endpoint and `/dice` route.
 4. Verify authentication and logout.
 5. Upload and display one synthetic profile or comment image.
 6. Complete one synthetic game flow and confirm the leaderboard updates.
 7. Review both Coolify resource logs before enabling automatic deployment.
+
+## VM startup, logs, and recovery
+
+Keep Docker enabled at VM boot. Coolify, its proxy, and both applications need
+Docker restart policies so they return after a reboot. Use Coolify's Start,
+Stop, Restart, and Redeploy actions to control the applications remotely; do
+not add separate systemd units that also start the same containers. After
+changing boot or restart settings, verify them with a planned VM reboot.
+
+Both application images write runtime output to Docker's standard streams. Set
+bounded Docker log rotation on the VM to avoid filling its disk. Coolify's
+Runtime Logs page shows the current containers' output; it is not durable
+history across container replacement or VM loss. For retained logs, configure
+a server-level Coolify log drain to an external destination, enable Drain Logs
+on each application, restart them, and verify a new event at the destination.
+Deployment/build logs remain in Coolify and are not included in the workload
+log drain.
+
+Back up the Coolify instance database on a schedule with retention limits and
+an off-VM copy. Save `/data/coolify/source/.env` (especially `APP_KEY`) securely
+outside the VM; the database backup alone cannot restore encrypted settings.
+Coolify instance backups do not include application or hosted Supabase data.
+Test a restore on a separate machine before relying on the backup for recovery.
+
+After a reboot, confirm Coolify and the proxy are reachable, both application
+containers are healthy, `/ready` returns 200, and `/healthz` returns 200 on the
+frontend. A stopped application can be started from Coolify while the VM and
+Coolify are reachable; a failed VM must first be recovered through OVH.
 
 ## Release and rollback
 

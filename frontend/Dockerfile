@@ -40,4 +40,6 @@ ENV PORT=80
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 EXPOSE ${PORT}
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
 CMD /bin/sh -c "envsubst '\$PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
