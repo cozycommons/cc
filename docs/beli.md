@@ -15,12 +15,14 @@ MCP: `/beli/mcp`.
 - `backend/beli/accounts.py` — account store. Beli logins encrypted at rest
   with Fernet (`BELI_CREDENTIALS_KEY`); API tokens stored as sha256 hashes.
 - `backend/beli/routes.py` — FastAPI router (`/beli/onboard`, `/beli/me`,
-  `/beli/recs`, `/beli/bookmark`, `/beli/watcher-opt-in`).
+  `/beli/recs`, `/beli/bookmark`, `/beli/watcher-opt-in`, `/beli/eats-ingest`).
 - `backend/beli/mcp_server.py` — MCP tools (`get_recs`, `bookmark_restaurant`)
   mounted at `/beli/mcp`. Tools take the caller's personal API token, so one
   server serves every user.
-- `backend/beli/eats_watcher.py` + `backend/jobs/beli_eats_watch.py` —
-  the `@beli_eats` auto-bookmark watcher, run per opted-in account.
+- `backend/beli/eats_watcher.py` —
+  the `@beli_eats` auto-bookmark watcher, run per opted-in account. Posts
+  arrive via `POST /beli/eats-ingest` from the operator's harness (native
+  Instagram integration); no Instagram code lives on the backend.
 - `backend/migrations/0001_beli_accounts.sql` — the `beli_accounts` table
   (registered as the `beli` family in `migration_runner.py`).
 
@@ -37,8 +39,8 @@ MCP: `/beli/mcp`.
 ## User onboarding
 
 Each friend onboards with their own Beli login. Nothing is shared and no
-Instagram access is needed — the server-side watcher handles `@beli_eats`
-ingestion with its own login (see `## Watcher`).
+Instagram access is needed — `@beli_eats` ingestion runs on the operator's
+harness and fans out to every opted-in account (see `## Watcher`).
 
 1. The user gives their agent their Beli login (phone number or email +
    password), or calls the endpoint directly:
@@ -71,6 +73,7 @@ another friend's Beli data. If a token is lost, re-onboard to mint a new one.
 | GET | `/beli/recs?neighborhood=&day=&time=&table_size=&limit=` | Bookmarks (by your scores) first, then Beli trending. Hours, open-at-time, reservation slots/platforms per rec |
 | POST | `/beli/bookmark` `{name, city?, dry_run?}` | Confidence-gated Want-to-Try write |
 | POST | `/beli/watcher-opt-in?enabled=` | Opt in/out of the `@beli_eats` watcher |
+| POST | `/beli/eats-ingest` | Harness-only: ingest `@beli_eats` posts (service key) |
 
 Bookmark statuses: `bookmarked` | `already_bookmarked` | `already_ranked` |
 `would_bookmark` (dry_run) | `ambiguous` (no write, candidates listed) |
@@ -83,16 +86,19 @@ reported instead of re-bookmarked.
 | Var | Purpose |
 |---|---|
 | `BELI_CREDENTIALS_KEY` | Fernet key for Beli logins at rest. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Set in Coolify; **never commit**. |
-| `BELI_EATS_IG_USERNAME` / `BELI_EATS_IG_PASSWORD` | Optional IG session for the watcher (best-effort without; the job skips quietly when IG is unreachable). |
-| `BELI_EATS_IG_SESSION` | Preferred: base64-encoded Instaloader session so the watcher reuses a session instead of a fresh password login (fresh logins from hosting IPs trigger Instagram's email-verification challenges). Mint once via `python -m jobs.mint_ig_session` and paste the output here. |
+| `BELI_EATS_INGEST_KEY` | Service key for `POST /beli/eats-ingest` (the harness cron). Generate: `openssl rand -hex 32`. Set in Coolify; **never commit**. |
 
 ## Watcher
 
-`python -m jobs.beli_eats_watch` (run daily, e.g. a Coolify cron job). For each
-account with `watcher_opt_in=true`: pulls recent `@beli_eats` posts, extracts
-restaurant names from captions, bookmarks confident matches into that
-account's Beli, advances the account's own `last_eats_scan` watermark, prints
-a digest. Ambiguous names are never written.
+`@beli_eats` ingestion runs on the operator's harness, not on the backend:
+a daily scheduled job pulls recent posts through the native Instagram
+integration and POSTs them to `POST /beli/eats-ingest` (service-key auth).
+The endpoint runs the watch pipeline for each account with
+`watcher_opt_in=true`: extracts restaurant names from captions, bookmarks
+confident matches into that account's Beli, advances the account's own
+`last_eats_scan` watermark, and returns per-account digests. Ambiguous names
+are never written. End users never touch Instagram — onboarding stays a
+single Beli-login call (see `## User onboarding`).
 
 ## Testing
 

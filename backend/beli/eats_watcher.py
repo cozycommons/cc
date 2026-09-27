@@ -1,151 +1,37 @@
 """@beli_eats -> Beli auto-bookmark watcher, per-user edition.
 
-For every account with watcher_opt_in=true:
-  1. pull recent @beli_eats Instagram posts (best-effort; needs instaloader
-     and, on most hosting IPs, an IG session — see BELI_EATS_IG_SESSION
-     below),
-  2. extract restaurant-name candidates from captions,
-  3. bookmark confident matches into THAT account's Beli via the shared
+Post ingestion happens outside this service: a scheduled job on the
+operator's harness pulls recent @beli_eats posts through the native
+Instagram integration and POSTs them to /beli/eats-ingest. For every
+account with watcher_opt_in=true this module then:
+
+  1. extracts restaurant-name candidates from captions,
+  2. bookmarks confident matches into THAT account's Beli via the shared
      confidence gate (ambiguous names are never written),
-  4. advance the account's last_eats_scan watermark and print a digest.
+  3. advances the account's last_eats_scan watermark.
 
 Each account keeps its own watermark, so friends onboard at different times
 without missing or re-processing posts.
-
-Instagram login: a fresh password login from a hosting IP is what triggers
-Instagram's email-verification challenges, so the watcher prefers a saved
-session. Mint one once via `python -m jobs.mint_ig_session` and store it
-base64-encoded in the BELI_EATS_IG_SESSION env var; the watcher then reuses
-it instead of logging in with the password. If Instagram challenges
-instaloader's own login (so minting can't complete), a Netscape cookies.txt
-exported from a logged-in browser works too — same env var, base64-encoded.
-Password login remains as a fallback when no session is configured.
 """
 
 from __future__ import annotations
 
-import os
-
-from .accounts import make_client_for_account
+from . import accounts
+from .accounts import AccountError, make_client_for_account
 from .logic import bookmark_name, candidates_from_caption, guess_city
 
-IG_HANDLE = "beli_eats"
 
+def _norm_ts(ts: str) -> str:
+    """Normalize a post timestamp for watermark string comparison.
 
-class BeliEatsUnavailable(Exception):
-    pass
-
-
-def _session_dicts(raw: bytes):
-    """Yield candidate cookie dicts from a decoded BELI_EATS_IG_SESSION value.
-
-    Two formats are accepted:
-      1. instaloader's native session (a pickle of the cookie dict), as minted
-         by `python -m jobs.mint_ig_session`;
-      2. a Netscape cookies.txt exported from a logged-in browser (e.g. via
-         the "Get cookies.txt LOCALLY" extension) — useful when Instagram
-         challenges instaloader's own password login outright.
+    Accepts ISO-8601 ("2026-09-26T17:14:52+00:00") and the space-separated
+    form some fetchers emit ("2026-09-26 17:14:52"). Mixed formats break
+    the lexicographic watermark comparison, so normalize to the T form.
     """
-    import pickle
-    import tempfile
-    from http.cookiejar import MozillaCookieJar
-
-    try:
-        data = pickle.loads(raw)
-    except Exception:
-        data = None
-    if isinstance(data, dict) and data.get("sessionid"):
-        yield data
-    try:
-        text = raw.decode("utf-8", errors="replace")
-    except Exception:
-        return
-    if "sessionid" not in text:
-        return
-    try:
-        with tempfile.NamedTemporaryFile(
-            prefix="ig_cookies_", suffix=".txt", delete=False, mode="w"
-        ) as f:
-            f.write(text)
-            cookies_path = f.name
-        jar = MozillaCookieJar(cookies_path)
-        jar.load()
-        data = {c.name: c.value for c in jar}
-    except Exception:
-        return
-    if data.get("sessionid"):
-        yield data
-
-
-def _login_instaloader(loader, ig_user: str | None, ig_pass: str | None) -> None:
-    """Log the burner into Instagram, session-first.
-
-    Prefers the saved session from BELI_EATS_IG_SESSION (base64-encoded;
-    see _session_dicts for accepted formats). A returning session does not
-    trigger Instagram's email-verification challenges the way a fresh
-    password login from a hosting IP does. Falls back to password login when
-    no (usable) session is configured.
-    """
-    import base64
-
-    session_b64 = os.environ.get("BELI_EATS_IG_SESSION")
-    if session_b64 and ig_user:
-        try:
-            raw = base64.b64decode(session_b64)
-        except Exception:
-            raw = b""
-        for session_data in _session_dicts(raw):
-            try:
-                loader.load_session(ig_user, session_data)
-                return
-            except Exception:
-                continue
-        if raw:
-            print(
-                "Beli Eats watch: saved IG session unusable; trying password login."
-            )
-    if ig_user and ig_pass:
-        loader.login(ig_user, ig_pass)
-
-
-def fetch_beli_eats_posts(limit: int = 25) -> list:
-    """Pull recent @beli_eats posts. Raises BeliEatsUnavailable when IG is unreachable."""
-    try:
-        import instaloader
-    except ImportError:
-        raise BeliEatsUnavailable("instaloader is not installed")
-    try:
-        loader = instaloader.Instaloader(
-            quiet=True,
-            download_pictures=False,
-            download_videos=False,
-            download_video_thumbnails=False,
-            download_geotags=False,
-            download_comments=False,
-            save_metadata=False,
-            # Fail fast on rate limits instead of sleeping ~11min per retry:
-            # this is a daily best-effort job and the per-account watermark
-            # makes a failed run lossless (tomorrow retries the same posts).
-            max_connection_attempts=1,
-        )
-        ig_user = os.environ.get("BELI_EATS_IG_USERNAME")
-        ig_pass = os.environ.get("BELI_EATS_IG_PASSWORD")
-        _login_instaloader(loader, ig_user, ig_pass)
-        profile = instaloader.Profile.from_username(loader.context, IG_HANDLE)
-        posts = []
-        for post in profile.get_posts():
-            posts.append(
-                {
-                    "shortcode": post.shortcode,
-                    "created_at": post.date_utc.isoformat(),
-                    "post_caption": post.caption or "",
-                }
-            )
-            if len(posts) >= limit:
-                break
-        return posts
-    except Exception as e:
-        raise BeliEatsUnavailable(f"could not fetch @{IG_HANDLE} posts: {e}")
+    ts = (ts or "").strip()
+    if len(ts) >= 19 and ts[10] == " ":
+        ts = ts[:10] + "T" + ts[11:]
+    return ts
 
 
 def scan_account_for_posts(account: dict, posts: list) -> dict:
@@ -218,3 +104,53 @@ def format_digest(digest: dict) -> str:
     if not (digest["bookmarked"] or digest["already"] or digest["skipped"]):
         lines.append("No restaurant names extracted.")
     return "\n".join(lines)
+
+
+def run_eats_ingest(posts: list, supabase) -> list[dict]:
+    """Run the watch pipeline for every opted-in account.
+
+    `posts` are dicts with at least `created_at` and `post_caption`.
+    Returns one digest dict per account. Never raises on per-account
+    failures; they are reported in the digest as skipped.
+    """
+    posts = [
+        {**p, "created_at": _norm_ts(p.get("created_at") or "")} for p in posts
+    ]
+    res = (
+        supabase.table("beli_accounts")
+        .select("id,label,beli_id_enc,password_enc,token_hash,watcher_opt_in,last_eats_scan")
+        .eq("watcher_opt_in", True)
+        .execute()
+    )
+    rows = res.data or []
+    digests = []
+    for row in rows:
+        label = row.get("label")
+        try:
+            account = {
+                "id": row["id"],
+                "label": label,
+                "beli_id": accounts.decrypt_secret(row["beli_id_enc"]),
+                "password": accounts.decrypt_secret(row["password_enc"]),
+            }
+        except AccountError as e:
+            digests.append(
+                {
+                    "account": label,
+                    "checked": 0,
+                    "bookmarked": [],
+                    "already": [],
+                    "skipped": [f"account error: {e}"],
+                    "newest_ts": row.get("last_eats_scan") or "",
+                }
+            )
+            continue
+        digest = scan_account_for_posts(
+            {**account, "last_eats_scan": row.get("last_eats_scan")}, posts
+        )
+        if digest["newest_ts"]:
+            supabase.table("beli_accounts").update(
+                {"last_eats_scan": digest["newest_ts"]}
+            ).eq("id", row["id"]).execute()
+        digests.append(digest)
+    return digests

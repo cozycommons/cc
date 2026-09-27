@@ -5,6 +5,7 @@ Endpoints:
   GET  /beli/me         check a token / describe the account
   GET  /beli/recs        ranked bookmarks first, then Beli trending
   POST /beli/bookmark    confidence-gated "Want to Try" bookmark write
+  POST /beli/eats-ingest @beli_eats post ingestion (service key, not user token)
 
 Auth: Authorization: Bearer <personal token> (from /beli/onboard).
 Every request resolves the token to exactly one account and only ever touches
@@ -13,6 +14,8 @@ that account's Beli data.
 
 from __future__ import annotations
 
+import os
+import secrets
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -20,6 +23,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from . import accounts
+from . import eats_watcher
 from .accounts import AccountError
 from .beli_client import BeliClient, BeliError
 from .logic import bookmark_name, get_recs
@@ -69,6 +73,33 @@ class BookmarkBody(BaseModel):
     name: str = Field(description='Restaurant name, e.g. "Table Mercato"')
     city: str | None = Field(default=None, description='City hint, e.g. "New York, NY"')
     dry_run: bool = Field(default=False, description="Resolve the match without writing")
+
+
+class EatsIngestPost(BaseModel):
+    shortcode: str = Field(default="", max_length=128)
+    created_at: str = Field(
+        description="Post timestamp; ISO-8601 preferred, e.g. 2026-09-26T17:14:52+00:00",
+        max_length=64,
+    )
+    post_caption: str = Field(default="", max_length=20000)
+
+
+class EatsIngestBody(BaseModel):
+    posts: list[EatsIngestPost] = Field(max_length=100)
+
+
+def _ingest_service_key_ok(request: Request) -> bool:
+    """Validate the harness service key for POST /beli/eats-ingest.
+
+    Fail closed: missing server-side key never authenticates.
+    """
+    expected = os.environ.get("BELI_EATS_INGEST_KEY")
+    if not expected:
+        return False
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    return scheme.lower() == "bearer" and bool(token) and secrets.compare_digest(
+        token, expected
+    )
 
 
 # --- endpoints ---------------------------------------------------------------
@@ -148,3 +179,19 @@ def watcher_opt_in(
         {"watcher_opt_in": bool(enabled)}
     ).eq("id", account["id"]).execute()
     return {"watcher_opt_in": bool(enabled)}
+
+
+@router.post("/eats-ingest")
+def eats_ingest(request: Request, body: EatsIngestBody):
+    """Ingest @beli_eats posts fetched by the operator's harness.
+
+    Service-authenticated via BELI_EATS_INGEST_KEY (not a user token):
+    the harness pulls posts through the native Instagram integration and
+    POSTs them here; this runs the watch pipeline for every opted-in
+    account and returns per-account digests.
+    """
+    if not _ingest_service_key_ok(request):
+        raise HTTPException(status_code=401, detail="invalid service key")
+    posts = [p.model_dump() for p in body.posts]
+    digests = eats_watcher.run_eats_ingest(posts, _supabase(request))
+    return {"accounts": len(digests), "digests": digests}
