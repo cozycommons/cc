@@ -55,8 +55,9 @@ ingestion with its own login (see `## Watcher`).
    Every later call sends `Authorization: Bearer <token>`.
 4. Verify: `GET /beli/me` returns the account label; `GET /beli/recs`
    returns the user's ranked bookmarks first, then Beli trending.
-5. Optional: `POST /beli/watcher-opt-in?enabled=true` joins the `@beli_eats`
-   auto-bookmark watcher.
+5. Done — the `@beli_eats` auto-bookmark watcher is on by default, so new
+   `@beli_eats` restaurant posts land in the user's Beli Want-to-Try list
+   automatically. `POST /beli/watcher-opt-in?enabled=false` opts out.
 
 Tokens are per-user and isolated: one friend's token can never read or modify
 another friend's Beli data. If a token is lost, re-onboard to mint a new one.
