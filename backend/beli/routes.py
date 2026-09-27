@@ -5,7 +5,8 @@ Endpoints:
   GET  /beli/me         check a token / describe the account
   GET  /beli/recs        ranked bookmarks first, then Beli trending
   POST /beli/bookmark    confidence-gated "Want to Try" bookmark write
-  POST /beli/eats-ingest @beli_eats post ingestion (service key, not user token)
+  POST /beli/eats-ingest @beli_eats post ingestion (service key for all
+                          opted-in accounts, or personal token for own account)
 
 Auth: Authorization: Bearer <personal token> (from /beli/onboard).
 Every request resolves the token to exactly one account and only ever touches
@@ -185,13 +186,26 @@ def watcher_opt_in(
 def eats_ingest(request: Request, body: EatsIngestBody):
     """Ingest @beli_eats posts fetched by the operator's harness.
 
-    Service-authenticated via BELI_EATS_INGEST_KEY (not a user token):
-    the harness pulls posts through the native Instagram integration and
-    POSTs them here; this runs the watch pipeline for every opted-in
-    account and returns per-account digests.
+    Two auth modes:
+    - Harness service key (BELI_EATS_INGEST_KEY): runs the watch pipeline
+      for every opted-in account and returns per-account digests.
+    - Personal API token (ccb_... from /beli/onboard): runs the pipeline
+      for the caller's account only. This lets a user's own harness job
+      trigger ingestion without holding the shared service key.
     """
-    if not _ingest_service_key_ok(request):
-        raise HTTPException(status_code=401, detail="invalid service key")
     posts = [p.model_dump() for p in body.posts]
-    digests = eats_watcher.run_eats_ingest(posts, _supabase(request))
+    supabase = _supabase(request)
+    if _ingest_service_key_ok(request):
+        digests = eats_watcher.run_eats_ingest(posts, supabase)
+    else:
+        scheme, _, token = request.headers.get("authorization", "").partition(" ")
+        try:
+            if scheme.lower() != "bearer" or not token:
+                raise AccountError("missing bearer token")
+            account = accounts.get_account_by_token(supabase, token)
+        except AccountError:
+            raise HTTPException(status_code=401, detail="invalid service key or token")
+        digests = eats_watcher.run_eats_ingest(
+            posts, supabase, only_account_id=account["id"]
+        )
     return {"accounts": len(digests), "digests": digests}

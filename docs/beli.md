@@ -73,7 +73,7 @@ another friend's Beli data. If a token is lost, re-onboard to mint a new one.
 | GET | `/beli/recs?neighborhood=&day=&time=&table_size=&limit=` | Bookmarks (by your scores) first, then Beli trending. Hours, open-at-time, reservation slots/platforms per rec |
 | POST | `/beli/bookmark` `{name, city?, dry_run?}` | Confidence-gated Want-to-Try write |
 | POST | `/beli/watcher-opt-in?enabled=` | Opt in/out of the `@beli_eats` watcher |
-| POST | `/beli/eats-ingest` | Harness-only: ingest `@beli_eats` posts (service key) |
+| POST | `/beli/eats-ingest` | Ingest `@beli_eats` posts: service key → all opted-in accounts; personal token → caller's account only |
 
 Bookmark statuses: `bookmarked` | `already_bookmarked` | `already_ranked` |
 `would_bookmark` (dry_run) | `ambiguous` (no write, candidates listed) |
@@ -92,12 +92,14 @@ reported instead of re-bookmarked.
 
 `@beli_eats` ingestion runs on the operator's harness, not on the backend:
 a daily scheduled job pulls recent posts through the native Instagram
-integration and POSTs them to `POST /beli/eats-ingest` (service-key auth).
-The endpoint runs the watch pipeline for each account with
-`watcher_opt_in=true`: extracts restaurant names from captions, bookmarks
-confident matches into that account's Beli, advances the account's own
-`last_eats_scan` watermark, and returns per-account digests. Ambiguous names
-are never written. End users never touch Instagram — onboarding stays a
+integration and POSTs them to `POST /beli/eats-ingest`. The endpoint accepts
+two auth modes: the harness service key (runs the pipeline for every account
+with `watcher_opt_in=true`) or a personal `ccb_...` API token (runs it for the
+caller's account only — this is how a user's own scheduled job triggers
+ingestion without holding the shared service key). Either way it extracts
+restaurant names from captions, bookmarks confident matches into that
+account's Beli, advances the account's own `last_eats_scan` watermark, and
+returns per-account digests. Ambiguous names are never written. End users never touch Instagram — onboarding stays a
 single Beli-login call (see `## User onboarding`).
 
 ## Testing

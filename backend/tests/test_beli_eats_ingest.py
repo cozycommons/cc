@@ -141,6 +141,33 @@ def test_run_eats_ingest_decrypt_failure_reported(fernet_key, monkeypatch):
     assert sb.updates == []
 
 
+def test_run_eats_ingest_only_account_id(fernet_key, monkeypatch):
+    rows = [
+        _row("a1", "alice", True, ""),
+        _row("b2", "bob", True, ""),
+    ]
+    sb = FakeSupabase(rows)
+    seen = []
+
+    def fake_scan(account, posts):
+        seen.append(account["label"])
+        return {
+            "account": account["label"],
+            "checked": 0,
+            "bookmarked": [],
+            "already": [],
+            "skipped": [],
+            "newest_ts": "",
+        }
+
+    monkeypatch.setattr(eats_watcher, "scan_account_for_posts", fake_scan)
+
+    digests = eats_watcher.run_eats_ingest([], sb, only_account_id="b2")
+
+    assert seen == ["bob"]
+    assert [d["account"] for d in digests] == ["bob"]
+
+
 # --- POST /beli/eats-ingest route -------------------------------------------
 
 from fastapi import FastAPI  # noqa: E402
@@ -208,3 +235,52 @@ def test_eats_ingest_ok(monkeypatch):
     assert r.status_code == 200
     assert r.json() == {"accounts": 0, "digests": []}
     assert captured["posts"] == body["posts"]
+
+
+def _user_token_client(monkeypatch):
+    """App with two opted-in accounts; alice holds a real ccb_ token."""
+    from cryptography.fernet import Fernet as _F
+
+    key = _F.generate_key().decode()
+    monkeypatch.setenv("BELI_CREDENTIALS_KEY", key)
+    monkeypatch.setenv("BELI_EATS_INGEST_KEY", "svc-key-123")
+    token = "ccb_testtoken123"
+    rows = [
+        {**_row("a1", "alice", True, ""), "token_hash": accounts.hash_token(token)},
+        {**_row("b2", "bob", True, ""), "token_hash": accounts.hash_token("ccb_other")},
+    ]
+    sb = FakeSupabase(rows)
+    app = FastAPI()
+    app.state.supabase = sb
+    app.include_router(beli_routes.router, prefix="/beli")
+    return TestClient(app), token
+
+
+def test_eats_ingest_user_token_scoped_to_own_account(monkeypatch):
+    client, token = _user_token_client(monkeypatch)
+    seen = {}
+
+    def fake_run(posts, sb, only_account_id=None):
+        seen["only_account_id"] = only_account_id
+        return [{"account": "alice", "checked": 0, "bookmarked": [],
+                 "already": [], "skipped": [], "newest_ts": ""}]
+
+    monkeypatch.setattr(eats_watcher, "run_eats_ingest", fake_run)
+    r = client.post(
+        "/beli/eats-ingest",
+        json={"posts": []},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert seen["only_account_id"] == "a1"
+    assert r.json()["accounts"] == 1
+
+
+def test_eats_ingest_rejects_unknown_user_token(monkeypatch):
+    client, _token = _user_token_client(monkeypatch)
+    r = client.post(
+        "/beli/eats-ingest",
+        json={"posts": []},
+        headers={"Authorization": "Bearer ccb_nonexistent"},
+    )
+    assert r.status_code == 401
