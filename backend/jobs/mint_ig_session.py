@@ -52,7 +52,7 @@ def main() -> int:
     )
     try:
         loader.login(ig_user, ig_pass)
-    except instaloader.TwoFactorRequiredException:
+    except instaloader.TwoFactorAuthRequiredException:
         code = input("2FA code: ").strip()
         try:
             loader.two_factor_login(code)
@@ -61,10 +61,19 @@ def main() -> int:
             return 1
     except Exception as e:
         print(f"error: login failed: {e}")
-        print(
-            "If Instagram asked for an email verification code, complete it in "
-            "the Instagram app (or the account's email), then re-run this script."
-        )
+        if "Checkpoint required" in str(e):
+            print(
+                "\nInstagram flagged this login as suspicious. To clear it:\n"
+                "  1. In your Mac browser, log into the burner account at instagram.com\n"
+                "  2. Complete the challenge (\"This was me\" / verify it's you)\n"
+                "  3. Re-run this script — the login should go through, and the\n"
+                "     saved session means you won't have to do this again."
+            )
+        else:
+            print(
+                "If Instagram asked for an email verification code, complete it in "
+                "the Instagram app (or the account's email), then re-run this script."
+            )
         return 1
 
     with tempfile.NamedTemporaryFile(
