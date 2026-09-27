@@ -83,6 +83,7 @@ reported instead of re-bookmarked.
 |---|---|
 | `BELI_CREDENTIALS_KEY` | Fernet key for Beli logins at rest. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Set in Coolify; **never commit**. |
 | `BELI_EATS_IG_USERNAME` / `BELI_EATS_IG_PASSWORD` | Optional IG session for the watcher (best-effort without; the job skips quietly when IG is unreachable). |
+| `BELI_EATS_IG_SESSION` | Preferred: base64-encoded Instaloader session so the watcher reuses a session instead of a fresh password login (fresh logins from hosting IPs trigger Instagram's email-verification challenges). Mint once via `python -m jobs.mint_ig_session` and paste the output here. |
 
 ## Watcher
 
