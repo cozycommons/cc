@@ -235,6 +235,7 @@ def test_eats_ingest_ok(monkeypatch):
     assert r.status_code == 200
     assert r.json() == {"accounts": 0, "digests": []}
     assert captured["posts"] == body["posts"]
+    assert r.headers.get("deprecation") == "true"  # deprecated: prefer scan-job queue
 
 
 def _user_token_client(monkeypatch):
