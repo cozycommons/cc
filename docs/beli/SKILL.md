@@ -79,12 +79,13 @@ Users can opt into automatic bookmarking of restaurants posted by
 
 ## Per-agent integration
 
-- **Muse / Claude Code:** copy this file into the agent's skills directory as
-  `beli/SKILL.md` and set `BELI_API_URL` + `BELI_API_TOKEN` in its environment.
+There is no agent-specific setup — every agent uses the same generic paths:
+
 - **ChatGPT:** create a Custom GPT → Actions → import
   `{BELI_API_URL}/openapi.json`, set authentication to Bearer with the user's
   token.
 - **Claude (web/desktop) and other MCP clients:** add an MCP integration for
   `{BELI_API_URL}/beli/mcp`. Tools `get_recs` and `bookmark_restaurant` take
   `api_token` as a parameter (the user's personal token).
-- **Any HTTP-capable agent:** use the REST endpoints above directly.
+- **Any HTTP-capable agent (including Muse/Claude Code):** use the REST
+  endpoints above directly with `Authorization: Bearer <token>`.
