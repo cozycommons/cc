@@ -105,6 +105,12 @@ def test_create_account_mints_single_use_token(fernet_key, monkeypatch):
     assert accounts.decrypt_secret(stored["beli_id_enc"]) == "a@b.com"
 
 
+def test_create_account_enables_watcher_by_default(fernet_key, monkeypatch):
+    db = FakeSupabase()
+    _make_account(db, monkeypatch)
+    assert db._store[0]["watcher_opt_in"] is True
+
+
 def test_create_account_rejects_bad_beli_login(fernet_key, monkeypatch):
     from beli.beli_client import BeliError
 
