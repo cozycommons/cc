@@ -6,7 +6,8 @@ declare
   column_spec text;
 begin
   foreach object_name in array array[
-    'beli_accounts'
+    'beli_accounts',
+    'eats_scan_jobs'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -18,7 +19,10 @@ begin
     'beli_accounts.password_enc',
     'beli_accounts.token_hash',
     'beli_accounts.watcher_opt_in',
-    'beli_accounts.last_eats_scan'
+    'beli_accounts.last_eats_scan',
+    'eats_scan_jobs.status',
+    'eats_scan_jobs.scope',
+    'eats_scan_jobs.digest'
   ] loop
     if to_regclass('public.' || split_part(column_spec, '.', 1)) is null then
       raise exception 'Beli schema contract: missing table for %', column_spec;
