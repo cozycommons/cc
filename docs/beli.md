@@ -34,6 +34,33 @@ MCP: `/beli/mcp`.
    friend's Beli data (covered by `tests/test_beli_accounts.py`).
 3. Rate-limited: 10 onboarding attempts per IP per hour.
 
+## User onboarding
+
+Each friend onboards with their own Beli login. Nothing is shared and no
+Instagram access is needed — the server-side watcher handles `@beli_eats`
+ingestion with its own login (see `## Watcher`).
+
+1. The user gives their agent their Beli login (phone number or email +
+   password), or calls the endpoint directly:
+   ```bash
+   curl -s -X POST https://<backend-host>/beli/onboard \
+     -H 'Content-Type: application/json' \
+     -d '{"label":"warner","beli_id":"+15551234567","password":"..."}'
+   ```
+2. The backend validates the login against Beli live, encrypts and stores it,
+   and returns a personal bearer token (`ccb_...`) — shown **once**. Save it
+   immediately.
+3. The agent stores the token in its own secure credential store (e.g. a
+   Muse custom connector, or the platform's secret storage on ChatGPT/Claude).
+   Every later call sends `Authorization: Bearer <token>`.
+4. Verify: `GET /beli/me` returns the account label; `GET /beli/recs`
+   returns the user's ranked bookmarks first, then Beli trending.
+5. Optional: `POST /beli/watcher-opt-in?enabled=true` joins the `@beli_eats`
+   auto-bookmark watcher.
+
+Tokens are per-user and isolated: one friend's token can never read or modify
+another friend's Beli data. If a token is lost, re-onboard to mint a new one.
+
 ## Endpoints
 
 | Method | Path | Purpose |
