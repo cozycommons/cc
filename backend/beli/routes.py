@@ -254,8 +254,11 @@ def watcher_opt_in(
 
 
 @router.post("/eats-ingest")
-def eats_ingest(request: Request, body: EatsIngestBody):
+def eats_ingest(request: Request, response: Response, body: EatsIngestBody):
     """Ingest @beli_eats posts fetched by the operator's harness.
+
+    DEPRECATED: prefer the scan-job queue (POST /beli/eats/scan). This
+    endpoint is retained for manual backfills only.
 
     Two auth modes:
     - Harness service key (BELI_EATS_INGEST_KEY): runs the watch pipeline
@@ -264,6 +267,7 @@ def eats_ingest(request: Request, body: EatsIngestBody):
       for the caller's account only. This lets a user's own harness job
       trigger ingestion without holding the shared service key.
     """
+    response.headers["Deprecation"] = "true"
     posts = [p.model_dump() for p in body.posts]
     supabase = _supabase(request)
     only_account_id = _resolve_ingest_scope(request)
