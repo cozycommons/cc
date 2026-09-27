@@ -106,22 +106,29 @@ def format_digest(digest: dict) -> str:
     return "\n".join(lines)
 
 
-def run_eats_ingest(posts: list, supabase) -> list[dict]:
+def run_eats_ingest(
+    posts: list, supabase, only_account_id: str | None = None
+) -> list[dict]:
     """Run the watch pipeline for every opted-in account.
 
     `posts` are dicts with at least `created_at` and `post_caption`.
+    When `only_account_id` is given, only that account is processed
+    (used when the caller authenticated with a personal API token
+    instead of the harness service key).
     Returns one digest dict per account. Never raises on per-account
     failures; they are reported in the digest as skipped.
     """
     posts = [
         {**p, "created_at": _norm_ts(p.get("created_at") or "")} for p in posts
     ]
-    res = (
+    query = (
         supabase.table("beli_accounts")
         .select("id,label,beli_id_enc,password_enc,token_hash,watcher_opt_in,last_eats_scan")
         .eq("watcher_opt_in", True)
-        .execute()
     )
+    if only_account_id:
+        query = query.eq("id", only_account_id)
+    res = query.execute()
     rows = res.data or []
     digests = []
     for row in rows:
