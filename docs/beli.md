@@ -123,8 +123,9 @@ watermark, and returns per-account digests. Ambiguous names are never
 written. End users never touch Instagram — onboarding stays a
 single Beli-login call (see `## User onboarding`).
 
-The legacy harness-push path (`POST /beli/eats-ingest`) still works
-unchanged: same two auth modes, same digest shape.
+Deprecated (still works, retained for manual backfills): `POST /beli/eats-ingest`
+(harness push) now returns a `Deprecation: true` response header. Prefer the
+scan-job queue above for all scheduled and ad-hoc ingestion.
 
 ## Testing
 
