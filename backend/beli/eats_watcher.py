@@ -123,6 +123,10 @@ def fetch_beli_eats_posts(limit: int = 25) -> list:
             download_geotags=False,
             download_comments=False,
             save_metadata=False,
+            # Fail fast on rate limits instead of sleeping ~11min per retry:
+            # this is a daily best-effort job and the per-account watermark
+            # makes a failed run lossless (tomorrow retries the same posts).
+            max_connection_attempts=1,
         )
         ig_user = os.environ.get("BELI_EATS_IG_USERNAME")
         ig_pass = os.environ.get("BELI_EATS_IG_PASSWORD")
