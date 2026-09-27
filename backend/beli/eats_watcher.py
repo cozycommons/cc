@@ -2,8 +2,8 @@
 
 For every account with watcher_opt_in=true:
   1. pull recent @beli_eats Instagram posts (best-effort; needs instaloader
-     and, on most hosting IPs, an IG session via BELI_EATS_IG_USERNAME /
-     BELI_EATS_IG_PASSWORD),
+     and, on most hosting IPs, an IG session — see BELI_EATS_IG_SESSION
+     below),
   2. extract restaurant-name candidates from captions,
   3. bookmark confident matches into THAT account's Beli via the shared
      confidence gate (ambiguous names are never written),
@@ -11,6 +11,13 @@ For every account with watcher_opt_in=true:
 
 Each account keeps its own watermark, so friends onboard at different times
 without missing or re-processing posts.
+
+Instagram login: a fresh password login from a hosting IP is what triggers
+Instagram's email-verification challenges, so the watcher prefers a saved
+session. Mint one once via `python -m jobs.mint_ig_session` and store it
+base64-encoded in the BELI_EATS_IG_SESSION env var; the watcher then reuses
+it instead of logging in with the password. Password login remains as a
+fallback when no session is configured.
 """
 
 from __future__ import annotations
@@ -25,6 +32,34 @@ IG_HANDLE = "beli_eats"
 
 class BeliEatsUnavailable(Exception):
     pass
+
+
+def _login_instaloader(loader, ig_user: str | None, ig_pass: str | None) -> None:
+    """Log the burner into Instagram, session-first.
+
+    Prefers the saved session from BELI_EATS_IG_SESSION (base64-encoded
+    Instaloader session file, minted once via `python -m jobs.mint_ig_session`).
+    A returning session does not trigger Instagram's email-verification
+    challenges the way a fresh password login from a hosting IP does.
+    Falls back to password login when no (usable) session is configured.
+    """
+    import base64
+    import tempfile
+
+    session_b64 = os.environ.get("BELI_EATS_IG_SESSION")
+    if session_b64 and ig_user:
+        try:
+            with tempfile.NamedTemporaryFile(
+                prefix="ig_session_", suffix=".session", delete=False
+            ) as f:
+                f.write(base64.b64decode(session_b64))
+                session_path = f.name
+            loader.load_session_from_file(ig_user, session_path)
+            return
+        except Exception:
+            pass  # corrupt/expired session — fall through to password login
+    if ig_user and ig_pass:
+        loader.login(ig_user, ig_pass)
 
 
 def fetch_beli_eats_posts(limit: int = 25) -> list:
@@ -45,8 +80,7 @@ def fetch_beli_eats_posts(limit: int = 25) -> list:
         )
         ig_user = os.environ.get("BELI_EATS_IG_USERNAME")
         ig_pass = os.environ.get("BELI_EATS_IG_PASSWORD")
-        if ig_user and ig_pass:
-            loader.login(ig_user, ig_pass)
+        _login_instaloader(loader, ig_user, ig_pass)
         profile = instaloader.Profile.from_username(loader.context, IG_HANDLE)
         posts = []
         for post in profile.get_posts():
