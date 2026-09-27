@@ -144,6 +144,7 @@ def run_eats_ingest(
             digests.append(
                 {
                     "account": label,
+                    "account_id": row["id"],
                     "checked": 0,
                     "bookmarked": [],
                     "already": [],
@@ -155,6 +156,7 @@ def run_eats_ingest(
         digest = scan_account_for_posts(
             {**account, "last_eats_scan": row.get("last_eats_scan")}, posts
         )
+        digest["account_id"] = row["id"]
         if digest["newest_ts"]:
             supabase.table("beli_accounts").update(
                 {"last_eats_scan": digest["newest_ts"]}

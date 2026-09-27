@@ -216,7 +216,7 @@ def test_eats_ingest_ok(monkeypatch):
     monkeypatch.setattr(
         eats_watcher,
         "run_eats_ingest",
-        lambda posts, sb: captured.update(posts=posts) or [],
+        lambda posts, sb, only_account_id=None: captured.update(posts=posts) or [],
     )
     body = {
         "posts": [
