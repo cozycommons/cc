@@ -16,8 +16,10 @@ Instagram login: a fresh password login from a hosting IP is what triggers
 Instagram's email-verification challenges, so the watcher prefers a saved
 session. Mint one once via `python -m jobs.mint_ig_session` and store it
 base64-encoded in the BELI_EATS_IG_SESSION env var; the watcher then reuses
-it instead of logging in with the password. Password login remains as a
-fallback when no session is configured.
+it instead of logging in with the password. If Instagram challenges
+instaloader's own login (so minting can't complete), a Netscape cookies.txt
+exported from a logged-in browser works too — same env var, base64-encoded.
+Password login remains as a fallback when no session is configured.
 """
 
 from __future__ import annotations
@@ -34,30 +36,74 @@ class BeliEatsUnavailable(Exception):
     pass
 
 
+def _session_dicts(raw: bytes):
+    """Yield candidate cookie dicts from a decoded BELI_EATS_IG_SESSION value.
+
+    Two formats are accepted:
+      1. instaloader's native session (a pickle of the cookie dict), as minted
+         by `python -m jobs.mint_ig_session`;
+      2. a Netscape cookies.txt exported from a logged-in browser (e.g. via
+         the "Get cookies.txt LOCALLY" extension) — useful when Instagram
+         challenges instaloader's own password login outright.
+    """
+    import pickle
+    import tempfile
+    from http.cookiejar import MozillaCookieJar
+
+    try:
+        data = pickle.loads(raw)
+    except Exception:
+        data = None
+    if isinstance(data, dict) and data.get("sessionid"):
+        yield data
+    try:
+        text = raw.decode("utf-8", errors="replace")
+    except Exception:
+        return
+    if "sessionid" not in text:
+        return
+    try:
+        with tempfile.NamedTemporaryFile(
+            prefix="ig_cookies_", suffix=".txt", delete=False, mode="w"
+        ) as f:
+            f.write(text)
+            cookies_path = f.name
+        jar = MozillaCookieJar(cookies_path)
+        jar.load()
+        data = {c.name: c.value for c in jar}
+    except Exception:
+        return
+    if data.get("sessionid"):
+        yield data
+
+
 def _login_instaloader(loader, ig_user: str | None, ig_pass: str | None) -> None:
     """Log the burner into Instagram, session-first.
 
-    Prefers the saved session from BELI_EATS_IG_SESSION (base64-encoded
-    Instaloader session file, minted once via `python -m jobs.mint_ig_session`).
-    A returning session does not trigger Instagram's email-verification
-    challenges the way a fresh password login from a hosting IP does.
-    Falls back to password login when no (usable) session is configured.
+    Prefers the saved session from BELI_EATS_IG_SESSION (base64-encoded;
+    see _session_dicts for accepted formats). A returning session does not
+    trigger Instagram's email-verification challenges the way a fresh
+    password login from a hosting IP does. Falls back to password login when
+    no (usable) session is configured.
     """
     import base64
-    import tempfile
 
     session_b64 = os.environ.get("BELI_EATS_IG_SESSION")
     if session_b64 and ig_user:
         try:
-            with tempfile.NamedTemporaryFile(
-                prefix="ig_session_", suffix=".session", delete=False
-            ) as f:
-                f.write(base64.b64decode(session_b64))
-                session_path = f.name
-            loader.load_session_from_file(ig_user, session_path)
-            return
+            raw = base64.b64decode(session_b64)
         except Exception:
-            pass  # corrupt/expired session — fall through to password login
+            raw = b""
+        for session_data in _session_dicts(raw):
+            try:
+                loader.load_session(ig_user, session_data)
+                return
+            except Exception:
+                continue
+        if raw:
+            print(
+                "Beli Eats watch: saved IG session unusable; trying password login."
+            )
     if ig_user and ig_pass:
         loader.login(ig_user, ig_pass)
 
