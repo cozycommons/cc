@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import Client, create_client
 
 from analytics import router as analytics_router
+from beli.mcp_server import mcp as beli_mcp
+from beli.routes import router as beli_router
 from commons.routes import router as commons_router
 from dice.routes import router as dice_router
 from runtime_policy import initialize_runtime_policy
@@ -102,3 +104,5 @@ app.include_router(health_router)
 app.include_router(commons_router, prefix="/commons")
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")
+app.include_router(beli_router, prefix="/beli")
+app.mount("/beli/mcp", beli_mcp.streamable_http_app())

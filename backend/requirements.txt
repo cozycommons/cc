@@ -1,6 +1,9 @@
 # Direct application dependencies. Transitive packages are resolved by pip.
 cachetools==5.5.0
+cryptography==50.0.1
 fastapi==0.115.6
+instaloader==4.15.3
+mcp==1.30.0
 Pillow==12.3.0
 PyJWT==2.10.1
 python-dotenv==1.0.1

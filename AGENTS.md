@@ -6,6 +6,7 @@ This is the Cozy Commons monorepo. Dice is the first project.
 
 - `frontend/`: Vite + React Cozy Commons home plus the Dice project at `/dice`.
 - `backend/`: FastAPI shared API with Commons routes under `/commons` and Dice routes under `/dice`.
+- `backend/beli/`: multi-tenant Beli restaurant app; routes under `/beli`, MCP server at `/beli/mcp`.
 - `supabase/`: isolated local Supabase configuration and project seed data.
 - `scripts/`: shared development plus project-specific migration and verification tooling.
 - `docs/`: product contracts and operational guidance.

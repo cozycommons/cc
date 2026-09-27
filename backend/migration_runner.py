@@ -30,18 +30,32 @@ def render(families):
     application_chunks = []
     for family in families:
         directory = ROOT / ("commons/migrations" if family == "commons" else "migrations")
-        patterns = ["[0-9][0-9][0-9][0-9]_commons_*.sql"] if family == "commons" else ["[0-9][0-9][0-9][0-9]_dice_*.sql", "[0-9][0-9][0-9][0-9]_analytics_*.sql"]
+        patterns = (
+            ["[0-9][0-9][0-9][0-9]_commons_*.sql"]
+            if family == "commons"
+            else ["[0-9][0-9][0-9][0-9]_beli_*.sql"]
+            if family == "beli"
+            else ["[0-9][0-9][0-9][0-9]_dice_*.sql", "[0-9][0-9][0-9][0-9]_analytics_*.sql"]
+        )
         files = sorted(p for pattern in patterns for p in directory.glob(pattern))
         versions = [int(p.name[:4]) for p in files]
         if len(versions) != len(set(versions)):
             raise ValueError("Duplicate migration version in " + family)
         ledger = family + "_schema_migrations"
-        marker = directory / ("COMMONS_SCHEMA_CONTRACT_VERSION" if family == "commons" else "DICE_SCHEMA_CONTRACT_VERSION")
+        marker = directory / (
+            {
+                "commons": "COMMONS_SCHEMA_CONTRACT_VERSION",
+                "beli": "BELI_SCHEMA_CONTRACT_VERSION",
+            }.get(family, "DICE_SCHEMA_CONTRACT_VERSION")
+        )
         contract = int(marker.read_text().strip())
         if contract != max(versions):
             raise ValueError("Schema contract must equal latest migration")
+        anchor = {"commons": "commons_scenes", "beli": "beli_accounts"}.get(
+            family, "dice_profiles"
+        )
         chunks += [f"""DO $$ BEGIN
-IF to_regclass('public.{ledger}') IS NULL AND to_regclass('public.{"commons_scenes" if family == "commons" else "dice_profiles"}') IS NOT NULL THEN
+IF to_regclass('public.{ledger}') IS NULL AND to_regclass('public.{anchor}') IS NOT NULL THEN
  RAISE EXCEPTION 'Existing {family} schema has no migration history; explicit schema reconciliation is required';
 END IF; END $$;""",
             f"CREATE TABLE IF NOT EXISTS public.{ledger} (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());",
@@ -98,7 +112,7 @@ END IF; END $$;""", (directory / f"{family}_schema_contract.sql").read_text()]
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--family", choices=["dice", "commons", "all"], default="all")
+    parser.add_argument("--family", choices=["dice", "commons", "beli", "all"], default="all")
     args = parser.parse_args()
     try:
         url = normalize_url(os.environ.get("SUPABASE_DB_URL", ""), os.environ.get("SUPABASE_DB_POOLER_HOST", ""))
@@ -110,7 +124,7 @@ def main():
             actual = (parsed.username or "").removeprefix("postgres.") if ".pooler.supabase.com" in parsed.hostname else parsed.hostname.removeprefix("db.").removesuffix(".supabase.co")
             if not expected or expected != actual:
                 raise ValueError("EXPECTED_SUPABASE_PROJECT must match the hosted database")
-        script = render(["dice", "commons"] if args.family == "all" else [args.family])
+        script = render(["dice", "commons", "beli"] if args.family == "all" else [args.family])
     except ValueError as error:
         parser.error(str(error))
     # Keep passwords out of process arguments. psql inherits only the connection env.

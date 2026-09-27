@@ -34,7 +34,7 @@ fi
 while IFS= read -r migration; do
   filename="$(basename "$migration")"
   case "$filename" in
-    [0-9][0-9][0-9][0-9]_dice_*.sql|[0-9][0-9][0-9][0-9]_analytics_*.sql) ;;
+    [0-9][0-9][0-9][0-9]_dice_*.sql|[0-9][0-9][0-9][0-9]_analytics_*.sql|[0-9][0-9][0-9][0-9]_beli_*.sql) ;;
     *)
       echo "Numbered migration has no declared owner: $filename" >&2
       exit 1
