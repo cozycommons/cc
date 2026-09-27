@@ -83,6 +83,9 @@ def create_account(supabase, label: str, beli_id: str, password: str) -> dict:
         "password_enc": encrypt_secret(password),
         "token_hash": hash_token(token),
         "token_prefix": token[:12],
+        # Watcher is on by default: onboarding once is enough to start
+        # receiving @beli_eats bookmarks. POST /beli/watcher-opt-in toggles it.
+        "watcher_opt_in": True,
     }
     res = supabase.table("beli_accounts").insert(row).execute()
     created = (res.data or [{}])[0]
