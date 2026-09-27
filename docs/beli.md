@@ -15,16 +15,22 @@ MCP: `/beli/mcp`.
 - `backend/beli/accounts.py` — account store. Beli logins encrypted at rest
   with Fernet (`BELI_CREDENTIALS_KEY`); API tokens stored as sha256 hashes.
 - `backend/beli/routes.py` — FastAPI router (`/beli/onboard`, `/beli/me`,
-  `/beli/recs`, `/beli/bookmark`, `/beli/watcher-opt-in`, `/beli/eats-ingest`).
+  `/beli/recs`, `/beli/bookmark`, `/beli/watcher-opt-in`, `/beli/eats-ingest`,
+  `/beli/eats/scan`, `/beli/eats/scan/pending`,
+  `/beli/eats/scan/{job_id}/complete`, `/beli/eats/scan/{job_id}`,
+  `/beli/eats/digest`).
 - `backend/beli/mcp_server.py` — MCP tools (`get_recs`, `bookmark_restaurant`)
   mounted at `/beli/mcp`. Tools take the caller's personal API token, so one
   server serves every user.
 - `backend/beli/eats_watcher.py` —
   the `@beli_eats` auto-bookmark watcher, run per opted-in account. Posts
-  arrive via `POST /beli/eats-ingest` from the operator's harness (native
-  Instagram integration); no Instagram code lives on the backend.
+  arrive via `POST /beli/eats-ingest` (harness push) or through the scan-job
+  queue (`POST /beli/eats/scan` → fetch box polls → `/complete`); no
+  Instagram code lives on the backend.
 - `backend/migrations/0001_beli_accounts.sql` — the `beli_accounts` table
   (registered as the `beli` family in `migration_runner.py`).
+- `backend/migrations/0002_beli_scan_jobs.sql` — the `eats_scan_jobs` queue
+  for CC-orchestrated scans.
 
 ## Auth model
 
@@ -73,7 +79,12 @@ another friend's Beli data. If a token is lost, re-onboard to mint a new one.
 | GET | `/beli/recs?neighborhood=&day=&time=&table_size=&limit=` | Bookmarks (by your scores) first, then Beli trending. Hours, open-at-time, reservation slots/platforms per rec |
 | POST | `/beli/bookmark` `{name, city?, dry_run?}` | Confidence-gated Want-to-Try write |
 | POST | `/beli/watcher-opt-in?enabled=` | Opt in/out of the `@beli_eats` watcher |
-| POST | `/beli/eats-ingest` | Ingest `@beli_eats` posts: service key → all opted-in accounts; personal token → caller's account only |
+| POST | `/beli/eats-ingest` | Ingest `@beli_eats` posts (harness push): service key → all opted-in accounts; personal token → caller's account only |
+| POST | `/beli/eats/scan` | Enqueue a scan job (202): service key → scope `all`; personal token → caller's account |
+| GET | `/beli/eats/scan/pending` | Oldest pending scan job for the fetch-box poller (204 when empty) |
+| POST | `/beli/eats/scan/{job_id}/complete` `{posts}` | Fetch box returns IG posts; CC runs the ingest pipeline under the job's scope, stores digests |
+| GET | `/beli/eats/scan/{job_id}` | Job status + the caller's digest slice (403 for other scopes) |
+| GET | `/beli/eats/digest` | The caller's most recent completed scan digest (404 if none yet) |
 
 Bookmark statuses: `bookmarked` | `already_bookmarked` | `already_ranked` |
 `would_bookmark` (dry_run) | `ambiguous` (no write, candidates listed) |
@@ -90,17 +101,39 @@ reported instead of re-bookmarked.
 
 ## Watcher
 
-`@beli_eats` ingestion runs on the operator's harness, not on the backend:
-a daily scheduled job pulls recent posts through the native Instagram
-integration and POSTs them to `POST /beli/eats-ingest`. The endpoint accepts
-two auth modes: the harness service key (runs the pipeline for every account
-with `watcher_opt_in=true`) or a personal `ccb_...` API token (runs it for the
-caller's account only — this is how a user's own scheduled job triggers
-ingestion without holding the shared service key). Either way it extracts
-restaurant names from captions, bookmarks confident matches into that
-account's Beli, advances the account's own `last_eats_scan` watermark, and
-returns per-account digests. Ambiguous names are never written. End users never touch Instagram — onboarding stays a
+`@beli_eats` ingestion is CC-orchestrated through a scan-job queue — CC
+never touches Instagram and needs no inbound connection to the fetch box:
+
+1. A scheduled task (Coolify) calls `POST /beli/eats/scan` with the harness
+   service key, enqueueing a job scoped to every opted-in account (`all`).
+   Any agent can do the same with a personal token for just its own account.
+2. The fetch box — a tiny service on the operator's VM — polls
+   `GET /beli/eats/scan/pending` every few minutes with an ordinary personal
+   token, fetches `@beli_eats` posts through the native Instagram
+   integration locally, and POSTs them to
+   `POST /beli/eats/scan/{job_id}/complete`.
+3. CC runs the shared ingest pipeline under the job's stored scope
+   (`all` fans out via CC's internal authority — the poller never holds the
+   service key), stores the per-account digest(s) on the job row, and marks
+   it done.
+
+Either way it extracts restaurant names from captions, bookmarks confident
+matches into each account's Beli, advances the account's own `last_eats_scan`
+watermark, and returns per-account digests. Ambiguous names are never
+written. End users never touch Instagram — onboarding stays a
 single Beli-login call (see `## User onboarding`).
+
+The legacy harness-push path (`POST /beli/eats-ingest`) still works
+unchanged: same two auth modes, same digest shape.
+
+## Testing
+
+`cd backend && python -m pytest tests/test_beli_*.py -q` — 68 tests covering
+the confidence gate, dedup, ranked/duplicate-record guards, empty write
+responses, client auth flow against a mock Beli server, token isolation,
+the scan-job queue (enqueue scope per auth type, poller flow, fan-out,
+digest slicing, 403/404 paths), and the `beli` migration family. No live
+Beli calls, no database.
 
 ## Testing
 
