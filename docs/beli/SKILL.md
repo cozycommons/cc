@@ -73,9 +73,10 @@ Content-Type: application/json
 
 ## @beli_eats watcher
 
-Users can opt into automatic bookmarking of restaurants posted by
-`@beli_eats`: `POST {BELI_API_URL}/beli/watcher-opt-in?enabled=true`
-(`false` to opt out). Same confidence gate applies.
+New users are opted **in** to automatic bookmarking of restaurants posted by
+`@beli_eats` at onboarding. To opt out (or back in):
+`POST {BELI_API_URL}/beli/watcher-opt-in?enabled=false` (`true` to re-enable).
+Same confidence gate applies.
 
 ## Per-agent integration
 
