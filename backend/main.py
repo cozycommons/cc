@@ -14,6 +14,8 @@ from beli.mcp_server import mcp as beli_mcp
 from beli.routes import router as beli_router
 from commons.routes import router as commons_router
 from dice.routes import router as dice_router
+from partiful.mcp_server import mcp as partiful_mcp
+from partiful.routes import router as partiful_router
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -106,3 +108,5 @@ app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")
 app.include_router(beli_router, prefix="/beli")
 app.mount("/beli/mcp", beli_mcp.streamable_http_app())
+app.include_router(partiful_router, prefix="/partiful")
+app.mount("/partiful/mcp", partiful_mcp.streamable_http_app())
