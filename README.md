@@ -8,10 +8,10 @@ https://cozycommons.dev
 
 - `frontend/` — Vite + React Dice web app
 - `backend/` — FastAPI Dice API
-- `backend/beli/` — multi-tenant Beli restaurant app (`/beli` routes, `/beli/mcp` MCP server)
+- `backend/beli/` — see `docs/beli/`
 - `supabase/` — local Supabase configuration and synthetic seed data
 - `scripts/` — isolated Dice development and migration tooling
-- `docs/` — Dice behavior and operations documentation; `docs/beli.md` covers the Beli app
+- `docs/` — behavior and operations documentation
 
 ## Local development
 
