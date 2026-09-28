@@ -7,7 +7,8 @@ declare
 begin
   foreach object_name in array array[
     'beli_accounts',
-    'eats_scan_jobs'
+    'eats_scan_jobs',
+    'partiful_accounts'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -20,6 +21,9 @@ begin
     'beli_accounts.token_hash',
     'beli_accounts.watcher_opt_in',
     'beli_accounts.last_eats_scan',
+    'partiful_accounts.refresh_token_enc',
+    'partiful_accounts.uid_enc',
+    'partiful_accounts.token_hash',
     'eats_scan_jobs.status',
     'eats_scan_jobs.scope',
     'eats_scan_jobs.digest'
