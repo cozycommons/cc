@@ -6,6 +6,7 @@ import migration_runner
 def test_beli_family_rendering():
     script = migration_runner.render(["beli"])
     assert "Applying 0001_beli_accounts.sql" in script
+    assert "Applying 0005_beli_ig_logger_platform.sql" in script
     assert "beli_schema_migrations" in script
     assert "Applying 0025_dice_schema.sql" not in script
     assert "Existing beli schema has no migration history" in script

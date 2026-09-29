@@ -1,6 +1,6 @@
-"""Tests for the @beli_eats ingest pipeline (POST /beli/eats-ingest backend).
+"""Tests for the ig_logger ingest pipeline (platform runner + Beli sink).
 
-Covers timestamp normalization and the per-account ingest loop with an
+Covers timestamp normalization and the per-account fan-out with an
 in-memory fake of the Supabase table API — no database required.
 """
 
@@ -12,8 +12,9 @@ os.environ.setdefault("BELI_CREDENTIALS_KEY", "")
 
 from cryptography.fernet import Fernet
 
-from beli import accounts
-from beli import eats_watcher
+from ig_logger import models, runner
+from ig_logger.sinks.beli import accounts
+from ig_logger.sinks.beli import sink as beli_sink
 
 
 @pytest.fixture()
@@ -40,6 +41,10 @@ class FakeTable:
         self._rows = [r for r in (self._rows or self._store) if r.get(k) == v]
         return self
 
+    def in_(self, k, values):
+        self._rows = [r for r in (self._rows or self._store) if r.get(k) in values]
+        return self
+
     def update(self, values):
         self._pending_update = values
         return self
@@ -59,44 +64,54 @@ class FakeTable:
 
 
 class FakeSupabase:
-    def __init__(self, rows):
-        self._store = rows
+    def __init__(self, account_rows, source_rows):
+        self._tables = {
+            "beli_accounts": account_rows,
+            "ig_sources": source_rows,
+        }
         self.updates = []
 
     def table(self, name):
-        assert name == "beli_accounts"
-        return FakeTable(self._store, self.updates)
+        assert name in self._tables, name
+        return FakeTable(self._tables[name], self.updates)
+
+    def watermark(self, account_id):
+        for r in self._tables["ig_sources"]:
+            if r["account_id"] == account_id:
+                return r.get("last_seen_ts")
+        return None
 
 
-def _row(id, label, opted_in, last_scan, key_ok=True):
-    enc = accounts.encrypt_secret if key_ok else (lambda s: "garbage-not-encrypted")
+def _account_row(id, label, opted_in):
     return {
         "id": id,
         "label": label,
-        "beli_id_enc": enc("user@example.com"),
-        "password_enc": enc("s3cret"),
+        "beli_id_enc": accounts.encrypt_secret("user@example.com"),
+        "password_enc": accounts.encrypt_secret("s3cret"),
         "token_hash": "x",
         "watcher_opt_in": opted_in,
-        "last_eats_scan": last_scan,
     }
 
 
-def test_norm_ts():
-    assert eats_watcher._norm_ts("2026-09-26T17:14:52+00:00") == "2026-09-26T17:14:52+00:00"
-    assert eats_watcher._norm_ts("2026-09-26 17:14:52") == "2026-09-26T17:14:52"
-    assert eats_watcher._norm_ts("") == ""
-    assert eats_watcher._norm_ts(None) == ""
+def _source_row(account_id, enabled=True, last_seen=""):
+    return {
+        "account_id": account_id,
+        "handle": "beli_eats",
+        "enabled": enabled,
+        "last_seen_ts": last_seen,
+    }
 
 
-def test_run_eats_ingest_only_opted_in(fernet_key, monkeypatch):
-    rows = [
-        _row("a1", "alice", True, ""),
-        _row("b2", "bob", False, ""),
-    ]
-    sb = FakeSupabase(rows)
-    seen = []
+def _sb(account_rows, source_rows=None):
+    if source_rows is None:
+        source_rows = [
+            _source_row(r["id"], enabled=r["watcher_opt_in"]) for r in account_rows
+        ]
+    return FakeSupabase(account_rows, source_rows)
 
-    def fake_scan(account, posts):
+
+def _fake_process(monkeypatch, seen):
+    def fake_process(self, posts, account):
         seen.append(account["label"])
         return {
             "account": account["label"],
@@ -107,79 +122,126 @@ def test_run_eats_ingest_only_opted_in(fernet_key, monkeypatch):
             "newest_ts": "2026-09-26T17:14:52+00:00",
         }
 
-    monkeypatch.setattr(eats_watcher, "scan_account_for_posts", fake_scan)
+    monkeypatch.setattr(beli_sink.BeliSink, "process", fake_process)
+
+
+def test_normalize_ts():
+    assert models.normalize_ts("2026-09-26T17:14:52+00:00") == "2026-09-26T17:14:52+00:00"
+    assert models.normalize_ts("2026-09-26 17:14:52") == "2026-09-26T17:14:52"
+    assert models.normalize_ts("") == ""
+    assert models.normalize_ts(None) == ""
+
+
+def test_run_ingest_only_opted_in(fernet_key, monkeypatch):
+    sb = _sb(
+        [_account_row("a1", "alice", True), _account_row("b2", "bob", False)],
+        [_source_row("a1", enabled=True), _source_row("b2", enabled=True)],
+    )
+    seen = []
+    _fake_process(monkeypatch, seen)
     posts = [{"shortcode": "x", "created_at": "2026-09-26 17:14:52", "post_caption": ""}]
 
-    digests = eats_watcher.run_eats_ingest(posts, sb)
+    digests = runner.run_ingest(sb, posts, "beli_eats")
 
+    # bob's sink is disabled (watcher_opt_in=False) but he still gets a
+    # platform digest with no sink results
     assert seen == ["alice"]
-    assert len(digests) == 1
-    assert digests[0]["account"] == "alice"
-    # space-separated timestamp normalized before the scan ran
-    assert seen and digests[0]["checked"] == 1
+    assert [d["account"] for d in digests] == ["alice", "bob"]
+    alice = digests[0]
+    assert alice["sinks"]["beli"]["checked"] == 1
+    assert digests[1]["sinks"] == {}
+    # space-separated timestamp normalized before the sink ran
+    assert alice["sinks"]["beli"]["checked"] == 1
     # watermark advanced for the processed account only
-    assert sb.updates == [("a1", {"last_eats_scan": "2026-09-26T17:14:52+00:00"})]
-    assert rows[0]["last_eats_scan"] == "2026-09-26T17:14:52+00:00"
-    assert rows[1]["last_eats_scan"] == ""
+    assert sb.watermark("a1") == "2026-09-26T17:14:52"
+    assert sb.watermark("b2") == ""
 
 
-def test_run_eats_ingest_decrypt_failure_reported(fernet_key, monkeypatch):
-    rows = [_row("a1", "alice", True, "", key_ok=False)]
-    sb = FakeSupabase(rows)
+def test_run_ingest_sink_decrypt_failure_reported(fernet_key, monkeypatch):
+    enc = lambda s: "garbage-not-encrypted"  # noqa: E731
+    rows = [
+        {
+            "id": "a1",
+            "label": "alice",
+            "beli_id_enc": enc("x"),
+            "password_enc": enc("y"),
+            "token_hash": "x",
+            "watcher_opt_in": True,
+        }
+    ]
+    sb = _sb(rows)
+    posts = [{"shortcode": "x", "created_at": "2026-09-26T17:14:52+00:00"}]
 
-    def fake_scan(account, posts):  # pragma: no cover - must not be called
-        raise AssertionError("scan must not run for undecryptable accounts")
-
-    monkeypatch.setattr(eats_watcher, "scan_account_for_posts", fake_scan)
-
-    digests = eats_watcher.run_eats_ingest([], sb)
+    digests = runner.run_ingest(sb, posts, "beli_eats")
 
     assert len(digests) == 1
-    assert digests[0]["account"] == "alice"
-    assert digests[0]["checked"] == 0
-    assert any("account error" in s for s in digests[0]["skipped"])
-    assert sb.updates == []
+    beli = digests[0]["sinks"]["beli"]
+    assert beli["checked"] == 1
+    assert any("account error" in s for s in beli["skipped"])
 
 
-def test_run_eats_ingest_only_account_id(fernet_key, monkeypatch):
-    rows = [
-        _row("a1", "alice", True, ""),
-        _row("b2", "bob", True, ""),
-    ]
-    sb = FakeSupabase(rows)
+def test_run_ingest_only_account_id(fernet_key, monkeypatch):
+    sb = _sb(
+        [_account_row("a1", "alice", True), _account_row("b2", "bob", True)],
+    )
     seen = []
+    _fake_process(monkeypatch, seen)
 
-    def fake_scan(account, posts):
-        seen.append(account["label"])
-        return {
-            "account": account["label"],
-            "checked": 0,
-            "bookmarked": [],
-            "already": [],
-            "skipped": [],
-            "newest_ts": "",
-        }
+    digests = runner.run_ingest(sb, [], "beli_eats", only_account_id="b2")
 
-    monkeypatch.setattr(eats_watcher, "scan_account_for_posts", fake_scan)
-
-    digests = eats_watcher.run_eats_ingest([], sb, only_account_id="b2")
-
-    assert seen == ["bob"]
+    assert seen == []
     assert [d["account"] for d in digests] == ["bob"]
 
 
-# --- POST /beli/eats-ingest route -------------------------------------------
+def test_run_ingest_unsubscribed_account_gets_nothing(fernet_key, monkeypatch):
+    sb = _sb(
+        [_account_row("a1", "alice", True)],
+        [_source_row("a1", enabled=False)],
+    )
+    seen = []
+    _fake_process(monkeypatch, seen)
+
+    digests = runner.run_ingest(
+        sb, [{"created_at": "2026-09-26T17:14:52+00:00"}], "beli_eats"
+    )
+
+    assert digests == []
+    assert seen == []
+
+
+# --- POST /beli/eats-ingest route (deprecated backfill path) -----------------
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from beli import routes as beli_routes  # noqa: E402
+from ig_logger.sinks.beli import routes as beli_routes  # noqa: E402
+
+
+def _platform_digest(account, account_id, bookmarked=None):
+    return {
+        "account": account,
+        "account_id": account_id,
+        "source": "beli_eats",
+        "checked": 1,
+        "sinks": {
+            "beli": {
+                "account": account,
+                "checked": 1,
+                "bookmarked": bookmarked or [],
+                "already": [],
+                "skipped": [],
+                "newest_ts": "2026-09-26T17:14:52+00:00",
+            }
+        },
+        "newest_ts": "2026-09-26T17:14:52+00:00",
+        "scanned_at": "2026-09-27T18:00:00+00:00",
+    }
 
 
 def _ingest_client(monkeypatch, key="svc-key-123"):
     monkeypatch.setenv("BELI_EATS_INGEST_KEY", key)
     app = FastAPI()
-    app.state.supabase = FakeSupabase([])
+    app.state.supabase = _sb([])
     app.include_router(beli_routes.router, prefix="/beli")
     return TestClient(app)
 
@@ -194,12 +256,13 @@ def test_eats_ingest_rejects_bad_key(monkeypatch):
     assert r.status_code == 401
     r = client.post("/beli/eats-ingest", json={"posts": []})
     assert r.status_code == 401
+    assert client.post("/beli/eats-ingest", json={"posts": []}).status_code == 401
 
 
 def test_eats_ingest_fails_closed_without_server_key(monkeypatch):
     monkeypatch.delenv("BELI_EATS_INGEST_KEY", raising=False)
     app = FastAPI()
-    app.state.supabase = FakeSupabase([])
+    app.state.supabase = _sb([])
     app.include_router(beli_routes.router, prefix="/beli")
     client = TestClient(app)
     r = client.post(
@@ -214,9 +277,12 @@ def test_eats_ingest_ok(monkeypatch):
     client = _ingest_client(monkeypatch)
     captured = {}
     monkeypatch.setattr(
-        eats_watcher,
-        "run_eats_ingest",
-        lambda posts, sb, only_account_id=None: captured.update(posts=posts) or [],
+        runner,
+        "run_ingest",
+        lambda sb, posts, source, only_account_id=None: captured.update(
+            posts=posts, source=source
+        )
+        or [],
     )
     body = {
         "posts": [
@@ -235,22 +301,53 @@ def test_eats_ingest_ok(monkeypatch):
     assert r.status_code == 200
     assert r.json() == {"accounts": 0, "digests": []}
     assert captured["posts"] == body["posts"]
+    assert captured["source"] == "beli_eats"
     assert r.headers.get("deprecation") == "true"  # deprecated: prefer scan-job queue
+
+
+def test_eats_ingest_flattens_platform_digest(monkeypatch):
+    client = _ingest_client(monkeypatch)
+    monkeypatch.setattr(
+        runner,
+        "run_ingest",
+        lambda sb, posts, source, only_account_id=None: [
+            _platform_digest("alice", "a1", bookmarked=["Some Place"])
+        ],
+    )
+    r = client.post(
+        "/beli/eats-ingest",
+        json={"posts": []},
+        headers={"Authorization": "Bearer svc-key-123"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["accounts"] == 1
+    digest = body["digests"][0]
+    # legacy shape: sink digest flattened, no platform wrapper keys
+    assert digest["account_id"] == "a1"
+    assert digest["bookmarked"] == ["Some Place"]
+    assert digest["scanned_at"] == "2026-09-27T18:00:00+00:00"
+    assert "sinks" not in digest
+    assert "source" not in digest
 
 
 def _user_token_client(monkeypatch):
     """App with two opted-in accounts; alice holds a real ccb_ token."""
-    from cryptography.fernet import Fernet as _F
-
-    key = _F.generate_key().decode()
+    key = Fernet.generate_key().decode()
     monkeypatch.setenv("BELI_CREDENTIALS_KEY", key)
     monkeypatch.setenv("BELI_EATS_INGEST_KEY", "svc-key-123")
     token = "ccb_testtoken123"
     rows = [
-        {**_row("a1", "alice", True, ""), "token_hash": accounts.hash_token(token)},
-        {**_row("b2", "bob", True, ""), "token_hash": accounts.hash_token("ccb_other")},
+        {
+            **_account_row("a1", "alice", True),
+            "token_hash": accounts.hash_token(token),
+        },
+        {
+            **_account_row("b2", "bob", True),
+            "token_hash": accounts.hash_token("ccb_other"),
+        },
     ]
-    sb = FakeSupabase(rows)
+    sb = _sb(rows)
     app = FastAPI()
     app.state.supabase = sb
     app.include_router(beli_routes.router, prefix="/beli")
@@ -261,12 +358,11 @@ def test_eats_ingest_user_token_scoped_to_own_account(monkeypatch):
     client, token = _user_token_client(monkeypatch)
     seen = {}
 
-    def fake_run(posts, sb, only_account_id=None):
+    def fake_run(sb, posts, source, only_account_id=None):
         seen["only_account_id"] = only_account_id
-        return [{"account": "alice", "checked": 0, "bookmarked": [],
-                 "already": [], "skipped": [], "newest_ts": ""}]
+        return [_platform_digest("alice", "a1")]
 
-    monkeypatch.setattr(eats_watcher, "run_eats_ingest", fake_run)
+    monkeypatch.setattr(runner, "run_ingest", fake_run)
     r = client.post(
         "/beli/eats-ingest",
         json={"posts": []},

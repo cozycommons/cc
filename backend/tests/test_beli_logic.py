@@ -2,8 +2,8 @@
 
 import re
 
-from beli import logic
-from beli.beli_client import is_phone_identifier, login_body, results_of
+from ig_logger.sinks.beli import logic
+from ig_logger.sinks.beli.beli_client import is_phone_identifier, login_body, results_of
 
 
 def test_norm():

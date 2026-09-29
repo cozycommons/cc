@@ -1,26 +1,28 @@
-"""FastAPI routes for the Beli app. Mounted at /beli (see main.py).
+"""FastAPI routes for the Beli app (an ig_logger sink). Mounted at /beli.
+
+The Beli app is the first application on the ig_logger platform: it
+watches the @beli_eats Instagram source and auto-bookmarks confident
+restaurant mentions into each opted-in account's Beli "Want to Try".
 
 Endpoints:
   POST /beli/onboard    create an account from a Beli login, mint an API token
   GET  /beli/me         check a token / describe the account
   GET  /beli/recs        ranked bookmarks first, then Beli trending
   POST /beli/bookmark    confidence-gated "Want to Try" bookmark write
-  POST /beli/eats-ingest @beli_eats post ingestion (service key for all
-                          opted-in accounts, or personal token for own account)
-  POST /beli/eats/scan  enqueue a CC-orchestrated scan job (service key ->
+  POST /beli/watcher-opt-in  toggle the @beli_eats auto-bookmark watcher
+  POST /beli/eats-ingest @beli_eats post ingestion (DEPRECATED: manual
+                          backfills only; prefer the scan-job queue)
+  POST /beli/eats/scan  enqueue a scan job for @beli_eats (service key ->
                           scope 'all'; personal token -> own account)
-  GET  /beli/eats/scan/pending  oldest pending scan job (polled by the
-                          fetch box); 204 when the queue is empty
+  GET  /beli/eats/scan/pending  oldest pending @beli_eats scan job (polled
+                          by the fetch box); 204 when the queue is empty
   POST /beli/eats/scan/{job_id}/complete  fetch box posts fetched IG posts;
                           CC runs the ingest pipeline under the job's scope
   GET  /beli/eats/scan/{job_id}  job status + the caller's digest slice
   GET  /beli/eats/digest   the caller's most recent completed scan digest
 
-Scan jobs: CC never touches Instagram and accepts no inbound connections
-from the fetch box. The box (a tiny service on the operator's VM) polls
-/eats/scan/pending, fetches Instagram locally, and POSTs the posts back to
-/eats/scan/{job_id}/complete. CC then runs the ingest pipeline and stores
-the digest on the job row.
+The /beli/eats/* endpoints are thin wrappers over the ig_logger platform
+(scan jobs for source 'beli_eats'); response shapes are unchanged.
 
 Auth: Authorization: Bearer <personal token> (from /beli/onboard).
 Every request resolves the token to exactly one account and only ever touches
@@ -29,23 +31,25 @@ that account's Beli data.
 
 from __future__ import annotations
 
-import os
-import secrets
 import time
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from ... import jobs as scan_jobs
+from ... import runner, sources
+from ...auth import resolve_scan_scope
 from . import accounts
-from . import eats_watcher
 from .accounts import AccountError
 from .beli_client import BeliClient, BeliError
 from .logic import bookmark_name, get_recs
 
 router = APIRouter()
 _bearer = HTTPBearer(auto_error=False)
+
+# The Instagram source this app watches.
+SOURCE_HANDLE = "beli_eats"
 
 # --- onboarding rate limit: 10 attempts per IP per hour ----------------------
 _ONBOARD_ATTEMPTS: dict[str, list[float]] = {}
@@ -108,69 +112,34 @@ class EatsScanCompleteBody(BaseModel):
     posts: list[EatsIngestPost] = Field(max_length=100)
 
 
-def _ingest_service_key_ok(request: Request) -> bool:
-    """Validate the harness service key for POST /beli/eats-ingest.
-
-    Fail closed: missing server-side key never authenticates.
-    """
-    expected = os.environ.get("BELI_EATS_INGEST_KEY")
-    if not expected:
-        return False
-    scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    return scheme.lower() == "bearer" and bool(token) and secrets.compare_digest(
-        token, expected
-    )
-
-
-def _resolve_ingest_scope(request: Request) -> str | None:
-    """Auth shared by /beli/eats-ingest and /beli/eats/scan.
-
-    Returns None when the harness service key authenticated (run for every
-    opted-in account), or the account id when a personal API token
-    authenticated (run for the caller's account only). Raises 401 otherwise.
-    """
-    if _ingest_service_key_ok(request):
+# --- legacy digest helpers ---------------------------------------------------
+def _legacy_digest(platform_digest: dict | None) -> dict | None:
+    """Flatten one platform digest to the historical /beli/eats/* shape."""
+    if not platform_digest:
         return None
-    scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    try:
-        if scheme.lower() != "bearer" or not token:
-            raise AccountError("missing bearer token")
-        account = accounts.get_account_by_token(_supabase(request), token)
-    except AccountError:
-        raise HTTPException(status_code=401, detail="invalid service key or token")
-    return account["id"]
+    sink_digest = (platform_digest.get("sinks") or {}).get("beli")
+    if not sink_digest:
+        return None
+    return {
+        **sink_digest,
+        "account_id": platform_digest.get("account_id"),
+        "scanned_at": platform_digest.get("scanned_at"),
+    }
 
 
-def _run_ingest(
-    supabase, posts: list, only_account_id: str | None = None
-) -> list[dict]:
-    """Shared ingest-processing core: runs the watch pipeline over `posts`
-    and stamps each digest with the scan time."""
-    digests = eats_watcher.run_eats_ingest(
-        posts, supabase, only_account_id=only_account_id
-    )
-    scanned_at = datetime.now(timezone.utc).isoformat()
-    for d in digests:
-        d["scanned_at"] = scanned_at
-    return digests
+def _legacy_digests(platform_digests: list[dict]) -> list[dict]:
+    out = []
+    for d in platform_digests or []:
+        leg = _legacy_digest(d)
+        if leg:
+            out.append(leg)
+    return out
 
 
-def _get_scan_job(supabase, job_id: str) -> dict:
-    res = supabase.table("eats_scan_jobs").select("*").eq("id", job_id).execute()
-    rows = res.data or []
-    if not rows:
-        raise HTTPException(status_code=404, detail="unknown scan job")
-    return rows[0]
-
-
-def _job_includes(job: dict, account_id: str) -> bool:
-    return job.get("scope") in ("all", account_id)
-
-
-def _caller_digest_slice(digests: list, account_id: str) -> dict | None:
-    for d in digests or []:
+def _caller_legacy_slice(job: dict, account_id: str) -> dict | None:
+    for d in job.get("digest") or []:
         if d.get("account_id") == account_id:
-            return d
+            return _legacy_digest(d)
     return None
 
 
@@ -247,9 +216,12 @@ def watcher_opt_in(
     enabled: bool = Query(default=True),
 ):
     """Opt in/out of the @beli_eats auto-bookmark watcher for your account."""
-    _supabase(request).table("beli_accounts").update(
+    supabase = _supabase(request)
+    supabase.table("beli_accounts").update(
         {"watcher_opt_in": bool(enabled)}
     ).eq("id", account["id"]).execute()
+    # Keep the platform source subscription in sync with the Beli sink flag.
+    sources.set_enabled(supabase, account["id"], SOURCE_HANDLE, bool(enabled))
     return {"watcher_opt_in": bool(enabled)}
 
 
@@ -262,7 +234,7 @@ def eats_ingest(request: Request, response: Response, body: EatsIngestBody):
 
     Two auth modes:
     - Harness service key (BELI_EATS_INGEST_KEY): runs the watch pipeline
-      for every opted-in account and returns per-account digests.
+      for every subscribed account and returns per-account digests.
     - Personal API token (ccb_... from /beli/onboard): runs the pipeline
       for the caller's account only. This lets a user's own harness job
       trigger ingestion without holding the shared service key.
@@ -270,9 +242,9 @@ def eats_ingest(request: Request, response: Response, body: EatsIngestBody):
     response.headers["Deprecation"] = "true"
     posts = [p.model_dump() for p in body.posts]
     supabase = _supabase(request)
-    only_account_id = _resolve_ingest_scope(request)
-    digests = _run_ingest(supabase, posts, only_account_id)
-    return {"accounts": len(digests), "digests": digests}
+    only_account_id = resolve_scan_scope(request)
+    digests = runner.run_ingest(supabase, posts, SOURCE_HANDLE, only_account_id)
+    return {"accounts": len(digests), "digests": _legacy_digests(digests)}
 
 
 @router.post("/eats/scan", status_code=202)
@@ -282,19 +254,12 @@ def eats_scan(request: Request):
     The fetch box polls GET /beli/eats/scan/pending for work, fetches
     Instagram locally, and POSTs the posts back to
     /beli/eats/scan/{job_id}/complete. Same auth modes as /beli/eats-ingest:
-    the harness service key creates a job scoped to every opted-in account
+    the harness service key creates a job scoped to every subscribed account
     ('all'); a personal API token scopes the job to the caller's account.
     """
-    only_account_id = _resolve_ingest_scope(request)
+    only_account_id = resolve_scan_scope(request)
     scope = "all" if only_account_id is None else only_account_id
-    res = (
-        _supabase(request)
-        .table("eats_scan_jobs")
-        .insert({"scope": scope, "status": "pending"})
-        .execute()
-    )
-    job_id = (res.data or [{}])[0].get("id")
-    return {"job_id": job_id, "status": "queued"}
+    return scan_jobs.create_job(_supabase(request), SOURCE_HANDLE, scope)
 
 
 @router.get("/eats/scan/pending")
@@ -302,23 +267,14 @@ def eats_scan_pending(
     request: Request,
     account: dict = Depends(_account),  # noqa: B008
 ):
-    """Oldest pending scan job, for the fetch-box poller.
+    """Oldest pending @beli_eats scan job, for the fetch-box poller.
 
     Only reveals work-to-do (job id + scope), never user data.
     """
-    res = (
-        _supabase(request)
-        .table("eats_scan_jobs")
-        .select("id,scope")
-        .eq("status", "pending")
-        .order("created_at")
-        .limit(1)
-        .execute()
-    )
-    rows = res.data or []
-    if not rows:
+    job = scan_jobs.oldest_pending(_supabase(request), SOURCE_HANDLE)
+    if not job:
         return Response(status_code=204)
-    return {"job_id": rows[0]["id"], "scope": rows[0]["scope"]}
+    return job
 
 
 @router.post("/eats/scan/{job_id}/complete")
@@ -331,31 +287,29 @@ def eats_scan_complete(
     """Complete a scan job with posts fetched by the fetch box.
 
     CC runs the shared ingest pipeline under the job's stored scope: 'all'
-    fans out to every opted-in account via CC's internal authority (the
+    fans out to every subscribed account via CC's internal authority (the
     poller never holds the service key); otherwise only the scoped account.
     The resulting digest(s) are stored on the job row.
     """
     supabase = _supabase(request)
-    job = _get_scan_job(supabase, job_id)
+    job = scan_jobs.get_job(supabase, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown scan job")
     if job.get("status") != "pending":
         raise HTTPException(status_code=409, detail="job is not pending")
-    supabase.table("eats_scan_jobs").update({"status": "running"}).eq(
-        "id", job_id
-    ).execute()
+    scan_jobs.mark_running(supabase, job_id)
     posts = [p.model_dump() for p in body.posts]
     scope = job.get("scope")
     only_account_id = None if scope == "all" else scope
     try:
-        digests = _run_ingest(supabase, posts, only_account_id)
+        digests = runner.run_ingest(
+            supabase, posts, job.get("source_handle") or SOURCE_HANDLE, only_account_id
+        )
     except Exception as e:  # noqa: BLE001 - recorded on the job, then reported
-        supabase.table("eats_scan_jobs").update(
-            {"status": "failed", "error": str(e)[:500]}
-        ).eq("id", job_id).execute()
+        scan_jobs.mark_failed(supabase, job_id, str(e))
         raise HTTPException(status_code=502, detail=f"ingest failed: {e}")
-    supabase.table("eats_scan_jobs").update(
-        {"status": "done", "digest": digests}
-    ).eq("id", job_id).execute()
-    return {"job_id": job_id, "status": "done", "digests": digests}
+    scan_jobs.mark_done(supabase, job_id, digests)
+    return {"job_id": job_id, "status": "done", "digests": _legacy_digests(digests)}
 
 
 @router.get("/eats/scan/{job_id}")
@@ -365,12 +319,14 @@ def eats_scan_status(
     account: dict = Depends(_account),  # noqa: B008
 ):
     """Scan job status. The digest is filtered to the caller's own account."""
-    job = _get_scan_job(_supabase(request), job_id)
-    if not _job_includes(job, account["id"]):
+    job = scan_jobs.get_job(_supabase(request), job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="unknown scan job")
+    if not scan_jobs.job_includes(job, account["id"]):
         raise HTTPException(status_code=403, detail="not your scan job")
     out: dict = {"job_id": job_id, "status": job.get("status")}
     if job.get("digest") is not None:
-        out["digest"] = _caller_digest_slice(job["digest"], account["id"])
+        out["digest"] = _caller_legacy_slice(job, account["id"])
     if job.get("error"):
         out["error"] = job["error"]
     return out
@@ -382,18 +338,12 @@ def eats_digest(
     account: dict = Depends(_account),  # noqa: B008
 ):
     """The caller's most recent completed @beli_eats scan digest."""
-    res = (
-        _supabase(request)
-        .table("eats_scan_jobs")
-        .select("scope,digest")
-        .eq("status", "done")
-        .order("created_at", desc=True)
-        .execute()
+    job = scan_jobs.latest_done_for_account(
+        _supabase(request), account["id"], SOURCE_HANDLE
     )
-    for job in res.data or []:
-        if not _job_includes(job, account["id"]):
-            continue
-        digest = _caller_digest_slice(job.get("digest"), account["id"])
-        if digest:
-            return digest
+    if not job:
+        raise HTTPException(status_code=404, detail="no scan yet")
+    digest = _caller_legacy_slice(job, account["id"])
+    if digest:
+        return digest
     raise HTTPException(status_code=404, detail="no scan yet")

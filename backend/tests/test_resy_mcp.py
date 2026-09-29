@@ -6,10 +6,14 @@ boundaries are faked, so no network or database is touched.
 
 import asyncio
 import json
+from datetime import date, timedelta
 
 import pytest
 
 from resy import mcp_server
+
+# Fixture reservations must stay "upcoming" no matter when the suite runs.
+UPCOMING_DAY = (date.today() + timedelta(days=7)).isoformat()
 from resy.accounts import AccountError
 
 
@@ -51,7 +55,7 @@ class FakeClient:
         return [{
             "reservation": {
                 "resy_token": "rr://a", "reservation_id": 4242,
-                "day": "2026-09-28", "time_slot": "19:00:00", "num_seats": 2,
+                "day": UPCOMING_DAY, "time_slot": "19:00:00", "num_seats": 2,
                 "venue": {"id": 834},
                 "cancellation": {"allowed": True}, "status": {},
             },

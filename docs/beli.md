@@ -2,35 +2,50 @@
 
 Personal Beli restaurant recommendations and "Want to Try" bookmark writes,
 multi-tenant: every friend onboards with their own Beli login and gets their
-own recommendations and bookmarks. Code: `backend/beli/`. Routes: `/beli/*`.
-MCP: `/beli/mcp`.
+own recommendations and bookmarks. Code: `backend/ig_logger/sinks/beli/` — the
+Beli app is the first application on the generic ig_logger platform
+(`backend/ig_logger/`), which moves Instagram posts from subscribed sources
+to application sinks. Routes: `/beli/*`. MCP: `/beli/mcp`.
 
 ## Architecture
 
-- `backend/beli/beli_client.py` — Beli API client (port of the beli-recs TS
+- `backend/ig_logger/` — the platform: per-account Instagram source
+  subscriptions (`ig_sources`), the scan-job queue (`ig_scan_jobs`), the
+  ingest runner (normalizes posts, filters by per-source watermark, fans
+  out to sinks), and the generic `/ig-logger` routes. No Beli-specific
+  code lives here.
+- `backend/ig_logger/sinks/beli/sink.py` — the Beli `Sink` implementation:
+  restaurant extraction from captions, confidence-gated Beli writes, and
+  the `watcher_opt_in` enablement flag.
+- `backend/ig_logger/sinks/beli/beli_client.py` — Beli API client (port of the beli-recs TS
   client). One instance = one Beli account; token state and 350ms request
   pacing are per-instance, never shared across accounts.
-- `backend/beli/logic.py` — recs assembly, bookmark flow, `@beli_eats`
+- `backend/ig_logger/sinks/beli/logic.py` — recs assembly, bookmark flow, `@beli_eats`
   caption mining. Pure functions over a `BeliClient`; no framework code.
-- `backend/beli/accounts.py` — account store. Beli logins encrypted at rest
+- `backend/ig_logger/sinks/beli/accounts.py` — account store. Beli logins encrypted at rest
   with Fernet (`BELI_CREDENTIALS_KEY`); API tokens stored as sha256 hashes.
-- `backend/beli/routes.py` — FastAPI router (`/beli/onboard`, `/beli/me`,
+  Onboarding subscribes the account to the `beli_eats` platform source by default.
+- `backend/ig_logger/sinks/beli/routes.py` — FastAPI router (`/beli/onboard`, `/beli/me`,
   `/beli/recs`, `/beli/bookmark`, `/beli/watcher-opt-in`, `/beli/eats-ingest`,
   `/beli/eats/scan`, `/beli/eats/scan/pending`,
   `/beli/eats/scan/{job_id}/complete`, `/beli/eats/scan/{job_id}`,
   `/beli/eats/digest`).
-- `backend/beli/mcp_server.py` — MCP tools (`get_recs`, `bookmark_restaurant`)
+- `backend/ig_logger/sinks/beli/mcp_server.py` — MCP tools (`get_recs`, `bookmark_restaurant`)
   mounted at `/beli/mcp`. Tools take the caller's personal API token, so one
   server serves every user.
-- `backend/beli/eats_watcher.py` —
-  the `@beli_eats` auto-bookmark watcher, run per opted-in account. Posts
-  arrive via `POST /beli/eats-ingest` (harness push) or through the scan-job
-  queue (`POST /beli/eats/scan` → fetch box polls → `/complete`); no
-  Instagram code lives on the backend.
+- `backend/ig_logger/sinks/beli/sink.py` — the `@beli_eats` auto-bookmark
+  sink, run per subscribed account by the platform runner. Posts arrive via
+  `POST /beli/eats-ingest` (harness push) or through the scan-job queue
+  (`POST /beli/eats/scan` → fetch box polls → `/complete`); no Instagram
+  code lives on the backend. The `/beli/eats/*` routes are thin wrappers
+  over the platform and keep the legacy response shapes.
 - `backend/migrations/0001_beli_accounts.sql` — the `beli_accounts` table
   (registered as the `beli` family in `migration_runner.py`).
-- `backend/migrations/0002_beli_scan_jobs.sql` — the `eats_scan_jobs` queue
-  for CC-orchestrated scans.
+- `backend/migrations/0005_beli_ig_logger_platform.sql` — the `ig_sources`
+  (per-account Instagram subscriptions + `last_seen_ts` watermarks) and
+  `ig_scan_jobs` (scan queue with `source_handle`) tables; backfills every
+  Beli account as subscribed to `beli_eats` and drops the legacy
+  `eats_scan_jobs` table.
 
 ## Auth model
 
@@ -118,8 +133,8 @@ never touches Instagram and needs no inbound connection to the fetch box:
    it done.
 
 Either way it extracts restaurant names from captions, bookmarks confident
-matches into each account's Beli, advances the account's own `last_eats_scan`
-watermark, and returns per-account digests. Ambiguous names are never
+matches into each account's Beli, advances the account's per-source
+`last_seen_ts` watermark in `ig_sources`, and returns per-account digests. Ambiguous names are never
 written. End users never touch Instagram — onboarding stays a
 single Beli-login call (see `## User onboarding`).
 
@@ -129,19 +144,13 @@ scan-job queue above for all scheduled and ad-hoc ingestion.
 
 ## Testing
 
-`cd backend && python -m pytest tests/test_beli_*.py -q` — 68 tests covering
+`cd backend && python -m pytest tests/test_beli_*.py -q` — 70 tests covering
 the confidence gate, dedup, ranked/duplicate-record guards, empty write
 responses, client auth flow against a mock Beli server, token isolation,
+the platform runner (per-source subscriptions, fan-out, watermarks),
 the scan-job queue (enqueue scope per auth type, poller flow, fan-out,
-digest slicing, 403/404 paths), and the `beli` migration family. No live
-Beli calls, no database.
-
-## Testing
-
-`cd backend && python -m pytest tests/test_beli_*.py -q` — 44 tests covering
-the confidence gate, dedup, ranked/duplicate-record guards, empty write
-responses, client auth flow against a mock Beli server, token isolation, and
-the `beli` migration family. No live Beli calls, no database.
+digest slicing, 403/404 paths, legacy response shapes), and the `beli`
+migration family. No live Beli calls, no database.
 
 ## Agent setup
 

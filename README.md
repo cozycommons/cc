@@ -8,7 +8,7 @@ https://cozycommons.dev
 
 - `frontend/` — Vite + React Dice web app
 - `backend/` — FastAPI Dice API
-- `backend/beli/` — see `docs/beli/`
+- `backend/ig_logger/` — generic Instagram-source → sink platform; the Beli app lives at `backend/ig_logger/sinks/beli/` — see `docs/beli/`
 - `supabase/` — local Supabase configuration and synthetic seed data
 - `scripts/` — isolated Dice development and migration tooling
 - `docs/` — behavior and operations documentation
