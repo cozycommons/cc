@@ -118,13 +118,17 @@ def _legacy_digest(platform_digest: dict | None) -> dict | None:
     if not platform_digest:
         return None
     sink_digest = (platform_digest.get("sinks") or {}).get("beli")
-    if not sink_digest:
-        return None
-    return {
-        **sink_digest,
-        "account_id": platform_digest.get("account_id"),
-        "scanned_at": platform_digest.get("scanned_at"),
-    }
+    if sink_digest:
+        return {
+            **sink_digest,
+            "account_id": platform_digest.get("account_id"),
+            "scanned_at": platform_digest.get("scanned_at"),
+        }
+    # Pre-platform rows (migrated from eats_scan_jobs) store the flat Beli
+    # sink shape directly, without the {"sinks": {"beli": ...}} wrapper.
+    if "bookmarked" in platform_digest or "checked" in platform_digest:
+        return platform_digest
+    return None
 
 
 def _legacy_digests(platform_digests: list[dict]) -> list[dict]:
