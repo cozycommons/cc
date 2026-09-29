@@ -7,7 +7,8 @@ declare
 begin
   foreach object_name in array array[
     'beli_accounts',
-    'eats_scan_jobs',
+    'ig_sources',
+    'ig_scan_jobs',
     'partiful_accounts',
     'resy_accounts'
   ] loop
@@ -28,9 +29,12 @@ begin
     'resy_accounts.email_enc',
     'resy_accounts.password_enc',
     'resy_accounts.token_hash',
-    'eats_scan_jobs.status',
-    'eats_scan_jobs.scope',
-    'eats_scan_jobs.digest'
+    'ig_sources.handle',
+    'ig_sources.last_seen_ts',
+    'ig_scan_jobs.source_handle',
+    'ig_scan_jobs.status',
+    'ig_scan_jobs.scope',
+    'ig_scan_jobs.digest'
   ] loop
     if to_regclass('public.' || split_part(column_spec, '.', 1)) is null then
       raise exception 'Beli schema contract: missing table for %', column_spec;

@@ -1,4 +1,4 @@
-"""Per-user Beli account storage.
+"""Per-user Beli account storage (Beli sink).
 
 Each friend onboards with their own Beli login (email or phone + password).
 Credentials are encrypted at rest with Fernet (key from BELI_CREDENTIALS_KEY)
@@ -8,22 +8,31 @@ API access is per-account: onboarding mints a personal bearer token
 ("ccb_..."), shown once. The token's sha256 hash is stored; the plaintext is
 never persisted. Every /beli request resolves the token to exactly one
 account, so one friend's token can never touch another friend's Beli data.
+
+Platform-level identity (token -> account row) lives in
+`ig_logger/accounts.py`; this module adds the Beli-sink specifics.
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import os
 import secrets
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from ... import sources
+from ...accounts import AccountError, get_account_row_by_token, hash_token
 from .beli_client import BeliClient, BeliError
 
-
-class AccountError(Exception):
-    pass
+__all__ = [
+    "AccountError",
+    "encrypt_secret",
+    "decrypt_secret",
+    "hash_token",
+    "create_account",
+    "get_account_by_token",
+    "make_client_for_account",
+]
 
 
 def _fernet() -> Fernet:
@@ -50,10 +59,6 @@ def decrypt_secret(ciphertext: str) -> str:
         raise AccountError(
             "Could not decrypt stored credentials (BELI_CREDENTIALS_KEY mismatch?)"
         )
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def mint_token() -> str:
@@ -89,33 +94,35 @@ def create_account(supabase, label: str, beli_id: str, password: str) -> dict:
     }
     res = supabase.table("beli_accounts").insert(row).execute()
     created = (res.data or [{}])[0]
-    return {"id": created.get("id"), "label": label, "token": token}
+    account_id = created.get("id")
+    # Platform subscription: the Beli app watches @beli_eats for every account.
+    if account_id:
+        sources.subscribe(supabase, account_id, "beli_eats", enabled=True)
+    return {"id": account_id, "label": label, "token": token}
 
 
 def get_account_by_token(supabase, token: str) -> dict:
     """Resolve a bearer token to its account (with decrypted Beli creds).
 
-    Raises AccountError when the token is unknown. Uses a constant-time
-    comparison on the hash.
+    Raises AccountError when the token is unknown.
     """
-    if not token or not token.startswith("ccb_"):
-        raise AccountError("invalid token")
-    wanted = hash_token(token)
-    res = (
+    row = get_account_row_by_token(supabase, token)
+    creds = (
         supabase.table("beli_accounts")
-        .select("id,label,beli_id_enc,password_enc,token_hash,watcher_opt_in")
+        .select("beli_id_enc,password_enc")
+        .eq("id", row["id"])
         .execute()
     )
-    for row in res.data or []:
-        if hmac.compare_digest(str(row.get("token_hash") or ""), wanted):
-            return {
-                "id": row["id"],
-                "label": row.get("label"),
-                "beli_id": decrypt_secret(row["beli_id_enc"]),
-                "password": decrypt_secret(row["password_enc"]),
-                "watcher_opt_in": bool(row.get("watcher_opt_in")),
-            }
-    raise AccountError("unknown token")
+    cred_rows = creds.data or []
+    if not cred_rows:
+        raise AccountError("unknown token")
+    return {
+        "id": row["id"],
+        "label": row.get("label"),
+        "beli_id": decrypt_secret(cred_rows[0]["beli_id_enc"]),
+        "password": decrypt_secret(cred_rows[0]["password_enc"]),
+        "watcher_opt_in": bool(row.get("watcher_opt_in")),
+    }
 
 
 def make_client_for_account(account: dict) -> BeliClient:

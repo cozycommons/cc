@@ -6,6 +6,10 @@ Instagram locally, and POSTs the posts back to
 POST /beli/eats/scan/{job_id}/complete. CC runs the ingest pipeline under
 the job's stored scope and keeps the digest on the job row.
 
+The /beli/eats/* endpoints are thin wrappers over the ig_logger platform
+(scan jobs for source 'beli_eats'); these tests pin the legacy response
+shapes.
+
 In-memory fakes of the Supabase table API — no database required.
 """
 
@@ -19,9 +23,9 @@ from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from beli import accounts
-from beli import eats_watcher
-from beli import routes as beli_routes
+from ig_logger.sinks.beli import accounts
+from ig_logger.sinks.beli import sink as beli_sink
+from ig_logger.sinks.beli import routes as beli_routes
 
 
 @pytest.fixture()
@@ -50,6 +54,11 @@ class FakeTable:
         self._eq.append((k, v))
         base = self._rows if self._rows is not None else self._store
         self._rows = [r for r in base if r.get(k) == v]
+        return self
+
+    def in_(self, k, values):
+        base = self._rows if self._rows is not None else self._store
+        self._rows = [r for r in base if r.get(k) in values]
         return self
 
     def order(self, k, desc=False):
@@ -97,10 +106,11 @@ class FakeTable:
 
 
 class FakeSupabase:
-    def __init__(self, accounts_rows, jobs_rows=None):
+    def __init__(self, accounts_rows, source_rows, jobs_rows=None):
         self._tables = {
             "beli_accounts": accounts_rows,
-            "eats_scan_jobs": jobs_rows if jobs_rows is not None else [],
+            "ig_sources": source_rows,
+            "ig_scan_jobs": jobs_rows if jobs_rows is not None else [],
         }
         self._counter = [0]
 
@@ -110,10 +120,16 @@ class FakeSupabase:
 
     @property
     def jobs(self):
-        return self._tables["eats_scan_jobs"]
+        return self._tables["ig_scan_jobs"]
+
+    def watermark(self, account_id):
+        for r in self._tables["ig_sources"]:
+            if r["account_id"] == account_id:
+                return r.get("last_seen_ts")
+        return None
 
 
-def _account_row(id, label, token, opted_in=True, last_scan=""):
+def _account_row(id, label, token, opted_in=True):
     return {
         "id": id,
         "label": label,
@@ -121,7 +137,15 @@ def _account_row(id, label, token, opted_in=True, last_scan=""):
         "password_enc": accounts.encrypt_secret("s3cret"),
         "token_hash": accounts.hash_token(token),
         "watcher_opt_in": opted_in,
-        "last_eats_scan": last_scan,
+    }
+
+
+def _source_row(account_id, enabled=True, last_seen=""):
+    return {
+        "account_id": account_id,
+        "handle": "beli_eats",
+        "enabled": enabled,
+        "last_seen_ts": last_seen,
     }
 
 
@@ -137,11 +161,12 @@ def _app(sb, monkeypatch, service_key="svc-key-123"):
 def two_accounts(fernet_key):
     alice_token = "ccb_alice_token_1"
     bob_token = "ccb_bob_token_2"
-    rows = [
+    account_rows = [
         _account_row("a1", "alice", alice_token, True),
         _account_row("b2", "bob", bob_token, True),
     ]
-    return FakeSupabase(rows), alice_token, bob_token
+    source_rows = [_source_row("a1"), _source_row("b2")]
+    return FakeSupabase(account_rows, source_rows), alice_token, bob_token
 
 
 def _posts():
@@ -154,10 +179,10 @@ def _posts():
     ]
 
 
-def _fake_scan(monkeypatch):
-    """Stub the per-account scan; exercises the real run_eats_ingest loop."""
+def _fake_process(monkeypatch):
+    """Stub the Beli sink; exercises the real platform fan-out."""
 
-    def fake_scan(account, posts):
+    def fake_process(self, posts, account):
         return {
             "account": account["label"],
             "checked": len(posts),
@@ -167,7 +192,7 @@ def _fake_scan(monkeypatch):
             "newest_ts": "2026-09-26T17:14:52+00:00",
         }
 
-    monkeypatch.setattr(eats_watcher, "scan_account_for_posts", fake_scan)
+    monkeypatch.setattr(beli_sink.BeliSink, "process", fake_process)
 
 
 # --- POST /beli/eats/scan --------------------------------------------------------
@@ -182,6 +207,7 @@ def test_scan_service_key_creates_all_job(two_accounts, monkeypatch):
     assert body["job_id"]
     assert sb.jobs[0]["scope"] == "all"
     assert sb.jobs[0]["status"] == "pending"
+    assert sb.jobs[0]["source_handle"] == "beli_eats"
 
 
 def test_scan_personal_token_scoped_to_caller(two_accounts, monkeypatch):
@@ -225,6 +251,7 @@ def test_pending_returns_oldest_job(two_accounts, monkeypatch):
     )
     assert r.status_code == 200
     assert r.json()["scope"] == "all"  # the first enqueued job
+    assert r.json()["source_handle"] == "beli_eats"
 
 
 def test_pending_requires_auth(two_accounts, monkeypatch):
@@ -237,7 +264,7 @@ def test_pending_requires_auth(two_accounts, monkeypatch):
 
 def test_complete_runs_pipeline_and_stores_digest(two_accounts, monkeypatch):
     sb, alice_token, _ = two_accounts
-    _fake_scan(monkeypatch)
+    _fake_process(monkeypatch)
     client = _app(sb, monkeypatch)
     job_id = client.post(
         "/beli/eats/scan", headers={"Authorization": f"Bearer {alice_token}"}
@@ -254,17 +281,19 @@ def test_complete_runs_pipeline_and_stores_digest(two_accounts, monkeypatch):
     assert body["digests"][0]["account"] == "alice"
     assert body["digests"][0]["account_id"] == "a1"
     assert "scanned_at" in body["digests"][0]
+    # legacy shape: no platform wrapper keys leak through
+    assert "sinks" not in body["digests"][0]
 
     job = sb.jobs[0]
     assert job["status"] == "done"
-    assert job["digest"][0]["bookmarked"] == ["Some Place"]
-    # watermark advanced by the shared ingest core
-    assert sb._tables["beli_accounts"][0]["last_eats_scan"] == "2026-09-26T17:14:52+00:00"
+    assert job["digest"][0]["sinks"]["beli"]["bookmarked"] == ["Some Place"]
+    # watermark advanced on the platform subscription row
+    assert sb.watermark("a1") == "2026-09-26T17:14:52+00:00"
 
 
 def test_complete_all_scope_fans_out(two_accounts, monkeypatch):
     sb, alice_token, _ = two_accounts
-    _fake_scan(monkeypatch)
+    _fake_process(monkeypatch)
     client = _app(sb, monkeypatch)
     job_id = client.post(
         "/beli/eats/scan", headers={"Authorization": "Bearer svc-key-123"}
@@ -295,7 +324,7 @@ def test_complete_unknown_job_404(two_accounts, monkeypatch):
 
 def test_complete_non_pending_409(two_accounts, monkeypatch):
     sb, alice_token, _ = two_accounts
-    _fake_scan(monkeypatch)
+    _fake_process(monkeypatch)
     client = _app(sb, monkeypatch)
     job_id = client.post(
         "/beli/eats/scan", headers={"Authorization": f"Bearer {alice_token}"}
@@ -310,7 +339,7 @@ def test_complete_non_pending_409(two_accounts, monkeypatch):
 
 def test_scan_status_scoped_and_sliced(two_accounts, monkeypatch):
     sb, alice_token, bob_token = two_accounts
-    _fake_scan(monkeypatch)
+    _fake_process(monkeypatch)
     client = _app(sb, monkeypatch)
 
     # bob-scoped job: alice gets 403, bob gets his slice
@@ -375,7 +404,7 @@ def test_digest_404_before_any_scan(two_accounts, monkeypatch):
 
 def test_digest_returns_caller_slice_after_scan(two_accounts, monkeypatch):
     sb, alice_token, bob_token = two_accounts
-    _fake_scan(monkeypatch)
+    _fake_process(monkeypatch)
     client = _app(sb, monkeypatch)
     job_id = client.post(
         "/beli/eats/scan", headers={"Authorization": "Bearer svc-key-123"}

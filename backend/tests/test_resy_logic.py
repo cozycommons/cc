@@ -4,8 +4,12 @@ A fake ResyClient stands in for the wire — no network, no account needed.
 """
 
 import pytest
+from datetime import date, timedelta
 
 from resy import logic
+
+# Fixture reservations must stay "upcoming" no matter when the suite runs.
+UPCOMING_DAY = (date.today() + timedelta(days=7)).isoformat()
 
 
 class FakeClient:
@@ -76,7 +80,7 @@ class FakeClient:
                 "reservation": {
                     "resy_token": "rr://a",
                     "reservation_id": 4242,
-                    "day": "2026-09-28",
+                    "day": UPCOMING_DAY,
                     "time_slot": "19:00:00",
                     "num_seats": 2,
                     "venue": {"id": 834},

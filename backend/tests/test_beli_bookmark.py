@@ -1,7 +1,7 @@
 """Unit tests for the bookmark service: dedup, ranked-guard, duplicate-record
 guard, confidence gate. BeliClient is faked — no network."""
 
-from beli.logic import bookmark_name
+from ig_logger.sinks.beli.logic import bookmark_name
 
 
 class FakeClient:

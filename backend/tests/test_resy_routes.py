@@ -6,10 +6,14 @@ onboarding rate limiting, input validation, and error mapping.
 """
 
 import pytest
+from datetime import date, timedelta
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from resy import routes
+
+# Fixture reservations must stay "upcoming" no matter when the suite runs.
+UPCOMING_DAY = (date.today() + timedelta(days=7)).isoformat()
 from resy.accounts import AccountError
 from resy.resy_client import ResyAuthError, ResyError
 
@@ -63,7 +67,7 @@ class FakeClient:
         return [{
             "reservation": {
                 "resy_token": "rr://a", "reservation_id": 4242,
-                "day": "2026-09-28", "time_slot": "19:00:00", "num_seats": 2,
+                "day": UPCOMING_DAY, "time_slot": "19:00:00", "num_seats": 2,
                 "venue": {"id": 834},
                 "cancellation": {"allowed": True}, "status": {},
             },

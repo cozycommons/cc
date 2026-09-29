@@ -7,8 +7,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import jwt as pyjwt
 import pytest
 
-from beli import beli_client
-from beli.beli_client import BeliClient, BeliError, BeliUnauthorized
+from ig_logger.sinks.beli import beli_client
+from ig_logger.sinks.beli.beli_client import BeliClient, BeliError, BeliUnauthorized
 
 
 def _token():

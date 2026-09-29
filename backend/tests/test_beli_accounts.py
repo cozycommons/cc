@@ -11,7 +11,7 @@ os.environ.setdefault("BELI_CREDENTIALS_KEY", "")
 
 from cryptography.fernet import Fernet
 
-from beli import accounts
+from ig_logger.sinks.beli import accounts
 
 
 @pytest.fixture()
@@ -45,6 +45,18 @@ class FakeTable:
             r.update(values)
         return self
 
+    def upsert(self, row, on_conflict=None):
+        cols = [c.strip() for c in (on_conflict or "").split(",") if c.strip()]
+        for r in self._store:
+            if cols and all(r.get(c) == row.get(c) for c in cols):
+                r.update(row)
+                self._rows = [r]
+                return self
+        row = dict(row)
+        self._store.append(row)
+        self._rows = [row]
+        return self
+
     def execute(self):
         class R:
             data = self._rows
@@ -55,10 +67,11 @@ class FakeTable:
 class FakeSupabase:
     def __init__(self):
         self._store = []
+        self._sources = []
 
     def table(self, name):
-        assert name == "beli_accounts"
-        return FakeTable(self._store)
+        assert name in ("beli_accounts", "ig_sources"), name
+        return FakeTable(self._sources if name == "ig_sources" else self._store)
 
 
 def test_encrypt_decrypt_roundtrip(fernet_key):
@@ -112,7 +125,7 @@ def test_create_account_enables_watcher_by_default(fernet_key, monkeypatch):
 
 
 def test_create_account_rejects_bad_beli_login(fernet_key, monkeypatch):
-    from beli.beli_client import BeliError
+    from ig_logger.sinks.beli.beli_client import BeliError
 
     def boom(i, p):
         raise BeliError("nope", status=400)
