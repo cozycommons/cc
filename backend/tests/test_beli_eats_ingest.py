@@ -381,3 +381,30 @@ def test_eats_ingest_rejects_unknown_user_token(monkeypatch):
         headers={"Authorization": "Bearer ccb_nonexistent"},
     )
     assert r.status_code == 401
+
+
+def test_legacy_digest_falls_back_to_flat_preplatform_shape():
+    from ig_logger.sinks.beli.routes import _legacy_digest
+
+    # Migrated eats_scan_jobs rows store the flat Beli sink shape directly.
+    flat = {
+        "account": "alice",
+        "account_id": "a1",
+        "checked": 2,
+        "bookmarked": ["Some Place"],
+        "already": [],
+        "skipped": [],
+        "newest_ts": "2026-09-20T00:00:00+00:00",
+    }
+    assert _legacy_digest(flat) == flat
+
+    # New platform digests still flatten through the sinks wrapper.
+    wrapped = _platform_digest("alice", "a1", bookmarked=["Some Place"])
+    out = _legacy_digest(wrapped)
+    assert out["bookmarked"] == ["Some Place"]
+    assert out["account_id"] == "a1"
+    assert "sinks" not in out
+
+    # Unknown shapes stay invisible.
+    assert _legacy_digest({}) is None
+    assert _legacy_digest(None) is None
