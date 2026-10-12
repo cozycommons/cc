@@ -10,7 +10,9 @@ begin
     'ig_sources',
     'ig_scan_jobs',
     'partiful_accounts',
-    'resy_accounts'
+    'resy_accounts',
+    'espn_accounts',
+    'espn_snapshots'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -29,6 +31,9 @@ begin
     'resy_accounts.email_enc',
     'resy_accounts.password_enc',
     'resy_accounts.token_hash',
+    'espn_accounts.espn_s2_enc',
+    'espn_accounts.swid_enc',
+    'espn_accounts.token_hash',
     'ig_sources.handle',
     'ig_sources.last_seen_ts',
     'ig_scan_jobs.source_handle',
