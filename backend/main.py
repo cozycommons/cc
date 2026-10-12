@@ -19,6 +19,8 @@ from partiful.mcp_server import mcp as partiful_mcp
 from partiful.routes import router as partiful_router
 from resy.mcp_server import mcp as resy_mcp
 from resy.routes import router as resy_router
+from espn.mcp_server import mcp as espn_mcp
+from espn.routes import router as espn_router
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -116,3 +118,5 @@ app.include_router(partiful_router, prefix="/partiful")
 app.mount("/partiful/mcp", partiful_mcp.streamable_http_app())
 app.include_router(resy_router, prefix="/resy")
 app.mount("/resy/mcp", resy_mcp.streamable_http_app())
+app.include_router(espn_router, prefix="/espn")
+app.mount("/espn/mcp", espn_mcp.streamable_http_app())
