@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from espn import lineup, scoreboard
-from espn.espn_client import EspnError
+from espn.espn_client import EspnAuthError, EspnError
 from espn.scoreboard import ScoreboardClient
 
 PG, SG, SF, PF, C, G, F, UTIL, BE, IR = 0, 1, 2, 3, 4, 5, 6, 11, 12, 13
@@ -592,3 +592,232 @@ def test_schedule_gate_rule():
     # one unrostered playing team out of ten still passes
     passed, _ = lineup._schedule_gate(set(range(1, 11)), set(range(1, 10)))
     assert passed
+
+
+# --- runner: kona-sourced gate projections (round 2) -----------------------------
+#
+# The live preseason failure this section pins: ESPN publishes NO
+# per-day projected splits inside roster payloads, so the gate's P
+# was empty for EVERY candidate period and the consistency gate
+# rejected all of them. Per-day projections live in the kona player
+# feed (filtered by scoring period); when neither source has any,
+# the run resolves by the deterministic formula alone and records
+# the unverifiable marker.
+
+
+class KonaClient(StatefulClient):
+    """StatefulClient + a kona period feed.
+
+    ``kona`` maps scoring_period_id -> entries (or an Exception
+    instance to raise). Every period asked for is recorded.
+    """
+
+    def __init__(self, payload, kona=None):
+        super().__init__(payload)
+        self.kona = kona or {}
+        self.kona_calls = []
+
+    def get_players_for_period(self, scoring_period_id, limit=1000):
+        self.kona_calls.append(scoring_period_id)
+        result = self.kona.get(scoring_period_id, [])
+        if isinstance(result, Exception):
+            raise result
+        return copy.deepcopy(result)
+
+
+def _kona_entry(pid, team, periods):
+    """One kona player-feed entry: the player sits at the top level
+    (unlike roster entries' playerPoolEntry nesting)."""
+    player = _fb_player(pid, team, [PG, G, UTIL, BE], 20, proj_periods=periods)
+    return {"id": pid, "onTeamId": None, "player": player}
+
+
+def _kona_slate(period, teams=OCT26_SLATE):
+    """Kona entries projecting exactly ``teams`` for ``period``."""
+    return [
+        _kona_entry(900 + i, team, (period,))
+        for i, team in enumerate(sorted(teams))
+    ]
+
+
+def _strip_projections(entries):
+    """The preseason roster shape: same players, NO projected splits
+    anywhere in the payload."""
+    out = copy.deepcopy(entries)
+    for e in out:
+        e["playerPoolEntry"]["player"]["stats"] = []
+    return out
+
+
+def _gate_candidates(run):
+    return json.loads(run["error"].split("gate candidates: ", 1)[1])["candidates"]
+
+
+def test_date_run_gate_passes_via_kona_when_roster_publishes_no_projections():
+    db = FakeSupabase()
+    payload = _no_block_payload(_strip_projections(_oct26_roster(6)))
+    client = KonaClient(payload, kona={6: _kona_slate(6)})
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, date="2026-10-26", scoreboard=sb)
+    assert run["status"] == "ok"
+    assert run["scoring_period_id"] == 6
+    schedule = run["plan"]["schedule"]
+    assert schedule["candidate_offset"] == 0
+    assert schedule["gate"]["verdict"] == "match"
+    assert schedule["gate"]["p_source"] == "kona"
+    (attempt,) = schedule["candidates_tried"]
+    assert attempt["p_source"] == "kona"
+    assert attempt["projected_count"] == len(OCT26_SLATE)
+    assert attempt["overlap"] == len(OCT26_SLATE)
+    # the anchor passed at once: exactly one kona fetch, no more
+    assert client.kona_calls == [6]
+    (post,) = client.posts
+    assert post["scoring_period_id"] == 6
+
+
+def test_date_run_gate_rejection_via_kona_carries_candidate_diagnostics():
+    # Kona HAS projections — for teams that are not playing that
+    # day. A genuine mismatch: the gate must still refuse, and the
+    # recorded error run carries the per-candidate numbers.
+    disjoint = {21, 22, 23}
+    kona = {p: _kona_slate(p, disjoint) for p in range(1, 15)}
+    db = FakeSupabase()
+    client = KonaClient(
+        _no_block_payload(_strip_projections(_oct26_roster(6))), kona=kona
+    )
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, date="2026-10-26", scoreboard=sb)
+    assert run["status"] == "error"
+    assert "schedule gate" in run["error"]
+    assert run["plan"] is None
+    assert client.posts == []
+    candidates = _gate_candidates(run)
+    assert [c["period"] for c in candidates] == [6, 5, 7, 4, 8, 3, 9]
+    for c in candidates:
+        assert c["passed"] is False
+        assert c["scoreboard_count"] == len(OCT26_SLATE)
+        assert c["projected_count"] == len(disjoint)
+        assert c["overlap"] == 0
+        assert c["p_source"] == "kona"
+
+
+def test_date_run_formula_only_when_no_projections_exist_anywhere():
+    # Roster publishes nothing AND kona answers empty for every
+    # period: the gate has nothing to check, so the run proceeds on
+    # the deterministic formula (the anchor period), records the
+    # unverifiable marker, and still plans from the scoreboard slate.
+    db = FakeSupabase()
+    client = KonaClient(
+        _no_block_payload(_strip_projections(_oct26_roster(6))), kona={}
+    )
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, date="2026-10-26", scoreboard=sb)
+    assert run["status"] == "ok"
+    assert run["scoring_period_id"] == 6  # the formula's anchor
+    schedule = run["plan"]["schedule"]
+    assert schedule["gate"] == "unverifiable_no_projection_data"
+    assert schedule["anchor_period"] == 6
+    assert schedule["candidate_offset"] == 0
+    assert schedule["formula"]["first_scoring_period"] == 1
+    assert schedule["formula"]["days_since_season_start"] == 5
+    # every candidate was checked in BOTH sources before falling back
+    assert sorted(set(client.kona_calls)) == [3, 4, 5, 6, 7, 8, 9]
+    # scheduled still comes from the authoritative scoreboard slate
+    plan = {p["player_id"]: p for p in run["plan"]["players"]}
+    assert all(plan[pid]["scheduled"] for pid in range(101, 111))
+    (post,) = client.posts
+    assert post["scoring_period_id"] == 6
+
+
+def test_date_run_dry_run_formula_only_submits_nothing():
+    db = FakeSupabase()
+    client = KonaClient(
+        _no_block_payload(_strip_projections(_oct26_roster(6))), kona={}
+    )
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(
+        db, dict(ACCOUNT), client, date="2026-10-26", dry_run=True, scoreboard=sb
+    )
+    assert run["status"] == "dry_run"
+    assert run["scoring_period_id"] == 6
+    assert run["plan"]["schedule"]["gate"] == "unverifiable_no_projection_data"
+    assert client.posts == []
+
+
+def test_formula_fallback_unreachable_when_any_candidate_has_projections():
+    # Period 5 DOES have projections (for the wrong teams): data
+    # exists, so the full gate applies, nothing passes, and the
+    # formula-only fallback must not fire.
+    kona = {5: _kona_slate(5, {21, 22, 23})}
+    db = FakeSupabase()
+    client = KonaClient(
+        _no_block_payload(_strip_projections(_oct26_roster(6))), kona=kona
+    )
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, date="2026-10-26", scoreboard=sb)
+    assert run["status"] == "error"
+    assert "schedule gate" in run["error"]
+    assert client.posts == []
+
+
+def test_kona_error_blocks_formula_fallback_and_is_diagnosed():
+    # A kona outage is not "no projections published": the check
+    # never completed, so the fallback must not fire — and the
+    # recorded diagnostics say why.
+    kona = {p: EspnError("kona down", status=500) for p in range(1, 15)}
+    db = FakeSupabase()
+    client = KonaClient(
+        _no_block_payload(_strip_projections(_oct26_roster(6))), kona=kona
+    )
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, date="2026-10-26", scoreboard=sb)
+    assert run["status"] == "error"
+    assert client.posts == []
+    candidates = _gate_candidates(run)
+    assert candidates
+    assert all(c["p_source"] == "none" for c in candidates)
+    assert all(c["p_note"].startswith("kona_error") for c in candidates)
+
+
+def test_kona_auth_failure_records_auth_error_run():
+    kona = {6: EspnAuthError("ESPN players -> 401: re-onboard", status=401)}
+    db = FakeSupabase()
+    client = KonaClient(
+        _no_block_payload(_strip_projections(_oct26_roster(6))), kona=kona
+    )
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, date="2026-10-26", scoreboard=sb)
+    assert run["status"] == "auth_error"
+    assert run["conflicts"][0]["kind"] == "auth"
+    assert client.posts == []
+
+
+def test_explicit_period_gate_passes_via_kona():
+    payload = _no_block_payload(_strip_projections(_oct26_roster(6)), current=None)
+    db = FakeSupabase()
+    client = KonaClient(payload, kona={6: _kona_slate(6)})
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(
+        db, dict(ACCOUNT), client, scoring_period_id=6, scoreboard=sb
+    )
+    assert run["status"] == "ok"
+    schedule = run["plan"]["schedule"]
+    assert schedule["gate"]["verdict"] == "match"
+    assert schedule["gate"]["p_source"] == "kona"
+    assert schedule["target_date"] == "2026-10-26"
+    (post,) = client.posts
+    assert post["scoring_period_id"] == 6
+
+
+def test_explicit_period_formula_only_when_no_projections():
+    payload = _no_block_payload(_strip_projections(_oct26_roster(6)), current=None)
+    db = FakeSupabase()
+    client = KonaClient(payload, kona={})
+    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    run = lineup.run_lineup(
+        db, dict(ACCOUNT), client, scoring_period_id=6, scoreboard=sb
+    )
+    assert run["status"] == "ok"
+    assert run["plan"]["schedule"]["gate"] == "unverifiable_no_projection_data"
+    (post,) = client.posts
+    assert post["scoring_period_id"] == 6
