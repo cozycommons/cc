@@ -47,6 +47,7 @@ from . import logic
 from . import snapshots
 from .accounts import AccountError
 from .espn_client import EspnAuthError, EspnError
+from .scoreboard import ScoreboardClient
 
 router = APIRouter()
 _bearer = HTTPBearer(auto_error=False)
@@ -398,6 +399,7 @@ def lineup_run(
         dry_run=body.dry_run,
         scoring_period_id=body.scoring_period_id,
         date=body.date,
+        scoreboard=ScoreboardClient(),
     )
 
 

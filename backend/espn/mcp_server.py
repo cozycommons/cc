@@ -25,6 +25,7 @@ from . import lineup
 from . import logic
 from . import snapshots
 from .accounts import AccountError
+from .scoreboard import ScoreboardClient
 
 mcp = FastMCP("espn")
 
@@ -204,5 +205,6 @@ def run_lineup(
         dry_run=dry_run,
         scoring_period_id=scoring_period_id,
         date=date,
+        scoreboard=ScoreboardClient(),
     )
     return json.dumps(result)
