@@ -31,12 +31,24 @@ the league's current scoring period; adhoc runs may name a ``scoring_period_id``
 (YYYY-MM-DD), resolved against the league's scoring periods via the
 pro-game schedule — ESPN allows setting future days' lineups in
 advance, and runs are idempotent per (account, scoring period).
+
+Schedule sources: the league payload's ``proGamesByScoringPeriod``
+block is preferred when present, but it is not always there (in
+preseason the payload carries no block at all). When it is absent the
+runner falls back to ESPN's public scoreboard (see
+``espn/scoreboard.py`` — no auth, canonical pro-team ids): scoring
+period 1 anchors on the first regular-season date and periods
+advance one per calendar day. Any period or playing set derived from
+the fallback must pass the schedule gate (see :func:`_schedule_gate`)
+against the period-scoped payload's projected teams before anything
+is planned, let alone submitted — on a poor match the run records a
+clean error and submits nothing.
 """
 
 from __future__ import annotations
 
 from datetime import date as _date
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .espn_client import EspnAuthError, EspnError
@@ -175,6 +187,225 @@ def resolve_scoring_period(
             f"date {date} falls before the season's first scoring period"
         )
     return resolved
+
+
+# --- schedule fallback: the public scoreboard ----------------------------------
+#
+# Used only when the league payload has no proGamesByScoringPeriod
+# block. ``scoreboard`` is duck-typed (espn.scoreboard.ScoreboardClient):
+# teams_on(date) -> set[int] and first_regular_season_date(start, end)
+# -> date | None. Nothing in this section runs when the block is
+# present or when no scoreboard was injected.
+
+# A derived period/slate is trusted only when the intersection covers
+# at least this share of BOTH the scoreboard set and the projected set.
+GATE_MIN_OVERLAP = 0.8
+
+
+def _first_scoring_period(payload: dict) -> int:
+    first = (payload.get("status") or {}).get("firstScoringPeriod")
+    if isinstance(first, int) and first >= 1:
+        return first
+    return 1
+
+
+def _scoreboard_window(season) -> tuple[_date, _date]:
+    """Fetch window for finding the season's first regular-season date.
+
+    A fantasy ``season`` is the ending year (2027 = the 2026-27
+    season), so its games start in the fall of season - 1. Oct 1 to
+    Nov 30 covers any plausible NBA opening date, plus room for the
+    calibration neighbours around it.
+    """
+    year = int(season) - 1
+    return _date(year, 10, 1), _date(year, 11, 30)
+
+
+def _projected_teams(payload: dict, scoring_period_id: int) -> set:
+    """Pro teams with at least one player projected for the period.
+
+    A player counts when his stat splits carry a projected entry
+    (statSourceId 1) whose scoringPeriodId is the target period — the
+    same test :func:`player_value` uses for its day projection. Every
+    roster in the payload counts, not just the member's team: the
+    wider the pool, the sharper the gate's signal.
+    """
+    teams = set()
+    for team in payload.get("teams") or []:
+        if not isinstance(team, dict):
+            continue
+        entries = ((team.get("roster") or {}).get("entries")) or []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            player = ((entry.get("playerPoolEntry") or {}).get("player")) or {}
+            if not isinstance(player, dict):
+                continue
+            pro_team = player.get("proTeamId")
+            if not isinstance(pro_team, int):
+                continue
+            for stat in player.get("stats") or []:
+                if (
+                    isinstance(stat, dict)
+                    and stat.get("statSourceId") == 1
+                    and stat.get("scoringPeriodId") == scoring_period_id
+                ):
+                    teams.add(pro_team)
+                    break
+    return teams
+
+
+def _schedule_gate(scoreboard_teams, projected_teams):
+    """The consistency gate for scoreboard-derived schedule facts.
+
+    Compares S (the pro teams the public scoreboard says play on the
+    target date) with P (the pro teams the period-scoped fantasy
+    payload projects for the candidate period):
+
+    - both empty: a consistent no-games day — pass;
+    - exactly one side empty: fail;
+    - otherwise pass iff the intersection covers at least
+      GATE_MIN_OVERLAP of BOTH sets. The correct period projects
+      (almost) exactly the teams playing that day; a period off by
+      one projects a neighbouring slate, which shares only a
+      fraction of the teams, so both coverages collapse.
+
+    Returns (passed, detail); the detail is recorded on the run.
+    """
+    S = set(scoreboard_teams or set())
+    P = set(projected_teams or set())
+    detail = {
+        "scoreboard_teams": sorted(S),
+        "projected_teams": sorted(P),
+        "overlap": len(S & P),
+    }
+    if not S and not P:
+        detail["verdict"] = "no games and no projections: consistent off day"
+        return True, detail
+    if not S or not P:
+        detail["verdict"] = "exactly one side is empty"
+        return False, detail
+    inter = len(S & P)
+    detail["scoreboard_coverage"] = round(inter / len(S), 3)
+    detail["projection_coverage"] = round(inter / len(P), 3)
+    passed = (
+        inter / len(S) >= GATE_MIN_OVERLAP
+        and inter / len(P) >= GATE_MIN_OVERLAP
+    )
+    detail["verdict"] = "match" if passed else "poor overlap"
+    return passed, detail
+
+
+def _resolve_period_via_scoreboard(
+    client, base, season, target_date, scoreboard
+):
+    """Resolve a calendar date to a scoring period WITHOUT the block.
+
+    Anchor: scoring period ``first`` (the payload's
+    firstScoringPeriod, default 1) falls on the first regular-season
+    date D0 from the public scoreboard, and periods advance one per
+    calendar day, so the anchor candidate is
+    ``first + (target_date - D0).days``. The anchor is then
+    calibrated: candidates are tried in the fixed order
+    0, -1, +1, -2, +2, -3, +3 around it, and the first whose
+    period-scoped payload passes the schedule gate against the
+    target date's scoreboard slate wins.
+
+    Returns (period, scoped_payload, playing_teams, schedule_info).
+    Raises ValueError when no candidate passes — nothing is planned
+    or submitted on an unverified period.
+    """
+    start, end = _scoreboard_window(season)
+    d0 = scoreboard.first_regular_season_date(start, end)
+    if d0 is None:
+        raise ValueError(
+            "ESPN scoreboard has no regular-season games in the "
+            "season-start window; cannot resolve a date to a scoring period"
+        )
+    first = _first_scoring_period(base)
+    anchor = first + (target_date - d0).days
+    playing = scoreboard.teams_on(target_date)
+    tried = []
+    for offset in (0, -1, 1, -2, 2, -3, 3):
+        candidate = anchor + offset
+        if candidate < first:
+            continue
+        scoped = (
+            client.get_league(
+                ["mSettings", "mTeam", "mRoster"],
+                scoring_period_id=candidate,
+            )
+            or {}
+        )
+        passed, detail = _schedule_gate(
+            playing, _projected_teams(scoped, candidate)
+        )
+        tried.append({"period": candidate, "passed": passed})
+        if passed:
+            info = {
+                "source": "scoreboard",
+                "target_date": target_date.isoformat(),
+                "season_start_date": d0.isoformat(),
+                "anchor_period": anchor,
+                "candidate_offset": offset,
+                "candidates_tried": tried,
+                "gate": detail,
+            }
+            return candidate, scoped, playing, info
+    raise ValueError(
+        "schedule gate: no scoring period near the anchor "
+        f"({anchor}) matched the scoreboard slate for "
+        f"{target_date.isoformat()}; refusing to submit"
+    )
+
+
+def _scoreboard_fallback_playing(
+    payload, base, season, period, target_date, scoreboard
+):
+    """Playing set for a known period when the pro-games block is absent.
+
+    The period is already fixed (explicit, or the league's current
+    one); only its calendar date is derived — from the given date,
+    from today's ET date offset by the period's distance from the
+    current period, or from the season-start anchor. The derived
+    slate is gated against the payload's projected teams for the
+    period before it is trusted.
+
+    Returns (playing_teams, schedule_info); raises ValueError on a
+    gate failure — nothing is planned or submitted.
+    """
+    if target_date is None:
+        current = (base.get("status") or {}).get("currentScoringPeriod")
+        if current is not None:
+            today = datetime.now(_ET).date()
+            target_date = today + timedelta(days=period - int(current))
+        else:
+            start, end = _scoreboard_window(season)
+            d0 = scoreboard.first_regular_season_date(start, end)
+            if d0 is None:
+                raise ValueError(
+                    "ESPN scoreboard has no regular-season games in the "
+                    f"season-start window; cannot date scoring period {period}"
+                )
+            target_date = d0 + timedelta(
+                days=period - _first_scoring_period(base)
+            )
+    playing = scoreboard.teams_on(target_date)
+    passed, detail = _schedule_gate(
+        playing, _projected_teams(payload, period)
+    )
+    if not passed:
+        raise ValueError(
+            f"schedule gate: projected teams for scoring period {period} "
+            "do not match the scoreboard slate for "
+            f"{target_date.isoformat()}; refusing to submit"
+        )
+    info = {
+        "source": "scoreboard",
+        "target_date": target_date.isoformat(),
+        "gate": detail,
+    }
+    return playing, info
 
 
 def lineup_slot_counts(payload: dict) -> dict:
@@ -589,13 +820,16 @@ def _verify(client, account: dict, plan: dict) -> list:
 
 def run_lineup(supabase, account: dict, client, dry_run: bool = False,
                scoring_period_id: int | None = None,
-               date: str | None = None) -> dict:
+               date: str | None = None, scoreboard=None) -> dict:
     """Plan (and, unless dry_run, submit + verify) one day's lineup.
 
     The target day comes from ``scoring_period_id``, or ``date``
     (YYYY-MM-DD) resolved against the league's scoring periods, or —
     with neither — the league's current scoring period (one code path
     serves every trigger: endpoint, MCP tool, batch entrypoint).
+    ``scoreboard`` (an espn.scoreboard.ScoreboardClient) is consulted
+    only when the league payload carries no proGamesByScoringPeriod
+    block; without it the no-block case keeps its legacy clean error.
 
     Always persists and returns the run record — including auth and
     other failures — so conflicts are pullable afterwards.
@@ -614,35 +848,89 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
     }
     try:
         base = client.get_league(["mSettings", "mTeam", "mRoster"]) or {}
-        period = resolve_scoring_period(
-            base, date=date, scoring_period_id=scoring_period_id
-        )
+        target_date = None
+        if date is not None:
+            try:
+                target_date = _date.fromisoformat(date)
+            except (TypeError, ValueError):
+                raise ValueError(f"date must be YYYY-MM-DD, got {date!r}")
+        has_block = isinstance(base.get("proGamesByScoringPeriod"), dict)
+        period = None
+        payload = None
+        playing = None
+        schedule_info = None
+        if scoring_period_id is not None:
+            period = int(scoring_period_id)
+        elif target_date is not None:
+            if has_block:
+                period = resolve_scoring_period(base, date=date)
+            elif scoreboard is not None:
+                # No pro-games block: anchor + calibrate the period
+                # against the public scoreboard. This also yields the
+                # winning period's scoped payload and playing set,
+                # already gate-verified.
+                period, payload, playing, schedule_info = (
+                    _resolve_period_via_scoreboard(
+                        client,
+                        base,
+                        account["season"],
+                        target_date,
+                        scoreboard,
+                    )
+                )
+            else:
+                # No fallback available: the block-based resolver
+                # raises the legacy "no dated pro games" error.
+                period = resolve_scoring_period(base, date=date)
+        else:
+            # No target: the league's current scoring period (or the
+            # legacy clean error when the season has not started).
+            period = resolve_scoring_period(base)
         run["scoring_period_id"] = period
         current = (base.get("status") or {}).get("currentScoringPeriod")
-        payload = base
-        if current is None or int(current) != period:
-            # Future (or past) day: plan against that period's own
-            # roster state, not today's.
-            scoped = (
-                client.get_league(
-                    ["mSettings", "mTeam", "mRoster"],
-                    scoring_period_id=period,
+        if payload is None:
+            payload = base
+            if current is None or int(current) != period:
+                # Future (or past) day: plan against that period's own
+                # roster state, not today's.
+                scoped = (
+                    client.get_league(
+                        ["mSettings", "mTeam", "mRoster"],
+                        scoring_period_id=period,
+                    )
+                    or {}
                 )
-                or {}
-            )
-            if scoped:
-                payload = scoped
+                if scoped:
+                    payload = scoped
         team = find_member_team(payload, account["swid"])
-        playing = pro_teams_playing(payload, period)
         if playing is None:
-            playing = pro_teams_playing(base, period)
-        if playing is None:
-            raise ValueError(
-                "ESPN payload has no proGamesByScoringPeriod schedule "
-                "block; refusing to guess who is scheduled"
-            )
+            playing = pro_teams_playing(payload, period)
+            if playing is None:
+                playing = pro_teams_playing(base, period)
+            if playing is not None:
+                schedule_info = {
+                    "source": "pro_games_block",
+                    "target_date": (
+                        target_date.isoformat() if target_date else None
+                    ),
+                }
+            elif scoreboard is not None:
+                playing, schedule_info = _scoreboard_fallback_playing(
+                    payload,
+                    base,
+                    account["season"],
+                    period,
+                    target_date,
+                    scoreboard,
+                )
+            else:
+                raise ValueError(
+                    "ESPN payload has no proGamesByScoringPeriod schedule "
+                    "block; refusing to guess who is scheduled"
+                )
         plan = plan_lineup(team, payload, period, playing)
         plan["requested"] = {"date": date, "scoring_period_id": scoring_period_id}
+        plan["schedule"] = schedule_info
         run["plan"] = plan
         run["moves"] = plan["moves"]
         run["conflicts"] = list(plan["conflicts"])
