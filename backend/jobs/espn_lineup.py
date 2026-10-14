@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from espn import accounts, lineup
+from espn.scoreboard import ScoreboardClient
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,9 @@ def run_all_accounts(client_supabase) -> dict:
     for account in accounts.list_lineup_automation_accounts(client_supabase):
         summary["accounts"] += 1
         client = accounts.make_client_for_account(account)
-        run = lineup.run_lineup(client_supabase, account, client)
+        run = lineup.run_lineup(
+            client_supabase, account, client, scoreboard=ScoreboardClient()
+        )
         status = run.get("status")
         summary["statuses"][status] = summary["statuses"].get(status, 0) + 1
         logger.info(
