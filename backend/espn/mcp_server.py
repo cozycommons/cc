@@ -5,7 +5,10 @@ personal API token (minted by POST /espn/onboard) as a parameter, so a single
 server serves every friend; each call resolves the token to exactly one
 account and only touches that account's ESPN league.
 
-Read-only: no write tools, and deliberately no matchup-summary tool in v1.
+Deliberately no matchup-summary tool in v1. The one non-read tool surface
+is the lineup run log (v2): daily lineup automation runs server-side under
+the user's standing instructions, and get_lineup_runs exposes their plans
+and conflicts here for on-demand pulling.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from mcp.server.fastmcp import FastMCP
 from supabase import create_client
 
 from . import accounts
+from . import lineup
 from . import logic
 from . import snapshots
 from .accounts import AccountError
@@ -156,4 +160,49 @@ def get_draft(api_token: str) -> str:
     """Draft picks in overall-pick order, with team names resolved."""
     _, _, client = _account_and_client(api_token)
     result = logic.get_draft(client)
+    return json.dumps(result)
+
+
+@mcp.tool()
+def get_lineup_runs(
+    api_token: str, limit: int = 25, scoring_period_id: int | None = None
+) -> str:
+    """Past automatic-lineup runs for your account, newest first.
+
+    Each run carries its plan, the moves submitted, and its conflicts —
+    a conflict means a scheduled player had to sit that day (slot
+    overflow or eligibility jam), the cookies died (auth), or the
+    submitted lineup failed verification. Pass scoring_period_id to
+    pull up one specific day's run.
+    """
+    supabase, account, _ = _account_and_client(api_token)
+    result = lineup.list_runs(supabase, account["id"], limit, scoring_period_id)
+    return json.dumps(result)
+
+
+@mcp.tool()
+def run_lineup(
+    api_token: str,
+    date: str | None = None,
+    scoring_period_id: int | None = None,
+    dry_run: bool = False,
+) -> str:
+    """Set one day's lineup for your team (the shared run path).
+
+    No target = the league's current scoring period (today). Pass a
+    date (YYYY-MM-DD) or scoring_period_id to set any other day —
+    future days can be set in advance, and runs are idempotent per
+    day. The rule: every scheduled player starts; the run record it
+    returns names any scheduled player who had to sit (a conflict).
+    Use dry_run=true to preview the plan without submitting moves.
+    """
+    supabase, account, client = _account_and_client(api_token)
+    result = lineup.run_lineup(
+        supabase,
+        account,
+        client,
+        dry_run=dry_run,
+        scoring_period_id=scoring_period_id,
+        date=date,
+    )
     return json.dumps(result)

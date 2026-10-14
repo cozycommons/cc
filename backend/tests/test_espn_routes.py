@@ -20,6 +20,7 @@ FAKE_ACCOUNT = {
     "season": 2027,
     "espn_s2": "s2-secret",
     "swid": "{SWID-1}",
+    "lineup_automation_enabled": False,
 }
 
 LEAGUE_PAYLOAD = {
@@ -155,6 +156,7 @@ def test_me_shape(client):
         "label": "warner",
         "league_id": 123456,
         "season": 2027,
+        "lineup_automation_enabled": False,
     }
 
 

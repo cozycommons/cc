@@ -1,6 +1,6 @@
 """FastAPI routes for the ESPN Fantasy app. Mounted at /espn (see main.py).
 
-Endpoints (all read-only except onboarding):
+Endpoints:
   POST /espn/onboard          store ESPN cookies, mint an API token
   GET  /espn/me               check a token / describe the account
   GET  /espn/league           league settings + slim teams
@@ -10,8 +10,15 @@ Endpoints (all read-only except onboarding):
   GET  /espn/trends/players   ownership + performance trends (snapshot-based)
   GET  /espn/trends/teams     per-team form / all-play / luck trends
   GET  /espn/draft            draft picks in overall-pick order
+  POST /espn/automation/lineup  opt in/out of daily lineup automation
+  POST /espn/lineup/run       set today's lineup now (or dry-run a plan)
+  GET  /espn/lineup/runs      past lineup runs + their conflicts
 
 There is deliberately no /matchups endpoint in v1.
+
+The lineup endpoints are v2: fully automatic daily lineup setting under
+the user's standing instructions (see espn/lineup.py). Lineup moves
+only — there are no add/drop/trade endpoints.
 
 Onboarding stores the caller's ESPN cookies (espn_s2 + SWID) encrypted at
 rest (see accounts.py):
@@ -30,11 +37,12 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from . import accounts
+from . import lineup
 from . import logic
 from . import snapshots
 from .accounts import AccountError
@@ -188,6 +196,9 @@ def me(account: dict = Depends(_account)):  # noqa: B008
         "label": account.get("label"),
         "league_id": account.get("league_id"),
         "season": account.get("season"),
+        "lineup_automation_enabled": bool(
+            account.get("lineup_automation_enabled")
+        ),
     }
 
 
@@ -314,5 +325,95 @@ def draft(
         raise HTTPException(status_code=401, detail=str(e))
     except EspnError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- lineup automation (v2) ----------------------------------------------------
+
+
+class AutomationBody(BaseModel):
+    enabled: bool = Field(description="Opt in/out of daily lineup automation")
+
+
+class LineupRunBody(BaseModel):
+    dry_run: bool = Field(
+        default=False,
+        description="Compute and record the plan without submitting moves",
+    )
+    scoring_period_id: int | None = Field(
+        default=None,
+        description="Scoring period (day) to set; defaults to the league's current",
+    )
+    date: str | None = Field(
+        default=None,
+        description="Target day as YYYY-MM-DD, resolved against the "
+        "league's scoring periods; ignored when scoring_period_id is set",
+    )
+
+
+@router.post("/automation/lineup")
+def set_lineup_automation(
+    body: AutomationBody,
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """Opt this account in/out of automatic lineup setting."""
+    enabled = accounts.set_lineup_automation(
+        _supabase(request), account["id"], body.enabled
+    )
+    return {"lineup_automation_enabled": enabled}
+
+
+@router.post("/lineup/run")
+def lineup_run(
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+    body: LineupRunBody | None = Body(default=None),  # noqa: B008
+):
+    """Set one day's lineup for this account now (the shared run path).
+
+    No target = the league's current scoring period. A ``date``
+    (YYYY-MM-DD) or ``scoring_period_id`` targets any other day —
+    ESPN allows setting future days' lineups in advance, and runs are
+    idempotent per (account, scoring period).
+
+    The run — plan, moves, conflicts, errors — is recorded either way
+    and returned; ESPN failures are reported in the run's status/error
+    fields (auth failure -> status "auth_error"), not as HTTP errors.
+    """
+    body = body or LineupRunBody()
+    if body.date is not None:
+        try:
+            datetime.strptime(body.date, "%Y-%m-%d")
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400, detail="date must be YYYY-MM-DD"
+            )
+    client = _client(account)
+    return lineup.run_lineup(
+        _supabase(request),
+        account,
+        client,
+        dry_run=body.dry_run,
+        scoring_period_id=body.scoring_period_id,
+        date=body.date,
+    )
+
+
+@router.get("/lineup/runs")
+def lineup_runs(
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+    limit: int = Query(default=25, description="Max runs, 1-200"),
+    scoring_period_id: int | None = Query(
+        default=None, description="Only runs for this scoring period"
+    ),
+):
+    """Past lineup runs for this account, newest first, with conflicts."""
+    try:
+        return lineup.list_runs(
+            _supabase(request), account["id"], limit, scoring_period_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
