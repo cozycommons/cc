@@ -215,6 +215,44 @@ def test_get_players_401_raises_auth_error(monkeypatch):
         _client().get_players()
 
 
+def test_get_players_for_period_filters_stats_to_the_period(monkeypatch):
+    players = [
+        {
+            "id": 1,
+            "player": {
+                "fullName": "Player One",
+                "proTeamId": 2,
+                "stats": [
+                    {
+                        "statSourceId": 1,
+                        "scoringPeriodId": 6,
+                        "appliedTotal": 42.0,
+                    }
+                ],
+            },
+        }
+    ]
+    t = StubTransport(monkeypatch).on(PLAYERS_URL, ok(players))
+    client = _client()
+    assert client.get_players_for_period(6) == players
+    (req,) = t.requests
+    assert query_of(req) == {"view": ["kona_player_info"]}
+    fantasy_filter = json.loads(headers_of(req)["x-fantasy-filter"])
+    assert fantasy_filter == {
+        "players": {
+            "filterStatsForScoringPeriodIds": {"value": [6]},
+            "limit": 1000,
+            "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+        }
+    }
+
+
+def test_get_players_for_period_non_list_body_raises(monkeypatch):
+    StubTransport(monkeypatch).on(PLAYERS_URL, ok({"players": []}))
+    with pytest.raises(EspnError, match="unexpected response"):
+        _client().get_players_for_period(6)
+
+
 # --- probe (onboarding) --------------------------------------------------------
 def test_probe_returns_league_payload(monkeypatch):
     payload = {"id": LEAGUE_ID, "settings": {"name": "Fantasy Hoops '27"},

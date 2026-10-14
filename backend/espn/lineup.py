@@ -40,13 +40,30 @@ runner falls back to ESPN's public scoreboard (see
 period 1 anchors on the first regular-season date and periods
 advance one per calendar day. Any period or playing set derived from
 the fallback must pass the schedule gate (see :func:`_schedule_gate`)
-against the period-scoped payload's projected teams before anything
+against the candidate period's projected teams before anything
 is planned, let alone submitted — on a poor match the run records a
 clean error and submits nothing.
+
+The gate's projected teams (P) come from the period-scoped roster
+payload when it carries per-period projected splits, and from the
+kona player feed filtered to the period when it does not (in
+preseason ESPN publishes per-day projections in kona only — inside
+roster payloads there are none). One exception, deliberately narrow:
+when NO projection data exists anywhere for any candidate — roster
+payloads and kona both checked, both empty — the gate has nothing to
+check, so the period resolves by the deterministic formula alone
+(firstScoringPeriod + days since the first regular-season date) and
+the run records ``schedule.gate = "unverifiable_no_projection_data"``.
+The gate exists to catch anchor misalignment; with zero published
+projections it cannot, and a mislabeled future day self-heals
+because every day is re-planned by its own run. The instant any
+projection data exists for any candidate, the full gate applies and
+this fallback is unreachable.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -195,7 +212,10 @@ def resolve_scoring_period(
 # block. ``scoreboard`` is duck-typed (espn.scoreboard.ScoreboardClient):
 # teams_on(date) -> set[int] and first_regular_season_date(start, end)
 # -> date | None. Nothing in this section runs when the block is
-# present or when no scoreboard was injected.
+# present or when no scoreboard was injected. The gate's projected
+# teams come from the roster payload, or from the kona player feed
+# when the payload publishes no per-period projections (see
+# _gate_projected_teams).
 
 # A derived period/slate is trusted only when the intersection covers
 # at least this share of BOTH the scoreboard set and the projected set.
@@ -221,38 +241,102 @@ def _scoreboard_window(season) -> tuple[_date, _date]:
     return _date(year, 10, 1), _date(year, 11, 30)
 
 
-def _projected_teams(payload: dict, scoring_period_id: int) -> set:
+def _entry_player(entry: dict) -> dict:
+    """The player dict of a roster or kona entry ({} when absent).
+
+    Roster entries nest it under ``playerPoolEntry.player``; kona
+    player-feed entries carry it at top level as ``player``.
+    """
+    pool = entry.get("playerPoolEntry")
+    if isinstance(pool, dict) and isinstance(pool.get("player"), dict):
+        return pool["player"]
+    player = entry.get("player")
+    return player if isinstance(player, dict) else {}
+
+
+def _projected_teams_from_entries(entries, scoring_period_id: int) -> set:
     """Pro teams with at least one player projected for the period.
 
     A player counts when his stat splits carry a projected entry
     (statSourceId 1) whose scoringPeriodId is the target period — the
-    same test :func:`player_value` uses for its day projection. Every
-    roster in the payload counts, not just the member's team: the
-    wider the pool, the sharper the gate's signal.
+    same test :func:`player_value` uses for its day projection.
     """
     teams = set()
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        player = _entry_player(entry)
+        pro_team = player.get("proTeamId")
+        if not isinstance(pro_team, int):
+            continue
+        for stat in player.get("stats") or []:
+            if (
+                isinstance(stat, dict)
+                and stat.get("statSourceId") == 1
+                and stat.get("scoringPeriodId") == scoring_period_id
+            ):
+                teams.add(pro_team)
+                break
+    return teams
+
+
+def _projected_teams(payload: dict, scoring_period_id: int) -> set:
+    """Projected teams from a league payload: every roster counts,
+    not just the member's team — the wider the pool, the sharper the
+    gate's signal."""
+    entries = []
     for team in payload.get("teams") or []:
         if not isinstance(team, dict):
             continue
-        entries = ((team.get("roster") or {}).get("entries")) or []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            player = ((entry.get("playerPoolEntry") or {}).get("player")) or {}
-            if not isinstance(player, dict):
-                continue
-            pro_team = player.get("proTeamId")
-            if not isinstance(pro_team, int):
-                continue
-            for stat in player.get("stats") or []:
-                if (
-                    isinstance(stat, dict)
-                    and stat.get("statSourceId") == 1
-                    and stat.get("scoringPeriodId") == scoring_period_id
-                ):
-                    teams.add(pro_team)
-                    break
-    return teams
+        entries.extend(((team.get("roster") or {}).get("entries")) or [])
+    return _projected_teams_from_entries(entries, scoring_period_id)
+
+
+def _kona_projected_teams(client, scoring_period_id: int):
+    """(teams, note): projected teams from the kona player feed.
+
+    ``note`` is None when the feed answered (the team set may still
+    be empty — that is a completed check); a string when the check
+    could not be completed (the client has no period fetch, or ESPN
+    errored), which callers must NOT treat as "checked, empty".
+    Auth failures propagate: dead cookies stop the run.
+    """
+    getter = getattr(client, "get_players_for_period", None)
+    if getter is None:
+        return set(), "kona_unavailable"
+    try:
+        entries = getter(scoring_period_id)
+    except EspnAuthError:
+        raise
+    except EspnError as e:
+        return set(), f"kona_error: {e}"
+    return _projected_teams_from_entries(entries, scoring_period_id), None
+
+
+def _gate_projected_teams(client, scoped_payload, scoring_period_id, kona_cache):
+    """(teams, p_source, kona_note): the gate's P for one period.
+
+    The period-scoped roster payload is the first source. When it
+    yields no per-period projected splits for the period — the
+    preseason reality, where ESPN publishes per-day projections only
+    in the kona feed — P is computed from kona filtered to the
+    period instead. ``p_source`` is "roster", "kona", or "none"
+    (checked everywhere, nothing published); ``kona_note`` carries
+    why a kona check could not be completed, else None. Kona answers
+    are memoised in ``kona_cache`` ({period: (teams, note)}) so a
+    multi-candidate calibration fetches each period at most once.
+    """
+    roster_teams = _projected_teams(scoped_payload, scoring_period_id)
+    if roster_teams:
+        return roster_teams, "roster", None
+    if scoring_period_id in kona_cache:
+        teams, note = kona_cache[scoring_period_id]
+    else:
+        teams, note = _kona_projected_teams(client, scoring_period_id)
+        kona_cache[scoring_period_id] = (teams, note)
+    if teams:
+        return teams, "kona", note
+    return set(), "none", note
 
 
 def _schedule_gate(scoreboard_teams, projected_teams):
@@ -311,9 +395,20 @@ def _resolve_period_via_scoreboard(
     period-scoped payload passes the schedule gate against the
     target date's scoreboard slate wins.
 
+    Formula-only fallback: when every candidate was actually checked
+    (roster payload AND kona feed) and no projection data exists for
+    any of them — ESPN has published no per-day projections yet, a
+    preseason reality — the gate has nothing to verify against, so
+    the anchor (the deterministic formula's answer) is used with
+    ``gate = "unverifiable_no_projection_data"`` recorded. If any
+    candidate produced projections and none passed, or any check
+    could not be completed, this is unreachable and the run fails.
+
     Returns (period, scoped_payload, playing_teams, schedule_info).
     Raises ValueError when no candidate passes — nothing is planned
-    or submitted on an unverified period.
+    or submitted on an unverified period. The error message carries
+    the per-candidate gate diagnostics as JSON, so the recorded
+    error run shows the actual numbers, not just a summary.
     """
     start, end = _scoreboard_window(season)
     d0 = scoreboard.first_regular_season_date(start, end)
@@ -325,7 +420,11 @@ def _resolve_period_via_scoreboard(
     first = _first_scoring_period(base)
     anchor = first + (target_date - d0).days
     playing = scoreboard.teams_on(target_date)
+    kona_cache: dict = {}
     tried = []
+    anchor_scoped = None
+    any_projected = False
+    checks_complete = True
     for offset in (0, -1, 1, -2, 2, -3, 3):
         candidate = anchor + offset
         if candidate < first:
@@ -337,10 +436,30 @@ def _resolve_period_via_scoreboard(
             )
             or {}
         )
-        passed, detail = _schedule_gate(
-            playing, _projected_teams(scoped, candidate)
+        if offset == 0:
+            anchor_scoped = scoped
+        projected, p_source, kona_note = _gate_projected_teams(
+            client, scoped, candidate, kona_cache
         )
-        tried.append({"period": candidate, "passed": passed})
+        if projected:
+            any_projected = True
+        if p_source == "none" and kona_note is not None:
+            # This candidate's kona check never completed, so "no
+            # projections anywhere" is not established for it.
+            checks_complete = False
+        passed, detail = _schedule_gate(playing, projected)
+        detail["p_source"] = p_source
+        attempt = {
+            "period": candidate,
+            "passed": passed,
+            "scoreboard_count": len(playing),
+            "projected_count": len(projected),
+            "overlap": detail["overlap"],
+            "p_source": p_source,
+        }
+        if kona_note is not None:
+            attempt["p_note"] = kona_note
+        tried.append(attempt)
         if passed:
             info = {
                 "source": "scoreboard",
@@ -352,27 +471,60 @@ def _resolve_period_via_scoreboard(
                 "gate": detail,
             }
             return candidate, scoped, playing, info
+    if anchor_scoped is not None and not any_projected and checks_complete:
+        # No projection data exists anywhere: the gate cannot verify
+        # the anchor, and there is nothing else it could check. The
+        # gate exists to catch anchor misalignment; with zero
+        # published projections it has no signal, and a mislabeled
+        # future day self-heals because every day is re-planned by
+        # its own run — so proceed on the formula alone and say so.
+        info = {
+            "source": "scoreboard",
+            "target_date": target_date.isoformat(),
+            "season_start_date": d0.isoformat(),
+            "anchor_period": anchor,
+            "candidate_offset": 0,
+            "candidates_tried": tried,
+            "gate": "unverifiable_no_projection_data",
+            "formula": {
+                "first_scoring_period": first,
+                "season_start_date": d0.isoformat(),
+                "days_since_season_start": (target_date - d0).days,
+            },
+        }
+        return anchor, anchor_scoped, playing, info
     raise ValueError(
         "schedule gate: no scoring period near the anchor "
         f"({anchor}) matched the scoreboard slate for "
-        f"{target_date.isoformat()}; refusing to submit"
+        f"{target_date.isoformat()}; refusing to submit; "
+        "gate candidates: "
+        + json.dumps({"anchor_period": anchor, "candidates": tried})
     )
 
 
 def _scoreboard_fallback_playing(
-    payload, base, season, period, target_date, scoreboard
+    payload, base, season, period, target_date, scoreboard, client=None
 ):
     """Playing set for a known period when the pro-games block is absent.
 
     The period is already fixed (explicit, or the league's current
     one); only its calendar date is derived — from the given date,
     from today's ET date offset by the period's distance from the
-    current period, or from the season-start anchor. The derived
-    slate is gated against the payload's projected teams for the
-    period before it is trusted.
+    current period, or from the season-start anchor (the
+    deterministic formula: firstScoringPeriod + days since the first
+    regular-season date). The derived slate is gated against the
+    period's projected teams (roster payload first, kona feed when
+    the payload publishes none) before it is trusted.
+
+    Same narrow exception as the date resolver: when no projection
+    data exists for the period anywhere — both sources checked,
+    both empty — the slate is accepted with
+    ``gate = "unverifiable_no_projection_data"`` recorded, because
+    the gate has nothing to check it against.
 
     Returns (playing_teams, schedule_info); raises ValueError on a
-    gate failure — nothing is planned or submitted.
+    gate failure — nothing is planned or submitted. The error
+    message carries the gate detail as JSON for the recorded run.
     """
     if target_date is None:
         current = (base.get("status") or {}).get("currentScoringPeriod")
@@ -391,21 +543,41 @@ def _scoreboard_fallback_playing(
                 days=period - _first_scoring_period(base)
             )
     playing = scoreboard.teams_on(target_date)
-    passed, detail = _schedule_gate(
-        playing, _projected_teams(payload, period)
-    )
-    if not passed:
-        raise ValueError(
-            f"schedule gate: projected teams for scoring period {period} "
-            "do not match the scoreboard slate for "
-            f"{target_date.isoformat()}; refusing to submit"
+    if client is not None:
+        projected, p_source, kona_note = _gate_projected_teams(
+            client, payload, period, {}
         )
-    info = {
-        "source": "scoreboard",
-        "target_date": target_date.isoformat(),
-        "gate": detail,
-    }
-    return playing, info
+    else:
+        projected = _projected_teams(payload, period)
+        p_source = "roster" if projected else "none"
+        kona_note = None if projected else "kona_unavailable"
+    passed, detail = _schedule_gate(playing, projected)
+    detail["p_source"] = p_source
+    if kona_note is not None:
+        detail["p_note"] = kona_note
+    if passed:
+        info = {
+            "source": "scoreboard",
+            "target_date": target_date.isoformat(),
+            "gate": detail,
+        }
+        return playing, info
+    if not projected and playing and kona_note is None:
+        # Both sources were checked and neither publishes any
+        # projection for this period: unverifiable, not mismatched.
+        info = {
+            "source": "scoreboard",
+            "target_date": target_date.isoformat(),
+            "gate": "unverifiable_no_projection_data",
+            "gate_detail": detail,
+        }
+        return playing, info
+    raise ValueError(
+        f"schedule gate: projected teams for scoring period {period} "
+        "do not match the scoreboard slate for "
+        f"{target_date.isoformat()}; refusing to submit; "
+        f"gate: {json.dumps(detail)}"
+    )
 
 
 def lineup_slot_counts(payload: dict) -> dict:
@@ -922,6 +1094,7 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
                     period,
                     target_date,
                     scoreboard,
+                    client=client,
                 )
             else:
                 raise ValueError(

@@ -18,6 +18,10 @@ Endpoints:
   - Players: ``GET /seasons/{season}/players?view=kona_player_info``
     with an ``X-Fantasy-Filter`` header carrying a JSON filter/sort
     document; the response is a bare JSON list of player entries.
+    The filter can also scope the returned stat splits to one
+    scoring period (``filterStatsForScoringPeriodIds``) — that is
+    where per-day projections live when the league payload's roster
+    entries carry none (see :meth:`EspnClient.get_players_for_period`).
   - Lineup moves (v2): ``POST .../leagues/{league_id}/transactions/``
     on the write host with a ``ROSTER`` transaction whose items are
     ``LINEUP`` moves (playerId, fromLineupSlotId, toLineupSlotId).
@@ -212,30 +216,62 @@ class EspnClient:
             raise EspnError("ESPN league: unexpected response (expected object)")
         return data
 
+    def _fetch_players(self, players_filter: dict) -> list:
+        """One kona_player_info fetch with the given filter document."""
+        url = (
+            f"{API_BASE}/seasons/{self.season}/players"
+            "?view=kona_player_info"
+        )
+        data = self._get(
+            url,
+            headers={"X-Fantasy-Filter": json.dumps(players_filter)},
+            what="ESPN players",
+        )
+        if not isinstance(data, list):
+            raise EspnError("ESPN players: unexpected response (expected list)")
+        return data
+
     def get_players(self, limit: int = 300) -> list:
         """Player entries for the season, sorted by percent owned (desc).
 
         The filter/sort document travels in the ``X-Fantasy-Filter``
         header; the response is a bare JSON list.
         """
-        url = (
-            f"{API_BASE}/seasons/{self.season}/players"
-            "?view=kona_player_info"
-        )
-        fantasy_filter = {
-            "players": {
-                "limit": limit,
-                "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+        return self._fetch_players(
+            {
+                "players": {
+                    "limit": limit,
+                    "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+                }
             }
-        }
-        data = self._get(
-            url,
-            headers={"X-Fantasy-Filter": json.dumps(fantasy_filter)},
-            what="ESPN players",
         )
-        if not isinstance(data, list):
-            raise EspnError("ESPN players: unexpected response (expected list)")
-        return data
+
+    def get_players_for_period(
+        self, scoring_period_id: int, limit: int = 1000
+    ) -> list:
+        """Kona player entries with stat splits for ONE scoring period.
+
+        ``filterStatsForScoringPeriodIds`` scopes each player's
+        ``stats`` to the requested day, so projected splits
+        (statSourceId 1) come back keyed by that scoringPeriodId.
+        This is the lineup schedule gate's projection source when the
+        period-scoped roster payload carries no per-period projected
+        splits (the preseason shape: ESPN publishes none there). The
+        gate only needs pro-team coverage — one projected player per
+        team registers the team — so a generous ownership-sorted limit
+        suffices: every team's most-owned players sit far inside it.
+        """
+        return self._fetch_players(
+            {
+                "players": {
+                    "filterStatsForScoringPeriodIds": {
+                        "value": [int(scoring_period_id)]
+                    },
+                    "limit": limit,
+                    "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+                }
+            }
+        )
 
     # -- the one write: lineup moves ---------------------------------------
     def transactions_url(self) -> str:
