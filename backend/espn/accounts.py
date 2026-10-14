@@ -142,7 +142,10 @@ def get_account_by_token(supabase, token: str) -> dict:
     wanted = hash_token(token)
     res = (
         supabase.table("espn_accounts")
-        .select("id,label,league_id,season,espn_s2_enc,swid_enc,token_hash")
+        .select(
+            "id,label,league_id,season,espn_s2_enc,swid_enc,token_hash,"
+            "lineup_automation_enabled"
+        )
         .execute()
     )
     for row in res.data or []:
@@ -154,6 +157,9 @@ def get_account_by_token(supabase, token: str) -> dict:
                 "season": row.get("season"),
                 "espn_s2": decrypt_secret(row["espn_s2_enc"]),
                 "swid": decrypt_secret(row["swid_enc"]),
+                "lineup_automation_enabled": bool(
+                    row.get("lineup_automation_enabled")
+                ),
             }
     raise AccountError("unknown token")
 
@@ -163,3 +169,46 @@ def make_client_for_account(account: dict) -> EspnClient:
     return EspnClient(
         account["espn_s2"], account["swid"], account["league_id"], account["season"]
     )
+
+
+# --- lineup automation opt-in -------------------------------------------------
+
+
+def set_lineup_automation(supabase, account_id, enabled: bool) -> bool:
+    """Set the daily-lineup automation flag for one account."""
+    supabase.table("espn_accounts").update(
+        {"lineup_automation_enabled": bool(enabled)}
+    ).eq("id", account_id).execute()
+    return bool(enabled)
+
+
+def list_lineup_automation_accounts(supabase) -> list[dict]:
+    """All accounts opted into daily lineup automation (cookies decrypted).
+
+    Used only by the optional batch entrypoint (jobs/espn_lineup.py),
+    which runs server-side with the service key; the returned dicts
+    carry the same shape as :func:`get_account_by_token` results.
+    """
+    res = (
+        supabase.table("espn_accounts")
+        .select(
+            "id,label,league_id,season,espn_s2_enc,swid_enc,"
+            "lineup_automation_enabled"
+        )
+        .eq("lineup_automation_enabled", True)
+        .execute()
+    )
+    accounts = []
+    for row in res.data or []:
+        accounts.append(
+            {
+                "id": row["id"],
+                "label": row.get("label"),
+                "league_id": row.get("league_id"),
+                "season": row.get("season"),
+                "espn_s2": decrypt_secret(row["espn_s2_enc"]),
+                "swid": decrypt_secret(row["swid_enc"]),
+                "lineup_automation_enabled": True,
+            }
+        )
+    return accounts
