@@ -1,0 +1,33 @@
+# Crowd Set implementation
+
+## Architecture
+Retain the separate FastAPI package and optional Python environment, local loopback port 8010, and `/crowd-set` React route. Hosted mode uses a separate Docker application on the existing HTTPS origin, existing Supabase Auth identity and authenticated shared-set JSON metadata with uploader ownership. No shared backend initialization, database or migration changes.
+
+## Processing and publication
+- New sets carry schema version 2; normal uploads use the recording role. Existing crowd roles are compatible ordinary contributions. Legacy reference roles remain excluded, preserving the old explicit timing-only contract without deleting media.
+- Decode included ordinary uploads to bounded 32 kHz mono float WAVs. Preserve peaks above full scale until gained PCM quantization. Measure finite samples, energy, clipping fraction, near-silent one-second blocks, and loudness to determine usable sources. Choose longest duration, then fewer clipped samples, fewer silent blocks, stable UUID. Quality has no influence across different durations.
+- Analyze the chosen source with the existing spectral-change features. Give it offset zero and match other sources to it with existing conservative multiwindow checks. There is no graph solver. Very short clips cannot match another source but can be the sole usable source.
+- Plan union bounds from all included matches; shift offsets by the earliest start, keeping original anchor-relative origin in metadata. Keep all matched clip extents and true gaps. Retain farthest-ending coverage selection and overlap-only 80 ms fades.
+- Retain overlap-based static loudness gains, whole-clip fallback and final true-peak verification. Worker writes `pending.wav` and result metadata. It never changes the published mix.
+- Store commits a successful pending file under a fresh generated mix filename, then atomically replaces set metadata pointing to it. This pointer is the publication boundary. Prior result remains playable through upload/edit/start/failure/recovery. Keep the preceding audio until the next job cleanup to avoid deleting a file before an already-authorized response opens it. Recovery discards temporary job outputs; it never discards the published pointer. A failed metadata publication leaves the prior mix authoritative.
+- Dirty state tracks recordings awaiting an automatic update; failed or interrupted updates expose a retry. A single Store timer debounces pending builds for three seconds and dispatches them through the existing single-worker pool. New changes reset that set's pending deadline. Uploads to a running set are blocked, so in-flight snapshots cannot become stale; queued sets accept further uploads. On restart, queued/running jobs become retryable failures. Cache versioned audio analysis and feature arrays beside immutable originals. Keep one upload and one worker globally, block edits to a busy set, retain process-group deadlines and inherited flock across parent crashes.
+
+Upload batches use an explicit begin/finish boundary: processing stays held while all selected files are attempted, then exactly one update is queued for successful additions. Single-file uploads queue automatically. Failed files remain named in the UI error; successful originals and the old mix are retained. An abandoned batch settles after 60 seconds without an active upload; an in-flight upload keeps its existing five-minute timeout. Recovery names the interruption and asks for missing files again. Restart marks interrupted uploads/builds retryable. Only the initiating signed-in uploader can append to or finish their batch.
+
+## Original media and UI
+An authorized `/sets/{set_id}/clips/{clip_id}/media` endpoint streams the immutable original through FileResponse with MIME selected from a fixed extension map, inline playback, byte ranges and optional attachment download. It uses the same shared/private set middleware and secure playback cookie as compiled audio. Never expose storage paths or tokens in URLs. Native video is used for MP4/MOV/WEBM, audio for audio extensions; browser codec compatibility varies, so original downloads remain available.
+
+The UI has a set list/create form, set detail with one compiled audio player, direct video upload, and original media cards. Preserve published player identity through edits and processing; change its revision only when a replacement publishes. Status is concise. No reference, gain, alignment or diagnostic controls. Retain source exclusion/removal as simple per-recording actions. Legacy reference cards say “Original only” and cannot be toggled into ordinary contributions.
+
+## Bounds and operations
+Maintain 512 MiB/file, eight ordinary sources, 20 sets, 8 GiB admission budget including 3 GiB generated reserve, 20-minute decode limit, 3-minute decoder/measurement deadline and 15-minute job deadline. The original legacy reference may remain longer but is not newly decoded. Single-worker generated storage is bounded. Atomic JSON and volume persistence handle ordinary restarts, not guaranteed power-loss durability.
+
+Hosted image uses `/crowd-set/` assets, non-root user, persistent `/data`, 2 CPU/2 GiB cap, one replica and manual deployment. Exact-prefix routing preserves other apps. Browser request-policy errors must be recovered normally, never bypassed. No service has yet been deployed.
+
+## Mix timeline
+Show one read-only strip spanning the actual compiled duration, with proportional selected source segments, stable colors shared with original cards, and actual gaps. Mark overlap fades within the same strip. Provide compact contributing-source links and segment time details, a playhead and click/keyboard seeking. No separate source tracks or editing controls. Merely aligned recordings must not appear as contributors.
+
+The user explicitly authorized converting the known local five-minute Niteharts fixture from its superseded timing-only role to an eligible ordinary recording. Preserve that original's provenance and bytes, then rebuild. This narrow local data migration does not change unrelated legacy sets, their privacy or recording roles.
+
+## Checks
+Use synthetic alignment/union/gap tests; a real worker/API test for original video, anchor inclusion, publication and restart; two-user shared/private catalog, contribution, deletion and media/range authorization tests; failure injection preserving old audio; and frontend tests proving straightforward browse/upload/play/update behavior and stable current playback. Existing frontend/backend CI and dedicated Ubuntu/macOS/container checks remain required. Preserve research evidence separately from current implementation claims.

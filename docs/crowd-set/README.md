@@ -1,0 +1,111 @@
+# Crowd Set prototype
+
+Crowd Set adds a set catalog at `/crowd-set` alongside Dice. Create a named set, upload videos, and listen to its automatically compiled audio mix. The current mix appears above smaller original recording cards with native playback and downloads. Audio uploads are also supported. New hosted sets are shared with all signed-in members; legacy private sets remain private.
+
+Basic constant-gain volume matching is included following the first listening experiment. It preserves within-clip dynamics; it does not remove screams, denoise, restore bass, compress, or equalize audio.
+
+## Run locally
+
+Requires Python 3.11+ (3.12 recommended) and Node 22. The optional Python environment is separate from Dice. The imageio-ffmpeg wheel supplies ffmpeg; no system ffprobe is needed.
+
+From the repository root:
+
+```bash
+bash scripts/crowd-set-dev.sh setup
+bash scripts/crowd-set-dev.sh run
+```
+
+In a second terminal, from the repository root:
+
+```bash
+cd frontend
+npm ci
+VITE_API_URL=http://127.0.0.1:8000 \
+VITE_SUPABASE_URL=http://127.0.0.1:54321 \
+VITE_SUPABASE_ANON_KEY=local-preview-placeholder \
+npm run dev -- --host 127.0.0.1 --port 8083 --strictPort
+```
+
+Open [Crowd Set](http://127.0.0.1:8083/crowd-set). These placeholder settings only allow the frontend shell to initialize; they do not start or authenticate Dice. Crowd Set independently talks to `http://127.0.0.1:8010`. If a verified Dice frontend from this same checkout is already running locally, visit its `/crowd-set` route instead. Do not modify the shared Dice sandbox configuration.
+
+The API binds loopback and checks peer, Host and Origin. The local launcher remains loopback-only and does not support the private Codespaces gateway or phone access over LAN. A separate hosted configuration uses existing Cozy Commons sign-in; see hosting below. No database or migration is involved. Stop the two task-owned foreground commands with Ctrl-C.
+
+## Use and limits
+
+1. Use **New set** on the homepage, enter a name and choose **Create set**. The empty set opens immediately; **All sets** returns to the catalog.
+2. Choose **Add videos** to upload up to eight recordings, each at most 20 minutes. Audio files are also accepted. There is no reference setup.
+3. Uploads and recording changes automatically queue a mix. A three-second debounce coalesces bursts; one global worker processes queued sets. Uploads to the running set wait until it finishes.
+4. Play or download the current 32 kHz mono PCM WAV. The previous successful mix stays playable during updates and failures; a completed mix replaces it atomically. Retry a failed or interrupted update from the set page.
+5. Inspect the single color-coded mix timeline: it shows actual selected segments, silent gaps and crossfades, with matching colors on originals. Click or use the keyboard to seek; source labels jump to original cards. There are no timeline editing controls.
+6. Play/download every original, including unmatched recordings. Uploaders and the set owner can remove or exclude their permitted recordings. Only the owner can delete a hosted set.
+
+The longest usable included ordinary recording establishes internal timing and can contribute audio. Clipping and silence metrics break duration ties only; a stable ID breaks remaining ties. Confident matches can extend before or after that recording. Actual gaps remain silent. Legacy explicit reference files remain playable originals but never contribute to new mixes. Existing private sets are not made shared.
+
+Accepted extensions: WAV, MP3, M4A, MP4, MOV, AAC, FLAC, OGG, WEBM. Video must contain a supported audio track. Up to 512 MiB per upload, 20 performances, one upload and one processing job at a time. Uploads time out at 5 minutes; each decoder/measurement at 3 minutes; whole jobs at 15 minutes. Storage admission reserves 3 GiB for generated audio within an 8 GiB local budget. Original upload bytes (including any embedded capture metadata), cached decoded audio/features/analysis, and generated mixes persist under ignored `.crowd-set/`; delete idle performances in the UI to reclaim space. Deletion is permanent. No media is committed.
+
+Local metadata uses atomic file replacement, not a distributed durable queue or a power-loss-safe database. Completed work survives ordinary reload/restart. A worker inherits the storage lock and its own deadline: after an abrupt API crash, restart refuses while that old worker is alive (at most 15 minutes). Once it exits, restart marks the interrupted operation failed for explicit retry. Do not run multiple API workers against one checkout.
+
+Upload batches use an explicit begin/finish boundary: processing stays held while all selected files are attempted, then exactly one update is queued for successful additions. Single-file uploads queue automatically. Failed files remain named in the UI error; successful originals and the old mix are retained. An abandoned batch settles after 60 seconds without an active upload; an in-flight upload keeps its existing five-minute timeout. Recovery names the interruption and asks for missing files again. Restart marks interrupted uploads/builds retryable. Only the initiating signed-in uploader can append to or finish their batch.
+
+## Timing and volume limits
+
+A non-anchor recording needs at least 37 seconds for three distinct 12-second windows; shorter clips remain playable originals and may not join the mix. Timing uses 24 spectral energy-change bands and up to nine distributed 12-second windows. It requires at least three matches with similarity >=0.25, a separated-peak margin >=0.08, and offsets within 160 ms of their median. At least 75% of sampled windows predicted to overlap must agree. These are conservative heuristics, not calibrated probabilities. Internal uncertainty summarizes sample spread plus 40 ms resolution, not a statistical confidence bound. Repeated songs, edits, microphone noise, and unsampled drift can still mislead it. Listen to verify; short-excerpt success does not certify a full set.
+
+Selection favors the source that extends coverage farthest at each boundary; users can exclude clips. It is not an audio-quality ranking. Fades last at most 80 ms and only occur inside actual overlap.
+
+Decoded working files use float32 samples so decoder/downmix peaks above full scale survive until final gained PCM quantization. Volume matching measures BS.1770 integrated loudness and true peak on the working audio. The first selected source anchors around -23 LUFS; this is a prototype default, not a required output loudness. Subsequent sources compare the last up-to-30 seconds of their common passage when they share at least 8 seconds; otherwise each uses a whole-clip fallback. Whole-clip matching can confuse changes in musical energy or crowd noise with recording level. Provisional gains are capped at -60 to +12 dB, then all gains are attenuated together if needed for 2 dB true-peak headroom. Final output peak is measured and can trigger another common attenuation pass. No gain envelope, compression or limiting is used. PCM rounding and sample-rate conversion remain part of the working format.
+
+## Validation
+
+From the repository root:
+
+```bash
+.crowd-set-venv/bin/python -m pip install pytest==8.3.4 httpx==0.28.1
+PYTHONPATH=backend .crowd-set-venv/bin/python -m pytest backend/crowd_set/tests -q
+```
+
+Frontend checks (from `frontend/`):
+
+```bash
+npm test -- --run
+npm run lint
+VITE_API_URL=http://127.0.0.1:8000 \
+VITE_SUPABASE_URL=http://127.0.0.1:54321 \
+VITE_SUPABASE_ANON_KEY=local-build-placeholder npm run build:check
+```
+
+The added CI job runs the Crowd Set backend tests on Ubuntu and macOS/Python 3.12. Existing frontend checks also collect Crowd Set tests. The dedicated container job builds the hosted image and checks startup, unauthorized access, persistent-volume write access, and the bundled decoder.
+
+Local evidence on 2026-10-15:
+- All 23 backend tests passed. Backend coverage includes positive/negative offsets, conservative abstention, longest-usable anchor selection, exact union/gap rendering, preserved float peaks, constant-gain matching, automatic queue coalescing, serial builds, cache reuse, atomic publication failures, restart and inherited worker locks.
+- Hosted access tests cover shared catalogs, legacy privacy, anonymous rejection, original video MIME/range/download, uploader/owner editing, owner deletion and exact Origin checks.
+- The full frontend suite passed 357 tests in 54 files, including new-set discoverability, create/catalog/open/upload, creation failure, partial batch upload failure, and timeline provenance/seek/playhead. Build, lint and bundle budget passed; the existing CommonsScene hook warning remains.
+- Real Niteharts excerpts (Derek 180 seconds and Alecinutopia 164.14 seconds) matched at a relative +60 seconds and produced a 224.14-second union. Cold automatic build took 10.2 seconds from final upload completion to ready (6.2 seconds observed processing). Adding an original 41.82-second MP4 took 6.51 seconds to ready (3.46 seconds observed processing), reusing cached audio. The prior mix remained playable throughout. These are local measurements, not hosted performance guarantees.
+- In that initial two-source timing experiment, the short MP4 abstained because its matching windows disagreed. Its native media endpoint returned exact original bytes with video MIME and HTTP 206. It remains available to play/download. No claim of subjective acoustic improvement or full-set correctness follows from this bounded check.
+- The preview catalog contains one **Niteharts · ISOxo × Skrillex** set. At the user’s explicit request, its preserved five-minute original was migrated from the old timing-only fixture role to an ordinary eligible recording, retaining original bytes and provenance. The updated 304.14-second mix uses that source for 0–300 seconds and Alecinutopia for 299.92–304.14 seconds (80 ms crossfade). Derek matches at +80 seconds and the MP4 now matches at +62.36 seconds, but neither is selected because those intervals already have coverage. The rebuild took 7.14 seconds locally and preserved the previous mix until publication. The earlier preview/timing/browser fixtures are recoverably archived outside the catalog under ignored `artifacts/crowd-set-smoke/archived-preview-fixtures/`, with file hashes and an inventory. Their originals and outputs are preserved. Future smoke checks must use a temporary Store root or separate `CROWD_SET_DATA_DIR`, never the active preview catalog.
+- Fresh browser visual QA and hosted deployment are blocked by the browser tool's request-header policy loading failure. HTTP and component checks passed; no new UI screenshot is claimed. Media and evidence stay outside Git.
+
+See [PRODUCT.md](PRODUCT.md) and [TECH.md](TECH.md). Capture timestamps are preserved inside original files but are not extracted, trusted or used for timing yet. Filename and upload time are never treated as capture time.
+
+Separate future work: capture-time assistance; social-link ingestion (Instagram post video items, TikTok, YouTube with provenance and partial/unavailable results); individual cleanup; advanced sonic consistency; transitive alignment, drift/manual placement; compiled video. Native playback depends on browser codec support; download remains available.
+
+## Hosted test configuration
+
+The user authorized deploying on the existing Cozy Commons Coolify server. Deploy this as a separate application from the feature branch, using root context and `backend/crowd_set/Dockerfile`, port 8010. It packages the frontend with `/crowd-set/` asset paths and serves the API from the same origin. Do not redeploy the existing backend or run its release/migration hooks for this application.
+
+Runtime settings:
+
+- `CROWD_SET_ORIGIN=https://cozycommons.dev`
+- `CROWD_SET_AUTH_URL`: existing Cozy Commons Supabase project URL.
+- `CROWD_SET_AUTH_KEY`: existing public publishable/anon key, never a service-role key.
+- `CROWD_SET_DATA_DIR=/data` and `CROWD_SET_STATIC_DIR=/static` are image defaults.
+
+Build settings: existing frontend `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public values only). Route `Host(cozycommons.dev) && (Path(/crowd-set) || PathPrefix(/crowd-set/))` to this app at higher priority than the existing frontend, without stripping the prefix. Preserve existing Commons/Dice routers. Use HTTPS only. The Supabase OAuth redirect allowlist must permit `https://cozycommons.dev/crowd-set`.
+
+Mount a persistent named volume at `/data`, cap the container at 2 CPUs and 2 GiB memory, and keep one replica. Disable deploy-on-push for the test service; deploy reviewed commits manually. Existing global limits still apply: one upload, one worker, 20 sets, and 8 GiB storage admission across users. Ordinary restarts preserve completed work; interrupted jobs require retry. Back up the volume independently; atomic metadata is not a power-loss-safe database.
+
+API access validates tokens with Supabase Auth and derives ownership from its verified user ID. All signed-in users can list, open, contribute to and play new shared sets. Legacy private sets remain owner-only. Only the uploader or set owner can change/remove a clip, and only the owner can delete the set. Every metadata and media route enforces visibility, including original video and range downloads. Mutations require a bearer token plus the exact frontend Origin. Native playback uses a Secure, HttpOnly, SameSite=Strict cookie scoped to `/crowd-set`; each media request validates it. Tokens never appear in URLs. Token refresh updates that cookie; sign-out clears it. Expired/revoked access is subject to existing Supabase session semantics. Ownerless local sets are hidden when hosted. The service does not query or mutate Commons/Dice tables.
+
+Before declaring rollout complete: verify sign-in, upload/processing/playback/download, anonymous 401, shared-member access, forbidden edits/deletions and legacy cross-owner 404, persistent reload/restart, and unchanged Commons/Dice endpoints. Record the Coolify resource, deployed commit and outcome here after deployment.
+
+Deployment status: not deployed. Coolify browser access failed while loading its request-header policy; no replacement resource was created and existing Commons/Dice apps were left unchanged. Resume only through the supported browser connection.

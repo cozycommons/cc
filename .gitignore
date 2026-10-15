@@ -10,3 +10,5 @@ __pycache__/
 .dice-dev/
 artifacts/
 .dice-verification/
+.crowd-set/
+.crowd-set-venv/

@@ -7,6 +7,51 @@ on:
     branches: [main]
 
 jobs:
+  crowd-set:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-crowd-set.txt
+      - run: bash scripts/crowd-set-dev.sh setup
+      - run: .crowd-set-venv/bin/python -m pip install pytest==8.3.4 httpx==0.28.1
+      - run: .crowd-set-venv/bin/python -m pytest backend/crowd_set/tests -q
+        env:
+          PYTHONPATH: backend
+
+  crowd-set-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Crowd Set container
+        run: >-
+          docker build --tag crowd-set-ci -f backend/crowd_set/Dockerfile
+          --build-arg VITE_API_URL=http://127.0.0.1:8000
+          --build-arg VITE_SUPABASE_URL=http://127.0.0.1:54321
+          --build-arg VITE_SUPABASE_ANON_KEY=sb_publishable_ci_placeholder .
+      - name: Verify hosted container
+        run: |
+          set -euo pipefail
+          trap 'docker logs crowd-set-ci; docker rm --force crowd-set-ci' EXIT
+          docker run --detach --name crowd-set-ci --publish 127.0.0.1:8010:8010 \
+            --env CROWD_SET_ORIGIN=https://crowd-set.example \
+            --env CROWD_SET_AUTH_URL=https://example.supabase.co \
+            --env CROWD_SET_AUTH_KEY=sb_publishable_ci_placeholder \
+            --mount type=volume,destination=/data crowd-set-ci
+          curl --fail --retry 30 --retry-delay 1 --retry-all-errors --max-time 5 \
+            --header 'Host: crowd-set.example' http://127.0.0.1:8010/crowd-set/health
+          curl --fail --header 'Host: crowd-set.example' http://127.0.0.1:8010/crowd-set
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header 'Host: crowd-set.example' http://127.0.0.1:8010/crowd-set/sets)" = 401
+          docker exec crowd-set-ci test -w /data
+          docker exec crowd-set-ci python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_version())'
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

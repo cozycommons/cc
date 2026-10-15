@@ -16,3 +16,7 @@ node_modules
 **/*.pem
 **/*.key
 **/.secrets
+.crowd-set
+.crowd-set-venv
+**/__pycache__
+**/.pytest_cache
