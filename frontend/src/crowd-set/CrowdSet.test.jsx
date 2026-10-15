@@ -103,6 +103,7 @@ it('keeps a failed previous mix and protects legacy originals from silent inclus
   expect(screen.getByLabelText('Current mix')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
   expect(screen.getByLabelText('Play Older.wav').tagName).toBe('AUDIO');
+  expect(screen.getByText('Original only')).toBeInTheDocument();
   expect(screen.queryByLabelText('Use Older.wav in mix')).not.toBeInTheDocument();
   fireEvent.error(screen.getByLabelText('Play Stage.mp4'));
   expect(screen.getByText('Can’t play this format here. Download the original below.')).toBeInTheDocument();

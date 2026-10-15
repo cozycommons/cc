@@ -164,7 +164,7 @@ export default function CrowdSet() {
           <Original clip={clip} setId={selected.id} />
           <div className="cs-recording-info"><h3>{clip.name}</h3>
             <p className="cs-meta">{clip.duration ? `${time(clip.duration)} · ` : ''}{clip.bytes ? `${(clip.bytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
-            <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' || !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
+            <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
             <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
               {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
             </div>
