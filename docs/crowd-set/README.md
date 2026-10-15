@@ -69,14 +69,14 @@ VITE_SUPABASE_URL=http://127.0.0.1:54321 \
 VITE_SUPABASE_ANON_KEY=local-build-placeholder npm run build:check
 ```
 
-The added CI job runs the Crowd Set backend tests on Ubuntu and macOS/Python 3.12. Existing frontend checks also collect Crowd Set tests. CI itself has not been run remotely for this uncommitted change.
+The added CI job runs the Crowd Set backend tests on Ubuntu and macOS/Python 3.12. Existing frontend checks also collect Crowd Set tests. The dedicated container job builds the hosted image and checks startup, unauthorized access, persistent-volume write access, and the bundled decoder.
 
 Local evidence on 2026-10-15:
 - Synthetic alignment tests cover positive/negative offsets, tonal change/noise, partial overlap, unrelated/nonoverlapping audio, silence, short clips, edits and repeated passages.
 - Assembly checks prove reference exclusion, exact gap silence, duration/bounds and overlap-only fades. API integration covers real worker decoding, upload constraints, conflicts, range/download playback, invalidation, errors and restart. A real parent-crash test verifies the inherited worker lock.
 - All 18 backend tests passed locally, including float input above full scale preserved until final gained output.
 - Gain tests use identical passages at different levels, check expected relative gain and sample-wise dynamics preservation (within PCM rounding), and measure rendered true-peak headroom.
-- Existing frontend suite passed: 53 files / 351 tests before the final copy refinement. The 9 focused Crowd Set and app routing tests passed again after that refinement. Production build passed with loopback placeholder settings. Existing CommonsScene hook warning remains; no new hook warning was reported.
+- Existing frontend suite passed: 53 files / 351 tests after the hosted changes and rebase onto main. Production build passed with loopback placeholder settings. Existing CommonsScene hook warning remains; no new hook warning was reported.
 - Known local Niteharts excerpts: five-minute reference; Derek source 84.64–174.64 seconds; Alecinutopia source 85.38–175.38 seconds. Both 90-second clips matched at reference offsets +80.00 and +140.00 seconds, seven of seven windows agreeing. Coverage is 80–230 seconds; gaps are 0–80 and 230–300; fade is 169.92–170.00. This proves a bounded example, not full-set correctness or subjective acoustic quality.
 - Ignored smoke artifacts live under `artifacts/crowd-set-smoke/`. Original copyrighted media stays outside Git. Browser upload/processing/playback and reload evidence is saved there. The final float-working-audio rerun measured output true peak at -7.63 dBFS.
 
