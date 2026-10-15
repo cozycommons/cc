@@ -148,6 +148,7 @@ export default function CozyWabiLanding() {
               <a href="#shelf">the shelf</a>
               <Link to="/design">common UI library</Link>
               <Link to="/dice">Dice ↗</Link>
+              {['localhost', '127.0.0.1'].includes(window.location.hostname) && <Link to="/crowd-set">Crowd Set ↗</Link>}
             </nav>
             <button
               className="site-menu-toggle"
