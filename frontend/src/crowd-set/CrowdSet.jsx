@@ -1,5 +1,6 @@
 import React from 'react';
 import { endpoint, request } from './api';
+import MixTimeline, { recordingColor } from './MixTimeline';
 import './crowd-set.css';
 
 export function time(seconds) {
@@ -21,6 +22,8 @@ export default function CrowdSet() {
   const [available, setAvailable] = React.useState(false);
   const [needsSignIn, setNeedsSignIn] = React.useState(false);
   const selection = React.useRef(null);
+  const player = React.useRef(null);
+  const [currentTime, setCurrentTime] = React.useState(0);
   const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
   const choose = React.useCallback((value) => {
@@ -149,7 +152,8 @@ export default function CrowdSet() {
       <div className="cs-title"><h1>{selected.name}</h1>{selected.visibility !== 'shared' && <span>Private</span>}</div>
       <section className="cs-mix" aria-label="Compiled mix">
         <div className="cs-inline"><h2>Current mix</h2>{selected.playable && <a href={endpoint(`/${selected.id}/audio?download=true`)}>Download audio</a>}</div>
-        {selected.playable ? <audio key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" /> : <p>{updating ? 'Creating mix…' : 'No mix yet.'}</p>}
+        {selected.playable ? <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" /> : <p>{updating ? 'Creating mix…' : 'No mix yet.'}</p>}
+        {selected.playable && selected.timeline && <MixTimeline timeline={selected.timeline} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
         <p role="status">{busy ? notice || 'Saving…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
         {!updating && (selected.status === 'failed' || selected.dirty || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : 'Update mix'}</button>}
@@ -160,11 +164,11 @@ export default function CrowdSet() {
         </div>
         <p className="cs-limits">Up to 8 recordings · 20 minutes and 512 MiB each · audio files also accepted</p>
         {!recordings.length && <p>No recordings yet.</p>}
-        <div className="cs-recordings">{recordings.map((clip) => <article key={clip.id} className="cs-recording">
+        <div className="cs-recordings">{recordings.map((clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
           <Original clip={clip} setId={selected.id} />
           <div className="cs-recording-info"><h3>{clip.name}</h3>
             <p className="cs-meta">{clip.duration ? `${time(clip.duration)} · ` : ''}{clip.bytes ? `${(clip.bytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
-            <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
+            <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
             <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
               {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
             </div>

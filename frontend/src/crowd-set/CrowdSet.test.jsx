@@ -128,3 +128,19 @@ it('finishes a batch once after every upload settles, including a partial failur
   ]);
   expect(screen.getByText('Mix queued…')).toBeInTheDocument();
 });
+
+it('connects the timeline seek and playhead to the current audio player', async () => {
+  const timed = { ...ready, clips: [clip, { ...clip, id: 'other', name: 'Other.mp4', alignment: { status: 'matched' } }], timeline: { duration: 100, segments: [{ clip_id: clip.id, start: 0, end: 100, fade_in: 0 }], gaps: [] } };
+  request.mockResolvedValueOnce([timed]);
+  render(<CrowdSet />);
+  await openSet();
+  const audio = screen.getByLabelText('Current mix');
+  fireEvent.change(screen.getByRole('slider', { name: 'Seek mix' }), { target: { value: '42' } });
+  expect(audio.currentTime).toBe(42);
+  expect(screen.getByText('Matched · not selected')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Other.mp4' })).not.toBeInTheDocument();
+  audio.currentTime = 63;
+  fireEvent.timeUpdate(audio);
+  expect(screen.getByRole('slider')).toHaveValue('63');
+  expect(screen.getByRole('link', { name: 'Stage.mp4' })).toHaveAttribute('href', '#recording-clip');
+});

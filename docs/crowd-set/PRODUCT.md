@@ -16,6 +16,11 @@ Signed-in users browse shared sets, open a set, upload videos from that performa
 
 Upload batches use an explicit begin/finish boundary: processing stays held while all selected files are attempted, then exactly one update is queued for successful additions. Single-file uploads queue automatically. Failed files remain named in the UI error; successful originals and the old mix are retained. An abandoned batch settles after 60 seconds without an active upload; an in-flight upload keeps its existing five-minute timeout. Recovery names the interruption and asks for missing files again. Restart marks interrupted uploads/builds retryable. Only the initiating signed-in uploader can append to or finish their batch.
 
+## Mix timeline
+Show one read-only strip spanning the actual compiled duration, with proportional selected source segments, stable colors shared with original cards, and actual gaps. Mark overlap fades within the same strip. Provide compact contributing-source links and segment time details, a playhead and click/keyboard seeking. No separate source tracks or editing controls. Merely aligned recordings must not appear as contributors.
+
+The user explicitly authorized converting the known local five-minute Niteharts fixture from its superseded timing-only role to an eligible ordinary recording. Preserve that original's provenance and bytes, then rebuild. This narrow local data migration does not change unrelated legacy sets, their privacy or recording roles.
+
 ## Validation
 Cover longest usable anchor selection, quality tie-breaking, anchor inclusion, negative/positive timeline extensions and true gaps, conservative abstention, video original MIME/range streaming, owner isolation, current mix preservation through edits/failure/restart, atomic successful replacement, and a concise UI flow without reference/diagnostic controls. Verify a real local video upload and resulting mix where tools permit. Record actual evidence and limitations in README.
 

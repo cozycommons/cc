@@ -24,5 +24,10 @@ Maintain 512 MiB/file, eight ordinary sources, 20 sets, 8 GiB admission budget i
 
 Hosted image uses `/crowd-set/` assets, non-root user, persistent `/data`, 2 CPU/2 GiB cap, one replica and manual deployment. Exact-prefix routing preserves other apps. Browser request-policy errors must be recovered normally, never bypassed. No service has yet been deployed.
 
+## Mix timeline
+Show one read-only strip spanning the actual compiled duration, with proportional selected source segments, stable colors shared with original cards, and actual gaps. Mark overlap fades within the same strip. Provide compact contributing-source links and segment time details, a playhead and click/keyboard seeking. No separate source tracks or editing controls. Merely aligned recordings must not appear as contributors.
+
+The user explicitly authorized converting the known local five-minute Niteharts fixture from its superseded timing-only role to an eligible ordinary recording. Preserve that original's provenance and bytes, then rebuild. This narrow local data migration does not change unrelated legacy sets, their privacy or recording roles.
+
 ## Checks
 Use synthetic alignment/union/gap tests; a real worker/API test for original video, anchor inclusion, publication and restart; two-user shared/private catalog, contribution, deletion and media/range authorization tests; failure injection preserving old audio; and frontend tests proving straightforward browse/upload/play/update behavior and stable current playback. Existing frontend/backend CI and dedicated Ubuntu/macOS/container checks remain required. Preserve research evidence separately from current implementation claims.
