@@ -190,3 +190,32 @@ def test_decode_preserves_over_full_scale_peaks_until_final_gain(tmp_path):
     expected = values.astype(float) * 32768 * 10 ** (levels['a']['gain_db'] / 20)
     assert np.max(np.abs(rendered - expected)) <= .501
     assert loudness(output)['true_peak_dbfs'] <= -1.9
+
+
+def test_union_bounds_include_anchor_and_extensions_with_actual_gaps(tmp_path):
+    timeline = plan_timeline([clip('early', -20, 60), clip('anchor', 0, 90), clip('late', 60, 70), clip('after-gap', 140, 10)])
+    assert timeline['origin_seconds'] == -20
+    assert timeline['duration'] == 170
+    assert timeline['gaps'] == [{'start': 150, 'end': 160}]
+    assert {s['clip_id'] for s in timeline['segments']} == {'early', 'anchor', 'late', 'after-gap'}
+    sources = {key: write_wav(tmp_path / f'{key}.wav', np.full(seconds * RATE, 1000), RATE)
+               for key, seconds in [('early', 60), ('anchor', 90), ('late', 70), ('after-gap', 10)]}
+    output = tmp_path / 'union.wav'
+    render(timeline, sources, output)
+    _, samples = wavfile.read(output)
+    assert len(samples) == 170 * RATE
+    assert samples[:RATE].any() and samples[-RATE:].any()
+    assert not samples[150 * RATE:160 * RATE].any()
+
+
+def test_anchor_duration_precedes_quality_and_quality_only_breaks_ties(tmp_path):
+    from crowd_set.audio import choose_anchor, recording_quality
+    clean = {'id': 'a', 'duration': 40, 'quality': {'clipped_fraction': 0, 'silent_fraction': 0}}
+    longer = {'id': 'b', 'duration': 41, 'quality': {'clipped_fraction': .5, 'silent_fraction': .5}}
+    assert choose_anchor([clean, longer]) is longer
+    longer['duration'] = 40
+    assert choose_anchor([longer, clean]) is clean
+    longer['quality'] = clean['quality']
+    assert choose_anchor([longer, clean]) is clean
+    with pytest.raises(ValueError, match='No audible'):
+        recording_quality(write_wav(tmp_path / 'silent.wav', np.zeros(RATE), RATE))

@@ -48,6 +48,29 @@ def float_samples(samples):
     return values
 
 
+def recording_quality(path):
+    rate, samples = wavfile.read(path, mmap=True)
+    clipped = silent = blocks = 0
+    energy = 0.0
+    for start in range(0, len(samples), rate):
+        values = float_samples(samples[start:start + rate])
+        if not np.isfinite(values).all():
+            raise ValueError('This recording contains invalid audio. Upload another copy.')
+        power = float(np.sum(values * values))
+        energy += power
+        clipped += int(np.count_nonzero(np.abs(values) >= 1))
+        silent += power / len(values) < 1e-8
+        blocks += 1
+    if not len(samples) or energy / len(samples) < 1e-8:
+        raise ValueError('No audible audio found. Upload a recording with sound.')
+    return {'clipped_fraction': clipped / len(samples), 'silent_fraction': silent / blocks}
+
+
+def choose_anchor(clips):
+    return min(clips, key=lambda c: (-c['duration'], c['quality']['clipped_fraction'],
+                                    c['quality']['silent_fraction'], c['id']))
+
+
 def features(path: Path):
     bands = np.geomspace(80, 7500, 25)
     frequencies = np.fft.rfftfreq(1024, 1 / 16000)
@@ -124,12 +147,15 @@ def align(reference, source):
             'reason': 'Approximate timing from sampled windows; listen to verify. Similarity is not a probability.'}
 
 
-def plan_timeline(clips, duration):
+def plan_timeline(clips, duration=None):
+    matched = [c for c in clips if c.get('role') != 'reference' and c.get('included', True)
+               and c.get('alignment', {}).get('status') == 'matched']
+    origin = min((c['alignment']['offset_seconds'] for c in matched), default=0) if duration is None else 0
+    if duration is None:
+        duration = max((c['alignment']['offset_seconds'] + c['duration'] for c in matched), default=origin) - origin
     candidates = []
-    for clip in clips:
-        if clip.get('role') != 'crowd' or not clip.get('included', True) or clip.get('alignment', {}).get('status') != 'matched':
-            continue
-        offset = clip['alignment']['offset_seconds']
+    for clip in matched:
+        offset = clip['alignment']['offset_seconds'] - origin
         start, end = max(0.0, offset), min(duration, offset + clip['duration'])
         if end > start:
             candidates.append({'clip_id': clip['id'], 'start': start, 'end': end, 'offset': offset})
@@ -149,7 +175,7 @@ def plan_timeline(clips, duration):
             fade = min(0.08, position - chosen['start'], (segments[-1]['end'] - segments[-1]['start']) / 2)
         segments.append({**chosen, 'start': position - fade, 'fade_in': fade})
         position = chosen['end']
-    return {'duration': duration, 'segments': segments, 'gaps': gaps,
+    return {'duration': duration, 'origin_seconds': origin, 'segments': segments, 'gaps': gaps,
             'covered_seconds': duration - sum(g['end'] - g['start'] for g in gaps)}
 
 
@@ -206,10 +232,11 @@ def loudness(path, start=0, duration=None):
         raise ValueError('Could not measure source loudness. Try a clearer or shorter clip.') from exc
 
 
-def match_levels(timeline, sources):
+def match_levels(timeline, sources, measurements=None):
     """Measure same-passage overlap when possible; apply only static source gains."""
     selected = {segment['clip_id'] for segment in timeline['segments']}
-    measurements = {key: loudness(path) for key, path in sources.items() if key in selected}
+    measurements = {key: measurements[key] if measurements and key in measurements else loudness(path)
+                    for key, path in sources.items() if key in selected}
     levels = {}
     previous = None
     for segment in timeline['segments']:

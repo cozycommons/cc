@@ -32,6 +32,18 @@ class Selection(BaseModel):
     included: bool
 
 
+def visible(data, owner, hosted):
+    return not hosted or bool(data.get('owner') and (data['owner'] == owner or data.get('visibility') == 'shared'))
+
+
+def present(data, owner):
+    data['can_manage'] = data.get('owner') == owner
+    for clip in data['clips']:
+        clip['can_edit'] = data['can_manage'] or clip.get('uploader', data.get('owner')) == owner
+        clip.setdefault('kind', 'video' if Path(clip['name']).suffix.lower() in ('.mp4', '.mov', '.webm') else 'audio')
+    return data
+
+
 def create_app(root=None):
     hosted = HostedAccess()
     root = root or hosted.root
@@ -70,8 +82,14 @@ def create_app(root=None):
                     parts = request.url.path.strip('/').split('/')
                     if len(parts) >= 3:
                         data = await asyncio.to_thread(request.app.state.store.get, parts[2])
-                        if data.get('owner') != request.state.owner:
+                        if not visible(data, request.state.owner, True):
                             raise HTTPException(404, 'Performance not found')
+                        if request.method == 'DELETE' and len(parts) == 3 and data['owner'] != request.state.owner:
+                            raise HTTPException(403, 'Only the set owner can delete this set.')
+                        if request.method in ('PATCH', 'DELETE') and len(parts) >= 5 and parts[3] == 'clips':
+                            clip = next((c for c in data['clips'] if c['id'] == parts[4]), None)
+                            if clip and request.state.owner not in (data['owner'], clip.get('uploader', data['owner'])):
+                                raise HTTPException(403, 'Only the uploader or set owner can change this recording.')
                 except HTTPException as exc:
                     return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
         else:
@@ -101,27 +119,36 @@ def create_app(root=None):
 
     @app.get('/crowd-set/sets')
     def list_sets(request: Request):
-        return [item for item in request.app.state.store.list() if item.get('owner') == request.state.owner]
+        return [present(item, request.state.owner) for item in request.app.state.store.list()
+                if visible(item, request.state.owner, hosted.origin)]
 
     @app.post('/crowd-set/sets', status_code=201)
     def create_set(body: Performance, request: Request):
-        return request.app.state.store.create(body.name, owner=request.state.owner)
+        return present(request.app.state.store.create(body.name, owner=request.state.owner), request.state.owner)
 
     @app.get('/crowd-set/sets/{set_id}')
     def get_set(set_id: str, request: Request):
-        return request.app.state.store.get(set_id)
+        return present(request.app.state.store.get(set_id), request.state.owner)
 
     @app.delete('/crowd-set/sets/{set_id}', status_code=204)
     def delete_set(set_id: str, request: Request):
         request.app.state.store.delete(set_id)
 
+    @app.post('/crowd-set/sets/{set_id}/batches', status_code=201)
+    def begin_batch(set_id: str, request: Request):
+        return request.app.state.store.begin_batch(set_id, request.state.owner)
+
+    @app.post('/crowd-set/sets/{set_id}/batches/{batch_id}/finish')
+    def finish_batch(set_id: str, batch_id: str, request: Request):
+        return present(request.app.state.store.finish_batch(set_id, batch_id, request.state.owner), request.state.owner)
+
     @app.put('/crowd-set/sets/{set_id}/clips', status_code=201)
-    async def upload(set_id: str, request: Request, role: Literal['reference', 'crowd'], name: str = Query(min_length=1, max_length=180)):
+    async def upload(set_id: str, request: Request, name: str = Query(min_length=1, max_length=180), role: Literal['reference', 'crowd', 'recording'] = 'recording', batch_id: str | None = Query(default=None, max_length=32)):
         length = request.headers.get('content-length')
         if length and (not length.isdigit() or int(length) > MAX_BYTES):
             raise HTTPException(413, 'Each upload must be at most 512 MiB.')
         store = request.app.state.store
-        clip, path = await asyncio.to_thread(store.begin_upload, set_id, name, role)
+        clip, path = await asyncio.to_thread(store.begin_upload, set_id, name, role, request.state.owner, batch_id)
         success = False
         try:
             size = 0
@@ -140,27 +167,38 @@ def create_app(root=None):
             raise HTTPException(408, 'Upload exceeded 5 minutes. Retry a smaller file.')
         finally:
             data = store.finish_upload(set_id, clip, path, success)
-        return data
+        return present(data, request.state.owner)
 
     @app.patch('/crowd-set/sets/{set_id}/clips/{clip_id}')
     def select_clip(set_id: str, clip_id: str, body: Selection, request: Request):
-        return request.app.state.store.edit_clip(set_id, clip_id, included=body.included)
+        return present(request.app.state.store.edit_clip(set_id, clip_id, included=body.included), request.state.owner)
 
     @app.delete('/crowd-set/sets/{set_id}/clips/{clip_id}')
     def remove_clip(set_id: str, clip_id: str, request: Request):
-        return request.app.state.store.edit_clip(set_id, clip_id, delete=True)
+        return present(request.app.state.store.edit_clip(set_id, clip_id, delete=True), request.state.owner)
 
     @app.post('/crowd-set/sets/{set_id}/process', status_code=202)
     def process(set_id: str, request: Request):
-        return request.app.state.store.start(set_id)
+        return present(request.app.state.store.start(set_id), request.state.owner)
+
+    @app.get('/crowd-set/sets/{set_id}/clips/{clip_id}/media')
+    def original(set_id: str, clip_id: str, request: Request, download: bool = False):
+        store = request.app.state.store
+        clip = next((c for c in store.get(set_id)['clips'] if c['id'] == clip_id), None)
+        if not clip:
+            raise HTTPException(404, 'Recording not found')
+        types = {'.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.wav': 'audio/wav',
+                 '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg'}
+        return FileResponse(store.directory(set_id) / clip['file'], media_type=types[Path(clip['name']).suffix.lower()],
+                            filename=clip['name'], content_disposition_type='attachment' if download else 'inline')
 
     @app.get('/crowd-set/sets/{set_id}/audio')
     def audio(set_id: str, request: Request, download: bool = False):
         store = request.app.state.store
         data = store.get(set_id)
-        if data['status'] != 'ready' or not data['playable']:
-            raise HTTPException(404, 'No reconstruction is available. Process matching crowd clips first.')
-        return FileResponse(store.directory(set_id) / 'reconstruction.wav', media_type='audio/wav',
+        if not data['playable']:
+            raise HTTPException(404, 'No mix is available. Add a recording first.')
+        return FileResponse(store.directory(set_id) / data.get('mix_file', 'reconstruction.wav'), media_type='audio/wav',
                             filename='crowd-set.wav' if download else None, headers={'Cache-Control': 'no-store'})
 
     static = os.environ.get('CROWD_SET_STATIC_DIR')

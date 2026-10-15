@@ -3,6 +3,7 @@ import json
 import time
 import wave
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import numpy as np
 import pytest
@@ -32,7 +33,7 @@ def wait(api, path):
     deadline = time.monotonic() + 40
     while time.monotonic() < deadline:
         data = api.get(path).json()
-        if data['status'] != 'processing':
+        if data['status'] not in ('processing', 'queued'):
             return data
         time.sleep(.05)
     pytest.fail('Worker did not finish within 40 seconds')
@@ -67,73 +68,89 @@ def test_local_validation_and_safe_uploads(tmp_path, monkeypatch):
         assert api.get('/crowd-set/sets/not-a-uuid').status_code == 404
 
 
-def test_upload_process_playback_invalidation_and_restart(tmp_path):
+def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
+    import subprocess
+    import imageio_ffmpeg
     raw = music(100)
-    reference = write_wav(tmp_path / 'reference.wav', raw).read_bytes()
-    a = write_wav(tmp_path / 'a.wav', raw[20 * 16000:70 * 16000]).read_bytes()
-    b = write_wav(tmp_path / 'b.wav', raw[50 * 16000:95 * 16000]).read_bytes()
+    source = write_wav(tmp_path / 'source.wav', raw[:80 * 16000])
+    video = tmp_path / 'video.mp4'
+    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-f', 'lavfi', '-i',
+                    'color=c=green:s=160x90:r=1', '-i', str(source), '-shortest', '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(video)], check=True, timeout=30)
+    original = video.read_bytes()
     root = tmp_path / 'store'
     with client(root) as api:
         path = create(api)
-        upload(api, path, 'reference.wav', reference, 'reference')
-        upload(api, path, 'a.wav', a)
-        upload(api, path, 'b.wav', b)
+        uploaded = upload(api, path, 'stage.mp4', original).json()
+        assert uploaded['status'] == 'queued'
+        clip_id = uploaded['clips'][0]['id']
+        media = path + '/clips/' + clip_id + '/media'
+        assert api.get(media).headers['content-type'] == 'video/mp4'
+        partial = api.get(media, headers={'Range': 'bytes=0-99'})
+        assert partial.status_code == 206
+        assert partial.content == original[:100]
+        assert 'attachment' in api.get(media + '?download=true').headers['content-disposition']
+        first = wait(api, path)  # Upload alone triggers the build.
+        assert first['status'] == 'ready', first
+        assert first['timeline']['anchor_id'] == clip_id
+        assert first['timeline']['segments'][0]['clip_id'] == clip_id
+        assert first['timeline']['output_true_peak_dbfs'] <= -1.9
+        old = api.get(path + '/audio').content
+        cached = root / first['id'] / (clip_id + '.wav')
+        cache_time = cached.stat().st_mtime_ns
+        second_audio = write_wav(tmp_path / 'b.wav', raw[20 * 16000:90 * 16000]).read_bytes()
+        queued = upload(api, path, 'b.wav', second_audio).json()
+        assert queued['playable'] and queued['mix_revision'] == first['mix_revision']
+        assert api.get(path + '/audio').content == old
         assert api.post(path + '/process').status_code == 202
-        assert api.post(path + '/process').status_code == 409
-        assert upload(api, path, 'during.wav', b).status_code == 409
+        assert api.get(path + '/audio', headers={'Range': 'bytes=0-99'}).content == old[:100]
+        assert upload(api, path, 'during.wav', second_audio).status_code == 409
         assert api.delete(path).status_code == 409
-        result = wait(api, path)
-        assert result['status'] == 'ready', result
-        assert result['playable']
-        assert result['timeline']['output_true_peak_dbfs'] <= -1.9
-        assert result['timeline']['covered_seconds'] == pytest.approx(75, abs=.1)
-        assert all(c['alignment']['status'] == 'matched' for c in result['clips'][1:])
-        output = api.get(path + '/audio?download=true')
-        assert output.status_code == 200
-        assert 'attachment' in output.headers['content-disposition']
-        assert output.content[:4] == b'RIFF'
-        assert api.get(path + '/audio', headers={'Range': 'bytes=0-99'}).status_code == 206
-        (tmp_path / 'result.wav').write_bytes(output.content)
-        with wave.open(str(tmp_path / 'result.wav')) as audio:
-            assert audio.getnframes() / audio.getframerate() == 100
-            samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype='<i2')
-        assert not samples[:19 * 32000].any()
-        assert not samples[96 * 32000:].any()
+        second = wait(api, path)
+        assert second['status'] == 'ready', second
+        assert second['mix_revision'] != first['mix_revision']
+        assert second['timeline']['duration'] == pytest.approx(90, abs=.1)
+        assert cached.stat().st_mtime_ns == cache_time
+        assert not second['dirty']
+        current = api.get(path + '/audio').content
+        # A failed rebuild must not overwrite the current result.
+        for clip in second['clips']:
+            api.patch(path + '/clips/' + clip['id'], json={'included': False})
+        upload(api, path, 'broken.wav', b'bad media')
+        api.post(path + '/process')
+        failed = wait(api, path)
+        assert failed['status'] == 'failed'
+        assert failed['playable'] and failed['mix_revision'] == second['mix_revision']
+        assert api.get(path + '/audio').content == current
     with client(root) as api:
         assert api.get(path).json()['playable']
-        clip = api.get(path).json()['clips'][1]
-        changed = api.patch(path + '/clips/' + clip['id'], json={'included': False}).json()
-        assert changed['timeline'] is None
-        assert not changed['playable']
-        assert api.get(path + '/audio').status_code == 404
-        assert api.delete(path).status_code == 204
-        assert api.get(path).status_code == 404
+        assert api.get(path + '/audio').content == current
+        assert api.get(media).content == original
 
 
-def test_bad_reference_failure_and_bad_clip_no_coverage(tmp_path):
-    with client(tmp_path / 'store') as api:
+def test_legacy_reference_excluded_and_automatic_uploads_coalesced(tmp_path):
+    root = tmp_path / 'store'
+    raw = music(80)
+    recording = write_wav(tmp_path / 'recording.wav', raw[:40 * 16000]).read_bytes()
+    with client(root) as api:
         path = create(api)
-        upload(api, path, 'bad.wav', b'bad', 'reference')
-        upload(api, path, 'bad.wav', b'bad')
-        api.post(path + '/process')
+        legacy = upload(api, path, 'legacy.wav', write_wav(tmp_path / 'legacy.wav', raw).read_bytes(), 'reference').json()['clips'][0]
+        upload(api, path, 'first.wav', recording)
+        upload(api, path, 'second.wav', recording)
+        assert len(api.app.state.store.pending) == 1
         result = wait(api, path)
-        assert result['status'] == 'failed'
-        assert 'Cannot decode' in result['error']
-        api.delete(path + '/clips/' + result['clips'][0]['id'])
-        reference = write_wav(tmp_path / 'ref.wav', music(40)).read_bytes()
-        upload(api, path, 'ref.wav', reference, 'reference')
-        api.post(path + '/process')
-        result = wait(api, path)
-        assert result['status'] == 'ready'
-        assert not result['playable']
-        assert result['timeline']['gaps'] == [{'start': 0, 'end': 40}]
-        assert result['clips'][0]['alignment']['status'] == 'error'
+        assert result['status'] == 'ready', result
+        assert result['timeline']['duration'] == pytest.approx(40)
+        assert result['timeline']['anchor_id'] != legacy['id']
+        assert all(s['clip_id'] != legacy['id'] for s in result['timeline']['segments'])
+        assert api.get(path + '/clips/' + legacy['id'] + '/media').status_code == 200
 
 
 def test_interrupted_recovery_and_single_server_lock(tmp_path):
     store = Store(tmp_path)
     data = store.create('Interrupted')
-    data['status'] = 'processing'
+    data.update(status='processing', playable=True, mix_file='mix-saved.wav')
+    (store.directory(data['id']) / 'mix-saved.wav').write_bytes(b'previous audio')
     store.save(data)
     with pytest.raises(RuntimeError, match='already open'):
         Store(tmp_path)
@@ -142,6 +159,8 @@ def test_interrupted_recovery_and_single_server_lock(tmp_path):
         result = api.get('/crowd-set/sets/' + data['id']).json()
         assert result['status'] == 'failed'
         assert 'interrupted' in result['error']
+        assert result['playable']
+        assert api.get('/crowd-set/sets/' + data['id'] + '/audio').content == b'previous audio'
 
 
 def test_worker_retains_storage_ownership_after_parent_crash(tmp_path):
@@ -202,3 +221,89 @@ while True: time.sleep(1)
                 os.killpg(worker_pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+
+def test_failed_publication_retains_pointer_and_queued_sets_are_serial(tmp_path, monkeypatch):
+    raw = write_wav(tmp_path / 'source.wav', music(40)).read_bytes()
+    with client(tmp_path / 'store') as api:
+        first = create(api)
+        second = create(api)
+        upload(api, first, 'one.wav', raw)
+        upload(api, second, 'two.wav', raw)
+        assert len(api.app.state.store.pending) == 2
+        assert wait(api, first)['status'] == 'ready'
+        assert wait(api, second)['status'] == 'ready'
+        saved = api.get(first).json()
+        old = api.get(first + '/audio').content
+        store = api.app.state.store
+        real_save = store.save
+        def fail_publish_once(data):
+            if data.get('mix_revision') != saved['mix_revision'] and data['id'] == saved['id'] and data['status'] == 'ready':
+                monkeypatch.setattr(store, 'save', real_save)
+                raise OSError('Injected disk write failure')
+            return real_save(data)
+        monkeypatch.setattr(store, 'save', fail_publish_once)
+        api.post(first + '/process')
+        result = wait(api, first)
+        assert result['status'] == 'failed'
+        assert result['mix_revision'] == saved['mix_revision']
+        assert api.get(first + '/audio').content == old
+        assert store.active is None
+
+
+def test_batch_completion_gates_one_build_and_retains_successes(tmp_path, monkeypatch):
+    raw = write_wav(tmp_path / 'source.wav', music(40)).read_bytes()
+    with client(tmp_path / 'store') as api:
+        path = create(api)
+        upload(api, path, 'first.wav', raw)
+        previous = wait(api, path)
+        old = api.get(path + '/audio').content
+        store = api.app.state.store
+        starts = []
+        real_submit = store.pool.submit
+        def counted_submit(function, set_id):
+            starts.append(set_id)
+            return real_submit(function, set_id)
+        monkeypatch.setattr(store.pool, 'submit', counted_submit)
+        batch = api.post(path + '/batches').json()['id']
+        assert api.put(path + '/clips', params={'name': 'second.wav', 'batch_id': batch}, content=raw).status_code == 201
+        time.sleep(4.1)  # Longer than the ordinary debounce: a slow batch must stay held.
+        assert starts == [] and not store.pending and store.active is None
+        assert api.get(path).json()['status'] == 'uploading'
+        assert api.get(path + '/audio').content == old
+        assert api.post(path + '/process').status_code == 409
+        assert api.put(path + '/clips', params={'name': 'outside.wav'}, content=raw).status_code == 409
+        assert api.put(path + '/clips', params={'name': 'empty.wav', 'batch_id': batch}, content=b'').status_code == 400
+        assert api.put(path + '/clips', params={'name': 'third.wav', 'batch_id': batch}, content=raw).status_code == 201
+        assert starts == []
+        finished = api.post(path + '/batches/' + batch + '/finish')
+        assert finished.status_code == 200 and finished.json()['status'] == 'queued'
+        result = wait(api, path)
+        assert result['status'] == 'ready' and len(result['clips']) == 3
+        assert result['mix_revision'] != previous['mix_revision']
+        assert starts == [result['id']]
+        assert not list((tmp_path / 'store').rglob('*.part'))
+
+
+def test_abandoned_batch_settles_successful_uploads(tmp_path):
+    store = Store(tmp_path)
+    try:
+        data = store.create('Abandoned batch')
+        batch = store.begin_batch(data['id'], 'alice')['id']
+        with pytest.raises(HTTPException) as denied:
+            store.finish_batch(data['id'], batch, 'bob')
+        assert denied.value.status_code == 403
+        clip, partial = store.begin_upload(data['id'], 'recording.wav', uploader='alice', batch_id=batch)
+        partial.write_bytes(b'original bytes')
+        store.batches[data['id']]['deadline'] = 0
+        store.dispatch()
+        assert data['id'] in store.batches  # An active upload never expires between chunks.
+        store.finish_upload(data['id'], clip, partial, True)
+        store.batches[data['id']]['deadline'] = 0
+        store.dispatch()
+        recovered = store.get(data['id'])
+        assert recovered['status'] == 'queued' and len(recovered['clips']) == 1
+        assert 'upload missing files again' in recovered['upload_notice']
+        assert data['id'] not in store.batches and len(store.pending) == 1
+    finally:
+        store.close()

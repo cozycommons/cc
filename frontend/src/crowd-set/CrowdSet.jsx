@@ -16,6 +16,7 @@ export default function CrowdSet() {
   const [busy, setBusy] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
+  const [statusError, setStatusError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [available, setAvailable] = React.useState(false);
   const [needsSignIn, setNeedsSignIn] = React.useState(false);
@@ -25,6 +26,7 @@ export default function CrowdSet() {
   const choose = React.useCallback((value) => {
     selection.current = value?.id || null;
     setSelected(value);
+    setStatusError('');
   }, []);
   const update = React.useCallback((value) => {
     setSets((previous) => [value, ...previous.filter((item) => item.id !== value.id)]);
@@ -37,7 +39,7 @@ export default function CrowdSet() {
     try {
       const values = await request();
       setSets(values);
-      choose(values.find((item) => item.id === selection.current) || values[0] || null);
+      choose(values.find((item) => item.id === selection.current) || null);
       setAvailable(true);
       setNeedsSignIn(false);
     } catch (failure) {
@@ -70,15 +72,15 @@ export default function CrowdSet() {
   const selectedId = selected?.id;
   const selectedStatus = selected?.status;
   React.useEffect(() => {
-    if (!selectedId || !['processing', 'uploading'].includes(selectedStatus)) return;
+    if (!selectedId || !['processing', 'uploading', 'queued'].includes(selectedStatus)) return;
     let stopped = false;
     let timer;
     const poll = async () => {
       try {
         const value = await request(`/${selectedId}`);
-        if (!stopped) { update(value); setError(''); }
+        if (!stopped) { update(value); setStatusError(''); }
       } catch (failure) {
-        if (!stopped) setError(`${failure.message}. Retrying status…`);
+        if (!stopped) setStatusError(`${failure.message}. Retrying status…`);
       }
       if (!stopped) timer = setTimeout(poll, 1500);
     };
@@ -91,72 +93,95 @@ export default function CrowdSet() {
     try { await callback(); } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   }
-  async function upload(event, role) {
+  async function upload(event) {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
     const id = selected.id;
+    if (!files.length) return;
     await action(async () => {
-      for (let index = 0; index < files.length; index += 1) {
-        const file = files[index];
-        if (file.size > 512 * 1024 * 1024) throw new Error(`${file.name} exceeds 512 MiB.`);
-        setNotice(`Uploading ${file.name} (${index + 1}/${files.length})…`);
-        update(await request(`/${id}/clips?role=${role}&name=${encodeURIComponent(file.name)}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
-        }));
+      const batch = files.length > 1 ? await request(`/${id}/batches`, { method: 'POST' }) : null;
+      const failures = [];
+      try {
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index];
+          setNotice(`Uploading ${file.name} (${index + 1}/${files.length})…`);
+          try {
+            if (file.size > 512 * 1024 * 1024) throw new Error('Exceeds 512 MiB.');
+            update(await request(`/${id}/clips?name=${encodeURIComponent(file.name)}${batch ? `&batch_id=${batch.id}` : ''}`, {
+              method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+            }));
+          } catch (failure) { failures.push(`${file.name}: ${failure.message}`); }
+        }
+      } finally {
+        setNotice('');
+        if (batch) {
+          try { update(await request(`/${id}/batches/${batch.id}/finish`, { method: 'POST' })); }
+          catch (failure) { failures.push(`Could not finish the upload batch: ${failure.message}. Added files are retained; reconnect to check their status.`); }
+        }
       }
-      setNotice('Upload complete.');
+      if (failures.length) throw new Error(`Some uploads failed. ${failures.join(' ')} Retry these files; successful uploads are retained.`);
     });
   }
   const locked = busy || isBusy(selected);
-  const reference = selected?.clips.find((clip) => clip.role === 'reference');
-  const crowd = selected?.clips.filter((clip) => clip.role === 'crowd') || [];
-  const timeline = selected?.timeline;
+  const recordings = selected?.clips || [];
+  const ordinary = recordings.filter((clip) => clip.role !== 'reference');
+  const used = new Set(selected?.timeline?.segments.map((segment) => segment.clip_id) || []);
+  const updating = ['queued', 'processing', 'uploading'].includes(selected?.status);
 
   return <main className="crowd-set">
     <header className="cs-header"><a href="/">Cozy Commons</a></header>
-    <section className="cs-intro"><h1>Crowd Set</h1></section>
-    <>
-      {error && <div role="alert" className="cs-error">{error}</div>}
-      {loading ? <p role="status">Loading…</p> : !available ? <section className="cs-card"><h2>{needsSignIn ? 'Sign in' : 'Connect to Crowd Set'}</h2>{needsSignIn ? <button onClick={() => action(async () => { const { auth } = await import('../supabase'); await auth.signInWithGoogle(`${window.location.origin}/crowd-set`); })}>Continue with Google</button> : <>{local && <p>Run <code>bash scripts/crowd-set-dev.sh setup</code>, then <code>bash scripts/crowd-set-dev.sh run</code> from this checkout.</p>}<button onClick={reload}>Reconnect</button></>}</section> : <>
-        <section className="cs-library cs-card" aria-label="Sets">
-          <div><label htmlFor="performance">Set</label><select id="performance" value={selected?.id || ''} disabled={busy} onChange={(event) => { choose(sets.find((item) => item.id === event.target.value)); setError(''); setNotice(''); }}>
-            {!sets.length && <option value="">No sets yet</option>}{sets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select></div>
-          <form onSubmit={(event) => { event.preventDefault(); action(async () => { const value = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); update(value); choose(value); setName(''); }); }}>
-            <label htmlFor="set-name">New set</label><div className="cs-inline"><input id="set-name" placeholder="Artist · venue · night" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /><button disabled={busy || !name.trim()}>Create set</button></div>
-          </form>
-        </section>
-        {selected && <>
-          <section className="cs-workspace-heading"><div><h2>{selected.name}</h2></div><button className="cs-subtle" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its local recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button></section>
-          <div className="cs-upload-grid">
-            <section className="cs-card"><h3>Reference</h3><p>Full recording of this performance. Used for timing only.</p>
-              {reference ? <div className="cs-file"><strong>{reference.name}</strong><span>Not included in playback</span><button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${reference.id}`, { method: 'DELETE' })))}>Remove reference</button></div> : <label className="cs-upload">Upload reference<input aria-label="Upload timing reference" type="file" accept={accept} disabled={locked} onChange={(event) => upload(event, 'reference')} /></label>}
-              <small>Up to 2 hours · 512 MiB</small>
-            </section>
-            <section className="cs-card"><h3>Recordings</h3><p>Up to 8 clips from this performance.</p><label className="cs-upload">Upload recordings<input aria-label="Upload crowd clips" type="file" multiple accept={accept} disabled={locked || crowd.length >= 8} onChange={(event) => upload(event, 'crowd')} /></label><small>37 seconds–20 minutes · 512 MiB each</small></section>
+    {(error || statusError) && <div role="alert" className="cs-error">{error || statusError}</div>}
+    {loading ? <p role="status">Loading…</p> : !available ? <section className="cs-card"><h1>Crowd Set</h1>
+      {needsSignIn ? <button onClick={() => action(async () => { const { auth } = await import('../supabase'); await auth.signInWithGoogle(`${window.location.origin}/crowd-set`); })}>Continue with Google</button> : <button onClick={reload}>Reconnect</button>}
+    </section> : !selected ? <>
+      <div className="cs-title cs-catalog-title"><h1>Crowd Set</h1><button onClick={() => document.getElementById('set-name').focus()}>New set</button></div>
+      <section aria-label="Sets" className="cs-set-list">
+        {sets.length ? sets.map((item) => <button className="cs-set" key={item.id} onClick={() => { choose(item); setNotice(''); }}>
+          <strong>{item.name}</strong><span>{item.clips.length} recordings{item.visibility !== 'shared' ? ' · Private' : ''}</span>
+        </button>) : <p>No sets yet.</p>}
+      </section>
+      <form className="cs-new-set" onSubmit={(event) => { event.preventDefault(); action(async () => { const value = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); update(value); choose(value); setName(''); }); }}>
+        <label htmlFor="set-name">New set</label><div className="cs-inline"><input id="set-name" required disabled={busy} placeholder="Artist · venue · date" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /><button disabled={busy || !name.trim()}>{busy ? 'Creating…' : 'Create set'}</button></div>
+        {!local && <small>Visible to signed-in members.</small>}
+      </form>
+    </> : <>
+      <button className="cs-back" disabled={busy} onClick={() => { choose(null); reload(); }}>← All sets</button>
+      <div className="cs-title"><h1>{selected.name}</h1>{selected.visibility !== 'shared' && <span>Private</span>}</div>
+      <section className="cs-mix" aria-label="Compiled mix">
+        <div className="cs-inline"><h2>Current mix</h2>{selected.playable && <a href={endpoint(`/${selected.id}/audio?download=true`)}>Download audio</a>}</div>
+        {selected.playable ? <audio key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" /> : <p>{updating ? 'Creating mix…' : 'No mix yet.'}</p>}
+        <p role="status">{busy ? notice || 'Saving…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
+        {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
+        {!updating && (selected.status === 'failed' || selected.dirty || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : 'Update mix'}</button>}
+      </section>
+      <section aria-label="Recordings">
+        <div className="cs-recording-heading"><h2>Recordings <span>{recordings.length}</span></h2>
+          <label className="cs-upload">Add videos<input aria-label="Add videos" type="file" multiple accept={accept} disabled={locked || ordinary.length >= 8} onChange={upload} /></label>
+        </div>
+        <p className="cs-limits">Up to 8 recordings · 20 minutes and 512 MiB each · audio files also accepted</p>
+        {!recordings.length && <p>No recordings yet.</p>}
+        <div className="cs-recordings">{recordings.map((clip) => <article key={clip.id} className="cs-recording">
+          <Original clip={clip} setId={selected.id} />
+          <div className="cs-recording-info"><h3>{clip.name}</h3>
+            <p className="cs-meta">{clip.duration ? `${time(clip.duration)} · ` : ''}{clip.bytes ? `${(clip.bytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
+            <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' || !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
+            <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
+              {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
+            </div>
+            {clip.can_edit && clip.role !== 'reference' && <label className="cs-include"><input type="checkbox" aria-label={`Use ${clip.name} in mix`} checked={clip.included} disabled={locked} onChange={(event) => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ included: event.target.checked }) })))} /> Use in mix</label>}
           </div>
-          <p className="cs-muted cs-formats">WAV, MP3, M4A, MP4, MOV, AAC, FLAC, OGG, WEBM</p>
-          {!!crowd.length && <section className="cs-card"><h3>Recordings</h3><div className="cs-sources">{crowd.map((clip) => <article key={clip.id} className="cs-source">
-            <label><input type="checkbox" checked={clip.included} disabled={locked} onChange={(event) => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ included: event.target.checked }) })))} /><strong>{clip.name}</strong></label>
-            <span className={`cs-badge ${clip.alignment?.status || ''}`}>{!clip.included ? 'Excluded' : clip.alignment?.status || 'Ready'}</span>
-            <button className="cs-subtle" disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>
-            {clip.alignment && <div className="cs-source-detail">{clip.alignment.status === 'matched' ? <p>Starts at {clip.alignment.offset_seconds < 0 ? '−' : ''}{time(Math.abs(clip.alignment.offset_seconds))} · ±{clip.alignment.uncertainty_seconds.toFixed(2)}s</p> : <p>{clip.alignment.reason}</p>}
-              {!!clip.alignment.windows.length && <details><summary>Timing details</summary><ul>{clip.alignment.windows.map((window, index) => <li key={index}>{time(window.source_seconds)}: offset {window.offset_seconds}s · similarity {window.similarity} · margin {window.peak_margin}{window.strong ? '' : ' · weak match'}</li>)}</ul></details>}</div>}
-
-          </article>)}</div></section>}
-          <section className="cs-process"><button className="cs-primary" disabled={locked || !reference || !crowd.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{isBusy(selected) ? 'Processing…' : selected.status === 'failed' ? 'Retry' : 'Create mix'}</button>
-            <p role="status">{busy ? notice || 'Saving…' : selected.status === 'processing' ? 'Processing recordings…' : selected.status === 'failed' ? selected.error : notice || (!reference ? 'Upload a reference to continue.' : !crowd.some((clip) => clip.included) ? 'Add a recording to continue.' : '')}</p></section>
-          {timeline && <section className="cs-card cs-result"><h2>{selected.playable ? 'Mix' : 'No recordings matched'}</h2>
-            <p>{time(timeline.covered_seconds)} covered of {time(timeline.duration)} · gaps are silence</p>
-            <div className="cs-timeline" aria-label="Crowd coverage timeline">{timeline.segments.map((segment, index) => <span key={index} title={`${time(segment.start)}–${time(segment.end)}`} style={{ left: `${segment.start / timeline.duration * 100}%`, width: `${(segment.end - segment.start) / timeline.duration * 100}%` }} />)}</div>
-            <div className="cs-scale"><span>0:00</span><span>{time(timeline.duration)}</span></div>
-            {selected.playable && <><audio key={`${selected.id}-${selected.clips.map((clip) => clip.id).join('-')}-${selected.status}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio`)} aria-label="Crowd-only reconstruction" /><a className="cs-download" href={endpoint(`/${selected.id}/audio?download=true`)}>Download WAV</a></>}
-
-            {timeline.levels && <details className="cs-levels"><summary>Volume adjustments</summary><ul>{Object.entries(timeline.levels).map(([id, level]) => <li key={id}><strong>{crowd.find((clip) => clip.id === id)?.name}</strong>: {level.gain_db.toFixed(1)} dB · {level.basis.startsWith('Same ') ? 'overlap matched' : 'whole recording'}{level.gain_limited ? ' · gain capped' : ''}</li>)}</ul></details>}
-            <div className="cs-intervals"><div><h3>Timeline</h3>{timeline.segments.length ? <ul>{timeline.segments.map((segment, index) => <li key={index}><strong>{time(segment.start)}–{time(segment.end)}</strong> {crowd.find((clip) => clip.id === segment.clip_id)?.name}</li>)}</ul> : <p>Try longer or clearer recordings.</p>}</div><div><h3>Gaps</h3>{timeline.gaps.length ? <ul>{timeline.gaps.map((gap, index) => <li key={index}>{time(gap.start)}–{time(gap.end)} · silence</li>)}</ul> : <p>None</p>}</div></div>
-          </section>}
-        </>}
-      </>}
-    </>
+        </article>)}</div>
+      </section>
+      {selected.can_manage && <button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button>}
+    </>}
   </main>;
+}
+
+function Original({ clip, setId }) {
+  const [failed, setFailed] = React.useState(false);
+  const Media = clip.kind === 'video' ? 'video' : 'audio';
+  return <div className={`cs-original ${clip.kind === 'video' ? '' : 'cs-original-audio'}`}>
+    <Media controls playsInline preload="metadata" src={endpoint(`/${setId}/clips/${clip.id}/media`)} aria-label={`Play ${clip.name}`} onError={() => setFailed(true)} />
+    {failed && <p>Can’t play this format here. Download the original below.</p>}
+  </div>;
 }
