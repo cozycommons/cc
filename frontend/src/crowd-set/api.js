@@ -17,7 +17,7 @@ export async function request(path = '', options = {}) {
     if (!session) throw Object.assign(new Error('Sign in to continue.'), { status: 401 });
     headers.set('Authorization', `Bearer ${session.access_token}`);
   }
-  const response = await fetch(endpoint(path), { ...options, headers });
+  const response = await fetch(endpoint(path), { ...options, headers, cache: 'no-store' });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw Object.assign(new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${response.status})`), { status: response.status });
