@@ -20,7 +20,7 @@ export default function App() {
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <Routes>
         <Route path="/" element={<CommonsHome />} />
-        <Route path="/crowdset" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
+        <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
         <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
         <Route path="/scene" element={<CommonsScenePage />} />
         <Route path="/design" element={<React.Suspense fallback={null}><DesignIndex /></React.Suspense>} />

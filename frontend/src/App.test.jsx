@@ -46,6 +46,13 @@ describe('top-level routes', () => {
     expect(await screen.findByText('Crowdset application')).toBeInTheDocument();
   });
 
+  it('serves dedicated Crowdset watch links', async () => {
+    window.history.replaceState({}, '', '/crowdset/isoknock-niteharts-2026');
+    render(<App />);
+    expect(await screen.findByText('Crowdset application')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/crowdset/isoknock-niteharts-2026');
+  });
+
   it('redirects old Crowdset links while preserving query and recording anchor', async () => {
     window.history.replaceState({}, '', '/crowd-set?view=set#recording-123');
     render(<App />);
