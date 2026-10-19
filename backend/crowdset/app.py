@@ -91,11 +91,11 @@ class Upload(BaseModel):
     batch_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
 
 
-def visible(data, owner, hosted):
-    return not hosted or bool(data.get('owner') and (data['owner'] == owner or data.get('visibility') == 'shared'))
+def visible(data, owner, hosted, is_admin=False):
+    return not hosted or bool(data.get('owner') and (is_admin or data['owner'] == owner or data.get('visibility') == 'shared'))
 
 
-def present(data, owner, uploaders=None):
+def present(data, owner, uploaders=None, is_admin=False):
     data.pop('deleted_clips', None)
     data.pop('batch', None)
     data.pop('completed_batch', None)
@@ -104,9 +104,11 @@ def present(data, owner, uploaders=None):
         data['youtube_import'].pop('owner', None)
         data['youtube_import'].pop('session_id', None)
     data['can_manage'] = data.get('owner') == owner
+    data['can_delete'] = is_admin
     for clip in data['clips']:
         clip['uploader_name'] = (uploaders or {}).get(clip.get('uploader', data.get('owner'))) or clip.get('uploader_name')
         clip['can_edit'] = data['can_manage'] or clip.get('uploader', data.get('owner')) == owner
+        clip['can_delete'] = is_admin or (owner is not None and clip.get('uploader') == owner)
         clip.setdefault('kind', 'video' if Path(clip['name']).suffix.lower() in ('.mp4', '.mov', '.webm') else 'audio')
     return data
 
@@ -136,6 +138,7 @@ def create_app(root=None):
         origin = request.headers.get('origin')
         peer = request.client.host if request.client else None
         request.state.owner = None
+        request.state.is_admin = not hosted.origin
         token = None
         if hosted.origin:
             if request.url.path == '/crowdset/health' and host in ('localhost', '127.0.0.1') and peer in ('127.0.0.1', '::1', 'testclient'):
@@ -150,18 +153,21 @@ def create_app(root=None):
                 if request.method in ('GET', 'HEAD') and not bearer:
                     token = request.cookies.get(COOKIE) or (request.cookies.get('__Secure-crowd-set') if legacy else None)
                 try:
-                    request.state.owner, uploader_name = await hosted.user(token)
+                    request.state.owner, uploader_name, request.state.is_admin = await hosted.user(token)
                     await asyncio.to_thread(request.app.state.store.remember_uploader, request.state.owner, uploader_name)
                     parts = request.url.path.strip('/').split('/')
                     if len(parts) >= 3:
                         data = await asyncio.to_thread(request.app.state.store.get, parts[2])
-                        if not visible(data, request.state.owner, True):
+                        if not visible(data, request.state.owner, True, request.state.is_admin):
                             raise HTTPException(404, 'Performance not found')
-                        if request.method == 'DELETE' and len(parts) == 3 and data['owner'] != request.state.owner:
-                            raise HTTPException(403, 'Only the set owner can delete this set.')
+                        if request.method == 'DELETE' and len(parts) == 3 and not request.state.is_admin:
+                            raise HTTPException(403, 'Only admins can delete sets.')
                         if request.method in ('PATCH', 'DELETE') and len(parts) >= 5 and parts[3] == 'clips':
                             clip = next((c for c in data['clips'] if c['id'] == parts[4]), None)
-                            if clip and request.state.owner not in (data['owner'], clip.get('uploader', data['owner'])):
+                            if clip and request.method == 'DELETE':
+                                if not request.state.is_admin and clip.get('uploader') != request.state.owner:
+                                    raise HTTPException(403, 'Only the uploader or an admin can remove this recording.')
+                            elif clip and request.state.owner not in (data['owner'], clip.get('uploader', data['owner'])):
                                 raise HTTPException(403, 'Only the uploader or set owner can change this recording.')
                 except HTTPException as exc:
                     return JSONResponse({'detail': exc.detail}, status_code=exc.status_code)
@@ -200,21 +206,21 @@ def create_app(root=None):
     def list_sets(request: Request, limits: bool = False):
         if limits:
             return request.app.state.store.limits.public()
-        return [present(item, request.state.owner, request.app.state.store.uploaders) for item in request.app.state.store.list()
-                if visible(item, request.state.owner, hosted.origin)]
+        return [present(item, request.state.owner, request.app.state.store.uploaders, request.state.is_admin) for item in request.app.state.store.list()
+                if visible(item, request.state.owner, hosted.origin, request.state.is_admin)]
 
     @app.post('/crowdset/sets', status_code=201)
     def create_set(body: Performance, request: Request):
         event = body.model_dump(exclude={'name'}, exclude_none=True)
-        return present(request.app.state.store.create(body.name, owner=request.state.owner, event=event), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.create(body.name, owner=request.state.owner, event=event), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.get('/crowdset/sets/{set_id}')
     def get_set(set_id: str, request: Request):
-        return present(request.app.state.store.get(set_id), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.get(set_id), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.post('/crowdset/sets/{set_id}/youtube', status_code=202)
     def import_youtube(set_id: str, body: YouTubeImport, request: Request):
-        return present(request.app.state.store.import_youtube(set_id, body.url, request.state.owner), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.import_youtube(set_id, body.url, request.state.owner), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.delete('/crowdset/sets/{set_id}', status_code=204)
     def delete_set(set_id: str, request: Request):
@@ -226,7 +232,7 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/batches/{batch_id}/finish')
     def finish_batch(set_id: str, batch_id: str, request: Request):
-        return present(request.app.state.store.finish_batch(set_id, batch_id, request.state.owner), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.finish_batch(set_id, batch_id, request.state.owner), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.post('/crowdset/sets/{set_id}/uploads', status_code=201)
     def prepare_upload(set_id: str, body: Upload, request: Request):
@@ -260,7 +266,7 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/uploads/{upload_id}/finish')
     def complete_upload(set_id: str, upload_id: str, request: Request):
-        return present(request.app.state.store.complete_session(set_id, upload_id, request.state.owner), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.complete_session(set_id, upload_id, request.state.owner), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.put('/crowdset/sets/{set_id}/clips', status_code=201)
     async def upload(set_id: str, request: Request, name: str = Query(min_length=1, max_length=180), role: Literal['reference', 'crowd', 'recording'] = 'recording', batch_id: str | None = Query(default=None, max_length=32)):
@@ -288,19 +294,19 @@ def create_app(root=None):
             raise HTTPException(408, 'Upload exceeded 5 minutes. Retry a smaller file.')
         finally:
             data = store.finish_upload(set_id, clip, path, success)
-        return present(data, request.state.owner, request.app.state.store.uploaders)
+        return present(data, request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.patch('/crowdset/sets/{set_id}/clips/{clip_id}')
     def select_clip(set_id: str, clip_id: str, body: Selection, request: Request):
-        return present(request.app.state.store.edit_clip(set_id, clip_id, included=body.included), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.edit_clip(set_id, clip_id, included=body.included), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.delete('/crowdset/sets/{set_id}/clips/{clip_id}')
     def remove_clip(set_id: str, clip_id: str, request: Request):
-        return present(request.app.state.store.edit_clip(set_id, clip_id, delete=True), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.edit_clip(set_id, clip_id, delete=True), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.put('/crowdset/sets/{set_id}/soundtrack')
     def soundtrack(set_id: str, body: Soundtrack, request: Request):
-        return present(request.app.state.store.select_soundtrack(set_id, body.clip_id, request.state.owner), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.select_soundtrack(set_id, body.clip_id, request.state.owner), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.get('/crowdset/sets/{set_id}/overlays/{asset_id}')
     def overlay(set_id: str, asset_id: str, request: Request, v: str):
@@ -319,7 +325,7 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/process', status_code=202)
     def process(set_id: str, request: Request):
-        return present(request.app.state.store.start(set_id), request.state.owner, request.app.state.store.uploaders)
+        return present(request.app.state.store.start(set_id), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.get('/crowdset/sets/{set_id}/clips/{clip_id}/thumbnail')
     def thumbnail(set_id: str, clip_id: str, request: Request):

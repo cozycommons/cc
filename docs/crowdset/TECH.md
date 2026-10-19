@@ -3,6 +3,12 @@
 ## Architecture
 Retain the separate FastAPI package and optional Python environment, local loopback port 8010, and `/crowdset` React route. Hosted mode uses a separate Docker application on the existing HTTPS origin, existing Supabase Auth identity and authenticated shared-set JSON metadata with uploader ownership. No shared backend initialization, database or migration changes.
 
+## Admin authorization
+
+Read `app_metadata.crowdset_admin === true` from the existing live Supabase `/auth/v1/user` verification on every authenticated request. Never accept roles from user-editable metadata, request bodies, headers, or a client-decoded JWT. Missing, false, or nonboolean flags grant no admin rights; revocation takes effect on the next request without waiting for token refresh. Operators grant/revoke this Crowdset-specific flag through trusted Supabase administration, preserving other app metadata. No role-management endpoint is exposed to users.
+
+Only admins can delete a set. Admins can remove any clip; other users can remove only clips with their verified uploader ID. Return independent `can_delete` flags for sets and clips, and enforce the same rules on canonical and legacy API paths. `can_manage`/`can_edit` still control existing soundtrack/exclusion behavior and do not grant deletion rights. Admin visibility includes owned private sets, but never ownerless local data. Local loopback mode retains standalone control. Clip removal keeps the existing soft-delete and storage-reclamation behavior. Set deletion retains its existing confirmation and full cleanup.
+
 ## Processing and publication
 - New sets carry schema version 2; normal uploads use the recording role. Existing crowd roles are compatible ordinary contributions. Legacy reference roles remain excluded, preserving the old explicit timing-only contract without deleting media.
 - Decode included ordinary uploads to bounded 32 kHz mono float WAVs. Preserve peaks above full scale until gained PCM quantization. Measure finite samples, energy, clipping fraction, near-silent one-second blocks, and loudness to determine usable sources. Choose longest duration, then fewer clipped samples, fewer silent blocks, stable UUID. Quality has no influence across different durations.
