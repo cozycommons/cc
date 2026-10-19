@@ -497,10 +497,16 @@ class Store:
             self.pending.pop(set_id, None)
             self.invalidate(data)
             directory = self.directory(set_id)
-            published = data.get('mix_file', 'reconstruction.wav')
-            for pattern in ('mix-*.wav', 'reconstruction.wav', 'pending.wav', 'reference.wav', 'result.json', 'failure.json', 'progress.json'):
+            for temporary in directory.glob('video-*'):
+                if temporary.is_dir():
+                    shutil.rmtree(temporary)
+            for temporary in directory.glob('*.original*'):
+                temporary.unlink(missing_ok=True)
+            published = {data.get('mix_file', 'reconstruction.wav'), data.get('video_file'),
+                         data.get('previous_revision', {}).get('mix_file'), data.get('previous_revision', {}).get('video_file')}
+            for pattern in ('mix-*.wav', 'mix-*.mp4', 'reconstruction.wav', 'pending.wav', 'pending.mp4', 'reference.wav', 'result.json', 'failure.json', 'progress.json'):
                 for path in directory.glob(pattern):
-                    if path.name != published:
+                    if path.name not in published:
                         path.unlink(missing_ok=True)
             data.update(status='processing', stage='Updating mix')
             self.save(data)
@@ -535,14 +541,23 @@ class Store:
             revision = uuid4().hex
             filename = f'mix-{revision}.wav'
             (directory / 'pending.wav').replace(directory / filename)
-            mix_object = None
+            artifacts = {'mix': (filename, 'audio/wav')}
+            if result.get('video_playable'):
+                video_filename = f'mix-{revision}.mp4'
+                (directory / 'pending.mp4').replace(directory / video_filename)
+                artifacts['video'] = (video_filename, 'video/mp4')
+            publication = {'mix_object': None, 'mix_bytes': 0, 'video_file': None, 'video_object': None, 'video_bytes': 0}
             if self.blobs:
-                mix_object = f'mixes/{set_id}/{revision}.wav'
                 with self.lock:
-                    size = (directory / filename).stat().st_size
-                    self.originals.admit(self.limits, incoming=size)
-                    self.originals.record_blob(mix_object, size)
-                self.blobs.put(directory / filename, mix_object, 'audio/wav')
+                    self.originals.admit(self.limits, incoming=sum((directory / name).stat().st_size for name, _ in artifacts.values()))
+                    for kind, (name, _) in artifacts.items():
+                        key = f'mixes/{set_id}/{revision}{Path(name).suffix}'
+                        size = (directory / name).stat().st_size
+                        self.originals.record_blob(key, size)
+                        publication.update({f'{kind}_object': key, f'{kind}_bytes': size})
+                for kind, (name, mime) in artifacts.items():
+                    self.blobs.put(directory / name, publication[f'{kind}_object'], mime)
+            publication.update({f'{kind}_file': name for kind, (name, _) in artifacts.items()})
         except Exception as exc:
             error = exc.detail if isinstance(exc, HTTPException) else str(exc)
         with self.lock:
@@ -551,10 +566,11 @@ class Store:
                 if error:
                     data.update(status='failed', error=error, dirty=True)
                 else:
-                    if self.blobs:
-                        data.update(previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0),
-                                    mix_object=mix_object, mix_bytes=(directory / filename).stat().st_size)
-                    data.update(result, status='ready', error=None, dirty=False, mix_file=filename, mix_revision=revision, recovery_attempts=0)
+                    previous = {key: data.get(key) for key in ('mix_revision', 'mix_file', 'mix_object', 'mix_bytes',
+                                'video_file', 'video_object', 'video_bytes', 'video_playable', 'playable')}
+                    previous['mix_file'] = data.get('mix_file') or 'reconstruction.wav'
+                    data.update(previous_revision=previous, previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0))
+                    data.update(result, **publication, status='ready', error=None, dirty=False, mix_revision=revision, recovery_attempts=0)
                 data.pop('stage', None)
                 self.save(data)
             except (OSError, ValueError, httpx.HTTPError):
@@ -571,18 +587,20 @@ class Store:
                 self.schedule()
 
     def collect_mixes(self, set_id):
-        if not self.blobs:
-            return
         data = self.get(set_id)
-        retained = {data.get('mix_object'), data.get('previous_mix_object')}
-        keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')]
-        obsolete = [key for key in keys if key.startswith(f'mixes/{set_id}/') and key not in retained]
-        try:
-            if obsolete:
-                self.originals.remove_blobs(obsolete)
-        except (OSError, ValueError, httpx.HTTPError):
-            # Keep the ledger reservation until deletion is acknowledged on a later job.
-            return
-        for path in self.directory(set_id).glob('mix-*.wav.transfer.json'):
-            if path.name != data.get('mix_file', '') + '.transfer.json':
-                path.unlink(missing_ok=True)
+        previous = data.get('previous_revision', {})
+        retained_files = {data.get('mix_file', 'reconstruction.wav'), data.get('video_file'), previous.get('mix_file'), previous.get('video_file')}
+        if self.blobs:
+            retained = {data.get('mix_object'), data.get('previous_mix_object'), data.get('video_object'), previous.get('video_object')}
+            keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')]
+            obsolete = [key for key in keys if key.startswith(f'mixes/{set_id}/') and key not in retained]
+            try:
+                if obsolete:
+                    self.originals.remove_blobs(obsolete)
+            except (OSError, ValueError, httpx.HTTPError):
+                # Retain reservations until remote deletion is acknowledged.
+                return
+        for pattern in ('mix-*.wav', 'mix-*.mp4', 'mix-*.transfer.json'):
+            for path in self.directory(set_id).glob(pattern):
+                if path.name.removesuffix('.transfer.json') not in retained_files:
+                    path.unlink(missing_ok=True)

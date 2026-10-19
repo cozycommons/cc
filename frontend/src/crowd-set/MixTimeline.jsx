@@ -12,7 +12,7 @@ function timestamp(seconds) {
   return `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
 }
 
-export default function MixTimeline({ timeline, clips, currentTime, onSeek }) {
+export default function MixTimeline({ timeline, clips, currentTime, onSeek, video = false }) {
   const [hoverTime, setHoverTime] = React.useState(null);
   const patternId = React.useId().replaceAll(':', '');
   const duration = timeline.duration;
@@ -23,7 +23,7 @@ export default function MixTimeline({ timeline, clips, currentTime, onSeek }) {
   const name = (id) => clips.find((clip) => clip.id === id)?.name || 'Removed recording';
   const used = [...new Set(timeline.segments.map((segment) => segment.clip_id))];
   const describe = (segment) => `${timestamp(segment.start)}–${timestamp(segment.end)}`;
-  const detail = active.length ? `${active.map((segment) => name(segment.clip_id)).join(' + ')}${active.length > 1 ? ' · Crossfade' : ''}` : inspected >= duration ? 'End of mix' : 'Silence';
+  const detail = active.length ? `${active.map((segment) => name(segment.clip_id)).join(' + ')}${active.length > 1 ? ' · Crossfade' : ''}` : inspected >= duration ? 'End of mix' : video ? 'No aligned video' : 'Silence';
   return <div className="cs-timeline">
     <div className="cs-timeline-strip">
       <svg viewBox="0 0 1000 32" preserveAspectRatio="none" aria-hidden="true">

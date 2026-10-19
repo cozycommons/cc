@@ -129,3 +129,7 @@
   .cs-recording-heading h2 span { display: block; margin: 3px 0 0; }
   .cs-audio-icon { margin: 14px auto 28px; }
 }
+
+.cs-mix video { display: block; width: 100%; aspect-ratio: 854 / 480; background: #243027; object-fit: contain; border-radius: 8px; }
+.cs-audio-surface .cs-inline > div { display: flex; gap: 12px; }
+.cs-audio-surface a { gap: 4px; }
