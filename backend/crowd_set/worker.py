@@ -9,7 +9,7 @@ import numpy as np
 from .audio import align, decode, features, plan_timeline, render, match_levels, loudness, recording_quality, choose_anchor, probe, RATE, FPS
 from .limits import Limits
 from .storage import OriginalStore
-from .blobs import SupabaseBlobs
+from .blobs import environment
 
 
 def write_json(path, value):
@@ -22,7 +22,7 @@ def process(directory):
     data = json.loads((directory / 'job.json').read_text())
     clips = data['clips']
     limits = Limits.environment()
-    originals = OriginalStore(directory.parent, SupabaseBlobs.environment())
+    originals = OriginalStore(directory.parent, environment(directory.parent))
     def progress(stage):
         write_json(directory / 'progress.json', {'stage': stage})
 

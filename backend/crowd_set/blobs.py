@@ -20,7 +20,34 @@ def digest(path):
     return result.hexdigest()
 
 
-class SupabaseBlobs:
+class BlobProvider:
+    def materialize(self, key, destination, expected_size, expected_hash):
+        destination = Path(destination)
+        if destination.exists() and destination.stat().st_size == expected_size and digest(destination) == expected_hash:
+            return destination
+        partial = destination.with_name(destination.name + '.download')
+        try:
+            with self.client() as client, client.stream('GET', self.object_url(key)) as response:
+                if response.status_code != 200:
+                    raise BlobError('Could not read the original from media storage. Retry shortly.')
+                written = 0
+                checksum = hashlib.sha256()
+                with partial.open('wb') as output:
+                    for chunk in response.iter_bytes(1024 * 1024):
+                        written += len(chunk)
+                        if written > expected_size:
+                            raise BlobError('Stored original exceeded its recorded size.')
+                        checksum.update(chunk)
+                        output.write(chunk)
+            if written != expected_size or checksum.hexdigest() != expected_hash:
+                raise BlobError('Stored original failed its integrity check. Original metadata is retained.')
+            partial.replace(destination)
+        finally:
+            partial.unlink(missing_ok=True)
+        return destination
+
+
+class SupabaseBlobs(BlobProvider):
     def __init__(self, url, key, bucket, *, transport=None):
         parsed = urlsplit(url)
         if parsed.scheme != 'https' or not parsed.hostname or not parsed.hostname.endswith('.supabase.co') or parsed.path not in ('', '/') or parsed.username or parsed.port:
@@ -125,31 +152,6 @@ class SupabaseBlobs:
         if parsed.scheme != 'https' or parsed.netloc not in (urlsplit(self.url).netloc, urlsplit(self.storage_url).netloc) or not parsed.path.startswith('/storage/v1/upload/resumable/') or parsed.username:
             raise BlobError('Storage returned an invalid transfer location.')
 
-    def materialize(self, key, destination, expected_size, expected_hash):
-        destination = Path(destination)
-        if destination.exists() and destination.stat().st_size == expected_size and digest(destination) == expected_hash:
-            return destination
-        partial = destination.with_name(destination.name + '.download')
-        try:
-            with self.client() as client, client.stream('GET', self.object_url(key)) as response:
-                if response.status_code != 200:
-                    raise BlobError('Could not read the original from media storage. Retry shortly.')
-                written = 0
-                checksum = hashlib.sha256()
-                with partial.open('wb') as output:
-                    for chunk in response.iter_bytes(1024 * 1024):
-                        written += len(chunk)
-                        if written > expected_size:
-                            raise BlobError('Stored original exceeded its recorded size.')
-                        checksum.update(chunk)
-                        output.write(chunk)
-            if written != expected_size or checksum.hexdigest() != expected_hash:
-                raise BlobError('Stored original failed its integrity check. Original metadata is retained.')
-            partial.replace(destination)
-        finally:
-            partial.unlink(missing_ok=True)
-        return destination
-
     def remove(self, keys):
         if not keys:
             return
@@ -157,3 +159,13 @@ class SupabaseBlobs:
             response = client.request('DELETE', f'{self.url}/storage/v1/object/{self.bucket}', json={'prefixes': keys})
         if response.status_code != 200:
             raise BlobError('Media storage could not remove the recording. Retry shortly.')
+
+
+def environment(root):
+    provider = os.environ.get('CROWD_SET_STORAGE_PROVIDER', '').lower()
+    if provider == 'r2':
+        from .r2 import R2Blobs
+        return R2Blobs.environment(root)
+    if provider not in ('', 'supabase'):
+        raise ValueError('Unknown media storage provider.')
+    return SupabaseBlobs.environment()

@@ -168,6 +168,7 @@ export default function CrowdSet() {
           <label className="cs-upload">Add videos<input aria-label="Add videos" type="file" multiple accept={accept} disabled={locked || ordinary.length >= limits.recordings} onChange={upload} /></label>
         </div>
         <p className="cs-limits">Up to {limits.recordings} recordings · {limits.recording_seconds / 60} minutes and {Math.round(limits.file_bytes / 1024 ** 2)} MiB each · audio files also accepted</p>
+        {limits.free_tier && <p className="cs-limits">Free storage: {limits.original_bytes / 1e9} GB shared across all sets, including originals and mixes.</p>}
         {!recordings.length && <p>No recordings yet.</p>}
         <div className="cs-recordings">{recordings.map((clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
           <Original clip={clip} setId={selected.id} />

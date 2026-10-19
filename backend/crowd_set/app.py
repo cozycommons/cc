@@ -15,6 +15,7 @@ import httpx
 from fastapi.staticfiles import StaticFiles
 
 from .hosting import COOKIE, HostedAccess
+from .blobs import BlobError
 from pydantic import BaseModel, Field, field_validator
 
 from .store import MAX_BYTES, Store
@@ -277,7 +278,7 @@ def stored_media(store, key, request, filename, download, media_type):
         if 'range' in request.headers:
             headers['Range'] = request.headers['range']
         response = client.send(client.build_request('GET', store.blobs.object_url(key), headers=headers), stream=True)
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, BlobError) as exc:
         client.close()
         raise HTTPException(503, 'Media storage is unavailable. Try again shortly.') from exc
     if response.status_code not in (200, 206, 416):

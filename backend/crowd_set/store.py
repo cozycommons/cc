@@ -20,7 +20,7 @@ import httpx
 from .worker import write_json
 from .limits import Limits
 from .storage import OriginalStore
-from .blobs import BlobError, SupabaseBlobs
+from .blobs import BlobError, environment
 from .audio import probe
 
 ROOT = Path(__file__).resolve().parents[2] / '.crowd-set'
@@ -33,7 +33,7 @@ class Store:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.limits = limits or Limits.environment()
-        self.blobs = blobs if blobs is not None else SupabaseBlobs.environment()
+        self.blobs = blobs if blobs is not None else environment(self.root)
         if self.blobs:
             self.blobs.check_bucket(self.limits.file_bytes)
         self.originals = OriginalStore(self.root, self.blobs)

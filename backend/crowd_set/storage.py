@@ -47,7 +47,7 @@ class OriginalStore:
     def materialize(self, set_id, clip, directory):
         if clip.get('object_key'):
             if not self.blobs:
-                raise ValueError('This set requires its private Supabase media storage. Restore the storage configuration.')
+                raise ValueError('This set requires its private media storage. Restore the storage configuration.')
             return self.blobs.materialize(clip['object_key'], directory / f'{clip["id"]}.original', clip['bytes'], clip['sha256'])
         return self.path(set_id, clip)
 
