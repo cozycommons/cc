@@ -183,6 +183,26 @@ def test_r2_rejects_unreserved_or_over_budget_writes_before_network(tmp_path, mo
         Limits.environment()
 
 
+def test_r2_startup_accepts_environment_default_upload_limit(tmp_path, monkeypatch):
+    monkeypatch.setenv('CROWD_SET_STORAGE_PROVIDER', 'r2')
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if request.method == 'HEAD':
+            return httpx.Response(200)
+        body = '<ListBucketResult/>' if 'list-type' in request.url.params else '<ListMultipartUploadsResult/>'
+        return httpx.Response(200, content=body)
+
+    blobs = provider(tmp_path, handler)
+    limits = Limits.environment()
+    blobs.check_bucket(limits.file_bytes)
+    assert len(calls) == 3
+    with pytest.raises(BlobError, match='3 GiB'):
+        blobs.check_bucket(limits.file_bytes + 1)
+    assert len(calls) == 3
+
+
 @pytest.mark.parametrize('unaccounted', ['object', 'multipart', 'paid_class'])
 def test_startup_fails_closed_on_unaccounted_remote_storage(tmp_path, unaccounted):
     key = 'originals/set/clip/hash'
