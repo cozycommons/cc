@@ -62,6 +62,8 @@ class Store:
             self.lockfile.close()
             raise RuntimeError('Crowdset storage is already open. Stop the other API or wait for its worker deadline, then retry.')
         self.lock = threading.RLock()
+        profiles = self.root / 'uploaders.json'
+        self.uploaders = json.loads(profiles.read_text()) if profiles.exists() else {}
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.active = None
         self.upload = None
@@ -113,6 +115,14 @@ class Store:
                 os.killpg(self.process.pid, signal.SIGKILL)
         self.pool.shutdown(wait=True)
         self.lockfile.close()
+
+    def remember_uploader(self, owner, name):
+        with self.lock:
+            if self.uploaders.get(owner) == name:
+                return
+            updated = {**self.uploaders, owner: name}
+            write_json(self.root / 'uploaders.json', updated)
+            self.uploaders = updated
 
     def directory(self, set_id):
         if len(set_id) != 32 or any(c not in '0123456789abcdef' for c in set_id):
