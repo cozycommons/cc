@@ -11,9 +11,24 @@ from crowd_set.limits import Limits
 from crowd_set.store import Store
 from crowd_set.tests.test_audio import music, write_wav
 from crowd_set.worker import write_json
-from crowd_set.youtube import canonical_url, validate_info
+from crowd_set.youtube import FORMAT, canonical_url, validate_info
 
 URL = 'https://www.youtube.com/watch?v=9dhFH_G5Bow'
+
+
+@pytest.mark.parametrize('heights, expected', [([720, 1080, 2160], 1080), ([360, 720], 720)])
+def test_download_selects_1080p_with_lower_resolution_fallback(heights, expected):
+    import yt_dlp
+
+    formats = [{'format_id': str(height), 'url': f'https://example.com/{height}.mp4',
+                'height': height, 'width': height * 16 // 9, 'ext': 'mp4',
+                'vcodec': 'avc1.640028', 'acodec': 'none'} for height in heights]
+    formats.append({'format_id': 'audio', 'url': 'https://example.com/audio.m4a',
+                    'ext': 'm4a', 'vcodec': 'none', 'acodec': 'mp4a.40.2'})
+    with yt_dlp.YoutubeDL({'format': FORMAT, 'quiet': True}) as downloader:
+        result = downloader.process_ie_result({'id': 'test', 'title': 'Test', 'formats': formats}, download=False)
+    assert result['requested_formats'][0]['height'] == expected
+    assert result['requested_formats'][1]['format_id'] == 'audio'
 
 
 @pytest.mark.parametrize('url', [

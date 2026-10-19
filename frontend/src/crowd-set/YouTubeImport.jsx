@@ -27,7 +27,7 @@ export default function YouTubeImport({ set, disabled, onUpdate }) {
           disabled={disabled || submitting} onChange={(event) => setUrl(event.target.value)} required />
         <button type="submit" disabled={disabled || submitting || !url.trim()}>{submitting ? 'Adding…' : 'Add video'}</button>
       </div>
-      <p className="cs-meta">One public video · up to 720p · same recording limits</p>
+      <p className="cs-meta">One public video · up to 1080p</p>
     </form>
     {(error || job?.state === 'failed') && <div role="alert" className="cs-error">
       {error || job.error}

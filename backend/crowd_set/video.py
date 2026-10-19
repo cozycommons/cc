@@ -9,9 +9,9 @@ import imageio_ffmpeg
 
 FORMATS = 'wav,mov,mp3,aac,flac,ogg,matroska,webm'
 FRAME_RATE = 24
-WIDTH, HEIGHT = 854, 480
+WIDTH, HEIGHT = 1920, 1080
 PROBE_BYTES = 128 * 1024 ** 2
-BYTES_PER_SECOND = 100_000  # 600 kbps video + 96 kbps audio, container/headroom.
+BYTES_PER_SECOND = 420_000  # 3 Mbps video + 96 kbps audio, container/headroom.
 
 
 def byte_bound(duration):
@@ -134,8 +134,8 @@ def render(timeline, clips, originals, set_id, directory, limits):
             progress = folder / 'progress.txt'
             try:
                 actual = run(['-v', 'error', *inputs, '-an', '-sn', '-dn', '-vf', filters,
-                              '-frames:v', str(count), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26',
-                              '-maxrate', '600k', '-bufsize', '1200k', '-pix_fmt', 'yuv420p', '-threads', '1',
+                              '-frames:v', str(count), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                              '-maxrate', '3000k', '-bufsize', '6000k', '-pix_fmt', 'yuv420p', '-threads', '1',
                               '-fs', str(byte_bound(duration)), '-progress', str(progress), str(path)],
                              max(limits.media_seconds, min(limits.job_seconds, math.ceil(duration * 2))), progress=progress)
                 if actual != count or path.stat().st_size >= byte_bound(duration):
