@@ -120,7 +120,7 @@ def test_decode_rejects_invalid_media_and_limits(tmp_path, monkeypatch):
     def timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired('ffmpeg', 180)
     monkeypatch.setattr('crowd_set.audio.subprocess.run', timeout)
-    with pytest.raises(ValueError, match='3 minute'):
+    with pytest.raises(ValueError, match='time limit'):
         decode(source, tmp_path / 'timeout.wav')
 
 

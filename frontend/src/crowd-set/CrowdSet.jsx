@@ -1,5 +1,6 @@
 import React from 'react';
-import { endpoint, request } from './api';
+import { endpoint, request, getLimits } from './api';
+import { uploadRecording } from './uploads';
 import MixTimeline, { recordingColor } from './MixTimeline';
 import './crowd-set.css';
 
@@ -9,6 +10,7 @@ export function time(seconds) {
 }
 const accept = '.wav,.mp3,.m4a,.mp4,.mov,.aac,.flac,.ogg,.webm';
 const isBusy = (set) => ['processing', 'uploading'].includes(set?.status);
+const legacyLimits = { recordings: 8, file_bytes: 512 * 1024 ** 2, recording_seconds: 1200, resumable_uploads: false };
 
 export default function CrowdSet() {
   const [sets, setSets] = React.useState([]);
@@ -21,6 +23,7 @@ export default function CrowdSet() {
   const [notice, setNotice] = React.useState('');
   const [available, setAvailable] = React.useState(false);
   const [needsSignIn, setNeedsSignIn] = React.useState(false);
+  const [limits, setLimits] = React.useState(legacyLimits);
   const selection = React.useRef(null);
   const player = React.useRef(null);
   const [currentTime, setCurrentTime] = React.useState(0);
@@ -41,6 +44,8 @@ export default function CrowdSet() {
     setError('');
     try {
       const values = await request();
+      const activeLimits = await getLimits().catch(() => null);
+      if (activeLimits?.recordings) setLimits(activeLimits);
       setSets(values);
       choose(values.find((item) => item.id === selection.current) || null);
       setAvailable(true);
@@ -109,9 +114,9 @@ export default function CrowdSet() {
           const file = files[index];
           setNotice(`Uploading ${file.name} (${index + 1}/${files.length})…`);
           try {
-            if (file.size > 512 * 1024 * 1024) throw new Error('Exceeds 512 MiB.');
-            update(await request(`/${id}/clips?name=${encodeURIComponent(file.name)}${batch ? `&batch_id=${batch.id}` : ''}`, {
-              method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file,
+            if (file.size > limits.file_bytes) throw new Error(`Exceeds ${Math.round(limits.file_bytes / 1024 ** 2)} MiB.`);
+            update(await uploadRecording(id, file, { batchId: batch?.id, limits,
+              onProgress: (uploaded, total) => setNotice(`Uploading ${file.name} (${index + 1}/${files.length}) · ${Math.round(uploaded / total * 100)}%…`),
             }));
           } catch (failure) { failures.push(`${file.name}: ${failure.message}`); }
         }
@@ -154,15 +159,16 @@ export default function CrowdSet() {
         <div className="cs-inline"><h2>Current mix</h2>{selected.playable && <a href={endpoint(`/${selected.id}/audio?download=true`)}>Download audio</a>}</div>
         {selected.playable ? <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" /> : <p>{updating ? 'Creating mix…' : 'No mix yet.'}</p>}
         {selected.playable && selected.timeline && <MixTimeline timeline={selected.timeline} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
-        <p role="status">{busy ? notice || 'Saving…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
+        <p role="status">{busy ? notice || 'Saving…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? selected.stage || 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
         {!updating && (selected.status === 'failed' || selected.dirty || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : 'Update mix'}</button>}
       </section>
       <section aria-label="Recordings">
         <div className="cs-recording-heading"><h2>Recordings <span>{recordings.length}</span></h2>
-          <label className="cs-upload">Add videos<input aria-label="Add videos" type="file" multiple accept={accept} disabled={locked || ordinary.length >= 8} onChange={upload} /></label>
+          <label className="cs-upload">Add videos<input aria-label="Add videos" type="file" multiple accept={accept} disabled={locked || ordinary.length >= limits.recordings} onChange={upload} /></label>
         </div>
-        <p className="cs-limits">Up to 8 recordings · 20 minutes and 512 MiB each · audio files also accepted</p>
+        <p className="cs-limits">Up to {limits.recordings} recordings · {limits.recording_seconds / 60} minutes and {Math.round(limits.file_bytes / 1024 ** 2)} MiB each · audio files also accepted</p>
+        {limits.free_tier && <p className="cs-limits">Free storage: {limits.original_bytes / 1e9} GB shared across all sets, including originals and mixes.</p>}
         {!recordings.length && <p>No recordings yet.</p>}
         <div className="cs-recordings">{recordings.map((clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
           <Original clip={clip} setId={selected.id} />
@@ -185,7 +191,7 @@ function Original({ clip, setId }) {
   const [failed, setFailed] = React.useState(false);
   const Media = clip.kind === 'video' ? 'video' : 'audio';
   return <div className={`cs-original ${clip.kind === 'video' ? '' : 'cs-original-audio'}`}>
-    <Media controls playsInline preload="metadata" src={endpoint(`/${setId}/clips/${clip.id}/media`)} aria-label={`Play ${clip.name}`} onError={() => setFailed(true)} />
+    <Media controls playsInline preload="none" src={endpoint(`/${setId}/clips/${clip.id}/media`)} aria-label={`Play ${clip.name}`} onError={() => setFailed(true)} />
     {failed && <p>Can’t play this format here. Download the original below.</p>}
   </div>;
 }

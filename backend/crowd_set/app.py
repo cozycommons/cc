@@ -4,14 +4,18 @@ import os
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
+from urllib.parse import quote
 
 import anyio
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.background import BackgroundTask
+import httpx
 from fastapi.staticfiles import StaticFiles
 
 from .hosting import COOKIE, HostedAccess
+from .blobs import BlobError
 from pydantic import BaseModel, Field, field_validator
 
 from .store import MAX_BYTES, Store
@@ -32,11 +36,21 @@ class Selection(BaseModel):
     included: bool
 
 
+class Upload(BaseModel):
+    name: str = Field(min_length=1, max_length=180)
+    size: int = Field(gt=0)
+    fingerprint: str = Field(pattern=r'^[a-f0-9]{64}$')
+    batch_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
+
+
 def visible(data, owner, hosted):
     return not hosted or bool(data.get('owner') and (data['owner'] == owner or data.get('visibility') == 'shared'))
 
 
 def present(data, owner):
+    data.pop('batch', None)
+    data.pop('completed_batch', None)
+    data.pop('recovery_attempts', None)
     data['can_manage'] = data.get('owner') == owner
     for clip in data['clips']:
         clip['can_edit'] = data['can_manage'] or clip.get('uploader', data.get('owner')) == owner
@@ -118,7 +132,9 @@ def create_app(root=None):
         return response
 
     @app.get('/crowd-set/sets')
-    def list_sets(request: Request):
+    def list_sets(request: Request, limits: bool = False):
+        if limits:
+            return request.app.state.store.limits.public()
         return [present(item, request.state.owner) for item in request.app.state.store.list()
                 if visible(item, request.state.owner, hosted.origin)]
 
@@ -142,12 +158,47 @@ def create_app(root=None):
     def finish_batch(set_id: str, batch_id: str, request: Request):
         return present(request.app.state.store.finish_batch(set_id, batch_id, request.state.owner), request.state.owner)
 
+    @app.post('/crowd-set/sets/{set_id}/uploads', status_code=201)
+    def prepare_upload(set_id: str, body: Upload, request: Request):
+        return request.app.state.store.prepare_session(set_id, body.name, body.size, body.fingerprint, request.state.owner, body.batch_id)
+
+    @app.get('/crowd-set/sets/{set_id}/uploads/{upload_id}')
+    def upload_status(set_id: str, upload_id: str, request: Request):
+        store = request.app.state.store
+        return store.public_session(store.session(set_id, upload_id, request.state.owner))
+
+    @app.delete('/crowd-set/sets/{set_id}/uploads/{upload_id}', status_code=204)
+    def cancel_upload(set_id: str, upload_id: str, request: Request):
+        request.app.state.store.cancel_session(set_id, upload_id, request.state.owner)
+
+    @app.patch('/crowd-set/sets/{set_id}/uploads/{upload_id}')
+    async def upload_chunk(set_id: str, upload_id: str, request: Request, offset: int = Query(ge=0), checksum: str = Query(pattern=r'^[a-f0-9]{64}$')):
+        store = request.app.state.store
+        await asyncio.to_thread(store.begin_chunk, set_id, upload_id, request.state.owner)
+        chunk = bytearray()
+        try:
+            async with asyncio.timeout(120):
+                async for part in request.stream():
+                    if len(chunk) + len(part) > store.limits.chunk_bytes:
+                        raise HTTPException(413, 'Upload chunk is too large.')
+                    chunk.extend(part)
+            return await asyncio.to_thread(store.append_session, set_id, upload_id, request.state.owner, offset, chunk, checksum)
+        except TimeoutError as exc:
+            raise HTTPException(408, 'Upload chunk timed out. Resume from the saved offset.') from exc
+        finally:
+            await asyncio.to_thread(store.end_chunk, set_id, upload_id)
+
+    @app.post('/crowd-set/sets/{set_id}/uploads/{upload_id}/finish')
+    def complete_upload(set_id: str, upload_id: str, request: Request):
+        return present(request.app.state.store.complete_session(set_id, upload_id, request.state.owner), request.state.owner)
+
     @app.put('/crowd-set/sets/{set_id}/clips', status_code=201)
     async def upload(set_id: str, request: Request, name: str = Query(min_length=1, max_length=180), role: Literal['reference', 'crowd', 'recording'] = 'recording', batch_id: str | None = Query(default=None, max_length=32)):
         length = request.headers.get('content-length')
-        if length and (not length.isdigit() or int(length) > MAX_BYTES):
-            raise HTTPException(413, 'Each upload must be at most 512 MiB.')
         store = request.app.state.store
+        maximum = min(MAX_BYTES, store.limits.file_bytes)
+        if length and (not length.isdigit() or int(length) > maximum):
+            raise HTTPException(413, f'Each upload must be at most {maximum // 1024 ** 2} MiB.')
         clip, path = await asyncio.to_thread(store.begin_upload, set_id, name, role, request.state.owner, batch_id)
         success = False
         try:
@@ -156,8 +207,8 @@ def create_app(root=None):
                 async with asyncio.timeout(300):
                     async for chunk in request.stream():
                         size += len(chunk)
-                        if size > MAX_BYTES:
-                            raise HTTPException(413, 'Each upload must be at most 512 MiB.')
+                        if size > maximum:
+                            raise HTTPException(413, f'Each upload must be at most {maximum // 1024 ** 2} MiB.')
                         await output.write(chunk)
             if size == 0:
                 raise HTTPException(400, 'The uploaded file is empty.')
@@ -189,7 +240,9 @@ def create_app(root=None):
             raise HTTPException(404, 'Recording not found')
         types = {'.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.wav': 'audio/wav',
                  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg'}
-        return FileResponse(store.directory(set_id) / clip['file'], media_type=types[Path(clip['name']).suffix.lower()],
+        if clip.get('object_key'):
+            return stored_media(store, clip['object_key'], request, clip['name'], download, types[Path(clip['name']).suffix.lower()])
+        return FileResponse(store.originals.path(set_id, clip), media_type=types[Path(clip['name']).suffix.lower()],
                             filename=clip['name'], content_disposition_type='attachment' if download else 'inline')
 
     @app.get('/crowd-set/sets/{set_id}/audio')
@@ -198,6 +251,8 @@ def create_app(root=None):
         data = store.get(set_id)
         if not data['playable']:
             raise HTTPException(404, 'No mix is available. Add a recording first.')
+        if data.get('mix_object'):
+            return stored_media(store, data['mix_object'], request, 'crowd-set.wav', download, 'audio/wav')
         return FileResponse(store.directory(set_id) / data.get('mix_file', 'reconstruction.wav'), media_type='audio/wav',
                             filename='crowd-set.wav' if download else None, headers={'Cache-Control': 'no-store'})
 
@@ -212,6 +267,38 @@ def create_app(root=None):
             return FileResponse(directory / 'index.html')
 
     return app
+
+
+def stored_media(store, key, request, filename, download, media_type):
+    if not store.blobs:
+        raise HTTPException(503, 'Private media storage is not configured.')
+    client = store.blobs.client()
+    try:
+        headers = {'Accept-Encoding': 'identity'}
+        if 'range' in request.headers:
+            headers['Range'] = request.headers['range']
+        response = client.send(client.build_request('GET', store.blobs.object_url(key), headers=headers), stream=True)
+    except (httpx.HTTPError, BlobError) as exc:
+        client.close()
+        raise HTTPException(503, 'Media storage is unavailable. Try again shortly.') from exc
+    if response.status_code not in (200, 206, 416):
+        response.close()
+        client.close()
+        raise HTTPException(503, 'Media storage could not serve this recording. Try again shortly.')
+    headers = {name: response.headers[name] for name in ('content-length', 'content-range', 'accept-ranges') if name in response.headers}
+    headers['Content-Disposition'] = f'{"attachment" if download else "inline"}; filename*=UTF-8\'\'{quote(filename)}'
+
+    def close():
+        response.close()
+        client.close()
+
+    def chunks():
+        try:
+            yield from response.iter_bytes(65536)
+        finally:
+            close()
+
+    return StreamingResponse(chunks(), status_code=response.status_code, media_type=media_type, headers=headers, background=BackgroundTask(close))
 
 
 app = create_app()
