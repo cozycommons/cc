@@ -1,24 +1,28 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as renderUI, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import Crowdset from './Crowdset';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+const render = (node) => renderUI(<BrowserRouter><Routes><Route path="/crowdset/:slug?" element={node} /></Routes></BrowserRouter>);
 import { request } from './api';
+import { auth } from '../supabase';
+vi.mock('../supabase', () => ({ auth: { signInWithGoogle: vi.fn() } }));
 
 vi.mock('./api', () => ({ request: vi.fn(), getLimits: async () => ({ recordings: 64, file_bytes: 2 * 1024 ** 3, recording_seconds: 7200, youtube_imports: true }), endpoint: (path) => `/crowdset/sets${path}` }));
-const performance = { id: 'one', name: 'A night together', visibility: 'shared', can_manage: true, status: 'idle', clips: [], timeline: null, playable: false };
+const performance = { id: 'one', slug: 'a-night-together', name: 'A night together', visibility: 'shared', can_manage: true, status: 'idle', clips: [], timeline: null, playable: false };
 const clip = { id: 'clip', name: 'Stage.mp4', role: 'recording', kind: 'video', can_edit: true, included: true };
 const ready = { ...performance, status: 'ready', playable: true, mix_revision: 'published', clips: [clip], timeline: { segments: [{ clip_id: clip.id }] } };
 async function openSet() {
-  fireEvent.click(await screen.findByRole('button', { name: /A night together/ }));
+  fireEvent.click(await screen.findByRole('link', { name: /A night together/ }));
   return screen.findByRole('heading', { name: performance.name });
 }
-beforeEach(() => { request.mockReset(); });
+beforeEach(() => { request.mockReset(); window.history.replaceState({}, '', '/crowdset'); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 it('browses sets before opening a simple set detail', async () => {
   request.mockResolvedValueOnce([ready]);
   render(<Crowdset />);
-  await screen.findByRole('button', { name: /A night together/ });
+  await screen.findByRole('link', { name: /A night together/ });
   expect(screen.queryByLabelText('Current mix')).not.toBeInTheDocument();
   await openSet();
   expect(screen.getByLabelText('Current mix')).toBeInTheDocument();
@@ -164,7 +168,7 @@ it('uses one revision-pinned video player and preserves it during processing', a
   const cut = { ...ready, video_playable: true, video_timeline: ready.timeline };
   request.mockResolvedValueOnce([cut]).mockResolvedValueOnce({ ...cut, status: 'queued', dirty: true, clips: [clip, { ...clip, id: 'second', name: 'More.mp4' }] });
   render(<Crowdset />);
-  fireEvent.click(await screen.findByRole('button', { name: /Watch/ }));
+  fireEvent.click(await screen.findByRole('link', { name: /Watch/ }));
   const video = screen.getByLabelText('Current cut');
   expect(video.tagName).toBe('VIDEO');
   expect(video).toHaveAttribute('src', '/crowdset/sets/one/video?v=published');
@@ -237,4 +241,58 @@ it('retries unmatched clips while preserving the published player', async () => 
   fireEvent.click(screen.getByRole('button', { name: 'Retry matching' }));
   await waitFor(() => expect(request).toHaveBeenCalledWith('/one/process', { method: 'POST' }));
   expect(screen.getByLabelText('Current mix')).toBe(player);
+});
+
+it('opens a dedicated set URL directly and preserves it when reconnecting', async () => {
+  window.history.replaceState({}, '', '/crowdset/a-night-together#recording-clip');
+  request.mockResolvedValue([ready]);
+  render(<Crowdset />);
+  expect(await screen.findByLabelText('Current mix')).toBeInTheDocument();
+  expect(document.title).toBe('A night together · Crowdset');
+  expect(window.location.pathname).toBe('/crowdset/a-night-together');
+});
+
+it('uses real catalog links and browser Back returns to the catalog', async () => {
+  request.mockResolvedValue([ready]);
+  render(<Crowdset />);
+  const link = await screen.findByRole('link', { name: /A night together/ });
+  expect(link).toHaveAttribute('href', '/crowdset/a-night-together');
+  fireEvent.click(link);
+  await screen.findByLabelText('Current mix');
+  window.history.back();
+  await screen.findByRole('heading', { name: 'Sets', exact: true });
+  expect(window.location.pathname).toBe('/crowdset');
+});
+
+it('canonicalizes ID links and gives inaccessible slugs a useful fallback', async () => {
+  window.history.replaceState({}, '', '/crowdset/one#recording-clip');
+  request.mockResolvedValue([ready]);
+  const view = render(<Crowdset />);
+  await screen.findByLabelText('Current mix');
+  await waitFor(() => expect(window.location.pathname).toBe('/crowdset/a-night-together'));
+  expect(window.location.hash).toBe('#recording-clip');
+  view.unmount();
+  window.history.replaceState({}, '', '/crowdset/not-visible');
+  render(<Crowdset />);
+  await screen.findByRole('heading', { name: 'Set unavailable' });
+  expect(screen.queryByLabelText('Current mix')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Browse sets' })).toHaveAttribute('href', '/crowdset');
+});
+
+it('places downloads below the video and edit timeline', async () => {
+  request.mockResolvedValue([{ ...ready, video_playable: true, video_timeline: { duration: 120, segments: [{ clip_id: clip.id, start: 0, end: 120 }] } }]);
+  render(<Crowdset />);
+  await openSet();
+  const downloads = screen.getByLabelText('Downloads');
+  expect(screen.getByLabelText('Video player').compareDocumentPosition(downloads) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByRole('slider', { name: 'Seek mix' }).compareDocumentPosition(downloads) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+
+it('keeps the dedicated set path as the sign-in destination', async () => {
+  window.history.replaceState({}, '', '/crowdset/a-night-together');
+  request.mockRejectedValue(Object.assign(new Error('Sign in'), { status: 401 }));
+  render(<Crowdset />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }));
+  await waitFor(() => expect(auth.signInWithGoogle).toHaveBeenCalledWith(`${window.location.origin}/crowdset/a-night-together`));
 });

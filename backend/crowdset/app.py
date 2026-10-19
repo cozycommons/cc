@@ -143,7 +143,7 @@ def create_app(root=None):
                 return JSONResponse({'detail': 'Invalid host.'}, status_code=403)
             if (origin and origin != hosted.origin) or (request.method not in ('GET', 'HEAD') and origin != hosted.origin):
                 return JSONResponse({'detail': 'Use the Crowdset website.'}, status_code=403)
-            if request.url.path.startswith('/crowdset/sets'):
+            if request.url.path == '/crowdset/sets' or request.url.path.startswith('/crowdset/sets/'):
                 bearer = request.headers.get('authorization', '')
                 token = bearer[7:] if bearer.startswith('Bearer ') else None
                 if request.method in ('GET', 'HEAD') and not bearer:
@@ -363,7 +363,10 @@ def create_app(root=None):
 
         @app.get('/crowdset')
         @app.get('/crowdset/')
-        def index():
+        @app.get('/crowdset/{slug}')
+        def index(slug: str | None = None):
+            if slug == 'session':
+                raise HTTPException(404, 'Not found')
             return FileResponse(directory / 'index.html')
 
     return app

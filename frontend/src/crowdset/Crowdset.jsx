@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Search, Music2, Download } from 'lucide-react';
 import { endpoint, request, getLimits } from './api';
 import { uploadRecording } from './uploads';
@@ -20,7 +21,11 @@ const legacyLimits = { recordings: 8, file_bytes: 512 * 1024 ** 2, recording_sec
 
 export default function Crowdset() {
   const [sets, setSets] = React.useState([]);
-  const [selected, setSelected] = React.useState(null);
+  const { slug } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const selected = slug ? sets.find((item) => item.slug === slug || item.id === slug) : null;
+  const [theater, setTheater] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [failedFiles, setFailedFiles] = React.useState([]);
@@ -32,23 +37,21 @@ export default function Crowdset() {
   const [available, setAvailable] = React.useState(false);
   const [needsSignIn, setNeedsSignIn] = React.useState(false);
   const [limits, setLimits] = React.useState(legacyLimits);
-  const selection = React.useRef(null);
   const player = React.useRef(null);
   const [currentTime, setCurrentTime] = React.useState(0);
   const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
   const choose = React.useCallback((value) => {
-    selection.current = value?.id || null;
-    setSelected(value);
+    navigate(value ? `/crowdset/${value.slug || value.id}` : '/crowdset');
+    setTheater(false);
     setStatusError('');
     setCreating(false);
     setFailedFiles([]);
     setError('');
     setCurrentTime(0);
-  }, []);
+  }, [navigate]);
   const update = React.useCallback((value) => {
     setSets((previous) => [value, ...previous.filter((item) => item.id !== value.id)]);
-    if (selection.current === value.id) setSelected(value);
   }, []);
 
   const reload = React.useCallback(async () => {
@@ -59,7 +62,6 @@ export default function Crowdset() {
       const activeLimits = await getLimits().catch(() => null);
       if (activeLimits?.recordings) setLimits(activeLimits);
       setSets(values);
-      choose(values.find((item) => item.id === selection.current) || null);
       setAvailable(true);
       setNeedsSignIn(false);
     } catch (failure) {
@@ -67,7 +69,7 @@ export default function Crowdset() {
       setNeedsSignIn(failure.status === 401);
       setError(failure.status === 401 ? '' : local ? `${failure.message}. Start the local Crowdset API, then reconnect.` : failure.message);
     } finally { setLoading(false); }
-  }, [choose, local]);
+  }, [local]);
 
   React.useEffect(() => { reload(); }, [reload]);
   React.useEffect(() => {
@@ -80,7 +82,7 @@ export default function Crowdset() {
       subscription = getClient().auth.onAuthStateChange((event) => {
         if (event === 'SIGNED_OUT') {
           fetch('/crowdset/session', { method: 'DELETE' });
-          choose(null); setSets([]); setAvailable(false); setNeedsSignIn(true);
+          setSets([]); setAvailable(false); setNeedsSignIn(true);
         } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
           clearTimeout(timer);
           timer = setTimeout(reload, 0);
@@ -88,7 +90,16 @@ export default function Crowdset() {
       }).data.subscription;
     });
     return () => { stopped = true; clearTimeout(timer); subscription?.unsubscribe(); };
-  }, [choose, local, reload]);
+  }, [local, reload]);
+  React.useEffect(() => {
+    if (selected?.slug && slug === selected.id) navigate(`/crowdset/${selected.slug}${location.hash}`, { replace: true });
+  }, [selected?.slug, selected?.id, slug, navigate, location.hash]);
+  const selectedName = selected?.name;
+  React.useEffect(() => {
+    document.title = selectedName ? `${selectedName} · Crowdset` : 'Crowdset';
+    return () => { document.title = 'Cozy Commons'; };
+  }, [selectedName]);
+  React.useEffect(() => { setTheater(false); setCurrentTime(0); setCreating(false); setFailedFiles([]); }, [slug]);
   const selectedId = selected?.id;
   const selectedStatus = selected?.status;
   React.useEffect(() => {
@@ -159,36 +170,36 @@ export default function Crowdset() {
     });
   }
 
-  return <main className="crowdset">
+  return <main className={`crowdset ${theater ? 'cs-theater' : ''}`}>
     <div className="cs-shell">
     <header className="cs-header"><button className="cs-wordmark" disabled={busy} onClick={() => { choose(null); setQuery(''); }}>crowdset</button><a href="/">Cozy Commons ↗</a></header>
     {(error || statusError) && <div role="alert" className="cs-error">{error || statusError}</div>}
     {loading ? <p className="cs-loading" role="status">Loading…</p> : !available ? <section className="cs-sign-in"><h1>{needsSignIn ? 'Sign in' : 'Crowdset'}</h1>
-      {needsSignIn ? <button className="cs-primary" disabled={busy} onClick={() => action(async () => { const { auth } = await import('../supabase'); await auth.signInWithGoogle(`${window.location.origin}/crowdset`); })}>{busy ? 'Connecting…' : 'Continue with Google'}</button> : <button className="cs-primary" onClick={reload}>Reconnect</button>}
-    </section> : creating ? <CreateSet sets={sets} structured={limits.event_metadata === true} busy={busy} onCreate={createSet} onChoose={choose} onBack={() => setCreating(false)} /> : !selected ? <>
+      {needsSignIn ? <button className="cs-primary" disabled={busy} onClick={() => action(async () => { const { auth } = await import('../supabase'); await auth.signInWithGoogle(`${window.location.origin}${window.location.pathname}`); })}>{busy ? 'Connecting…' : 'Continue with Google'}</button> : <button className="cs-primary" onClick={reload}>Reconnect</button>}
+    </section> : slug && !selected ? <section className="cs-sign-in"><h1>Set unavailable</h1><p>This link may be out of date, or you may not have access to this set.</p><Link to="/crowdset">Browse sets</Link></section> : creating ? <CreateSet sets={sets} structured={limits.event_metadata === true} busy={busy} onCreate={createSet} onChoose={choose} onBack={() => setCreating(false)} /> : !selected ? <>
       <div className="cs-title cs-catalog-title"><h1>Sets</h1><button className="cs-primary cs-new-button" onClick={() => { setCreating(true); setError(''); }}><Plus size={17} /> New set</button></div>
       <label className="cs-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Find a set" placeholder="Artist, venue, or date" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <section aria-label="Sets" className="cs-set-list">
-        {visibleSets.length ? visibleSets.map((item) => <button className="cs-set" key={item.id} onClick={() => { choose(item); setNotice(''); }}>
+        {visibleSets.length ? visibleSets.map((item) => <Link className="cs-set" key={item.id} to={`/crowdset/${item.slug || item.id}`} onClick={() => setNotice('')}>
           <div className="cs-set-cover"><span className="cs-set-date">{eventDate(item) || (item.visibility === 'shared' ? 'Public' : 'Private')}</span><strong>{item.artist || item.name}</strong><span>{item.venue}</span></div>
           <div className="cs-set-footer"><span>{item.clips.length} {item.clips.length === 1 ? 'clip' : 'clips'}{item.timeline?.duration ? ` · ${time(item.timeline.duration)}${item.video_playable ? '' : ' audio'}` : ''}</span><span>{item.video_playable ? 'Watch →' : item.playable ? 'Listen →' : ['processing', 'queued', 'uploading', 'importing'].includes(item.status) ? 'Processing' : item.clips.length ? 'Open →' : 'Add clips →'}</span></div>
-        </button>) : <p className="cs-empty-catalog">{query ? 'No sets found.' : 'No sets yet.'}</p>}
+        </Link>) : <p className="cs-empty-catalog">{query ? 'No sets found.' : 'No sets yet.'}</p>}
       </section>
     </> : <>
       <button className="cs-back" disabled={busy} onClick={() => { choose(null); reload(); }}><ArrowLeft size={17} /> All sets</button>
-      <div className="cs-detail-title"><h1>{selected.artist || selected.name}</h1>{selected.venue && <p>{selected.venue}</p>}{eventRange(selected) && <p className="cs-meta">{eventRange(selected)}</p>}{selected.visibility !== 'shared' && <span className="cs-privacy">Private</span>}</div>
       <section className={`cs-mix ${selected.playable ? 'cs-mix-ready' : ''}`} aria-label="Compiled mix">
-        {selected.playable ? <div className="cs-audio-surface">
-          <div className="cs-inline"><span>{selected.video_playable ? 'The cut' : 'Audio mix'}</span><div>
-            {selected.video_playable && <a aria-label={selected.composition ? "Download full set video" : "Download video"} href={endpoint(`/${selected.id}/video?download=true&v=${selected.mix_revision}`)}><Download size={18} /> {selected.composition ? 'Full set' : 'Video'}</a>}
-            <a aria-label="Download audio" href={endpoint(`/${selected.id}/audio?download=true&v=${selected.mix_revision || 'legacy'}`)}><Download size={18} /> Audio</a>
-          </div></div>
-          {selected.video_playable && selected.composition ? <CompositionPlayer key={`${selected.id}-${selected.mix_revision}`} set={selected} playerRef={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} /> : selected.video_playable ? <video ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision}`} controls playsInline preload="metadata" src={endpoint(`/${selected.id}/video?v=${selected.mix_revision}`)} aria-label="Current cut" /> : <>
+        {selected.playable ? <div className={selected.video_playable ? 'cs-video-surface' : 'cs-audio-surface'}>
+          {selected.video_playable ? <CompositionPlayer key={`${selected.id}-${selected.mix_revision}`} set={selected} playerRef={player} theater={theater} onTheaterChange={setTheater} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} /> : <>
             <Music2 className="cs-audio-icon" size={40} strokeWidth={1} aria-hidden="true" />
             <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" />
           </>}
         </div> : selected.status !== 'processing' && <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Getting your recordings ready' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
+        <div className="cs-detail-title"><h1>{selected.artist || selected.name}</h1>{selected.venue && <p>{selected.venue}</p>}{eventRange(selected) && <p className="cs-meta">{eventRange(selected)}</p>}{selected.visibility !== 'shared' && <span className="cs-privacy">Private</span>}</div>
         {selected.playable && selected.timeline && <MixTimeline timeline={selected.video_playable ? selected.video_timeline : selected.timeline} video={selected.video_playable} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
+        {selected.playable && <div className="cs-downloads" aria-label="Downloads">
+          {selected.video_playable && <a aria-label={selected.composition ? 'Download full set video' : 'Download video'} href={endpoint(`/${selected.id}/video?download=true&v=${selected.mix_revision}`)}><Download size={16} aria-hidden="true" /> {selected.composition ? 'Full set video' : 'Video'}</a>}
+          <a aria-label="Download audio" href={endpoint(`/${selected.id}/audio?download=true&v=${selected.mix_revision || 'legacy'}`)}><Download size={16} aria-hidden="true" /> Audio</a>
+        </div>}
         {selected.status === 'processing' && !busy ? <ProcessingStatus set={selected} /> : <p role="status">{busy ? notice || 'Saving…' : selected.status === 'importing' ? selected.youtube_import?.stage || 'Downloading from YouTube…' : selected.status === 'queued' ? 'Queued for processing. Your recordings are saved.' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>}
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
         {!updating && (selected.status === 'failed' || selected.dirty || ordinary.some((clip) => clip.alignment?.status === 'unmatched') || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : selected.playable && !selected.dirty ? 'Retry matching' : 'Update mix'}</button>}

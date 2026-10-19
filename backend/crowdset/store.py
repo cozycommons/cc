@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -30,6 +32,18 @@ if not ROOT.exists() and ROOT.with_name('.crowd-set').exists():
     ROOT = ROOT.with_name('.crowd-set')
 EXTENSIONS = {'.wav', '.mp3', '.m4a', '.mp4', '.mov', '.aac', '.flac', '.ogg', '.webm'}
 MAX_BYTES = 2 * 1024 ** 3
+RESERVED_SLUGS = {'assets', 'health', 'session', 'sets'}
+
+
+def set_slug(name, used):
+    text = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode().lower()
+    base = re.sub(r'[^a-z0-9]+', '-', text).strip('-')[:100].rstrip('-') or 'set'
+    slug = base
+    suffix = 2
+    while slug in used or slug in RESERVED_SLUGS:
+        slug = f'{base}-{suffix}'
+        suffix += 1
+    return slug
 
 
 class Store:
@@ -56,8 +70,14 @@ class Store:
         self.pending = {}
         self.batches = {}
         self.timer = None
-        for path in self.root.glob('*/set.json'):
+        paths = sorted(self.root.glob('*/set.json'))
+        used_slugs = {json.loads(path.read_text()).get('slug') for path in paths}
+        for path in paths:
             data = json.loads(path.read_text())
+            if not data.get('slug'):
+                data['slug'] = set_slug(data['name'], used_slugs)
+                used_slugs.add(data['slug'])
+                write_json(path, data)
             batch = data.get('batch')
             if batch:
                 self.batches[data['id']] = {**batch, 'deadline': time.monotonic() + max(0, batch['expires_at'] - time.time())}
@@ -127,6 +147,7 @@ class Store:
                 raise HTTPException(409, 'Local limit: 20 performances. Delete an old performance first.')
             data = {'id': uuid4().hex, 'schema_version': 2, 'visibility': 'shared', 'dirty': False, 'name': name, 'owner': owner, 'status': 'idle', 'clips': [], 'timeline': None, 'playable': False, 'error': None}
             data.update(event or {})
+            data['slug'] = set_slug(name, {item.get('slug') for item in self.list()})
             self.directory(data['id']).mkdir(mode=0o700)
             return self.save(data)
 

@@ -25,6 +25,7 @@ export default function MixTimeline({ timeline, clips, currentTime, onSeek, vide
   const describe = (segment) => `${timestamp(segment.start)}–${timestamp(segment.end)}`;
   const detail = active.length ? `${active.map((segment) => name(segment.clip_id)).join(' + ')}${active.length > 1 ? ' · Crossfade' : ''}` : inspected >= duration ? 'End of mix' : video ? 'No aligned video' : 'Silence';
   return <div className="cs-timeline">
+    <div className="cs-timeline-heading"><h2>Clip timeline</h2><span>{used.length} {used.length === 1 ? 'source' : 'sources'}</span></div>
     <div className="cs-timeline-strip">
       <svg viewBox="0 0 1000 32" preserveAspectRatio="none" aria-hidden="true">
         <defs><pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6L6 0" stroke="#fff" strokeWidth="1.5" /></pattern></defs>
