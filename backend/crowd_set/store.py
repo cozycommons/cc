@@ -153,13 +153,14 @@ class Store:
             if current:
                 if not self.cleanup_import(data):
                     raise HTTPException(503, 'Previous import cleanup is waiting for media storage. Retry shortly.')
-            self.originals.admit(self.limits, incoming=self.limits.file_bytes, work_needed=3 * self.limits.file_bytes + 1024 ** 2)
+            self.originals.admit(self.limits, incoming=self.limits.file_bytes, work_needed=3 * self.limits.file_bytes + 1024 ** 2, reclaim=self.reclaim_deleted)
             session = self.prepare_session(set_id, 'YouTube video.mp4', self.limits.file_bytes,
                                            hashlib.sha256(uuid4().bytes).hexdigest(), owner)
             job = {'url': url, 'owner': owner, 'session_id': session['id'], 'state': 'downloading', 'stage': 'Checking YouTube video…', 'error': None}
             directory = self.directory(set_id) / 'youtube'
             directory.mkdir(mode=0o700)
             self.pending.pop(set_id, None)
+            data = self.get(set_id)
             data.update(status='importing', youtube_import=job)
             self.save(data)
             self.active = set_id
@@ -381,17 +382,20 @@ class Store:
             suffix = Path(name).suffix.lower()
             if suffix not in EXTENSIONS:
                 raise HTTPException(415, 'Use a supported audio or video file.')
+            deleted_ids = {c['id'] for c in data.get('deleted_clips', [])}
             for existing in self.originals.sessions():
                 if existing['set_id'] == set_id and existing['owner'] == owner and existing['fingerprint'] == fingerprint and existing['size'] == size:
+                    if existing['clip']['id'] in deleted_ids:
+                        continue
                     if existing['state'] == 'complete' and not any(c['id'] == existing['clip']['id'] for c in data['clips']):
                         continue
                     existing['batch_id'] = batch_id
                     self.save_session(existing)
                     return self.public_session(existing)
-            pending = [s for s in self.originals.sessions() if s['set_id'] == set_id and s['state'] == 'uploading']
+            pending = [s for s in self.originals.sessions() if s['set_id'] == set_id and s['state'] == 'uploading' and s['clip']['id'] not in deleted_ids]
             if sum(c['role'] != 'reference' for c in data['clips']) + len(pending) >= self.limits.recordings:
                 raise HTTPException(409, f'This set accepts at most {self.limits.recordings} recordings.')
-            self.originals.admit(self.limits, incoming=size)
+            self.originals.admit(self.limits, incoming=size, reclaim=self.reclaim_deleted)
             clip = {'id': uuid4().hex, 'name': Path(name).name[:180], 'role': 'recording', 'included': True,
                     'uploader': owner, 'kind': 'video' if suffix in ('.mp4', '.mov', '.webm') else 'audio', 'bytes': size}
             clip['file'] = f'{clip["id"]}{suffix}.upload'
@@ -423,7 +427,7 @@ class Store:
                         return self.public_session(session)
             if offset != session['offset']:
                 raise HTTPException(409, 'Upload offset changed. Read the saved offset and resume.')
-            self.originals.admit(self.limits)
+            self.originals.admit(self.limits, reclaim=self.reclaim_deleted)
             with partial.open('r+b' if partial.exists() else 'w+b') as output:
                 output.seek(offset)
                 output.truncate(offset)
@@ -476,7 +480,8 @@ class Store:
 
     def remove_unpublished(self, session):
         set_id, clip = session['set_id'], session['clip']
-        if any(item['id'] == clip['id'] for item in self.get(set_id)['clips']):
+        data = self.get(set_id)
+        if any(item['id'] == clip['id'] for item in data['clips'] + data.get('deleted_clips', [])):
             return
         if self.blobs:
             prefix = f'originals/{set_id}/{clip["id"]}/'
@@ -488,7 +493,7 @@ class Store:
         with self.lock:
             session = self.session(set_id, upload_id, owner)
             data = self.get(set_id)
-            if session['state'] == 'complete' or any(c['id'] == session['clip']['id'] for c in data['clips']):
+            if session['state'] == 'complete' or any(c['id'] == session['clip']['id'] for c in data['clips'] + data.get('deleted_clips', [])):
                 session['state'] = 'complete'
                 self.save_session(session)
                 return data
@@ -558,12 +563,13 @@ class Store:
             if role != 'reference' and sum(c['role'] != 'reference' for c in data['clips']) + pending >= self.limits.recordings:
                 raise HTTPException(409, f'This set has {self.limits.recordings} recordings. Remove one before adding another.')
             self.expire_sessions()
-            self.originals.admit(self.limits, incoming=self.limits.file_bytes)
+            self.originals.admit(self.limits, incoming=self.limits.file_bytes, reclaim=self.reclaim_deleted)
             clip = {'id': uuid4().hex, 'name': Path(name).name[:180], 'role': role, 'included': True, 'uploader': uploader,
                     'kind': 'video' if suffix in ('.mp4', '.mov', '.webm') else 'audio'}
             clip['file'] = f'{clip["id"]}{suffix}.upload'
             self.pending.pop(set_id, None)
             self.upload = (set_id, clip['id'])
+            data = self.get(set_id)
             data.update(status='uploading', upload_notice=None)
             self.save(data)
             return clip, self.directory(set_id) / (clip['id'] + '.part')
@@ -614,21 +620,46 @@ class Store:
             data['recovery_attempts'] = 0
             self.invalidate(data)
             if delete:
-                directory = self.directory(set_id)
-                self.originals.remove(set_id, clip)
-                for name in (clip['id'] + '.wav', clip['id'] + '.npy', clip['id'] + '.analysis.json', clip['id'] + '.alignment.json'):
-                    (directory / name).unlink(missing_ok=True)
+                clip['deleted_at'] = time.time()
+                data.setdefault('deleted_clips', []).append(clip)
                 data['clips'].remove(clip)
                 if data.get('soundtrack_clip_id') == clip_id:
                     data['soundtrack_clip_id'] = None
+                if not any(c['role'] != 'reference' and c['included'] for c in data['clips']):
+                    data.update(playable=False, video_playable=False, timeline=None, video_timeline=None,
+                                composition=None, previous_revision={})
             else:
                 clip['included'] = included
             return self.queue(data)
 
+    def reclaim_deleted(self, needed):
+        with self.lock:
+            candidates = sorted((clip['deleted_at'], data['id'], clip['id'])
+                                for data in self.list() for clip in data.get('deleted_clips', [])
+                                if not clip.get('purged_at'))
+            before, _ = self.originals.usage()
+            for _, set_id, clip_id in candidates:
+                data = self.get(set_id)
+                clip = next(c for c in data['deleted_clips'] if c['id'] == clip_id)
+                try:
+                    self.originals.remove(set_id, clip)
+                    directory = self.directory(set_id)
+                    for suffix in ('.wav', '.npy', '.analysis.json', '.alignment.json', '.original', '.original.download'):
+                        (directory / (clip_id + suffix)).unlink(missing_ok=True)
+                    clip['purged_at'] = time.time()
+                    self.save(data)
+                except (OSError, ValueError, httpx.HTTPError) as exc:
+                    raise HTTPException(503, 'Could not reclaim removed recordings. Retry shortly; their storage remains reserved until cleanup succeeds.') from exc
+                remaining, _ = self.originals.usage()
+                if before - remaining >= needed:
+                    break
+
     def delete(self, set_id):
         with self.lock:
             data = self.editable(set_id)
-            for clip in data['clips']:
+            for clip in data['clips'] + data.get('deleted_clips', []):
+                if clip.get('purged_at'):
+                    continue
                 self.originals.remove(set_id, clip)
             if self.blobs:
                 keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')
@@ -728,7 +759,7 @@ class Store:
                     with self.lock:
                         incoming = sum((directory / name).stat().st_size for name, _ in artifacts.values())
                         incoming += sum((directory / asset['file']).stat().st_size for asset in new_assets.values())
-                        self.originals.admit(self.limits, incoming=incoming)
+                        self.originals.admit(self.limits, incoming=incoming, reclaim=self.reclaim_deleted)
                         for kind, (name, _) in artifacts.items():
                             key = f'mixes/{set_id}/{revision}{Path(name).suffix}'
                             size = (directory / name).stat().st_size

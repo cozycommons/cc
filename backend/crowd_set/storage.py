@@ -96,14 +96,18 @@ class OriginalStore:
         originals += sum(item['bytes'] for item in objects)
         return originals, work
 
-    def admit(self, limits, incoming=0, work_needed=0, exclude=None):
+    def admit(self, limits, incoming=0, work_needed=0, exclude=None, reclaim=None):
         originals, work = self.usage()
         reserved = sum(max(0, session['size'] - session['offset']) for session in self.sessions()
                        if session['state'] == 'uploading' and session['id'] != exclude)
-        if originals + reserved + incoming > limits.original_bytes:
-            raise HTTPException(507, 'Recording storage is full. Remove an old set or ask for more storage.')
         if work + work_needed > limits.work_bytes:
             raise HTTPException(507, 'Processing storage is full. Remove an old set or ask for more storage.')
         required = reserved + incoming + max(work_needed, limits.work_bytes - work, 0) + limits.free_bytes
         if shutil.disk_usage(self.root).free < required:
             raise HTTPException(507, 'The server is low on storage. Added recordings and the current mix are retained.')
+        deficit = originals + reserved + incoming - limits.original_bytes
+        if deficit > 0 and reclaim:
+            reclaim(deficit)
+            originals, _ = self.usage()
+        if originals + reserved + incoming > limits.original_bytes:
+            raise HTTPException(507, 'Recording storage is full. Remove old recordings or ask for more storage.')
