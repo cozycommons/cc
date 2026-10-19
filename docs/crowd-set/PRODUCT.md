@@ -81,3 +81,5 @@ Existing recording count, duration, aggregate duration, disk and R2 budgets appl
 ## Processing feedback
 
 Show the current preparation, matching, audio mixing, video rendering, finalization, or storage phase. For video encoding, show measured frame progress and an approximate remaining time for rendering only; never imply that rendering at 100% means the cut has been saved. Show elapsed time across phases, keep the previous playable cut available during updates, and explain that processing continues after leaving the page. Upload transfer completion changes to a storage-saving message. A previous failed YouTube attempt is collapsed once a recording exists so it is not confused with the current processing status.
+
+A complete, uncut compatible recording can reuse its original video with the finished audio instead of re-encoding every frame. Keep full audio duration, including a tiny trailing audio pad. Recordings needing cuts, resizing, rotation, timing conversion or codec conversion use the normal renderer.

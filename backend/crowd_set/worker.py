@@ -131,7 +131,7 @@ def process(directory):
         timeline['output_true_peak_dbfs'] = peak
     visual = video.plan_video(clips, timeline)
     if visual['segments']:
-        originals.admit(limits, work_needed=2 * video.byte_bound(timeline['duration']) +
+        originals.admit(limits, work_needed=2 * video.output_bound(visual, clips) +
                         len(visual['segments'] + visual['gaps']) * 2 * 1024 ** 2 +
                         max((c.get('bytes', 0) for c in usable if c.get('object_key')), default=0))
     progress('Preparing video…', 'render')

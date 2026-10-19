@@ -117,6 +117,7 @@ def test_rotation_is_preserved_and_oversize_rendition_rejected(tmp_path, monkeyp
     folder.mkdir()
     item = clip('one', 0, 3, file='rotated.mp4', name='rotated.mp4')
     item['video'] = video.probe(rotated, Limits())
+    assert not item['video']['copy_compatible']
     originals.destination('set', item).write_bytes(rotated.read_bytes())
     write_wav(folder / 'pending.wav', music(3))
     plan = video.plan_video([item], {'duration': 3, 'origin_seconds': 0})
@@ -166,6 +167,7 @@ def test_iphone_style_mov_hevc_10bit_aac_renders_as_h264_mp4(tmp_path):
                     '-threads', '1', '-t', '3', str(source)], check=True, timeout=30)
     original_bytes = source.read_bytes()
     item['video'] = video.probe(source, Limits())
+    assert not item['video']['copy_compatible']
     assert decode(source, folder / 'pending.wav', expected_duration=3) == pytest.approx(3, abs=.1)
     plan = video.plan_video([item], {'duration': 3, 'origin_seconds': 0})
     assert video.render(plan, [item], originals, 'set', folder, Limits())
@@ -174,3 +176,70 @@ def test_iphone_style_mov_hevc_10bit_aac_renders_as_h264_mp4(tmp_path):
     assert 'Video: h264' in report and 'Audio: aac' in report
     assert frame(output, 1)[24, 42, 0] > 200
     assert source.read_bytes() == original_bytes
+
+
+def test_full_compatible_video_reuses_packets_and_keeps_processed_audio_tail(tmp_path):
+    originals = OriginalStore(tmp_path)
+    folder = tmp_path / 'set'
+    folder.mkdir()
+    audio = write_wav(tmp_path / 'source.wav', music(3))
+    item = clip('full', 0, 3.05, file='full.mp4', name='full.mp4')
+    source = originals.destination('set', item)
+    make_video(source, audio, size='1920x1080', duration=3)
+    item['bytes'] = source.stat().st_size
+    picture = video.probe(source, Limits())
+    assert picture['copy_compatible']
+    # Existing analysis caches do not contain the new compatibility field.
+    item['video'] = {key: picture[key] for key in ('start', 'end', 'audio_start')}
+    samples = np.zeros(round(3.05 * 16000), dtype=np.float32)
+    samples[16000:] = 6000 * np.sin(2 * np.pi * 440 * np.arange(len(samples) - 16000) / 16000)
+    write_wav(folder / 'pending.wav', samples)
+    plan = video.plan_video([item], {'duration': 3.05, 'origin_seconds': 0})
+    assert plan['gaps'] and video.copy_candidate(plan, [item]) is item
+    stages = []
+    assert video.render(plan, [item], originals, 'set', folder, Limits(),
+                        on_progress=lambda stage, *args, **kwargs: stages.append(stage))
+    assert 'Combining original video with the finished audio…' in stages
+    assert 'Rendering video…' not in stages
+    output = folder / 'pending.mp4'
+
+    def packet_hash(path):
+        return subprocess.check_output([imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-i', str(path),
+                                        '-map', '0:V:0', '-c', 'copy', '-f', 'hash', '-hash', 'sha256', '-'], timeout=30)
+
+    assert packet_hash(source) == packet_hash(output)
+    pcm = subprocess.check_output([imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-i', str(output),
+                                   '-map', '0:a:0', '-ac', '1', '-ar', '16000', '-f', 'f32le', '-'], timeout=30)
+    decoded = np.frombuffer(pcm, dtype=np.float32)
+    assert np.max(np.abs(decoded[:12000])) < .005
+    assert len(decoded) / 16000 >= 3.05
+    assert np.sqrt(np.mean(decoded[round(3.01 * 16000):round(3.04 * 16000)] ** 2)) > .1
+    assert video.output_bound(plan, [item]) >= video.copy_bound(item, 3.05)
+
+
+@pytest.mark.parametrize('change', ['offset', 'trim', 'gap', 'multiple'])
+def test_copy_path_rejects_timing_edits_and_multiple_recordings(change):
+    item = clip('one', 0, 3, bytes=1000)
+    clips = [item]
+    duration = 3
+    if change == 'offset':
+        item['alignment']['offset_seconds'] = 1
+        duration = 4
+    elif change == 'trim':
+        duration = 2
+    elif change == 'gap':
+        item['video']['end'] = 2
+    else:
+        clips.append(clip('two', 0, 1, bytes=500))
+    plan = video.plan_video(clips, {'duration': duration, 'origin_seconds': 0})
+    assert video.copy_candidate(plan, clips) is None
+
+
+def test_copy_probe_rejects_variable_frame_timing(tmp_path):
+    audio = write_wav(tmp_path / 'source.wav', music(3))
+    source = make_video(tmp_path / 'source.mp4', audio, size='1920x1080', duration=3)
+    variable = tmp_path / 'variable.mp4'
+    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-i', str(source),
+                    '-vf', "select='not(eq(mod(n,5),0))'", '-fps_mode', 'vfr', '-c:v', 'libx264',
+                    '-threads', '1', '-c:a', 'copy', str(variable)], check=True, timeout=30)
+    assert not video.probe(variable, Limits())['copy_compatible']
