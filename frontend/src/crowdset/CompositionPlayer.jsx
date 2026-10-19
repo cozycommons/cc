@@ -1,6 +1,7 @@
 import React from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RectangleHorizontal, X, LoaderCircle } from 'lucide-react';
 import { endpoint } from './api';
+import ScrubPreview from './ScrubPreview';
 
 export function playbackTime(seconds) {
   const total = Math.floor(Math.max(0, seconds || 0));
@@ -21,6 +22,7 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
   const [buffering, setBuffering] = React.useState(false);
   const [controls, setControls] = React.useState(true);
   const [fullscreen, setFullscreen] = React.useState(false);
+  const [preview, setPreview] = React.useState(null);
   const [expanded, setExpanded] = React.useState(false);
   const hideTimer = React.useRef(null);
   const previousVolume = React.useRef(1);
@@ -143,26 +145,44 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
     wake();
   }
   function keyboard(event) {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.target.tagName === 'INPUT') return;
-    const button = event.target.tagName === 'BUTTON';
+    const target = event.target instanceof Element ? event.target : null;
     const key = event.key.toLowerCase();
+    const rangeShortcut = target?.matches('input[type="range"]') && container.current.contains(target) && ['k', 'm', 'f', 't', 'j', 'l'].includes(key);
+    if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey
+        || (!rangeShortcut && target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])'))
+        || (target?.closest('article, audio, video') && !container.current.contains(target))) return;
+    const button = target?.closest('button, a');
+    if (event.repeat && [' ', 'k', 'm', 'f', 't'].includes(key)) return;
     if ((key === ' ' && !button) || key === 'k') toggle();
     else if (key === 'm') toggleMute();
     else if (key === 'f') toggleFullscreen();
     else if (key === 't' && onTheaterChange) onTheaterChange(!theater);
     else if (key === 'arrowright' || key === 'l') seek(playerRef.current.currentTime + (key === 'l' ? 10 : 5));
     else if (key === 'arrowleft' || key === 'j') seek(playerRef.current.currentTime - (key === 'j' ? 10 : 5));
+    else if (/^[0-9]$/.test(key)) seek(duration * Number(key) / 10);
+    else if (key === 'home') seek(0);
+    else if (key === 'end') seek(duration);
     else if (key === 'arrowup') changeVolume(Math.min(1, playerRef.current.volume + 0.05));
     else if (key === 'arrowdown') changeVolume(Math.max(0, playerRef.current.volume - 0.05));
     else return;
     event.preventDefault();
     wake();
   }
+  React.useEffect(() => {
+    document.addEventListener('keydown', keyboard);
+    return () => document.removeEventListener('keydown', keyboard);
+  });
+  function inspect(event) {
+    if (!duration) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    setPreview({ time: Math.min(Math.floor(fraction * duration), Math.max(0, duration - 0.05)), left: `${fraction * 100}%` });
+  }
   const silent = muted || volume === 0;
   const full = fullscreen || expanded;
-  const shown = controls || !playing || buffering || message;
+  const shown = controls || !playing || buffering || message || preview;
   return <div ref={container} className={`cs-composition ${shown ? 'cs-controls-visible' : ''} ${expanded ? 'cs-player-expanded' : ''}`}
-    role="region" aria-label="Video player" tabIndex={0} onKeyDown={keyboard} onPointerMove={wake} onFocusCapture={wake}>
+    role="region" aria-label="Video player" tabIndex={0} onPointerMove={wake} onFocusCapture={wake}>
     <div className="cs-composition-picture">
       <video ref={playerRef} src={baseUrl} playsInline preload="metadata" disablePictureInPicture
         aria-label="Current cut" onTimeUpdate={(event) => { setPosition(event.currentTarget.currentTime); onTimeUpdate(event); }}
@@ -183,19 +203,24 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
     </div>
     <div className="cs-player-controls">
       <div className="cs-player-progress" style={{ '--played': `${duration ? position / duration * 100 : 0}%`, '--buffered': `${duration ? Math.min(buffered / duration * 100, 100) : 0}%` }}>
+        {preview && <ScrubPreview set={set} time={preview.time} left={preview.left} label={playbackTime(preview.time)} />}
         <input type="range" aria-label="Seek video" aria-valuetext={`${playbackTime(position)} of ${playbackTime(duration)}`} min="0" max={duration} step="0.1"
-          value={Math.min(position, duration)} onChange={(event) => seek(Number(event.target.value))} />
+          value={Math.min(position, duration)}
+          onPointerMove={(event) => { if (event.pointerType !== 'touch' || event.buttons) inspect(event); }} onPointerDown={inspect}
+          onPointerLeave={() => setPreview(null)} onPointerUp={(event) => { if (event.pointerType === 'touch') setPreview(null); }} onPointerCancel={() => setPreview(null)}
+          onFocus={() => setPreview({ time: position, left: `${duration ? position / duration * 100 : 0}%` })} onBlur={() => setPreview(null)}
+          onChange={(event) => { const value = Number(event.target.value); seek(value); setPreview({ time: value, left: `${duration ? value / duration * 100 : 0}%` }); }} />
       </div>
       <div className="cs-player-buttons">
-        <button aria-label={playing ? 'Pause' : 'Play'} title={playing ? 'Pause (k)' : 'Play (k)'} onClick={toggle}>{playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</button>
+        <button aria-label={playing ? 'Pause' : 'Play'} aria-keyshortcuts="Space K" onClick={toggle}>{playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}<span className="cs-player-tooltip" role="tooltip">{playing ? 'Pause (K)' : 'Play (K)'}</span></button>
         <div className="cs-player-volume">
-          <button aria-label={silent ? 'Unmute' : 'Mute'} title={silent ? 'Unmute (m)' : 'Mute (m)'} onClick={toggleMute}>{silent ? <VolumeX /> : <Volume2 />}</button>
+          <button aria-label={silent ? 'Unmute' : 'Mute'} aria-keyshortcuts="M" onClick={toggleMute}>{silent ? <VolumeX /> : <Volume2 />}<span className="cs-player-tooltip" role="tooltip">{silent ? 'Unmute (M)' : 'Mute (M)'}</span></button>
           <input type="range" aria-label="Volume" min="0" max="1" step="0.05" value={silent ? 0 : volume} onChange={(event) => changeVolume(Number(event.target.value))} />
         </div>
         <span className="cs-player-time">{playbackTime(position)} <span>/ {playbackTime(duration)}</span></span>
         <span className="cs-player-spacer" />
-        {onTheaterChange && !full && <button className="cs-theater-toggle" aria-label={theater ? 'Exit theater mode' : 'Theater mode'} aria-pressed={theater} title="Theater mode (t)" onClick={() => onTheaterChange(!theater)}><RectangleHorizontal /></button>}
-        <button aria-label={full ? 'Exit fullscreen' : 'Fullscreen'} title={full ? 'Exit fullscreen (f)' : 'Fullscreen (f)'} onClick={toggleFullscreen}>{full ? <Minimize /> : <Maximize />}</button>
+        {onTheaterChange && !full && <button className="cs-theater-toggle" aria-label={theater ? 'Exit theater mode' : 'Theater mode'} aria-pressed={theater} aria-keyshortcuts="T" onClick={() => onTheaterChange(!theater)}><RectangleHorizontal /><span className="cs-player-tooltip" role="tooltip">{theater ? 'Exit theater mode (T)' : 'Theater mode (T)'}</span></button>}
+        <button aria-label={full ? 'Exit fullscreen' : 'Fullscreen'} aria-keyshortcuts="F" onClick={toggleFullscreen}>{full ? <Minimize /> : <Maximize />}<span className="cs-player-tooltip" role="tooltip">{full ? 'Exit fullscreen (F)' : 'Fullscreen (F)'}</span></button>
       </div>
     </div>
     {message && <div className="cs-player-message" role="alert">{message}<button aria-label="Dismiss playback message" onClick={() => setMessage('')}><X size={16} /></button></div>}

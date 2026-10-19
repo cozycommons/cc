@@ -163,3 +163,9 @@ Video publication caches one bounded 480×270 JPEG frame in the set's persistent
 Frontend play-event capture pauses other media, except the two coordinated elements inside the composition player. Its muted companion never initiates exclusive playback itself. Original media keeps `preload="none"`; only small preview images load while browsing.
 
 Uploader attribution caches only the display name returned by the existing verified Auth user lookup, keyed by its canonical account UUID in the persistent `uploaders.json` file. API presentation joins those names onto recording uploader IDs, including older recordings on the uploader’s next visit. Names never participate in authorization; emails, tokens and full profiles are not cached or returned.
+
+## Player hover previews and shortcuts
+
+Scrub previews use one independent paused, muted HTML video, with a 180 ms debounce and whole-second pointer targets. Resolve the source from the published visual timeline: insert assets seek relative to their segment start; the base video seeks to the global cut time. Use the existing authenticated range endpoints and revision keys, with no new objects, backend processing or public URLs. Do not request media until inspection; unload on exit/unmount, hide frames until the requested seek finishes, and bound the bubble within the seek bar. Existing R2 request limits continue to apply. The preview never calls play or changes the main player.
+
+Document-level shortcuts are scoped to the mounted set player and ignore text-entry controls, modifier/composition input, and original players. Native button Space and range keys remain native; the player’s ranges still accept letter shortcuts. Button tooltips show immediately on hover/focus; accessible labels and shortcut attributes remain available without a pointer.

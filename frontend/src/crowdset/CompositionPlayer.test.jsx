@@ -133,3 +133,70 @@ it('tracks browser fullscreen changes rather than guessing its state', async () 
   });
   expect(screen.getByRole('button', { name: 'Fullscreen', exact: true })).toBeInTheDocument();
 });
+
+it('handles page shortcuts but leaves typing, modifiers, original clips, and native controls alone', async () => {
+  const theater = vi.fn();
+  render(<><input aria-label="Comment" /><textarea aria-label="Notes" /><div contentEditable suppressContentEditableWarning aria-label="Editor">Text</div><article><video aria-label="Original" /></article><CompositionPlayer set={{ ...set, video_timeline: { ...set.video_timeline, duration: 100 } }} playerRef={playerRef} onTimeUpdate={() => {}} onTheaterChange={theater} /></>);
+  fireEvent.keyDown(document.body, { key: '5' });
+  expect(playerRef.current.currentTime).toBe(50);
+  fireEvent.keyDown(document.body, { key: 'j' });
+  expect(playerRef.current.currentTime).toBe(40);
+  fireEvent.keyDown(document.body, { key: 'ArrowRight' });
+  expect(playerRef.current.currentTime).toBe(45);
+  fireEvent.keyDown(document.body, { key: 'm' });
+  expect(playerRef.current.muted).toBe(true);
+  fireEvent.keyDown(document.body, { key: 't' });
+  expect(theater).toHaveBeenCalledWith(true);
+  for (const label of ['Comment', 'Notes', 'Editor', 'Original', 'Seek video', 'Volume']) fireEvent.keyDown(screen.getByLabelText(label), { key: '0' });
+  fireEvent.keyDown(document.body, { key: '0', ctrlKey: true });
+  fireEvent.keyDown(document.body, { key: '0', isComposing: true });
+  expect(playerRef.current.currentTime).toBe(45);
+  fireEvent.keyDown(document.body, { key: 'k', repeat: true });
+  expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+  fireEvent.keyDown(document.body, { key: 'k' });
+  await act(async () => {});
+  expect(playerRef.current.paused).toBe(false);
+  fireEvent.keyDown(document.body, { key: ' ' });
+  expect(playerRef.current.paused).toBe(true);
+  fireEvent.keyDown(document.body, { key: 'Home' });
+  expect(playerRef.current.currentTime).toBe(0);
+  fireEvent.keyDown(document.body, { key: 'End' });
+  expect(playerRef.current.currentTime).toBe(100);
+});
+
+it('previews the seek position without moving the main video and labels control shortcuts', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('PointerEvent', MouseEvent);
+  const view = render(<CompositionPlayer set={{ ...set, video_timeline: { ...set.video_timeline, duration: 100 } }} playerRef={playerRef} onTimeUpdate={() => {}} onTheaterChange={() => {}} />);
+  const slider = screen.getByRole('slider', { name: 'Seek video' });
+  slider.getBoundingClientRect = () => ({ left: 0, width: 100 });
+  playerRef.current.currentTime = 3;
+  fireEvent.pointerMove(slider, { clientX: 14 });
+  expect(screen.getByRole('img', { name: 'Video preview at 0:14' })).toBeInTheDocument();
+  expect(playerRef.current.currentTime).toBe(3);
+  act(() => vi.advanceTimersByTime(180));
+  expect(view.container.querySelector('.cs-scrub-picture video')).toHaveAttribute('src', '/crowdset/sets/set/overlays/friend?v=revision');
+  fireEvent.pointerLeave(slider);
+  expect(screen.queryByRole('img', { name: /Video preview/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-keyshortcuts', 'Space K');
+  expect(screen.getByText('Theater mode (T)')).toBeInTheDocument();
+  expect(screen.getByText('Fullscreen (F)')).toBeInTheDocument();
+  fireEvent.play(playerRef.current);
+  expect(screen.getByText('Pause (K)')).toBeInTheDocument();
+  vi.useRealTimers();
+});
+
+
+it('keeps letter shortcuts available after using the seek bar without replacing native range keys', async () => {
+  render(<CompositionPlayer set={{ ...set, video_timeline: { ...set.video_timeline, duration: 100 } }} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const seek = screen.getByRole('slider', { name: 'Seek video' });
+  fireEvent.keyDown(seek, { key: 'k' });
+  await act(async () => {});
+  expect(playerRef.current.paused).toBe(false);
+  fireEvent.keyDown(seek, { key: 'm' });
+  expect(playerRef.current.muted).toBe(true);
+  fireEvent.keyDown(seek, { key: 'l' });
+  expect(playerRef.current.currentTime).toBe(10);
+  fireEvent.keyDown(seek, { key: 'ArrowRight' });
+  expect(playerRef.current.currentTime).toBe(10);
+});
