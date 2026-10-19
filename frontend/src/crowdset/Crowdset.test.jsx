@@ -9,8 +9,8 @@ import { auth } from '../supabase';
 vi.mock('../supabase', () => ({ auth: { signInWithGoogle: vi.fn() } }));
 
 vi.mock('./api', () => ({ request: vi.fn(), getLimits: async () => ({ recordings: 64, file_bytes: 2 * 1024 ** 3, recording_seconds: 7200, youtube_imports: true }), endpoint: (path) => `/crowdset/sets${path}` }));
-const performance = { id: 'one', slug: 'a-night-together', name: 'A night together', visibility: 'shared', can_manage: true, status: 'idle', clips: [], timeline: null, playable: false };
-const clip = { id: 'clip', name: 'Stage.mp4', role: 'recording', kind: 'video', can_edit: true, included: true };
+const performance = { id: 'one', slug: 'a-night-together', name: 'A night together', visibility: 'shared', can_manage: true, can_delete: true, status: 'idle', clips: [], timeline: null, playable: false };
+const clip = { id: 'clip', name: 'Stage.mp4', role: 'recording', kind: 'video', can_edit: true, can_delete: true, included: true };
 const ready = { ...performance, status: 'ready', playable: true, mix_revision: 'published', clips: [clip], timeline: { segments: [{ clip_id: clip.id }] } };
 async function openSet() {
   fireEvent.click(await screen.findByRole('link', { name: /A night together/ }));
@@ -349,4 +349,26 @@ it('shows the uploader on compact cards without a duration or timeline heading',
   expect(screen.getByLabelText('Play Stage.mp4').closest('article')).not.toHaveTextContent('91:43.3');
   expect(screen.queryByText('Clip timeline')).not.toBeInTheDocument();
   expect(screen.getByRole('slider', { name: 'Seek mix' })).toBeInTheDocument();
+});
+
+
+it('hides set deletion from regular owners and permits removal only of their own clips', async () => {
+  const other = { ...clip, id: 'other', name: 'Other.mp4', can_edit: true, can_delete: false };
+  request.mockResolvedValueOnce([{ ...ready, can_manage: true, can_delete: false, clips: [clip, other] }]);
+  render(<Crowdset />);
+  await openSet();
+  expect(screen.queryByRole('region', { name: 'Admin controls' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Delete set' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Remove' }).closest('article')).toHaveTextContent('Stage.mp4');
+});
+
+it('shows admin deletion controls even when the admin does not own the set or clips', async () => {
+  request.mockResolvedValueOnce([{ ...ready, can_manage: false, can_delete: true, clips: [{ ...clip, can_edit: false, can_delete: true }] }]);
+  render(<Crowdset />);
+  await openSet();
+  expect(screen.getByRole('region', { name: 'Admin controls' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Delete set' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'Use as official set' })).not.toBeInTheDocument();
 });

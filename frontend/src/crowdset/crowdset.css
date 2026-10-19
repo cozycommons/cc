@@ -96,7 +96,9 @@
 .cs-recording-actions { display: flex; justify-content: space-between; gap: 2px 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
 .cs-recording-actions a { display: inline-flex; align-items: center; min-height: 28px; }
 .crowdset .cs-recording-actions button { min-height: 28px; border-radius: 4px; border: 0; padding: 0; background: transparent; font-size: 12px; color: var(--cs-muted); }
-.crowdset .cs-delete { background: transparent; border: 0; color: var(--cs-muted); padding: 8px 0; margin-top: 30px; font-size: 12px; }
+.cs-admin { margin-top: 24px; border-top: 1px solid var(--cs-line); padding-top: 12px; }
+.cs-admin h2 { margin: 0; font-size: 13px; color: var(--cs-muted); }
+.crowdset .cs-delete { background: transparent; border: 0; color: var(--cs-muted); padding: 8px 0; margin-top: 4px; font-size: 12px; }
 .cs-error, .cs-field-error { padding: 13px 16px; color: #843c28; background: #fae9df; border-radius: 10px; font-size: 13px; overflow-wrap: anywhere; margin: 16px 0; }
 .cs-create { max-width: 580px; margin: 0 auto; }
 .cs-create h1 { margin-bottom: 26px; }

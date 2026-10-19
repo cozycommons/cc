@@ -50,6 +50,8 @@ class HostedAccess:
                     if isinstance(value, str) and value.strip():
                         name = ' '.join(value.split())[:80]
                         break
-            return str(UUID(user['id'])), name
+            app_metadata = user.get('app_metadata') or {}
+            is_admin = isinstance(app_metadata, dict) and app_metadata.get('crowdset_admin') is True
+            return str(UUID(user['id'])), name, is_admin
         except (httpx.RequestError, ValueError, KeyError) as exc:
             raise HTTPException(503, 'Sign-in verification is unavailable. Try again.') from exc

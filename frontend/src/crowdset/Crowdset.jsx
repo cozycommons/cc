@@ -184,7 +184,7 @@ export default function Crowdset() {
       <p className="cs-clip-status">{selected.soundtrack_clip_id === clip.id ? 'Official set audio' : used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? (clip.alignment.reason || 'Couldn’t match this recording.') : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
       <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
         {selected.can_manage && clip.kind === 'video' && clip.role !== 'reference' && clip.included && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/soundtrack`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clip_id: selected.soundtrack_clip_id === clip.id ? null : clip.id }) })))}>{selected.soundtrack_clip_id === clip.id ? 'Clear official audio' : 'Use as official set'}</button>}
-        {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
+        {clip.can_delete && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
       </div>
     </div>
   </article>;
@@ -245,7 +245,7 @@ export default function Crowdset() {
           <div className="cs-recordings">{unused.map(renderClip)}</div>
         </details>}
       </section>
-      {selected.can_manage && <button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button>}
+      {selected.can_delete && <section className="cs-admin" aria-label="Admin controls"><h2>Admin controls</h2><button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button></section>}
     </>}
     </div>
   </main>;

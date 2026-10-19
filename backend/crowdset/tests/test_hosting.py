@@ -15,6 +15,7 @@ def hosted(tmp_path, monkeypatch):
     monkeypatch.setenv('CROWDSET_DATA_DIR', str(tmp_path))
     first, second = '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'
     original = httpx.AsyncClient
+    admin_roles = {'Bearer admin': True}
 
     def auth(request):
         assert request.url == 'https://test.supabase.co/auth/v1/user'
@@ -22,11 +23,12 @@ def hosted(tmp_path, monkeypatch):
         token = request.headers['authorization']
         if token == 'Bearer unavailable':
             return httpx.Response(503)
-        if token not in ('Bearer first', 'Bearer second', 'Bearer anonymous', 'Bearer third'):
+        if token not in ('Bearer first', 'Bearer second', 'Bearer anonymous', 'Bearer third', 'Bearer admin'):
             return httpx.Response(401)
-        return httpx.Response(200, json={'id': first if token == 'Bearer first' else ('33333333-3333-4333-8333-333333333333' if token == 'Bearer third' else second),
+        return httpx.Response(200, json={'id': '44444444-4444-4444-8444-444444444444' if token == 'Bearer admin' else first if token == 'Bearer first' else ('33333333-3333-4333-8333-333333333333' if token == 'Bearer third' else second),
                                        'is_anonymous': token == 'Bearer anonymous', 'email_confirmed_at': '2026-01-01',
-                                       'email': 'private@example.com', 'user_metadata': {'full_name': 'Alice' if token == 'Bearer first' else '  Bob  Friend  ', 'id': first, 'role': 'admin'}})
+                                       'app_metadata': {'crowdset_admin': admin_roles.get(token)},
+                                       'email': 'private@example.com', 'user_metadata': {'full_name': 'Alice' if token == 'Bearer first' else '  Bob  Friend  ', 'id': first, 'role': 'admin', 'crowdset_admin': True}})
 
     monkeypatch.setattr('crowdset.hosting.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(auth), **kwargs))
     # Local files never become publicly owned when a checkout is hosted.
@@ -37,6 +39,7 @@ def hosted(tmp_path, monkeypatch):
     store.save(legacy)
     store.close()
     with TestClient(create_app(), base_url='https://commons.example') as api:
+        api.app.state.test_admin_roles = admin_roles
         yield api
 
 
@@ -82,7 +85,10 @@ def test_hosted_auth_origin_cookie_and_owner_isolation(hosted):
     assert api.delete(path + '/clips/' + clip['id'], headers=third).status_code == 403
     assert api.delete(path, headers=second).status_code == 403
     assert api.patch(path + '/clips/' + clip['id'], headers=second, json={'included': False}).status_code == 200
-    assert api.delete(path + '/clips/' + clip['id'], headers=first).status_code == 200
+    assert api.delete(path, headers=first).status_code == 403
+    assert api.delete(path + '/clips/' + clip['id'], headers=first).status_code == 403
+    assert not api.get(path, headers=first).json()['clips'][0]['can_delete']
+    assert api.delete(path + '/clips/' + clip['id'], headers=second).status_code == 200
     assert api.get(media, headers=third).status_code == 404
     assert api.get(path, headers=second).json()['clips'] == []
     assert 'deleted_clips' not in api.get(path, headers=first).json()
@@ -117,7 +123,8 @@ def test_only_owner_can_choose_soundtrack(hosted, monkeypatch):
     assert hosted.put(path + '/soundtrack', headers=friend, json={'clip_id': clip_id}).status_code == 403
     assert hosted.put(path + '/soundtrack', headers=owner, json={'clip_id': clip_id}).json()['soundtrack_clip_id'] == clip_id
     assert hosted.put(path + '/soundtrack', headers=friend, json={'clip_id': None}).status_code == 403
-    assert hosted.delete(path + '/clips/' + clip_id, headers=owner).json()['soundtrack_clip_id'] is None
+    assert hosted.delete(path + '/clips/' + clip_id, headers=owner).status_code == 403
+    assert hosted.delete(path + '/clips/' + clip_id, headers=friend).json()['soundtrack_clip_id'] is None
 
 
 def test_legacy_routes_redirect_pages_and_keep_authenticated_api_and_media_working(hosted):
@@ -177,3 +184,53 @@ def test_uploader_display_names_survive_restart_and_fill_legacy_recordings(tmp_p
         assert not present(restored.get(data['id']), 'bob', restored.uploaders)['clips'][0]['can_edit']
     finally:
         restored.close()
+
+
+@pytest.mark.parametrize('route', ['/crowdset/sets', '/crowd-set/sets'])
+def test_admin_can_remove_any_clip_and_delete_sets_without_ownership(hosted, monkeypatch, route):
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    owner = {'Authorization': 'Bearer first', 'Origin': 'https://commons.example'}
+    friend = {'Authorization': 'Bearer second', 'Origin': 'https://commons.example'}
+    admin = {'Authorization': 'Bearer admin', 'Origin': 'https://commons.example'}
+    data = hosted.post(route, headers=owner, json={'name': 'Moderated'}).json()
+    path = route + '/' + data['id']
+    added = hosted.put(path + '/clips?name=friend.mp4', headers=friend, content=b'preserved original').json()
+    clip = added['clips'][0]
+    assert not added['can_delete'] and clip['can_delete']
+    assert hosted.delete(path, headers=owner).status_code == 403
+    assert hosted.delete(path + '/clips/' + clip['id'], headers=owner).status_code == 403
+    admin_view = hosted.get(path, headers=admin).json()
+    assert admin_view['can_delete'] and admin_view['clips'][0]['can_delete']
+    assert not admin_view['can_manage']
+    assert hosted.delete(path + '/clips/' + clip['id'], headers=admin).status_code == 200
+    stored = hosted.app.state.store.get(data['id'])
+    removed = stored['deleted_clips'][0]
+    assert hosted.app.state.store.originals.path(data['id'], removed).read_bytes() == b'preserved original'
+    assert hosted.delete(path, headers=admin).status_code == 204
+    assert hosted.get(path, headers=admin).status_code == 404
+    names = [s['name'] for s in hosted.get(route, headers=admin).json()]
+    assert 'Legacy private' in names and 'Local only' not in names
+    private = next(s for s in hosted.get(route, headers=admin).json() if s['name'] == 'Legacy private')
+    assert hosted.delete(route + '/' + private['id'], headers=admin).status_code == 204
+
+
+@pytest.mark.parametrize('revoked_role', [False, None, 'true', 'admin', 1])
+def test_admin_revocation_is_checked_live_and_requires_boolean_true(hosted, revoked_role):
+    owner = {'Authorization': 'Bearer first', 'Origin': 'https://commons.example'}
+    admin = {'Authorization': 'Bearer admin', 'Origin': 'https://commons.example'}
+    data = hosted.post('/crowdset/sets', headers=owner, json={'name': 'Role changes'}).json()
+    path = '/crowdset/sets/' + data['id']
+    assert hosted.get(path, headers=admin).json()['can_delete']
+    hosted.app.state.test_admin_roles['Bearer admin'] = revoked_role
+    assert not hosted.get(path, headers=admin).json()['can_delete']
+    assert hosted.delete(path, headers=admin).status_code == 403
+
+
+def test_missing_uploader_does_not_grant_set_owner_clip_deletion(hosted):
+    owner = {'Authorization': 'Bearer first', 'Origin': 'https://commons.example'}
+    data = hosted.post('/crowdset/sets', headers=owner, json={'name': 'Unknown uploader'}).json()
+    data['clips'] = [{'id': 'old', 'name': 'legacy.mov'}]
+    hosted.app.state.store.save(data)
+    path = '/crowdset/sets/' + data['id']
+    assert not hosted.get(path, headers=owner).json()['clips'][0]['can_delete']
+    assert hosted.delete(path + '/clips/old', headers=owner).status_code == 403
