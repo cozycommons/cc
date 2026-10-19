@@ -130,11 +130,62 @@ def features(path: Path):
     return np.clip(values, -4, 4)
 
 
+def short_scores(reference, query):
+    size = len(query)
+    energy = np.r_[0, np.cumsum(np.sum(reference * reference, axis=1), dtype=np.float64)]
+    norms = np.sqrt(np.maximum(energy[size:] - energy[:-size], 1e-12)) * np.linalg.norm(query)
+    dots = sum(correlate(reference[:, band], query[:, band], mode='valid', method='fft') for band in range(24))
+    return dots / np.maximum(norms, 1e-12)
+
+
+def align_short(reference, source):
+    result = {'status': 'unmatched', 'windows': [], 'reason': 'Could not find a clear audio match in this set.'}
+    if min(len(reference), len(source)) < 60:
+        result['reason'] = 'Too short to match reliably. Try a clip with at least 2.5 seconds of music.'
+        return result
+    if len(source) > len(reference):
+        result['reason'] = 'Not enough shared audio to locate this clip in the set.'
+        return result
+    scores = short_scores(reference, source)
+    best = int(np.argmax(scores))
+    score = float(scores[best])
+    competitors = scores.copy()
+    # Exclude only the local timing peak: nearby repeated beats must still compete.
+    competitors[max(0, best - 6):best + 7] = -1
+    margin = score - float(np.max(competitors))
+    result.update(similarity=round(score, 4), peak_margin=round(margin, 4))
+    if score < 0.35:
+        return result
+    if margin < 0.12:
+        result['reason_code'] = 'ambiguous'
+        result['reason'] = 'Several moments sound alike. Could not choose a reliable match.'
+        return result
+    # Disjoint sections verify timing independently; overlapping windows are not extra votes.
+    boundaries = np.linspace(0, len(source), 4 if len(source) >= 6 * FPS else 3).astype(int)
+    offsets = []
+    for start, end in zip(boundaries[:-1], boundaries[1:]):
+        section = short_scores(reference, source[start:end])
+        peak = int(np.argmax(section))
+        offset = (peak - int(start)) / FPS
+        agrees = abs(peak - int(start) - best) <= 4 and float(section[peak]) >= 0.25
+        result['windows'].append({'source_seconds': round(int(start) / FPS, 3),
+            'duration_seconds': round(int(end - start) / FPS, 3), 'offset_seconds': round(offset, 3),
+            'similarity': round(float(section[peak]), 4), 'strong': agrees})
+        offsets.append(offset)
+    if not all(window['strong'] for window in result['windows']):
+        result['reason'] = 'Different parts of this clip do not agree on a time in the set.'
+        return result
+    spread = max(abs(offset - best / FPS) for offset in offsets)
+    result.update(status='matched', offset_seconds=round(best / FPS, 3),
+                  uncertainty_seconds=round(max(0.04, spread + 0.04), 3), agreement=len(offsets),
+                  reason='Approximate timing from the full clip and independent sections; listen to verify.')
+    return result
+
+
 def align(reference, source):
     window = 12 * FPS
-    empty = {'status': 'unmatched', 'windows': [], 'reason': 'At least 37 seconds of usable crowd audio and reference are required.'}
     if min(len(source), len(reference)) < window * 3:
-        return empty
+        return align_short(reference, source)
     starts = np.unique(np.linspace(0, len(source) - window, min(9, len(source) // window)).astype(int))
     energy = np.sum(reference * reference, axis=1)
     sums = np.concatenate(([0], np.cumsum(energy, dtype=np.float64)))

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import imageio_ffmpeg
 
+from .timestamps import capture_metadata
+
 FORMATS = 'wav,mov,mp3,aac,flac,ogg,matroska,webm'
 FRAME_RATE = 24
 WIDTH, HEIGHT = 1920, 1080
@@ -63,6 +65,12 @@ def run(args, timeout, *, progress=None):
         frames = re.findall(r'^frame=(\d+)$', progress.read_text(), re.MULTILINE)
         return int(frames[-1]) if frames else 0
     return report
+
+
+def capture(source, limits):
+    report = run(['-v', 'info', '-protocol_whitelist', 'file', '-format_whitelist', FORMATS,
+                  '-i', str(source), '-t', '0', '-f', 'null', '-'], min(30, limits.media_seconds))
+    return capture_metadata(report)
 
 
 def probe(source, limits, workdir=None):

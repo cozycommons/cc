@@ -13,6 +13,7 @@ from .limits import Limits
 from .storage import OriginalStore
 from .blobs import digest, environment
 from . import video, composition
+from .timestamps import hint_for, apply_hint
 
 
 def write_json(path, value):
@@ -27,6 +28,24 @@ def write_json(path, value):
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def capture_clock(analysis, clip, data, originals, directory, limits, source=None):
+    if analysis.get('capture_version') == 1 or clip['id'] == data.get('soundtrack_clip_id'):
+        return
+    materialized = None
+    try:
+        capture = None
+        if analysis.get('video') and not clip.get('source_url'):
+            if source is None:
+                source = materialized = originals.materialize(data['id'], clip, directory)
+            capture = video.capture(source, limits)
+        analysis.update(capture_version=1, capture=capture)
+    except (ValueError, HTTPException):
+        pass  # Optional metadata failures remain retryable without discarding prepared audio.
+    finally:
+        if materialized is not None and clip.get('object_key'):
+            materialized.unlink(missing_ok=True)
 
 
 def process(directory):
@@ -71,13 +90,16 @@ def process(directory):
         feature_path = directory / f'{clip["id"]}.npy'
         try:
             analysis = json.loads(cache.read_text()) if cache.exists() else {}
-            if analysis.get('version') != 2 or not path.exists() or not feature_path.exists():
+            prepare = analysis.get('version') != 2 or not path.exists() or not feature_path.exists()
+            if prepare:
                 source = originals.materialize(data['id'], clip, directory)
                 try:
                     progress(f'Reading audio from recording {index + 1} of {len(candidates)}…')
                     duration = decode(source, path, expected_duration=clip['expected_duration'], limits=limits)
                     progress(f'Checking video timing for recording {index + 1} of {len(candidates)}…')
                     picture = video.probe(source, limits, directory)
+                    clock = {'video': picture}
+                    capture_clock(clock, clip, data, originals, directory, limits, source)
                 finally:
                     if clip.get('object_key'):
                         source.unlink(missing_ok=True)
@@ -85,8 +107,13 @@ def process(directory):
                 quality = recording_quality(path)
                 measurement = loudness(path)
                 np.save(feature_path, features(path), allow_pickle=False)
-                analysis = {'version': 2, 'duration': duration, 'quality': quality, 'measurement': measurement, 'video': picture}
+                analysis = {'version': 2, 'duration': duration, 'quality': quality, 'measurement': measurement, **clock}
                 write_json(cache, analysis)
+            if not prepare and analysis.get('capture_version') != 1:
+                capture_clock(analysis, clip, data, originals, directory, limits)
+                if analysis.get('capture_version') == 1:
+                    write_json(cache, analysis)
+            clip['capture'] = analysis.get('capture')
             clip.update({key: analysis[key] for key in ('duration', 'quality', 'measurement', 'video')})
             usable.append(clip)
         except ValueError as exc:
@@ -107,12 +134,20 @@ def process(directory):
         progress(f'Matching recording {index + 1} of {len(usable)}…', 'align')
         cache = directory / f'{clip["id"]}.alignment.json'
         cached = json.loads(cache.read_text()) if cache.exists() else {}
-        if cached.get('version') == 1 and cached.get('anchor_id') == anchor['id']:
+        if cached.get('version') == 2 and cached.get('anchor_id') == anchor['id']:
             clip['alignment'] = cached['alignment']
         else:
             clip['alignment'] = ({'status': 'matched', 'offset_seconds': 0, 'windows': []} if clip is anchor else
                                  align(ref_features, np.load(directory / f'{clip["id"]}.npy', mmap_mode='r', allow_pickle=False)))
-            write_json(cache, {'version': 1, 'anchor_id': anchor['id'], 'alignment': clip['alignment']})
+            write_json(cache, {'version': 2, 'anchor_id': anchor['id'], 'alignment': clip['alignment']})
+    for clip in usable:
+        if clip['alignment']['status'] != 'unmatched':
+            continue
+        hint = hint_for(clip, usable, anchor['id'])
+        if not hint:
+            continue
+        query = np.load(directory / f'{clip["id"]}.npy', mmap_mode='r', allow_pickle=False)
+        clip['alignment'] = apply_hint(ref_features, query, clip['alignment'], hint)
     timeline = plan_timeline([anchor] if soundtrack else clips)
     timeline['anchor_id'] = anchor['id']
     sources = {c['id']: directory / f'{c["id"]}.wav' for c in usable if c['alignment']['status'] == 'matched'}
