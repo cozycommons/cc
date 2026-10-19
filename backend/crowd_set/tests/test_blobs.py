@@ -76,7 +76,7 @@ def test_authenticated_app_proxies_cloud_ranges_without_secret_in_urls(tmp_path,
         calls.append(request)
         assert 'server-test-key' not in str(request.url)
         if '/bucket/' in request.url.path:
-            return httpx.Response(200, json={'public': False, 'file_size_limit': 2 * 1024 ** 3})
+            return httpx.Response(200, json={'public': False, 'file_size_limit': 3 * 1024 ** 3})
         assert request.headers['Range'] == 'bytes=1-3'
         return httpx.Response(206, content=b'bcd', headers={'Content-Range': 'bytes 1-3/6', 'Accept-Ranges': 'bytes'})
 
