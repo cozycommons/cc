@@ -98,3 +98,17 @@ def test_hosted_settings_fail_closed(tmp_path, monkeypatch):
     monkeypatch.delenv('CROWD_SET_AUTH_KEY', raising=False)
     with pytest.raises(RuntimeError, match='requires'):
         create_app(tmp_path)
+
+
+def test_only_owner_can_choose_soundtrack(hosted, monkeypatch):
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    owner = {'Authorization': 'Bearer first', 'Origin': 'https://commons.example'}
+    friend = {'Authorization': 'Bearer second', 'Origin': 'https://commons.example'}
+    created = hosted.post('/crowd-set/sets', headers=owner, json={'name': 'Official set'}).json()
+    path = '/crowd-set/sets/' + created['id']
+    added = hosted.put(path + '/clips?name=official.mp4', headers=friend, content=b'video').json()
+    clip_id = added['clips'][0]['id']
+    assert hosted.put(path + '/soundtrack', headers=friend, json={'clip_id': clip_id}).status_code == 403
+    assert hosted.put(path + '/soundtrack', headers=owner, json={'clip_id': clip_id}).json()['soundtrack_clip_id'] == clip_id
+    assert hosted.put(path + '/soundtrack', headers=friend, json={'clip_id': None}).status_code == 403
+    assert hosted.delete(path + '/clips/' + clip_id, headers=owner).json()['soundtrack_clip_id'] is None
