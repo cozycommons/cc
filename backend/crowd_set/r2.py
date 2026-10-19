@@ -134,8 +134,8 @@ class R2Blobs(BlobProvider):
         return {item['key']: item['bytes'] for item in (json.loads(path.read_text()) for path in (self.root / 'objects').glob('*.json'))}
 
     def check_bucket(self, file_bytes):
-        if file_bytes > 2 * 1024 ** 3:
-            raise BlobError('R2 free-tier mode limits individual files to 2 GiB.')
+        if file_bytes > 3 * 1024 ** 3:
+            raise BlobError('R2 free-tier mode limits individual files to 3 GiB.')
         ledger = self.ledger()
         if sum(ledger.values()) > STORAGE_BYTES:
             raise BlobError('Recorded media exceeds the free storage budget. Remove an old set before enabling R2.')
