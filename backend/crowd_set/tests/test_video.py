@@ -9,6 +9,7 @@ from crowd_set import video
 from crowd_set.limits import Limits
 from crowd_set.storage import OriginalStore
 from crowd_set.tests.test_audio import music, write_wav
+from crowd_set.audio import decode
 
 
 def make_video(path, audio, *, color='red', size='90x160', delay=0, duration=None):
@@ -149,3 +150,27 @@ def test_probe_recovers_when_ffmpeg_omits_audio_frame_log(tmp_path, monkeypatch)
     picture = video.probe(source, Limits())
     assert picture['audio_start'] == pytest.approx(1, abs=.08)
     assert picture['start'] == pytest.approx(-picture['audio_start'], abs=.001)
+
+
+def test_iphone_style_mov_hevc_10bit_aac_renders_as_h264_mp4(tmp_path):
+    originals = OriginalStore(tmp_path)
+    folder = tmp_path / 'set'
+    folder.mkdir()
+    audio = write_wav(tmp_path / 'source.wav', music(3))
+    item = clip('iphone', 0, 3, file='iphone.mov', name='iphone.mov')
+    source = originals.destination('set', item)
+    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-f', 'lavfi',
+                    '-i', 'color=c=red:s=90x160:r=30:d=3', '-i', str(audio),
+                    '-c:v', 'libx265', '-x265-params', 'pools=none:frame-threads=1:log-level=error',
+                    '-pix_fmt', 'yuv420p10le', '-tag:v', 'hvc1', '-c:a', 'aac',
+                    '-threads', '1', '-t', '3', str(source)], check=True, timeout=30)
+    original_bytes = source.read_bytes()
+    item['video'] = video.probe(source, Limits())
+    assert decode(source, folder / 'pending.wav', expected_duration=3) == pytest.approx(3, abs=.1)
+    plan = video.plan_video([item], {'duration': 3, 'origin_seconds': 0})
+    assert video.render(plan, [item], originals, 'set', folder, Limits())
+    output = folder / 'pending.mp4'
+    report = video.run(['-v', 'info', '-i', str(output), '-frames:v', '1', '-f', 'null', '-'], 30)
+    assert 'Video: h264' in report and 'Audio: aac' in report
+    assert frame(output, 1)[24, 42, 0] > 200
+    assert source.read_bytes() == original_bytes

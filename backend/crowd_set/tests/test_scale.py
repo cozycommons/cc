@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from crowd_set.app import create_app
-from crowd_set.limits import Limits, MIB
+from crowd_set.limits import Limits, MIB, GIB
 from crowd_set.store import Store
 from crowd_set.tests.test_audio import music, write_wav
 
@@ -113,6 +113,23 @@ def test_physical_free_floor_and_generated_quota(store, monkeypatch):
     with pytest.raises(HTTPException) as failure:
         store.originals.admit(store.limits, work_needed=store.limits.work_bytes + 1)
     assert failure.value.status_code == 507
+
+
+def test_large_original_admission_retains_r2_and_physical_caps(store, monkeypatch):
+    monkeypatch.setenv('CROWD_SET_STORAGE_PROVIDER', 'r2')
+    store.limits = Limits.environment()
+    assert store.limits.original_bytes == 8_000_000_000
+    assert 3 * store.limits.file_bytes + MIB < store.limits.work_bytes
+    monkeypatch.setattr('crowd_set.storage.shutil.disk_usage', lambda path: type('Disk', (), {'free': 20 * GIB})())
+    data = store.create('Full performance')
+    session = store.prepare_session(data['id'], 'Full performance.mp4', 3_165_006_590, 'a' * 64, 'alice')
+    assert session['size'] == 3_165_006_590
+    with pytest.raises(HTTPException) as failure:
+        store.originals.admit(store.limits, incoming=5_000_000_000)
+    assert failure.value.status_code == 507
+    with pytest.raises(HTTPException) as failure:
+        store.prepare_session(data['id'], 'Too large.mov', 3 * GIB + 1, 'b' * 64, 'alice')
+    assert failure.value.status_code == 413
 
 
 def test_durable_batch_resumes_and_job_recovery_is_bounded(store, tmp_path):
