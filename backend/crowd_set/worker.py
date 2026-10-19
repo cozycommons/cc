@@ -3,6 +3,7 @@ import os
 import signal
 from pathlib import Path
 import sys
+import time
 
 import numpy as np
 
@@ -32,8 +33,11 @@ def process(directory):
     clips = data['clips']
     limits = Limits.environment()
     originals = OriginalStore(directory.parent, environment(directory.parent))
-    def progress(stage):
-        write_json(directory / 'progress.json', {'stage': stage})
+    started = data.get('processing_started_at', time.time())
+    def progress(stage, phase='prepare', **details):
+        render = details.pop('render', None)
+        write_json(directory / 'progress.json', {'stage': stage, 'render': render,
+                   'processing': {'phase': phase, 'started_at': started, 'updated_at': time.time(), **details}})
 
     candidates = []
     for clip in clips:
@@ -69,11 +73,14 @@ def process(directory):
             if analysis.get('version') != 2 or not path.exists() or not feature_path.exists():
                 source = originals.materialize(data['id'], clip, directory)
                 try:
+                    progress(f'Reading audio from recording {index + 1} of {len(candidates)}…')
                     duration = decode(source, path, expected_duration=clip['expected_duration'], limits=limits)
+                    progress(f'Checking video timing for recording {index + 1} of {len(candidates)}…')
                     picture = video.probe(source, limits, directory)
                 finally:
                     if clip.get('object_key'):
                         source.unlink(missing_ok=True)
+                progress(f'Analyzing sound in recording {index + 1} of {len(candidates)}…')
                 quality = recording_quality(path)
                 measurement = loudness(path)
                 np.save(feature_path, features(path), allow_pickle=False)
@@ -93,7 +100,7 @@ def process(directory):
     anchor = choose_anchor(usable)
     ref_features = np.load(directory / f'{anchor["id"]}.npy', mmap_mode='r', allow_pickle=False)
     for index, clip in enumerate(usable):
-        progress(f'Matching recording {index + 1} of {len(usable)}…')
+        progress(f'Matching recording {index + 1} of {len(usable)}…', 'align')
         cache = directory / f'{clip["id"]}.alignment.json'
         cached = json.loads(cache.read_text()) if cache.exists() else {}
         if cached.get('version') == 1 and cached.get('anchor_id') == anchor['id']:
@@ -106,8 +113,10 @@ def process(directory):
     timeline['anchor_id'] = anchor['id']
     sources = {c['id']: directory / f'{c["id"]}.wav' for c in usable if c['alignment']['status'] == 'matched'}
     match_levels(timeline, sources, {c['id']: c['measurement'] for c in usable})
+    progress('Mixing audio…', 'audio')
     playable = render(timeline, sources, directory / 'pending.wav')
     if playable:
+        progress('Checking audio levels…', 'audio')
         peak = loudness(directory / 'pending.wav')['true_peak_dbfs']
         if peak > -2:
             reduction = peak + 2.1
@@ -125,8 +134,8 @@ def process(directory):
         originals.admit(limits, work_needed=2 * video.byte_bound(timeline['duration']) +
                         len(visual['segments'] + visual['gaps']) * 2 * 1024 ** 2 +
                         max((c.get('bytes', 0) for c in usable if c.get('object_key')), default=0))
-    progress('Rendering video…')
-    has_video = playable and video.render(visual, clips, originals, data['id'], directory, limits)
+    progress('Preparing video…', 'render')
+    has_video = playable and video.render(visual, clips, originals, data['id'], directory, limits, on_progress=progress)
     write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': playable,
                                            'video_playable': has_video, 'video_timeline': visual if has_video else None})
 

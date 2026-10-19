@@ -23,6 +23,7 @@ from .storage import OriginalStore
 from .blobs import BlobError, environment
 from .audio import probe
 from .youtube import canonical_url
+from .progress import snapshot
 
 ROOT = Path(__file__).resolve().parents[2] / '.crowd-set'
 EXTENSIONS = {'.wav', '.mp3', '.m4a', '.mp4', '.mov', '.aac', '.flac', '.ogg', '.webm'}
@@ -103,7 +104,7 @@ class Store:
                 raise HTTPException(404, 'Performance not found')
             data = json.loads((directory / 'set.json').read_text())
             if data['status'] == 'processing' and (directory / 'progress.json').exists():
-                data.update(json.loads((directory / 'progress.json').read_text()))
+                data.update(snapshot(directory))
             if data['status'] == 'importing':
                 progress = directory / 'youtube' / 'progress.json'
                 if progress.exists():
@@ -254,6 +255,8 @@ class Store:
     def invalidate(self, data):
         data.update(status='idle', error=None, dirty=True)
         data.pop('stage', None)
+        data.pop('processing', None)
+        data.pop('processing_started_at', None)
 
     def queue(self, data):
         self.pending.pop(data['id'], None)
@@ -642,7 +645,7 @@ class Store:
                 for path in directory.glob(pattern):
                     if path.name not in published:
                         path.unlink(missing_ok=True)
-            data.update(status='processing', stage='Updating mix')
+            data.update(status='processing', stage='Starting processing…', processing_started_at=time.time())
             self.save(data)
             write_json(self.directory(set_id) / 'job.json', data)
             self.active = set_id
@@ -670,6 +673,9 @@ class Store:
                 failure = directory / 'failure.json'
                 raise RuntimeError(json.loads(failure.read_text())['error'] if failure.exists() else 'Processing stopped unexpectedly. Retry with shorter recordings.')
             result = json.loads((directory / 'result.json').read_text())
+            write_json(directory / 'progress.json', {'stage': 'Saving the finished cut…',
+                       'processing': {'phase': 'save', 'started_at': self.get(set_id).get('processing_started_at'),
+                                      'updated_at': time.time()}})
             if not result['playable']:
                 raise ValueError('No mix was created. Add another recording and retry.')
             revision = uuid4().hex
@@ -706,11 +712,15 @@ class Store:
                     data.update(previous_revision=previous, previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0))
                     data.update(result, **publication, status='ready', error=None, dirty=False, mix_revision=revision, recovery_attempts=0)
                 data.pop('stage', None)
+                data.pop('processing', None)
+                data.pop('processing_started_at', None)
                 self.save(data)
             except (OSError, ValueError, httpx.HTTPError):
                 previous = self.get(set_id)
                 previous.update(status='failed', dirty=True, error='Could not save the updated mix. Check storage and retry.')
                 previous.pop('stage', None)
+                previous.pop('processing', None)
+                previous.pop('processing_started_at', None)
                 self.save(previous)
         try:
             self.collect_mixes(set_id)

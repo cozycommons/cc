@@ -110,7 +110,7 @@ def plan_video(clips, timeline):
             'width': WIDTH, 'height': HEIGHT, 'segments': segments, 'gaps': gaps}
 
 
-def render(timeline, clips, originals, set_id, directory, limits):
+def render(timeline, clips, originals, set_id, directory, limits, *, on_progress=None):
     if not timeline['segments']:
         return False
     by_id = {c['id']: c for c in clips}
@@ -118,12 +118,16 @@ def render(timeline, clips, originals, set_id, directory, limits):
     with tempfile.TemporaryDirectory(prefix='video-', dir=directory) as temporary:
         folder = Path(temporary)
         paths = []
+        completed_frames = 0
+        total_frames = sum(s['last_frame'] - s['first_frame'] for s in timeline['segments'] + timeline['gaps'])
         for index, segment in enumerate(sorted(timeline['segments'] + timeline['gaps'], key=lambda s: s['first_frame'])):
             count = segment['last_frame'] - segment['first_frame']
             duration = count / FRAME_RATE
             clip = by_id.get(segment.get('clip_id'))
             source = None
             if clip:
+                if on_progress:
+                    on_progress('Loading recording for the video cut…', 'render')
                 source = originals.materialize(set_id, clip, directory)
                 timestamp = segment['start'] - segment['offset'] + clip['video']['audio_start']
                 inputs = ['-copyts', '-seek_timestamp', '1', '-ss', str(max(0, timestamp)),
@@ -137,7 +141,10 @@ def render(timeline, clips, originals, set_id, directory, limits):
                 inputs = ['-f', 'lavfi', '-i', f'color=c=0x243027:s={WIDTH}x{HEIGHT}:r={FRAME_RATE}']
                 filters = 'null'
             path = folder / f'{index}.mp4'
-            progress = folder / 'progress.txt'
+            progress = folder / f'{index}-progress.txt'
+            if on_progress:
+                on_progress('Rendering video…', 'render', render={'file': str(progress.relative_to(directory)),
+                            'completed_frames': completed_frames, 'segment_frames': count, 'total_frames': total_frames})
             try:
                 actual = run(['-v', 'error', *inputs, '-an', '-sn', '-dn', '-vf', filters,
                               '-frames:v', str(count), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
@@ -150,8 +157,11 @@ def render(timeline, clips, originals, set_id, directory, limits):
                 if source and clip.get('object_key'):
                     source.unlink(missing_ok=True)
             paths.append(path)
+            completed_frames += count
         listing = folder / 'segments.txt'
         listing.write_text(''.join(f"file '{path.name}'\n" for path in paths))
+        if on_progress:
+            on_progress('Combining video and audio…', 'finalize')
         run(['-v', 'error', '-protocol_whitelist', 'file', '-f', 'concat', '-safe', '1', '-i', str(listing),
              '-i', str(directory / 'pending.wav'), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
              '-c:a', 'aac', '-b:a', '96k', '-threads', '1', '-movflags', '+faststart',

@@ -5,6 +5,7 @@ import { uploadRecording } from './uploads';
 import MixTimeline, { recordingColor } from './MixTimeline';
 import CreateSet from './CreateSet';
 import YouTubeImport from './YouTubeImport';
+import ProcessingStatus from './ProcessingStatus';
 import { eventDate, eventRange, matchesSearch } from './setDetails';
 import './crowd-set.css';
 
@@ -125,7 +126,9 @@ export default function CrowdSet() {
           try {
             if (file.size > limits.file_bytes) throw new Error(`Exceeds ${Math.round(limits.file_bytes / 1024 ** 2)} MiB.`);
             update(await uploadRecording(id, file, { batchId: batch?.id, limits,
-              onProgress: (uploaded, total) => setNotice(`Uploading ${file.name} (${index + 1}/${files.length}) · ${Math.round(uploaded / total * 100)}%…`),
+              onProgress: (uploaded, total) => setNotice(uploaded >= total
+                ? `Saving ${file.name} to storage (${index + 1}/${files.length})…`
+                : `Uploading ${file.name} (${index + 1}/${files.length}) · ${Math.floor(uploaded / total * 100)}%…`),
             }));
             setFailedFiles((previous) => previous.filter((pending) => pending !== file));
           } catch (failure) { failures.push(`${file.name}: ${failure.message}`); }
@@ -183,9 +186,9 @@ export default function CrowdSet() {
             <Music2 className="cs-audio-icon" size={40} strokeWidth={1} aria-hidden="true" />
             <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" />
           </>}
-        </div> : <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Processing' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
+        </div> : selected.status !== 'processing' && <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Getting your recordings ready' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
         {selected.playable && selected.timeline && <MixTimeline timeline={selected.video_playable ? selected.video_timeline : selected.timeline} video={selected.video_playable} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
-        <p role="status">{busy ? notice || 'Saving…' : selected.status === 'importing' ? selected.youtube_import?.stage || 'Downloading from YouTube…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? selected.stage || 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
+        {selected.status === 'processing' && !busy ? <ProcessingStatus set={selected} /> : <p role="status">{busy ? notice || 'Saving…' : selected.status === 'importing' ? selected.youtube_import?.stage || 'Downloading from YouTube…' : selected.status === 'queued' ? 'Queued for processing. Your recordings are saved.' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>}
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
         {!updating && (selected.status === 'failed' || selected.dirty || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : 'Update mix'}</button>}
         {!busy && failedFiles.length > 0 && <button disabled={locked} onClick={() => upload(failedFiles)}>Retry {failedFiles.length} {failedFiles.length === 1 ? 'upload' : 'uploads'}</button>}
