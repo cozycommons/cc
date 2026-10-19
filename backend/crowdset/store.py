@@ -677,7 +677,7 @@ class Store:
                     data['soundtrack_clip_id'] = None
                 if not any(c['role'] != 'reference' and c['included'] for c in data['clips']):
                     data.update(playable=False, video_playable=False, timeline=None, video_timeline=None,
-                                composition=None, previous_revision={})
+                                composition=None, scrub_previews={}, previous_revision={})
             else:
                 clip['included'] = included
             return self.queue(data)
@@ -835,7 +835,7 @@ class Store:
                         data.update(result, status='ready', error=None, dirty=False, recovery_attempts=0)
                     else:
                         previous = {key: data.get(key) for key in ('mix_revision', 'mix_file', 'mix_object', 'mix_bytes',
-                                    'video_file', 'video_object', 'video_bytes', 'video_playable', 'playable', 'composition')}
+                                    'video_file', 'video_object', 'video_bytes', 'video_playable', 'playable', 'composition', 'scrub_previews')}
                         previous['mix_file'] = data.get('mix_file') or 'reconstruction.wav'
                         data.update(previous_revision=previous, previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0))
                         data.update(result, **publication, status='ready', error=None, dirty=False, mix_revision=revision, recovery_attempts=0)
@@ -865,6 +865,10 @@ class Store:
         assets = [asset for revision in (data, previous)
                   for asset in (revision.get('composition') or {}).get('assets', {}).values()]
         retained_files.update(asset['file'] for asset in assets)
+        for revision in (data, previous):
+            for preview in (revision.get('scrub_previews') or {}).values():
+                retained_files.update(preview['sheets'])
+                retained_files.update(name.rsplit('-', 1)[0] + '.json' for name in preview['sheets'])
         if self.blobs:
             retained = {data.get('mix_object'), data.get('previous_mix_object'), data.get('video_object'), previous.get('video_object')}
             retained.update(asset.get('object') for asset in assets)
@@ -883,7 +887,7 @@ class Store:
             except (OSError, ValueError, httpx.HTTPError):
                 # Retain reservations until remote deletion is acknowledged.
                 return
-        for pattern in ('mix-*.wav', 'mix-*.mp4', 'mix-*.transfer.json', 'overlay-*.mp4', 'overlay-*.transfer.json', 'overlay-*.progress'):
+        for pattern in ('mix-*.wav', 'mix-*.mp4', 'mix-*.transfer.json', 'overlay-*.mp4', 'overlay-*.transfer.json', 'overlay-*.progress', 'scrub-*.jpg', 'scrub-*.json'):
             for path in self.directory(set_id).glob(pattern):
                 if path.name.removesuffix('.transfer.json') not in retained_files:
                     path.unlink(missing_ok=True)

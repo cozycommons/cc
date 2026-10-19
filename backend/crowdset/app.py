@@ -323,6 +323,20 @@ def create_app(root=None):
             return stored_media(store, asset['object'], request, 'friend.mp4', False, 'video/mp4')
         return FileResponse(store.directory(set_id) / asset['file'], media_type='video/mp4')
 
+    @app.get('/crowdset/sets/{set_id}/previews/{sheet}')
+    def scrub_preview(set_id: str, sheet: str, request: Request, v: str):
+        store = request.app.state.store
+        data = store.get(set_id)
+        if v != data.get('mix_revision'):
+            data = data.get('previous_revision', {})
+        if v != data.get('mix_revision') or not any(
+                sheet in preview['sheets'] for preview in (data.get('scrub_previews') or {}).values()):
+            raise HTTPException(404, 'Preview unavailable')
+        path = store.directory(set_id) / sheet
+        if not path.is_file():
+            raise HTTPException(404, 'Preview unavailable')
+        return FileResponse(path, media_type='image/jpeg')
+
     @app.post('/crowdset/sets/{set_id}/process', status_code=202)
     def process(set_id: str, request: Request):
         return present(request.app.state.store.start(set_id), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)

@@ -245,7 +245,9 @@ export default function Crowdset() {
           <div className="cs-recordings">{unused.map(renderClip)}</div>
         </details>}
       </section>
-      {selected.can_delete && <section className="cs-admin" aria-label="Admin controls"><h2>Admin controls</h2><button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button></section>}
+      {selected.can_delete && <section className="cs-admin" aria-label="Admin controls"><h2>Admin controls</h2>
+        {selected.video_playable && selected.video_timeline?.segments.some((segment) => !selected.scrub_previews?.[segment.clip_id]) && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>Prepare video previews</button>}
+        <button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button></section>}
     </>}
     </div>
   </main>;

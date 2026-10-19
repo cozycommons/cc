@@ -372,3 +372,15 @@ it('shows admin deletion controls even when the admin does not own the set or cl
   expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
   expect(screen.queryByRole('button', { name: 'Use as official set' })).not.toBeInTheDocument();
 });
+
+it('lets an admin prepare missing previews without replacing the published player', async () => {
+  const video = { ...ready, can_delete: true, video_playable: true, video_timeline: { duration: 20, segments: [{ clip_id: clip.id, start: 0, end: 20, offset: 0 }] } };
+  request.mockResolvedValueOnce([video]).mockResolvedValueOnce({ ...video, status: 'processing' });
+  render(<Crowdset />);
+  await openSet();
+  const player = screen.getByLabelText('Current cut');
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare video previews' }));
+  await screen.findByText('Starting processing…');
+  expect(request).toHaveBeenLastCalledWith('/one/process', { method: 'POST' });
+  expect(screen.getByLabelText('Current cut')).toBe(player);
+});

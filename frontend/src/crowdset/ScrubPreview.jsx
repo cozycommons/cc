@@ -1,54 +1,66 @@
 import React from 'react';
 import { endpoint } from './api';
 
+function sheetUrl(set, sheet) {
+  return endpoint(`/${set.id}/previews/${sheet}?v=${set.mix_revision}`);
+}
+
 export function previewFrame(set, time) {
-  const cut = set.video_timeline?.segments?.find((segment) => segment.asset_id && segment.start <= time && time < segment.end);
+  const segment = set.video_timeline?.segments?.find((item) => item.start <= time && time < item.end);
+  const source = set.scrub_previews?.[segment?.clip_id];
+  if (!source) return null;
+  const frame = Math.max(0, Math.min(source.count - 1, Math.floor((time - segment.offset - source.start) / source.interval)));
+  const tileCount = source.columns * source.rows;
+  const sheet = source.sheets[Math.floor(frame / tileCount)];
+  if (!sheet) return null;
   return {
-    src: endpoint(`/${set.id}/${cut ? `overlays/${cut.asset_id}` : 'video'}?v=${set.mix_revision}`),
-    localTime: cut ? time - cut.start : time,
+    src: sheetUrl(set, sheet),
+    size: `${source.columns * 100}% ${source.rows * 100}%`,
+    position: `${(frame % source.columns) / Math.max(1, source.columns - 1) * 100}% ${Math.floor(frame % tileCount / source.columns) / Math.max(1, source.rows - 1) * 100}%`,
   };
 }
 
-export default function ScrubPreview({ set, time, left, label }) {
-  const video = React.useRef(null);
-  const [request, setRequest] = React.useState(null);
-  const [ready, setReady] = React.useState(null);
-  const [failed, setFailed] = React.useState(null);
-  const { src, localTime } = previewFrame(set, time);
+export function useScrubPreviews(set) {
+  const urls = JSON.stringify([...new Set(Object.values(set.scrub_previews || {}).flatMap((source) => source.sheets.map((sheet) => sheetUrl(set, sheet))))]);
+  const [loaded, setLoaded] = React.useState({ urls: null, images: new Map() });
   React.useEffect(() => {
-    const timer = setTimeout(() => setRequest({ src, localTime, time }), 180);
-    return () => clearTimeout(timer);
-  }, [src, localTime, time]);
-
-  function seek() {
-    const media = video.current;
-    if (!request || !media || media.readyState < 1) return;
-    const target = Math.min(request.localTime, Math.max(0, media.duration - 0.05));
-    if (Number.isFinite(target)) media.currentTime = target;
-  }
-  function reveal() {
-    const media = video.current;
-    if (request && media && !media.seeking && media.readyState >= 2
-        && Math.abs(media.currentTime - request.localTime) < 0.15) setReady(request);
-  }
-  React.useEffect(seek, [request]);
-  React.useEffect(() => {
-    const media = video.current;
+    const pending = JSON.parse(urls);
+    const images = [];
+    const controller = new AbortController();
+    let cancelled = false;
+    async function preload() {
+      while (!cancelled && pending.length) {
+        const src = pending.shift();
+        try {
+          const response = await fetch(src, { credentials: 'same-origin', signal: controller.signal });
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          const image = new Image();
+          images.push({ image, url });
+          image.src = url;
+          await image.decode();
+          if (!cancelled) setLoaded((previous) => ({ urls, images: new Map([...(previous.urls === urls ? previous.images : []), [src, url]]) }));
+        } catch { /* Keep the timestamp usable if an optional preview fails. */ }
+      }
+    }
+    for (let index = 0; index < 4; index += 1) preload();
     return () => {
-      if (!media) return;
-      media.pause();
-      media.removeAttribute('src');
-      media.load();
+      cancelled = true;
+      controller.abort();
+      images.forEach(({ image, url }) => { image.src = ''; URL.revokeObjectURL(url); });
     };
-  }, [request?.src]);
-  const current = request?.time === time;
+  }, [urls]);
+  return loaded.urls === urls ? loaded.images : new Map();
+}
+
+export default function ScrubPreview({ set, time, left, label, loaded }) {
+  const frame = previewFrame(set, time);
   return <div className="cs-scrub-preview" style={{ '--preview-left': left }} role="img" aria-label={`Video preview at ${label}`}>
-    <div className="cs-scrub-picture">
-      {request && <video key={request.src} ref={video} src={request.src} muted playsInline preload="metadata" aria-hidden="true"
-        style={{ visibility: current && ready === request ? 'visible' : 'hidden' }}
-        onLoadedMetadata={seek} onLoadedData={reveal} onSeeked={reveal} onError={() => setFailed(request.src)} />}
-      {(!current || ready !== request) && <span>{current && failed === request?.src ? 'Preview unavailable' : 'Loading preview…'}</span>}
-    </div>
+    {frame && loaded?.has(frame.src) && <div className="cs-scrub-picture">
+      <div className="cs-scrub-sprite" style={{ backgroundImage: `url("${loaded.get(frame.src)}")`, backgroundSize: frame.size, backgroundPosition: frame.position }} />
+    </div>}
     <span className="cs-scrub-time">{label}</span>
   </div>;
 }

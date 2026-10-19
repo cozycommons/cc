@@ -1,7 +1,7 @@
 import React from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RectangleHorizontal, X, LoaderCircle } from 'lucide-react';
 import { endpoint } from './api';
-import ScrubPreview from './ScrubPreview';
+import ScrubPreview, { useScrubPreviews } from './ScrubPreview';
 
 export function playbackTime(seconds) {
   const total = Math.floor(Math.max(0, seconds || 0));
@@ -10,6 +10,7 @@ export function playbackTime(seconds) {
 }
 
 export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theater = false, onTheaterChange }) {
+  const previews = useScrubPreviews(set);
   const container = React.useRef(null);
   const insert = React.useRef(null);
   const [playing, setPlaying] = React.useState(false);
@@ -203,7 +204,7 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
     </div>
     <div className="cs-player-controls">
       <div className="cs-player-progress" style={{ '--played': `${duration ? position / duration * 100 : 0}%`, '--buffered': `${duration ? Math.min(buffered / duration * 100, 100) : 0}%` }}>
-        {preview && <ScrubPreview set={set} time={preview.time} left={preview.left} label={playbackTime(preview.time)} />}
+        {preview && <ScrubPreview set={set} time={preview.time} left={preview.left} label={playbackTime(preview.time)} loaded={previews} />}
         <input type="range" aria-label="Seek video" aria-valuetext={`${playbackTime(position)} of ${playbackTime(duration)}`} min="0" max={duration} step="0.1"
           value={Math.min(position, duration)}
           onPointerMove={(event) => { if (event.pointerType !== 'touch' || event.buttons) inspect(event); }} onPointerDown={inspect}
