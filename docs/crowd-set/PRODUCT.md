@@ -95,3 +95,9 @@ The first version plays these picture cuts in the app using the continuous offic
 Only the set owner can change or clear the soundtrack selection. Missing, excluded or unusable selections fail clearly instead of silently choosing different audio. Removing the selected recording clears the selection. Changing the selection rebuilds against the selected timing anchor. Retain the prior playable result until all new referenced media are published. Preserve the 8 GB R2 cap, original bytes and request accounting.
 
 Validation covers onset/exit timing, contained and overlapping clips, stable tie selection, short leftovers, negative offsets and end clipping, continuous official audio, portrait/HEVC normalization, owner permissions, failed publication, playback/seek/pause and unchanged-cut reuse.
+
+## Removed recordings
+
+Remove hides a recording from the set and original-media routes, excludes it from future cuts, and clears its official-audio selection if necessary. Keep its original bytes and metadata as a soft deletion; do not count it toward recording or duration limits. The existing published cut remains available while its replacement processes. Removing the last recording hides playback immediately. No trash or restore screen is included yet.
+
+Retained removed originals still count toward storage. Only when admitting an upload or publishing output would exceed the configured original/cloud quota, permanently reclaim the oldest removed recordings across sets until the operation fits. Keep the R2 cap at 8 GB. Never reclaim active originals or current/previous published outputs this way. Failed remote cleanup retains its reservation and blocks admission if space is still insufficient. Set deletion remains an explicit permanent deletion, including its removed recordings.

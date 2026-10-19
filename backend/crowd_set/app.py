@@ -96,6 +96,7 @@ def visible(data, owner, hosted):
 
 
 def present(data, owner):
+    data.pop('deleted_clips', None)
     data.pop('batch', None)
     data.pop('completed_batch', None)
     data.pop('recovery_attempts', None)

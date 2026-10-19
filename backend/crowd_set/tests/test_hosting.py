@@ -82,6 +82,11 @@ def test_hosted_auth_origin_cookie_and_owner_isolation(hosted):
     assert api.delete(path, headers=second).status_code == 403
     assert api.patch(path + '/clips/' + clip['id'], headers=second, json={'included': False}).status_code == 200
     assert api.delete(path + '/clips/' + clip['id'], headers=first).status_code == 200
+    assert api.get(media, headers=third).status_code == 404
+    assert api.get(path, headers=second).json()['clips'] == []
+    assert 'deleted_clips' not in api.get(path, headers=first).json()
+    retained = api.app.state.store.get(path.rsplit('/', 1)[1])['deleted_clips'][0]
+    assert api.app.state.store.originals.path(path.rsplit('/', 1)[1], retained).read_bytes() == b'original video bytes'
     api.cookies.clear()
     assert api.get(media).status_code == 401
     assert api.get(path + '/audio').status_code == 401
