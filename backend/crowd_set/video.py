@@ -49,6 +49,12 @@ def probe(source, limits, workdir=None):
         return None
     audio = re.search(r'\[Parsed_ashowinfo_\d+[^\n]*?pts_time:([\d.e+-]+)', report)
     if not audio:
+        # FFmpeg can stop the combined probe after video before logging any audio frame.
+        report = run(['-v', 'info', '-copyts', '-protocol_whitelist', 'file',
+                      '-format_whitelist', FORMATS, '-i', str(source), '-map', '0:a:0',
+                      '-vn', '-af', 'ashowinfo', '-frames:a', '1', '-f', 'null', '-'], min(30, limits.media_seconds))
+        audio = re.search(r'\[Parsed_ashowinfo_\d+[^\n]*?pts_time:([\d.e+-]+)', report)
+    if not audio:
         raise ValueError('Cannot establish this video’s audio clock.')
     start, audio_start = float(picture[1]), float(audio[1])
     if not all(math.isfinite(n) for n in (start, audio_start)):
