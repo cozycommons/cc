@@ -48,6 +48,15 @@ The agreed next product loop is Google sign-in → find/create a performance →
 
 Keep copy functional: Sets, New set, Add clips, Review clips, Processing, Retry. Received, processing and unmatched clips do not count as playable coverage. Do not invent timestamps or continuity. Preserve a playable result during failed or pending updates. Exclude captions, comments, votes, angle/version pickers, editing interfaces, separate upload libraries, profiles, social graphs, saves, notifications and new private/custom cuts.
 
-This handoff is product direction, not evidence that the video MVP is complete. The current tested release compiles audio and plays individual original videos. A single server-selected video cut, structured event metadata/search and duplicate checks remain outstanding. The design prototype's chronological/timestamp fallback and skipped-gap suggestions do not override the approved conservative alignment, actual gaps, overlap fades or legacy reference-only exclusion above. Resolve those video delivery details explicitly before replacing the current pipeline. Finish the R2/Coolify rollout with its existing bounds first.
+This handoff is product direction, not evidence that the video MVP is complete. The current tested release compiles audio and plays individual original videos. A single server-selected video cut remains outstanding. Structured event metadata, catalog search and likely-duplicate checks are covered by the frontend MVP below. The design prototype's chronological/timestamp fallback and skipped-gap suggestions do not override the approved conservative alignment, actual gaps, overlap fades or legacy reference-only exclusion above. Resolve those video delivery details explicitly before replacing the current pipeline. Finish the R2/Coolify rollout with its existing bounds first.
 
 Design source: `docs/crowdset/DESIGN.md` in the primary checkout and the 2026-10-19 “Design Crowdset app UI” handoff. Prototype data, sign-in and uploads are simulated; they are not production validation. This document remains the implementation contract; do not create a competing spec tree.
+
+
+## Frontend MVP
+
+The catalog supports artist, venue, and date search. New set opens a focused creation form. When the API advertises event metadata, collect artist, venue, local start/end datetimes, and an IANA time zone. The end may fall on the next date. Check the accessible catalog for the same artist, venue and local event date before creating; let the user open that set or explicitly create a different one. Older APIs retain the name-only form.
+
+Set detail prioritizes the current published audio mix, labeled Audio mix, followed by its read-only coverage timeline and original clips. No angle, cut, or manual inclusion controls. Original removal still follows uploader/owner permissions. Count real contributors when uploader IDs exist; show names only when supplied by the API. Failed upload retry submits only files that did not succeed, preserving successful originals and the current mix. Keep copy functional and concise, without slogans or tutorial legends.
+
+This frontend does not deliver a compiled video cut. Existing authentication, conservative alignment, actual silent gaps, revision publication, limits, and private media access remain unchanged.

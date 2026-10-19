@@ -41,8 +41,6 @@ export default function MixTimeline({ timeline, clips, currentTime, onSeek }) {
     <div className="cs-timeline-times"><span>{timestamp(position)}</span><span>{timestamp(duration)}</span></div>
     <p className="cs-timeline-detail">{detail}</p>
     <div className="cs-timeline-legend">{used.map((id) => <a key={id} href={`#recording-${id}`} title={timeline.segments.filter((segment) => segment.clip_id === id).map(describe).join(', ')}><span style={{ background: recordingColor(id, clips) }} />{name(id)}</a>)}
-      {timeline.gaps.length > 0 && <span><i className="cs-gap-key" />Silence</span>}
-      {timeline.segments.some((segment) => segment.fade_in > 0) && <span>Striped edge: crossfade</span>}
     </div>
   </div>;
 }

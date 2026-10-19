@@ -1,7 +1,10 @@
 import React from 'react';
+import { ArrowLeft, Plus, Search, Music2, Download } from 'lucide-react';
 import { endpoint, request, getLimits } from './api';
 import { uploadRecording } from './uploads';
 import MixTimeline, { recordingColor } from './MixTimeline';
+import CreateSet from './CreateSet';
+import { eventDate, eventRange, matchesSearch } from './setDetails';
 import './crowd-set.css';
 
 export function time(seconds) {
@@ -15,7 +18,9 @@ const legacyLimits = { recordings: 8, file_bytes: 512 * 1024 ** 2, recording_sec
 export default function CrowdSet() {
   const [sets, setSets] = React.useState([]);
   const [selected, setSelected] = React.useState(null);
-  const [name, setName] = React.useState('');
+  const [creating, setCreating] = React.useState(false);
+  const [query, setQuery] = React.useState('');
+  const [failedFiles, setFailedFiles] = React.useState([]);
   const [busy, setBusy] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
@@ -33,6 +38,10 @@ export default function CrowdSet() {
     selection.current = value?.id || null;
     setSelected(value);
     setStatusError('');
+    setCreating(false);
+    setFailedFiles([]);
+    setError('');
+    setCurrentTime(0);
   }, []);
   const update = React.useCallback((value) => {
     setSets((previous) => [value, ...previous.filter((item) => item.id !== value.id)]);
@@ -101,11 +110,10 @@ export default function CrowdSet() {
     try { await callback(); } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   }
-  async function upload(event) {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
+  async function upload(files) {
     const id = selected.id;
     if (!files.length) return;
+    setFailedFiles(files);
     await action(async () => {
       const batch = files.length > 1 ? await request(`/${id}/batches`, { method: 'POST' }) : null;
       const failures = [];
@@ -118,6 +126,7 @@ export default function CrowdSet() {
             update(await uploadRecording(id, file, { batchId: batch?.id, limits,
               onProgress: (uploaded, total) => setNotice(`Uploading ${file.name} (${index + 1}/${files.length}) · ${Math.round(uploaded / total * 100)}%…`),
             }));
+            setFailedFiles((previous) => previous.filter((pending) => pending !== file));
           } catch (failure) { failures.push(`${file.name}: ${failure.message}`); }
         }
       } finally {
@@ -135,55 +144,62 @@ export default function CrowdSet() {
   const ordinary = recordings.filter((clip) => clip.role !== 'reference');
   const used = new Set(selected?.timeline?.segments.map((segment) => segment.clip_id) || []);
   const updating = ['queued', 'processing', 'uploading'].includes(selected?.status);
+  const visibleSets = sets.filter((set) => matchesSearch(set, query));
+  const contributors = new Set(recordings.map((clip) => clip.uploader).filter(Boolean)).size;
+
+  async function createSet(value) {
+    await action(async () => {
+      const created = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+      update(created); choose(created); setQuery('');
+    });
+  }
 
   return <main className="crowd-set">
-    <header className="cs-header"><a href="/">Cozy Commons</a></header>
+    <div className="cs-shell">
+    <header className="cs-header"><button className="cs-wordmark" disabled={busy} onClick={() => { choose(null); setQuery(''); }}>crowdset</button><a href="/">Cozy Commons ↗</a></header>
     {(error || statusError) && <div role="alert" className="cs-error">{error || statusError}</div>}
-    {loading ? <p role="status">Loading…</p> : !available ? <section className="cs-card"><h1>Crowd Set</h1>
-      {needsSignIn ? <button onClick={() => action(async () => { const { auth } = await import('../supabase'); await auth.signInWithGoogle(`${window.location.origin}/crowd-set`); })}>Continue with Google</button> : <button onClick={reload}>Reconnect</button>}
-    </section> : !selected ? <>
-      <div className="cs-title cs-catalog-title"><h1>Crowd Set</h1><button onClick={() => document.getElementById('set-name').focus()}>New set</button></div>
+    {loading ? <p className="cs-loading" role="status">Loading…</p> : !available ? <section className="cs-sign-in"><h1>{needsSignIn ? 'Sign in' : 'Crowdset'}</h1>
+      {needsSignIn ? <button className="cs-primary" disabled={busy} onClick={() => action(async () => { const { auth } = await import('../supabase'); await auth.signInWithGoogle(`${window.location.origin}/crowd-set`); })}>{busy ? 'Connecting…' : 'Continue with Google'}</button> : <button className="cs-primary" onClick={reload}>Reconnect</button>}
+    </section> : creating ? <CreateSet sets={sets} structured={limits.event_metadata === true} busy={busy} onCreate={createSet} onChoose={choose} onBack={() => setCreating(false)} /> : !selected ? <>
+      <div className="cs-title cs-catalog-title"><h1>Sets</h1><button className="cs-primary cs-new-button" onClick={() => { setCreating(true); setError(''); }}><Plus size={17} /> New set</button></div>
+      <label className="cs-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Find a set" placeholder="Artist, venue, or date" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <section aria-label="Sets" className="cs-set-list">
-        {sets.length ? sets.map((item) => <button className="cs-set" key={item.id} onClick={() => { choose(item); setNotice(''); }}>
-          <strong>{item.name}</strong><span>{item.clips.length} recordings{item.visibility !== 'shared' ? ' · Private' : ''}</span>
-        </button>) : <p>No sets yet.</p>}
+        {visibleSets.length ? visibleSets.map((item) => <button className="cs-set" key={item.id} onClick={() => { choose(item); setNotice(''); }}>
+          <div className="cs-set-cover"><span className="cs-set-date">{eventDate(item) || (item.visibility === 'shared' ? 'Public' : 'Private')}</span><strong>{item.artist || item.name}</strong><span>{item.venue}</span></div>
+          <div className="cs-set-footer"><span>{item.clips.length} {item.clips.length === 1 ? 'clip' : 'clips'}{item.timeline?.duration ? ` · ${time(item.timeline.duration)} audio` : ''}</span><span>{item.playable ? 'Listen →' : ['processing', 'queued', 'uploading'].includes(item.status) ? 'Processing' : item.clips.length ? 'Open →' : 'Add clips →'}</span></div>
+        </button>) : <p className="cs-empty-catalog">{query ? 'No sets found.' : 'No sets yet.'}</p>}
       </section>
-      <form className="cs-new-set" onSubmit={(event) => { event.preventDefault(); action(async () => { const value = await request('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); update(value); choose(value); setName(''); }); }}>
-        <label htmlFor="set-name">New set</label><div className="cs-inline"><input id="set-name" required disabled={busy} placeholder="Artist · venue · date" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /><button disabled={busy || !name.trim()}>{busy ? 'Creating…' : 'Create set'}</button></div>
-        {!local && <small>Visible to signed-in members.</small>}
-      </form>
     </> : <>
-      <button className="cs-back" disabled={busy} onClick={() => { choose(null); reload(); }}>← All sets</button>
-      <div className="cs-title"><h1>{selected.name}</h1>{selected.visibility !== 'shared' && <span>Private</span>}</div>
-      <section className="cs-mix" aria-label="Compiled mix">
-        <div className="cs-inline"><h2>Current mix</h2>{selected.playable && <a href={endpoint(`/${selected.id}/audio?download=true`)}>Download audio</a>}</div>
-        {selected.playable ? <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" /> : <p>{updating ? 'Creating mix…' : 'No mix yet.'}</p>}
+      <button className="cs-back" disabled={busy} onClick={() => { choose(null); reload(); }}><ArrowLeft size={17} /> All sets</button>
+      <div className="cs-detail-title"><h1>{selected.artist || selected.name}</h1>{selected.venue && <p>{selected.venue}</p>}{eventRange(selected) && <p className="cs-meta">{eventRange(selected)}</p>}{selected.visibility !== 'shared' && <span className="cs-privacy">Private</span>}</div>
+      <section className={`cs-mix ${selected.playable ? 'cs-mix-ready' : ''}`} aria-label="Compiled mix">
+        {selected.playable ? <div className="cs-audio-surface"><div className="cs-inline"><span>Audio mix</span><a aria-label="Download audio" href={endpoint(`/${selected.id}/audio?download=true`)}><Download size={18} /></a></div><Music2 className="cs-audio-icon" size={40} strokeWidth={1} aria-hidden="true" /><audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" /></div> : <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Processing' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
         {selected.playable && selected.timeline && <MixTimeline timeline={selected.timeline} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
         <p role="status">{busy ? notice || 'Saving…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? selected.stage || 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
         {!updating && (selected.status === 'failed' || selected.dirty || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : 'Update mix'}</button>}
+        {!busy && failedFiles.length > 0 && <button disabled={locked} onClick={() => upload(failedFiles)}>Retry {failedFiles.length} {failedFiles.length === 1 ? 'upload' : 'uploads'}</button>}
       </section>
       <section aria-label="Recordings">
-        <div className="cs-recording-heading"><h2>Recordings <span>{recordings.length}</span></h2>
-          <label className="cs-upload">Add videos<input aria-label="Add videos" type="file" multiple accept={accept} disabled={locked || ordinary.length >= limits.recordings} onChange={upload} /></label>
+        <div className="cs-recording-heading"><h2>Clips <span>{recordings.length}{contributors > 0 ? ` · ${contributors} ${contributors === 1 ? 'contributor' : 'contributors'}` : ''}</span></h2>
+          <label className={`cs-upload ${!recordings.length ? 'cs-primary' : ''}`}><Plus size={17} /> Add clips<input aria-label="Add clips" type="file" multiple accept={accept} disabled={locked || ordinary.length >= limits.recordings} onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ''; upload(files); }} /></label>
         </div>
-        <p className="cs-limits">Up to {limits.recordings} recordings · {limits.recording_seconds / 60} minutes and {Math.round(limits.file_bytes / 1024 ** 2)} MiB each · audio files also accepted</p>
-        {limits.free_tier && <p className="cs-limits">Free storage: {limits.original_bytes / 1e9} GB shared across all sets, including originals and mixes.</p>}
-        {!recordings.length && <p>No recordings yet.</p>}
+        <details className="cs-upload-limits"><summary>Upload limits</summary><p className="cs-limits">Up to {limits.recordings} clips · {limits.recording_seconds / 60} minutes and {Math.round(limits.file_bytes / 1024 ** 2)} MiB each · Video or audio</p>{limits.free_tier && <p className="cs-limits">{limits.original_bytes / 1e9} GB total storage across all sets.</p>}</details>
         <div className="cs-recordings">{recordings.map((clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
           <Original clip={clip} setId={selected.id} />
           <div className="cs-recording-info"><h3>{clip.name}</h3>
+            {clip.uploader_name && <p className="cs-meta">{clip.uploader_name}</p>}
             <p className="cs-meta">{clip.duration ? `${time(clip.duration)} · ` : ''}{clip.bytes ? `${(clip.bytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
             <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
             <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
               {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
             </div>
-            {clip.can_edit && clip.role !== 'reference' && <label className="cs-include"><input type="checkbox" aria-label={`Use ${clip.name} in mix`} checked={clip.included} disabled={locked} onChange={(event) => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ included: event.target.checked }) })))} /> Use in mix</label>}
           </div>
         </article>)}</div>
       </section>
       {selected.can_manage && <button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button>}
     </>}
+    </div>
   </main>;
 }
 
