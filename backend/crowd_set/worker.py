@@ -6,11 +6,12 @@ import sys
 import time
 
 import numpy as np
+from fastapi import HTTPException
 
 from .audio import align, decode, features, plan_timeline, render, match_levels, loudness, recording_quality, choose_anchor, probe, RATE, FPS
 from .limits import Limits
 from .storage import OriginalStore
-from .blobs import environment
+from .blobs import digest, environment
 from . import video
 
 
@@ -130,6 +131,17 @@ def process(directory):
             raise ValueError('Output peak headroom could not be verified. Try different sources.')
         timeline['output_true_peak_dbfs'] = peak
     visual = video.plan_video(clips, timeline)
+    previous_audio = directory / (data.get('mix_file') or 'reconstruction.wav')
+    previous_video_available = data.get('video_object') if originals.blobs else (directory / (data.get('video_file') or 'missing')).is_file()
+    if (playable and data.get('playable') and data.get('mix_revision') and previous_audio.is_file()
+            and bool(visual['segments']) == bool(data.get('video_playable'))
+            and (not visual['segments'] or (previous_video_available and visual == data.get('video_timeline')))
+            and digest(directory / 'pending.wav') == digest(previous_audio)):
+        progress('Keeping the unchanged cut…', 'finalize')
+        write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': True,
+                   'video_playable': bool(visual['segments']), 'video_timeline': visual if visual['segments'] else None,
+                   'reuse_revision': data['mix_revision']})
+        return
     if visual['segments']:
         originals.admit(limits, work_needed=2 * video.output_bound(visual, clips) +
                         len(visual['segments'] + visual['gaps']) * 2 * 1024 ** 2 +
@@ -150,5 +162,5 @@ if __name__ == '__main__':
     try:
         process(folder)
     except Exception as exc:
-        write_json(folder / 'failure.json', {'error': str(exc) if isinstance(exc, ValueError) else 'Processing failed. Check available disk space and decoder installation, then retry.'})
+        write_json(folder / 'failure.json', {'error': exc.detail if isinstance(exc, HTTPException) else str(exc) if isinstance(exc, ValueError) else 'Processing failed. Check available disk space and decoder installation, then retry.'})
         sys.exit(1)

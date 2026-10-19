@@ -678,26 +678,33 @@ class Store:
                                       'updated_at': time.time()}})
             if not result['playable']:
                 raise ValueError('No mix was created. Add another recording and retry.')
-            revision = uuid4().hex
-            filename = f'mix-{revision}.wav'
-            (directory / 'pending.wav').replace(directory / filename)
-            artifacts = {'mix': (filename, 'audio/wav')}
-            if result.get('video_playable'):
-                video_filename = f'mix-{revision}.mp4'
-                (directory / 'pending.mp4').replace(directory / video_filename)
-                artifacts['video'] = (video_filename, 'video/mp4')
-            publication = {'mix_object': None, 'mix_bytes': 0, 'video_file': None, 'video_object': None, 'video_bytes': 0}
-            if self.blobs:
-                with self.lock:
-                    self.originals.admit(self.limits, incoming=sum((directory / name).stat().st_size for name, _ in artifacts.values()))
-                    for kind, (name, _) in artifacts.items():
-                        key = f'mixes/{set_id}/{revision}{Path(name).suffix}'
-                        size = (directory / name).stat().st_size
-                        self.originals.record_blob(key, size)
-                        publication.update({f'{kind}_object': key, f'{kind}_bytes': size})
-                for kind, (name, mime) in artifacts.items():
-                    self.blobs.put(directory / name, publication[f'{kind}_object'], mime)
-            publication.update({f'{kind}_file': name for kind, (name, _) in artifacts.items()})
+            reused = result.pop('reuse_revision', None)
+            if reused:
+                current = self.get(set_id)
+                if reused != current.get('mix_revision') or not current.get('playable'):
+                    raise ValueError('The published cut changed during processing. Retry the mix.')
+                (directory / 'pending.wav').unlink(missing_ok=True)
+            else:
+                revision = uuid4().hex
+                filename = f'mix-{revision}.wav'
+                (directory / 'pending.wav').replace(directory / filename)
+                artifacts = {'mix': (filename, 'audio/wav')}
+                if result.get('video_playable'):
+                    video_filename = f'mix-{revision}.mp4'
+                    (directory / 'pending.mp4').replace(directory / video_filename)
+                    artifacts['video'] = (video_filename, 'video/mp4')
+                publication = {'mix_object': None, 'mix_bytes': 0, 'video_file': None, 'video_object': None, 'video_bytes': 0}
+                if self.blobs:
+                    with self.lock:
+                        self.originals.admit(self.limits, incoming=sum((directory / name).stat().st_size for name, _ in artifacts.values()))
+                        for kind, (name, _) in artifacts.items():
+                            key = f'mixes/{set_id}/{revision}{Path(name).suffix}'
+                            size = (directory / name).stat().st_size
+                            self.originals.record_blob(key, size)
+                            publication.update({f'{kind}_object': key, f'{kind}_bytes': size})
+                    for kind, (name, mime) in artifacts.items():
+                        self.blobs.put(directory / name, publication[f'{kind}_object'], mime)
+                publication.update({f'{kind}_file': name for kind, (name, _) in artifacts.items()})
         except Exception as exc:
             error = exc.detail if isinstance(exc, HTTPException) else str(exc)
         with self.lock:
@@ -706,11 +713,14 @@ class Store:
                 if error:
                     data.update(status='failed', error=error, dirty=True)
                 else:
-                    previous = {key: data.get(key) for key in ('mix_revision', 'mix_file', 'mix_object', 'mix_bytes',
-                                'video_file', 'video_object', 'video_bytes', 'video_playable', 'playable')}
-                    previous['mix_file'] = data.get('mix_file') or 'reconstruction.wav'
-                    data.update(previous_revision=previous, previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0))
-                    data.update(result, **publication, status='ready', error=None, dirty=False, mix_revision=revision, recovery_attempts=0)
+                    if reused:
+                        data.update(result, status='ready', error=None, dirty=False, recovery_attempts=0)
+                    else:
+                        previous = {key: data.get(key) for key in ('mix_revision', 'mix_file', 'mix_object', 'mix_bytes',
+                                    'video_file', 'video_object', 'video_bytes', 'video_playable', 'playable')}
+                        previous['mix_file'] = data.get('mix_file') or 'reconstruction.wav'
+                        data.update(previous_revision=previous, previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0))
+                        data.update(result, **publication, status='ready', error=None, dirty=False, mix_revision=revision, recovery_attempts=0)
                 data.pop('stage', None)
                 data.pop('processing', None)
                 data.pop('processing_started_at', None)
@@ -736,6 +746,10 @@ class Store:
         retained_files = {data.get('mix_file', 'reconstruction.wav'), data.get('video_file'), previous.get('mix_file'), previous.get('video_file')}
         if self.blobs:
             retained = {data.get('mix_object'), data.get('previous_mix_object'), data.get('video_object'), previous.get('video_object')}
+            for revision in (data, previous):
+                if revision.get('video_playable') and revision.get('video_object') and revision.get('video_file'):
+                    # Published cloud video is streamed remotely; retain audio for rebuild comparison.
+                    (self.directory(set_id) / revision['video_file']).unlink(missing_ok=True)
             keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')]
             obsolete = [key for key in keys if key.startswith(f'mixes/{set_id}/') and key not in retained]
             try:
