@@ -148,7 +148,7 @@ export default function CozyWabiLanding() {
               <a href="#shelf">the shelf</a>
               <Link to="/design">common UI library</Link>
               <Link to="/dice">Dice ↗</Link>
-              {['localhost', '127.0.0.1'].includes(window.location.hostname) && <Link to="/crowd-set">Crowd Set ↗</Link>}
+              <Link to="/crowdset">Crowdset ↗</Link>
             </nav>
             <button
               className="site-menu-toggle"
@@ -212,15 +212,16 @@ export default function CozyWabiLanding() {
                 <span className="project__caption">open the ledger</span>
               </Link>
 
-              <div className="project project--waiting" aria-label="Second shelf slot, more soon">
-                <span className="project__index">02 / waiting patiently</span>
-                <span className="project__waiting-mark" aria-hidden="true">· · ·</span>
+              <Link className="project project--featured project--crowdset" to="/crowdset" aria-label="Open Crowdset concert videos">
+                <span className="project__index">02 / Crowdset</span>
+                <span className="project__icon" aria-hidden="true">♫</span>
                 <span className="project__body">
-                  <span className="project__name">more soon</span>
-                  <span className="project__description">There is room on the shelf<br />for the next small thing.</span>
+                  <span className="project__name">Crowdset</span>
+                  <span className="project__description">The full set, your friends’ clips,<br />one shared concert video.</span>
                 </span>
-                <span className="project__caption">no rush</span>
-              </div>
+                <span className="project__arrow" aria-hidden="true">↗</span>
+                <span className="project__caption">watch the set</span>
+              </Link>
             </div>
           </section>
         </main>
