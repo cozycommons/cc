@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import asyncio
 import os
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import anyio
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -16,20 +18,58 @@ from fastapi.staticfiles import StaticFiles
 
 from .hosting import COOKIE, HostedAccess
 from .blobs import BlobError
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .store import MAX_BYTES, Store
 
 
 class Performance(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    artist: str | None = Field(default=None, min_length=1, max_length=120)
+    venue: str | None = Field(default=None, min_length=1, max_length=160)
+    starts_at: str | None = Field(default=None, max_length=40)
+    ends_at: str | None = Field(default=None, max_length=40)
+    timezone: str | None = Field(default=None, min_length=1, max_length=100)
 
-    @field_validator('name')
+    @field_validator('name', 'artist', 'venue', 'timezone')
     @classmethod
     def nonblank(cls, value):
+        if value is None:
+            return value
         if not value.strip():
-            raise ValueError('Enter a performance name')
+            raise ValueError('Enter a nonblank value')
         return value.strip()
+
+    @model_validator(mode='after')
+    def event_range(self):
+        values = [self.artist, self.venue, self.starts_at, self.ends_at, self.timezone]
+        if all(value is None for value in values):
+            return self
+        if any(value is None for value in values):
+            raise ValueError('Provide artist, venue, start, end and timezone together')
+        try:
+            zone = ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError('Use a valid IANA timezone') from exc
+        instants = []
+        try:
+            for value in (self.starts_at, self.ends_at):
+                if 'T' not in value:
+                    raise ValueError('Use an ISO datetime with date and time')
+                instant = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                if instant.tzinfo is None:
+                    candidates = {instant.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc) for fold in (0, 1)
+                                  if instant.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None) == instant}
+                    if len(candidates) != 1:
+                        raise ValueError('This local time is missing or ambiguous because of daylight saving time; choose another time or supply an explicit UTC offset')
+                    instant = candidates.pop()
+                instants.append(instant.astimezone(timezone.utc))
+        except OverflowError as exc:
+            raise ValueError('Event datetime is out of range') from exc
+        if instants[1] <= instants[0]:
+            raise ValueError('End must be after start; include the next date for a performance crossing midnight')
+        self.starts_at, self.ends_at = (instant.isoformat() for instant in instants)
+        return self
 
 
 class Selection(BaseModel):
@@ -140,7 +180,8 @@ def create_app(root=None):
 
     @app.post('/crowd-set/sets', status_code=201)
     def create_set(body: Performance, request: Request):
-        return present(request.app.state.store.create(body.name, owner=request.state.owner), request.state.owner)
+        event = body.model_dump(exclude={'name'}, exclude_none=True)
+        return present(request.app.state.store.create(body.name, owner=request.state.owner, event=event), request.state.owner)
 
     @app.get('/crowd-set/sets/{set_id}')
     def get_set(set_id: str, request: Request):

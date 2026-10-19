@@ -306,3 +306,48 @@ def test_abandoned_batch_settles_successful_uploads(tmp_path):
         assert data['id'] not in store.batches and len(store.pending) == 1
     finally:
         store.close()
+
+
+def test_event_metadata_roundtrip_midnight_and_legacy_compatibility(tmp_path):
+    event = {'name': 'ISOKNOCK · Niteharts', 'artist': ' ISOKNOCK ', 'venue': 'Niteharts',
+             'starts_at': '2026-10-18T23:30', 'ends_at': '2026-10-19T01:00', 'timezone': 'America/New_York'}
+    with client(tmp_path) as api:
+        assert api.get('/crowd-set/sets?limits=true').json()['event_metadata']
+        created = api.post('/crowd-set/sets', json=event)
+        assert created.status_code == 201
+        data = created.json()
+        assert data['artist'] == 'ISOKNOCK'
+        assert data['starts_at'] == '2026-10-19T03:30:00+00:00'
+        assert data['ends_at'] == '2026-10-19T05:00:00+00:00'
+        assert data['timezone'] == 'America/New_York'
+        assert api.get('/crowd-set/sets').json()[0] == data
+        legacy = create(api)
+        assert 'artist' not in api.get(legacy).json()
+    with client(tmp_path) as api:
+        assert api.get('/crowd-set/sets/' + data['id']).json() == data
+
+
+@pytest.mark.parametrize('changes', [
+    {'artist': None}, {'venue': '  '}, {'timezone': 'not/a-zone'},
+    {'starts_at': '0001-01-01T00:00:00+01:00'},
+    {'starts_at': '2026-10-19'}, {'starts_at': '1792380000'},
+    {'ends_at': '2026-10-18T22:00'},
+    {'starts_at': '2026-03-08T02:30', 'ends_at': '2026-03-08T04:00'},
+    {'starts_at': '2026-11-01T01:30', 'ends_at': '2026-11-01T03:00'},
+])
+def test_invalid_or_uncertain_event_time_never_creates_set(tmp_path, changes):
+    event = {'name': 'Event', 'artist': 'Artist', 'venue': 'Venue', 'starts_at': '2026-10-18T23:30',
+             'ends_at': '2026-10-19T01:00', 'timezone': 'America/New_York', **changes}
+    with client(tmp_path) as api:
+        assert api.post('/crowd-set/sets', json=event).status_code == 422
+        assert api.get('/crowd-set/sets').json() == []
+
+
+def test_explicit_offset_disambiguates_dst_transition(tmp_path):
+    with client(tmp_path) as api:
+        response = api.post('/crowd-set/sets', json={'name': 'Event', 'artist': 'Artist', 'venue': 'Venue',
+            'starts_at': '2026-11-01T01:30:00-04:00', 'ends_at': '2026-11-01T01:30:00-05:00',
+            'timezone': 'America/New_York'})
+        assert response.status_code == 201
+        assert response.json()['starts_at'] == '2026-11-01T05:30:00+00:00'
+        assert response.json()['ends_at'] == '2026-11-01T06:30:00+00:00'

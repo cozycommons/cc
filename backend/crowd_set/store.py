@@ -107,11 +107,12 @@ class Store:
         with self.lock:
             return [self.get(p.parent.name) for p in sorted(self.root.glob('*/set.json'), key=lambda p: p.stat().st_mtime, reverse=True)]
 
-    def create(self, name, owner=None):
+    def create(self, name, owner=None, *, event=None):
         with self.lock:
             if len(self.list()) >= 20:
                 raise HTTPException(409, 'Local limit: 20 performances. Delete an old performance first.')
             data = {'id': uuid4().hex, 'schema_version': 2, 'visibility': 'shared', 'dirty': False, 'name': name, 'owner': owner, 'status': 'idle', 'clips': [], 'timeline': None, 'playable': False, 'error': None}
+            data.update(event or {})
             self.directory(data['id']).mkdir(mode=0o700)
             return self.save(data)
 
