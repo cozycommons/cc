@@ -284,7 +284,7 @@ def test_batch_completion_gates_one_build_and_retains_successes(tmp_path, monkey
             return real_submit(function, set_id)
         monkeypatch.setattr(store.pool, 'submit', counted_submit)
         batch = api.post(path + '/batches').json()['id']
-        assert api.put(path + '/clips', params={'name': 'second.wav', 'batch_id': batch}, content=raw).status_code == 201
+        assert api.put(path + '/clips', params={'name': 'second.wav', 'batch_id': batch}, content=raw + b'JUNK\x04\x00\x00\x00two!').status_code == 201
         time.sleep(4.1)  # Longer than the ordinary debounce: a slow batch must stay held.
         assert starts == [] and not store.pending and store.active is None
         assert api.get(path).json()['status'] == 'uploading'
@@ -292,7 +292,7 @@ def test_batch_completion_gates_one_build_and_retains_successes(tmp_path, monkey
         assert api.post(path + '/process').status_code == 409
         assert api.put(path + '/clips', params={'name': 'outside.wav'}, content=raw).status_code == 409
         assert api.put(path + '/clips', params={'name': 'empty.wav', 'batch_id': batch}, content=b'').status_code == 400
-        assert api.put(path + '/clips', params={'name': 'third.wav', 'batch_id': batch}, content=raw).status_code == 201
+        assert api.put(path + '/clips', params={'name': 'third.wav', 'batch_id': batch}, content=raw + b'JUNK\x04\x00\x00\x00tri!').status_code == 201
         assert starts == []
         finished = api.post(path + '/batches/' + batch + '/finish')
         assert finished.status_code == 200 and finished.json()['status'] == 'queued'

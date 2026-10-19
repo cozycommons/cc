@@ -173,7 +173,7 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
         onVolumeChange={(event) => { setMuted(event.currentTarget.muted); setVolume(event.currentTarget.volume); }}
         onProgress={(event) => { const ranges = event.currentTarget.buffered; if (ranges.length) setBuffered(ranges.end(ranges.length - 1)); }}
         onError={() => { setBuffering(false); setMessage('The video could not load. Reload the set to retry.'); }} />
-      {segments !== '[]' && <video ref={insert} className="cs-composition-insert" muted playsInline preload="auto"
+      {segments !== '[]' && <video data-playback-companion ref={insert} className="cs-composition-insert" muted playsInline preload="auto"
         disablePictureInPicture aria-label="Friend’s picture" />}
       <button className="cs-player-screen" aria-label={playing ? 'Pause video' : 'Play video'} tabIndex={-1}
         onClick={toggle} onDoubleClick={toggleFullscreen}>

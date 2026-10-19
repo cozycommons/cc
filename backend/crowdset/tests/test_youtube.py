@@ -90,8 +90,9 @@ def fake_download(monkeypatch, body, *, error=None):
             return self.returncode
 
     monkeypatch.setattr('crowdset.store.subprocess.Popen', Process)
-    # Popen is shared with the media probe, tested separately by existing finalizer tests.
+    # Probing and previews use real FFmpeg in their own integration tests.
     monkeypatch.setattr('crowdset.store.probe', lambda *args, **kwargs: 10)
+    monkeypatch.setattr('crowdset.video.thumbnail', lambda *args: None)
     return calls
 
 

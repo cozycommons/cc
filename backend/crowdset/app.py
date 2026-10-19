@@ -319,6 +319,17 @@ def create_app(root=None):
     def process(set_id: str, request: Request):
         return present(request.app.state.store.start(set_id), request.state.owner)
 
+    @app.get('/crowdset/sets/{set_id}/clips/{clip_id}/thumbnail')
+    def thumbnail(set_id: str, clip_id: str, request: Request):
+        store = request.app.state.store
+        clip = next((c for c in store.get(set_id)['clips'] if c['id'] == clip_id), None)
+        if not clip:
+            raise HTTPException(404, 'Recording not found')
+        path = store.directory(set_id) / f'{clip["id"]}.jpg'
+        if not path.exists():
+            raise HTTPException(404, 'Preview unavailable')
+        return FileResponse(path, media_type='image/jpeg')
+
     @app.get('/crowdset/sets/{set_id}/clips/{clip_id}/media')
     def original(set_id: str, clip_id: str, request: Request, download: bool = False):
         store = request.app.state.store

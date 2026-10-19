@@ -37,6 +37,9 @@ class OriginalStore:
         partial = Path(partial)
         source = partial if partial.exists() else self.path(set_id, clip)
         clip['sha256'] = digest(source)
+        if clip.get('kind') == 'video':
+            from .video import thumbnail
+            thumbnail(source, self.root / set_id / f'{clip["id"]}.jpg')
         if self.blobs:
             clip['object_key'] = f'originals/{set_id}/{clip["id"]}/{clip["sha256"]}'
             self.record_blob(clip['object_key'], clip['bytes'])
@@ -57,6 +60,7 @@ class OriginalStore:
                 raise ValueError('Restore media storage before removing this recording.')
             self.remove_blobs([clip['object_key']])
         self.path(set_id, clip).unlink(missing_ok=True)
+        (self.root / set_id / f'{clip["id"]}.jpg').unlink(missing_ok=True)
 
     def record_blob(self, key, size):
         import hashlib

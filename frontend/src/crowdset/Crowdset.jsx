@@ -99,7 +99,7 @@ export default function Crowdset() {
     document.title = selectedName ? `${selectedName} · Crowdset` : 'Crowdset';
     return () => { document.title = 'Cozy Commons'; };
   }, [selectedName]);
-  React.useEffect(() => { setTheater(false); setCurrentTime(0); setCreating(false); setFailedFiles([]); }, [slug]);
+  React.useEffect(() => { setTheater(false); setCurrentTime(0); setCreating(false); setFailedFiles([]); setNotice(''); }, [slug]);
   const selectedId = selected?.id;
   const selectedStatus = selected?.status;
   React.useEffect(() => {
@@ -131,17 +131,20 @@ export default function Crowdset() {
     await action(async () => {
       const batch = files.length > 1 ? await request(`/${id}/batches`, { method: 'POST' }) : null;
       const failures = [];
+      let duplicates = 0;
       try {
         for (let index = 0; index < files.length; index += 1) {
           const file = files[index];
           setNotice(`Uploading ${file.name} (${index + 1}/${files.length})…`);
           try {
             if (file.size > limits.file_bytes) throw new Error(`Exceeds ${Math.round(limits.file_bytes / 1024 ** 2)} MiB.`);
-            update(await uploadRecording(id, file, { batchId: batch?.id, limits,
+            const saved = await uploadRecording(id, file, { batchId: batch?.id, limits,
               onProgress: (uploaded, total) => setNotice(uploaded >= total
                 ? `Saving ${file.name} to storage (${index + 1}/${files.length})…`
                 : `Uploading ${file.name} (${index + 1}/${files.length}) · ${Math.floor(uploaded / total * 100)}%…`),
-            }));
+            });
+            if (saved.duplicate_clip_id) duplicates += 1;
+            update(saved);
             setFailedFiles((previous) => previous.filter((pending) => pending !== file));
           } catch (failure) { failures.push(`${file.name}: ${failure.message}`); }
         }
@@ -152,6 +155,7 @@ export default function Crowdset() {
           catch (failure) { failures.push(`Could not finish the upload batch: ${failure.message}. Added files are retained; reconnect to check their status.`); }
         }
       }
+      if (duplicates) setNotice(`${duplicates} ${duplicates === 1 ? 'duplicate skipped' : 'duplicates skipped'} — already in this set.`);
       if (failures.length) throw new Error(`Some uploads failed. ${failures.join(' ')} Retry these files; successful uploads are retained.`);
     });
   }
@@ -160,6 +164,8 @@ export default function Crowdset() {
   const ordinary = recordings.filter((clip) => clip.role !== 'reference');
   const used = new Set([...(selected?.timeline?.segments || []), ...(selected?.video_timeline?.segments || [])].map((segment) => segment.clip_id));
   const updating = ['queued', 'processing', 'uploading', 'importing'].includes(selected?.status);
+  const outsideCut = (clip) => clip.id !== selected?.soundtrack_clip_id && !used.has(clip.id) && (!updating || !clip.included || ['unmatched', 'error'].includes(clip.alignment?.status));
+  const unused = recordings.filter(outsideCut);
   const visibleSets = sets.filter((set) => matchesSearch(set, query));
   const contributors = new Set(recordings.map((clip) => clip.uploader).filter(Boolean)).size;
 
@@ -170,7 +176,28 @@ export default function Crowdset() {
     });
   }
 
-  return <main className={`crowdset ${theater ? 'cs-theater' : ''}`}>
+  const renderClip = (clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
+    <Original clip={clip} setId={selected.id} />
+    <div className="cs-recording-info"><h3>{clip.name}</h3>
+      {clip.uploader_name && <p className="cs-meta">{clip.uploader_name}</p>}
+      {clip.source_url && <p className="cs-meta"><a href={clip.source_url} target="_blank" rel="noreferrer">YouTube source ↗</a></p>}
+      <p className="cs-meta">{clip.duration ? time(clip.duration) : ''}</p>
+      <p className="cs-clip-status">{selected.soundtrack_clip_id === clip.id ? 'Official set audio' : used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? (clip.alignment.reason || 'Couldn’t match this recording.') : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
+      <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
+        {selected.can_manage && clip.kind === 'video' && clip.role !== 'reference' && clip.included && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/soundtrack`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clip_id: selected.soundtrack_clip_id === clip.id ? null : clip.id }) })))}>{selected.soundtrack_clip_id === clip.id ? 'Clear official audio' : 'Use as official set'}</button>}
+        {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
+      </div>
+    </div>
+  </article>;
+
+  return <main className={`crowdset ${theater ? 'cs-theater' : ''}`} onPlayCapture={(event) => {
+    const active = event.target;
+    if (active.hasAttribute('data-playback-companion')) return;
+    const group = active.closest('.cs-composition');
+    event.currentTarget.querySelectorAll('video, audio').forEach((media) => {
+      if (media !== active && (!group || !group.contains(media))) media.pause();
+    });
+  }}>
     <div className="cs-shell">
     <header className="cs-header"><button className="cs-wordmark" disabled={busy} onClick={() => { choose(null); setQuery(''); }}>crowdset</button><a href="/">Cozy Commons ↗</a></header>
     {(error || statusError) && <div role="alert" className="cs-error">{error || statusError}</div>}
@@ -205,25 +232,19 @@ export default function Crowdset() {
         {!updating && (selected.status === 'failed' || selected.dirty || ordinary.some((clip) => clip.alignment?.status === 'unmatched') || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : selected.playable && !selected.dirty ? 'Retry matching' : 'Update mix'}</button>}
         {!busy && failedFiles.length > 0 && <button disabled={locked} onClick={() => upload(failedFiles)}>Retry {failedFiles.length} {failedFiles.length === 1 ? 'upload' : 'uploads'}</button>}
       </section>
+      {!busy && notice && <p role="status">{notice}</p>}
       <section aria-label="Recordings">
         <div className="cs-recording-heading"><h2>Clips <span>{recordings.length}{contributors > 0 ? ` · ${contributors} ${contributors === 1 ? 'contributor' : 'contributors'}` : ''}</span></h2>
           <label className={`cs-upload ${!recordings.length ? 'cs-primary' : ''}`}><Plus size={17} /> Add clips<input aria-label="Add clips" type="file" multiple accept={accept} disabled={locked || ordinary.length >= limits.recordings} onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ''; upload(files); }} /></label>
         </div>
         <details className="cs-upload-limits"><summary>Upload limits</summary><p className="cs-limits">Up to {limits.recordings} clips · {limits.recording_seconds / 60} minutes and {Math.round(limits.file_bytes / 1024 ** 2)} MiB each · Video or audio</p>{limits.free_tier && <p className="cs-limits">{limits.original_bytes / 1e9} GB total storage across all sets.</p>}</details>
         {limits.youtube_imports && <YouTubeImport key={selected.id} set={selected} disabled={locked || ordinary.length >= limits.recordings} onUpdate={update} />}
-        <div className="cs-recordings">{recordings.map((clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
-          <Original clip={clip} setId={selected.id} />
-          <div className="cs-recording-info"><h3>{clip.name}</h3>
-            {clip.uploader_name && <p className="cs-meta">{clip.uploader_name}</p>}
-            {clip.source_url && <p className="cs-meta"><a href={clip.source_url} target="_blank" rel="noreferrer">YouTube source ↗</a></p>}
-            <p className="cs-meta">{clip.duration ? `${time(clip.duration)} · ` : ''}{clip.bytes ? `${(clip.bytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
-            <p className="cs-clip-status">{selected.soundtrack_clip_id === clip.id ? 'Official set audio' : used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? (clip.alignment.reason || 'Couldn’t match this recording.') : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
-            <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
-              {selected.can_manage && clip.kind === 'video' && clip.role !== 'reference' && clip.included && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/soundtrack`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clip_id: selected.soundtrack_clip_id === clip.id ? null : clip.id }) })))}>{selected.soundtrack_clip_id === clip.id ? 'Clear official audio' : 'Use as official set'}</button>}
-              {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
-            </div>
-          </div>
-        </article>)}</div>
+        <div className="cs-recordings">{recordings.filter((clip) => !outsideCut(clip)).map(renderClip)}</div>
+        {unused.length > 0 && <details className="cs-unused" key={`unused-${selected.id}`} onToggle={(event) => {
+          if (!event.currentTarget.open) event.currentTarget.querySelectorAll('video, audio').forEach((media) => media.pause());
+        }}><summary>Not in the set <span>{unused.length}</span></summary>
+          <div className="cs-recordings">{unused.map(renderClip)}</div>
+        </details>}
       </section>
       {selected.can_manage && <button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button>}
     </>}
@@ -235,7 +256,7 @@ function Original({ clip, setId }) {
   const [failed, setFailed] = React.useState(false);
   const Media = clip.kind === 'video' ? 'video' : 'audio';
   return <div className={`cs-original ${clip.kind === 'video' ? '' : 'cs-original-audio'}`}>
-    <Media controls playsInline preload="none" src={endpoint(`/${setId}/clips/${clip.id}/media`)} aria-label={`Play ${clip.name}`} onError={() => setFailed(true)} />
+    <Media controls playsInline preload="none" poster={clip.kind === 'video' ? endpoint(`/${setId}/clips/${clip.id}/thumbnail`) : undefined} src={endpoint(`/${setId}/clips/${clip.id}/media`)} aria-label={`Play ${clip.name}`} onError={() => setFailed(true)} />
     {failed && <p>Can’t play this format here. Download the original below.</p>}
   </div>;
 }

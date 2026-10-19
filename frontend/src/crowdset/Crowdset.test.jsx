@@ -296,3 +296,46 @@ it('keeps the dedicated set path as the sign-in destination', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }));
   await waitFor(() => expect(auth.signInWithGoogle).toHaveBeenCalledWith(`${window.location.origin}/crowdset/a-night-together`));
 });
+
+it('collapses unused clips with preview posters and omits file sizes', async () => {
+  const unused = { ...clip, id: 'unused', name: 'Back of crowd.mov', bytes: 123456789, alignment: { status: 'unmatched' } };
+  request.mockResolvedValueOnce([{ ...ready, clips: [clip, unused] }]);
+  render(<Crowdset />);
+  await openSet();
+  const preview = screen.getByLabelText('Play Back of crowd.mov');
+  const section = preview.closest('details');
+  expect(section).not.toHaveAttribute('open');
+  expect(section.querySelector('summary')).toHaveTextContent('Not in the set 1');
+  expect(preview).toHaveAttribute('poster', '/crowdset/sets/one/clips/unused/thumbnail');
+  expect(preview).toHaveAttribute('preload', 'none');
+  expect(preview.closest('article')).not.toHaveTextContent('MB');
+  expect(screen.getByLabelText('Play Stage.mp4').closest('details')).toBeNull();
+});
+
+it('pauses other recordings while preserving the two synchronized cut videos', async () => {
+  request.mockResolvedValueOnce([{ ...ready, video_playable: true, video_timeline: { duration: 20, segments: [{ clip_id: clip.id, asset_id: 'asset', start: 0, end: 10 }] } }]);
+  render(<Crowdset />);
+  await openSet();
+  const base = screen.getByLabelText('Current cut');
+  const companion = screen.getByLabelText('Friend’s picture');
+  const original = screen.getByLabelText('Play Stage.mp4');
+  [base, companion, original].forEach((media) => { media.pause = vi.fn(); });
+  fireEvent.play(base);
+  expect(original.pause).toHaveBeenCalledOnce();
+  expect(companion.pause).not.toHaveBeenCalled();
+  fireEvent.play(companion);
+  expect(base.pause).not.toHaveBeenCalled();
+  expect(original.pause).toHaveBeenCalledOnce();
+  fireEvent.play(original);
+  expect(base.pause).toHaveBeenCalledOnce();
+  expect(companion.pause).toHaveBeenCalledOnce();
+});
+
+it('reports duplicate uploads without adding another card', async () => {
+  request.mockResolvedValueOnce([ready]).mockResolvedValueOnce({ ...ready, duplicate_clip_id: clip.id });
+  render(<Crowdset />);
+  await openSet();
+  fireEvent.change(screen.getByLabelText('Add clips'), { target: { files: [new File(['video'], 'renamed.mp4', { type: 'video/mp4' })] } });
+  expect(await screen.findByText('1 duplicate skipped — already in this set.')).toBeInTheDocument();
+  expect(screen.getAllByLabelText('Play Stage.mp4')).toHaveLength(1);
+});
