@@ -143,7 +143,10 @@ def process(directory):
             and digest(directory / 'pending.wav') == digest(previous_audio))
     same_video = (bool(visual['segments']) == bool(data.get('video_playable'))
                   and (not visual['segments'] or (previous_video_available and visual == data.get('video_timeline'))))
-    if same_audio and same_video and bool(soundtrack) == bool(data.get('composition')):
+    published_composition = data.get('composition') or {}
+    inserts_available = all(asset.get('object') if originals.blobs else (directory / asset['file']).is_file()
+                            for asset in published_composition.get('assets', {}).values())
+    if same_audio and same_video and soundtrack == published_composition.get('soundtrack_clip_id') and inserts_available:
         progress('Keeping the unchanged cut…', 'finalize')
         write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': True,
                    'video_playable': bool(visual['segments']), 'video_timeline': visual if visual['segments'] else None,
@@ -162,9 +165,10 @@ def process(directory):
     else:
         video_clips = [anchor] if soundtrack else clips
         if base['segments']:
+            selected_ids = {segment['clip_id'] for segment in base['segments']}
             originals.admit(limits, work_needed=2 * video.output_bound(base, video_clips) +
                             len(base['segments'] + base['gaps']) * 2 * 1024 ** 2 +
-                            max((c.get('bytes', 0) for c in video_clips if c.get('object_key')), default=0))
+                            max((c.get('bytes', 0) for c in video_clips if c.get('object_key') and c['id'] in selected_ids), default=0))
         progress('Preparing video…', 'render')
         result['video_playable'] = playable and video.render(base, video_clips, originals, data['id'], directory, limits, on_progress=progress)
     write_json(directory / 'result.json', result)

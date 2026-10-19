@@ -72,10 +72,16 @@ def test_official_audio_and_normalized_friend_video_reuse(tmp_path):
         third = wait(api, path)
         assert third['status'] == 'ready' and third['mix_revision'] == second['mix_revision']
         assert api.get(url).content == response.content
+        asset = third['composition']['assets'][insert['asset_id']]
+        (tmp_path / 'store' / third['id'] / asset['file']).unlink()
+        api.post(path + '/process')
+        repaired = wait(api, path)
+        assert repaired['status'] == 'ready' and repaired['mix_revision'] != third['mix_revision']
+        assert api.get(url).content == response.content
         api.patch(path + '/clips/' + official_id, json={'included': False})
         failed = wait(api, path)
         assert failed['status'] == 'failed' and 'selected full set' in failed['error']
-        assert failed['mix_revision'] == third['mix_revision']
+        assert failed['mix_revision'] == repaired['mix_revision']
         assert api.get(url).status_code == 200
 
 
