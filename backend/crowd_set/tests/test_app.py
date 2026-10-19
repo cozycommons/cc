@@ -157,8 +157,7 @@ def test_interrupted_recovery_and_single_server_lock(tmp_path):
     store.close()
     with client(tmp_path) as api:
         result = api.get('/crowd-set/sets/' + data['id']).json()
-        assert result['status'] == 'failed'
-        assert 'interrupted' in result['error']
+        assert result['status'] == 'queued'
         assert result['playable']
         assert api.get('/crowd-set/sets/' + data['id'] + '/audio').content == b'previous audio'
 
@@ -211,7 +210,7 @@ while True: time.sleep(1)
             except RuntimeError:
                 time.sleep(.05)
         assert recovered is not None
-        assert recovered.list()[0]['status'] == 'failed'
+        assert recovered.list()[0]['status'] == 'queued'
         recovered.close()
     finally:
         if parent.poll() is None:

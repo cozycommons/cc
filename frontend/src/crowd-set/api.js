@@ -24,3 +24,5 @@ export async function request(path = '', options = {}) {
   }
   return response.status === 204 ? null : response.json();
 }
+
+export const getLimits = () => request('?limits=true');

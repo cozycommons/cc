@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import fcntl
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -13,25 +15,34 @@ import time
 from uuid import uuid4
 
 from fastapi import HTTPException
+import httpx
 
 from .worker import write_json
+from .limits import Limits
+from .storage import OriginalStore
+from .blobs import BlobError, SupabaseBlobs
+from .audio import probe
 
 ROOT = Path(__file__).resolve().parents[2] / '.crowd-set'
 EXTENSIONS = {'.wav', '.mp3', '.m4a', '.mp4', '.mov', '.aac', '.flac', '.ogg', '.webm'}
-MAX_BYTES = 512 * 1024 * 1024
-DISK_BUDGET = 8 * 1024 ** 3
+MAX_BYTES = 2 * 1024 ** 3
 
 
 class Store:
-    def __init__(self, root=ROOT):
+    def __init__(self, root=ROOT, *, limits=None, blobs=None):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.limits = limits or Limits.environment()
+        self.blobs = blobs if blobs is not None else SupabaseBlobs.environment()
+        if self.blobs:
+            self.blobs.check_bucket(self.limits.file_bytes)
+        self.originals = OriginalStore(self.root, self.blobs)
         self.lockfile = (self.root / '.lock').open('a')
         try:
             fcntl.flock(self.lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             self.lockfile.close()
-            raise RuntimeError('Crowd Set storage is already open. Stop the other API or wait for its worker (up to 15 minutes), then retry.')
+            raise RuntimeError('Crowd Set storage is already open. Stop the other API or wait for its worker deadline, then retry.')
         self.lock = threading.RLock()
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.active = None
@@ -43,11 +54,25 @@ class Store:
         self.timer = None
         for path in self.root.glob('*/set.json'):
             data = json.loads(path.read_text())
-            if data['status'] in ('processing', 'uploading', 'queued'):
-                data.update(status='failed', error='Update interrupted. Retry to update the mix.', dirty=True)
+            batch = data.get('batch')
+            if batch:
+                self.batches[data['id']] = {**batch, 'deadline': time.monotonic() + max(0, batch['expires_at'] - time.time())}
+            if data['status'] in ('processing', 'queued'):
+                attempts = data.get('recovery_attempts', 0) + 1
+                data.update(recovery_attempts=attempts, dirty=True)
+                if attempts <= 2:
+                    data.update(status='queued', error=None)
+                    self.pending[data['id']] = time.monotonic() + 3
+                else:
+                    data.update(status='failed', error='Processing was interrupted repeatedly. Retry when the server is stable.')
+                write_json(path, data)
+            elif data['status'] == 'uploading' and not batch:
+                data.update(status='ready' if data.get('playable') else 'idle', upload_notice='Upload interrupted. Reselect the same files to resume.', dirty=bool(data['clips']))
                 write_json(path, data)
             for partial in path.parent.glob('*.part'):
                 partial.unlink()
+        self.expire_sessions()
+        self.schedule()
 
     def close(self):
         with self.lock:
@@ -138,11 +163,16 @@ class Store:
 
     def begin_batch(self, set_id, owner=None):
         with self.lock:
+            if set_id in self.batches:
+                batch = self.batches[set_id]
+                if batch['owner'] != owner:
+                    raise HTTPException(409, 'Another uploader is adding recordings. Try again shortly.')
+                return {'id': batch['id']}
             data = self.editable(set_id)
-            batch = {'id': uuid4().hex, 'owner': owner, 'deadline': time.monotonic() + 60}
+            batch = {'id': uuid4().hex, 'owner': owner, 'deadline': time.monotonic() + 60, 'expires_at': time.time() + 60}
             self.batches[set_id] = batch
             self.pending.pop(set_id, None)
-            data.update(status='uploading', upload_notice=None)
+            data.update(status='uploading', upload_notice=None, batch={key: value for key, value in batch.items() if key != 'deadline'})
             self.save(data)
             self.schedule()
             return {'id': batch['id']}
@@ -150,6 +180,9 @@ class Store:
     def finish_batch(self, set_id, batch_id, owner=None):
         with self.lock:
             batch = self.batches.get(set_id)
+            data = self.get(set_id)
+            if data.get('completed_batch') == {'id': batch_id, 'owner': owner}:
+                return data
             if not batch or batch['id'] != batch_id:
                 raise HTTPException(409, 'Upload batch expired. Added recordings are retained; retry missing files.')
             if batch['owner'] != owner:
@@ -158,11 +191,218 @@ class Store:
                 raise HTTPException(409, 'Wait for the current upload to finish.')
             self.batches.pop(set_id)
             data = self.get(set_id)
+            data.pop('batch', None)
+            data['completed_batch'] = {'id': batch_id, 'owner': owner}
             data['status'] = 'ready' if data['playable'] else 'idle'
             return self.queue(data) if data.get('dirty') else self.save(data)
 
+    def expire_sessions(self):
+        now = time.time()
+        for session in self.originals.sessions():
+            folder = self.originals.session_directory(session['set_id'])
+            if session['expires_at'] <= now:
+                if self.upload == (session['set_id'], session['id']):
+                    continue
+                try:
+                    self.remove_unpublished(session)
+                except (OSError, ValueError, httpx.HTTPError):
+                    continue
+                (folder / f'{session["id"]}.part').unlink(missing_ok=True)
+                (folder / f'{session["id"]}.part.transfer.json').unlink(missing_ok=True)
+                (folder / f'{session["id"]}.json').unlink(missing_ok=True)
+            elif session['state'] == 'uploading':
+                partial = folder / f'{session["id"]}.part'
+                if partial.exists() and partial.stat().st_size > session['offset']:
+                    with partial.open('r+b') as output:
+                        output.truncate(session['offset'])
+
+    def save_session(self, session):
+        write_json(self.originals.session_directory(session['set_id']) / f'{session["id"]}.json', session)
+
+    def session(self, set_id, upload_id, owner=None):
+        self.directory(set_id)
+        if len(upload_id) != 32 or any(c not in '0123456789abcdef' for c in upload_id):
+            raise HTTPException(404, 'Upload not found.')
+        path = self.originals.session_directory(set_id) / f'{upload_id}.json'
+        if not path.exists():
+            raise HTTPException(404, 'Upload expired. Reselect the file to start again.')
+        session = json.loads(path.read_text())
+        if session['owner'] != owner:
+            raise HTTPException(403, 'Only the original uploader can resume this file.')
+        if session['expires_at'] <= time.time():
+            raise HTTPException(410, 'Upload expired. Reselect the file to start again.')
+        return session
+
+    def prepare_session(self, set_id, name, size, fingerprint, owner=None, batch_id=None):
+        with self.lock:
+            self.expire_sessions()
+            data = self.editable(set_id, batch_id)
+            batch = self.batches.get(set_id)
+            if batch and (batch['id'] != batch_id or batch['owner'] != owner):
+                raise HTTPException(409, 'Another upload batch is active. Wait for it to finish.')
+            if batch_id and not batch:
+                raise HTTPException(409, 'Upload batch expired. Reselect the remaining files.')
+            if self.upload:
+                raise HTTPException(409, 'Another upload is being saved. Retry shortly.')
+            if not 1 <= size <= self.limits.file_bytes:
+                raise HTTPException(413, f'Each file must be nonempty and at most {self.limits.file_bytes // 1024 ** 2} MiB.')
+            suffix = Path(name).suffix.lower()
+            if suffix not in EXTENSIONS:
+                raise HTTPException(415, 'Use a supported audio or video file.')
+            for existing in self.originals.sessions():
+                if existing['set_id'] == set_id and existing['owner'] == owner and existing['fingerprint'] == fingerprint and existing['size'] == size:
+                    if existing['state'] == 'complete' and not any(c['id'] == existing['clip']['id'] for c in data['clips']):
+                        continue
+                    existing['batch_id'] = batch_id
+                    self.save_session(existing)
+                    return self.public_session(existing)
+            pending = [s for s in self.originals.sessions() if s['set_id'] == set_id and s['state'] == 'uploading']
+            if sum(c['role'] != 'reference' for c in data['clips']) + len(pending) >= self.limits.recordings:
+                raise HTTPException(409, f'This set accepts at most {self.limits.recordings} recordings.')
+            self.originals.admit(self.limits, incoming=size)
+            clip = {'id': uuid4().hex, 'name': Path(name).name[:180], 'role': 'recording', 'included': True,
+                    'uploader': owner, 'kind': 'video' if suffix in ('.mp4', '.mov', '.webm') else 'audio', 'bytes': size}
+            clip['file'] = f'{clip["id"]}{suffix}.upload'
+            session = {'id': uuid4().hex, 'set_id': set_id, 'owner': owner, 'fingerprint': fingerprint, 'size': size,
+                       'offset': 0, 'state': 'uploading', 'clip': clip, 'batch_id': batch_id,
+                       'expires_at': time.time() + self.limits.upload_seconds}
+            self.save_session(session)
+            return self.public_session(session)
+
+    @staticmethod
+    def public_session(session):
+        return {key: session[key] for key in ('id', 'size', 'offset', 'state', 'expires_at')}
+
+    def append_session(self, set_id, upload_id, owner, offset, chunk, checksum):
+        with self.lock:
+            session = self.session(set_id, upload_id, owner)
+            self.editable(set_id, session['batch_id'])
+            if (self.upload and self.upload != (set_id, upload_id)) or session['state'] != 'uploading':
+                raise HTTPException(409, 'The recording is already being saved. Retry shortly.')
+            if not chunk or len(chunk) > self.limits.chunk_bytes or offset + len(chunk) > session['size']:
+                raise HTTPException(413, 'Upload chunk exceeds its reserved size.')
+            if not hmac.compare_digest(hashlib.sha256(chunk).hexdigest(), checksum):
+                raise HTTPException(422, 'Upload chunk failed its checksum. Retry this chunk.')
+            partial = self.originals.session_directory(set_id) / f'{upload_id}.part'
+            if offset < session['offset'] and offset + len(chunk) <= session['offset'] and partial.exists():
+                with partial.open('rb') as source:
+                    source.seek(offset)
+                    if source.read(len(chunk)) == chunk:
+                        return self.public_session(session)
+            if offset != session['offset']:
+                raise HTTPException(409, 'Upload offset changed. Read the saved offset and resume.')
+            self.originals.admit(self.limits)
+            with partial.open('r+b' if partial.exists() else 'w+b') as output:
+                output.seek(offset)
+                output.truncate(offset)
+                output.write(chunk)
+                output.flush()
+                os.fsync(output.fileno())
+            session['offset'] += len(chunk)
+            self.save_session(session)
+            batch = self.batches.get(set_id)
+            if batch:
+                batch.update(deadline=time.monotonic() + 60, expires_at=time.time() + 60)
+                data = self.get(set_id)
+                data['batch'] = {key: value for key, value in batch.items() if key != 'deadline'}
+                self.save(data)
+            return self.public_session(session)
+
+    def begin_chunk(self, set_id, upload_id, owner=None):
+        with self.lock:
+            session = self.session(set_id, upload_id, owner)
+            self.editable(set_id, session['batch_id'])
+            if self.upload or session['state'] != 'uploading':
+                raise HTTPException(409, 'Another upload is active. Retry shortly.')
+            self.upload = (set_id, upload_id)
+
+    def end_chunk(self, set_id, upload_id):
+        with self.lock:
+            if self.upload == (set_id, upload_id):
+                self.upload = None
+            batch = self.batches.get(set_id)
+            if batch:
+                batch.update(deadline=time.monotonic() + 60, expires_at=time.time() + 60)
+                data = self.get(set_id)
+                data['batch'] = {key: value for key, value in batch.items() if key != 'deadline'}
+                self.save(data)
+
+    def cancel_session(self, set_id, upload_id, owner=None):
+        with self.lock:
+            session = self.session(set_id, upload_id, owner)
+            if self.upload:
+                raise HTTPException(409, 'Wait for the recording being saved.')
+            if session['state'] == 'complete':
+                raise HTTPException(409, 'The recording is already saved. Remove it from the set instead.')
+            try:
+                self.remove_unpublished(session)
+            except (ValueError, httpx.HTTPError) as exc:
+                raise HTTPException(503, 'Media cleanup was interrupted. Retry cancellation shortly.') from exc
+            directory = self.originals.session_directory(set_id)
+            for suffix in ('.part', '.part.transfer.json', '.json'):
+                (directory / f'{upload_id}{suffix}').unlink(missing_ok=True)
+
+    def remove_unpublished(self, session):
+        set_id, clip = session['set_id'], session['clip']
+        if any(item['id'] == clip['id'] for item in self.get(set_id)['clips']):
+            return
+        if self.blobs:
+            prefix = f'originals/{set_id}/{clip["id"]}/'
+            keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')]
+            self.originals.remove_blobs([key for key in keys if key.startswith(prefix)])
+        self.originals.path(set_id, clip).unlink(missing_ok=True)
+
+    def complete_session(self, set_id, upload_id, owner=None):
+        with self.lock:
+            session = self.session(set_id, upload_id, owner)
+            data = self.get(set_id)
+            if session['state'] == 'complete' or any(c['id'] == session['clip']['id'] for c in data['clips']):
+                session['state'] = 'complete'
+                self.save_session(session)
+                return data
+            if self.upload:
+                raise HTTPException(409, 'A recording is being saved. Retry shortly.')
+            self.editable(set_id, session['batch_id'])
+            if session['offset'] != session['size']:
+                raise HTTPException(409, 'Upload is incomplete. Resume from the saved offset.')
+            self.upload = (set_id, upload_id)
+            clip = session['clip']
+            partial = self.originals.session_directory(set_id) / f'{upload_id}.part'
+        try:
+            source = partial if partial.exists() else self.originals.path(set_id, clip)
+            duration = probe(source, limits=self.limits)
+            with self.lock:
+                data = self.get(set_id)
+                total = sum(c.get('expected_duration', c.get('duration', 0)) for c in data['clips'] if c['role'] != 'reference' and c['id'] != clip['id'])
+                if total + duration > self.limits.set_seconds:
+                    raise HTTPException(413, f'A set can contain at most {self.limits.set_seconds // 3600} hours of recordings in total.')
+            clip['expected_duration'] = duration
+            self.originals.publish(set_id, clip, partial)
+            with self.lock:
+                data = self.get(set_id)
+                if not any(c['id'] == clip['id'] for c in data['clips']):
+                    data['clips'].append(clip)
+                data['recovery_attempts'] = 0
+                self.invalidate(data)
+                result = self.queue(data)
+                session.update(state='complete', clip=clip)
+                self.save_session(session)
+                partial.unlink(missing_ok=True)
+                return result
+        except BlobError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(503, 'Media storage is temporarily unavailable. Reselect the file to resume saving it.') from exc
+        finally:
+            with self.lock:
+                self.upload = None
+
     def begin_upload(self, set_id, name, role='recording', uploader=None, batch_id=None):
         with self.lock:
+            if self.blobs:
+                raise HTTPException(409, 'Reload Crowd Set to use resumable uploads with media storage.')
             batch = self.batches.get(set_id)
             if batch_id and (not batch or batch['id'] != batch_id):
                 raise HTTPException(409, 'Upload batch expired. Retry the remaining files.')
@@ -176,11 +416,11 @@ class Store:
                 raise HTTPException(415, 'Supported files: WAV, MP3, M4A, MP4, MOV, AAC, FLAC, OGG, WEBM.')
             if role == 'reference' and any(c['role'] == role for c in data['clips']):
                 raise HTTPException(409, 'Remove the existing reference before replacing it.')
-            if role != 'reference' and sum(c['role'] != 'reference' for c in data['clips']) >= 8:
-                raise HTTPException(409, 'This set has 8 recordings. Remove one before adding another.')
-            used = sum(p.stat().st_size for p in self.root.rglob('*') if p.is_file())
-            if used + MAX_BYTES + 3 * 1024 ** 3 > DISK_BUDGET or shutil.disk_usage(self.root).free < MAX_BYTES + 3 * 1024 ** 3:
-                raise HTTPException(507, 'Not enough local storage. Delete an old performance to free space.')
+            pending = sum(s['set_id'] == set_id and s['state'] == 'uploading' for s in self.originals.sessions())
+            if role != 'reference' and sum(c['role'] != 'reference' for c in data['clips']) + pending >= self.limits.recordings:
+                raise HTTPException(409, f'This set has {self.limits.recordings} recordings. Remove one before adding another.')
+            self.expire_sessions()
+            self.originals.admit(self.limits, incoming=self.limits.file_bytes)
             clip = {'id': uuid4().hex, 'name': Path(name).name[:180], 'role': role, 'included': True, 'uploader': uploader,
                     'kind': 'video' if suffix in ('.mp4', '.mov', '.webm') else 'audio'}
             clip['file'] = f'{clip["id"]}{suffix}.upload'
@@ -195,10 +435,14 @@ class Store:
             self.upload = None
             if set_id in self.batches:
                 self.batches[set_id]['deadline'] = time.monotonic() + 60
+                self.batches[set_id]['expires_at'] = time.time() + 60
             data = self.get(set_id)
+            if set_id in self.batches:
+                data['batch'] = {key: value for key, value in self.batches[set_id].items() if key != 'deadline'}
             if success:
+                data['recovery_attempts'] = 0
                 self.invalidate(data)
-                partial.replace(self.directory(set_id) / clip['file'])
+                self.originals.publish(set_id, clip, partial)
                 data['clips'].append(clip)
             else:
                 partial.unlink(missing_ok=True)
@@ -213,10 +457,12 @@ class Store:
                 raise HTTPException(404, 'Clip not found')
             if clip['role'] == 'reference' and not delete:
                 raise HTTPException(400, 'The reference is timing-only and cannot be included in the mix.')
+            data['recovery_attempts'] = 0
             self.invalidate(data)
             if delete:
                 directory = self.directory(set_id)
-                for name in (clip['file'], clip['id'] + '.wav', clip['id'] + '.npy', clip['id'] + '.analysis.json'):
+                self.originals.remove(set_id, clip)
+                for name in (clip['id'] + '.wav', clip['id'] + '.npy', clip['id'] + '.analysis.json', clip['id'] + '.alignment.json'):
                     (directory / name).unlink(missing_ok=True)
                 data['clips'].remove(clip)
             else:
@@ -225,17 +471,28 @@ class Store:
 
     def delete(self, set_id):
         with self.lock:
-            self.editable(set_id)
+            data = self.editable(set_id)
+            for clip in data['clips']:
+                self.originals.remove(set_id, clip)
+            if self.blobs:
+                keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')
+                        if f'/{set_id}/' in json.loads(path.read_text())['key']]
+                self.originals.remove_blobs(keys)
             self.pending.pop(set_id, None)
             shutil.rmtree(self.directory(set_id))
+            shutil.rmtree(self.originals.uploads / set_id, ignore_errors=True)
+            shutil.rmtree(self.originals.originals / set_id, ignore_errors=True)
 
     def start(self, set_id):
         with self.lock:
+            self.expire_sessions()
             data = self.editable(set_id)
             if not any(c['role'] != 'reference' and c['included'] for c in data['clips']):
                 raise HTTPException(400, 'Add a recording to update the mix.')
             if self.active or self.upload:
                 return self.queue(data)
+            if data['status'] != 'queued':
+                data['recovery_attempts'] = 0
             self.pending.pop(set_id, None)
             self.invalidate(data)
             directory = self.directory(set_id)
@@ -255,6 +512,7 @@ class Store:
         directory = self.directory(set_id)
         error = None
         try:
+            self.collect_mixes(set_id)
             with self.lock:
                 if self.closed:
                     raise RuntimeError('Server stopped. Retry processing.')
@@ -262,37 +520,68 @@ class Store:
                                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(self.lockfile.fileno(),),
                                                 env={**os.environ, 'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'})
             try:
-                code = self.process.wait(timeout=900)
+                code = self.process.wait(timeout=self.limits.job_seconds)
             except subprocess.TimeoutExpired:
                 os.killpg(self.process.pid, signal.SIGKILL)
                 self.process.wait()
-                raise RuntimeError('Processing exceeded 15 minutes. Try shorter recordings.')
+                raise RuntimeError('Processing exceeded its time limit. Completed preparation is cached; retry the mix.')
             if code:
                 failure = directory / 'failure.json'
                 raise RuntimeError(json.loads(failure.read_text())['error'] if failure.exists() else 'Processing stopped unexpectedly. Retry with shorter recordings.')
             result = json.loads((directory / 'result.json').read_text())
+            if not result['playable']:
+                raise ValueError('No mix was created. Add another recording and retry.')
+            revision = uuid4().hex
+            filename = f'mix-{revision}.wav'
+            (directory / 'pending.wav').replace(directory / filename)
+            mix_object = None
+            if self.blobs:
+                mix_object = f'mixes/{set_id}/{revision}.wav'
+                with self.lock:
+                    size = (directory / filename).stat().st_size
+                    self.originals.admit(self.limits, incoming=size)
+                    self.originals.record_blob(mix_object, size)
+                self.blobs.put(directory / filename, mix_object, 'audio/wav')
         except Exception as exc:
-            error = str(exc)
+            error = exc.detail if isinstance(exc, HTTPException) else str(exc)
         with self.lock:
             data = self.get(set_id)
             try:
                 if error:
                     data.update(status='failed', error=error, dirty=True)
                 else:
-                    if not result['playable']:
-                        raise ValueError('No mix was created. Add another recording and retry.')
-                    revision = uuid4().hex
-                    filename = f'mix-{revision}.wav'
-                    (directory / 'pending.wav').replace(directory / filename)
-                    data.update(result, status='ready', error=None, dirty=False, mix_file=filename, mix_revision=revision)
+                    if self.blobs:
+                        data.update(previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0),
+                                    mix_object=mix_object, mix_bytes=(directory / filename).stat().st_size)
+                    data.update(result, status='ready', error=None, dirty=False, mix_file=filename, mix_revision=revision, recovery_attempts=0)
                 data.pop('stage', None)
                 self.save(data)
-            except (OSError, ValueError):
+            except (OSError, ValueError, httpx.HTTPError):
                 previous = self.get(set_id)
                 previous.update(status='failed', dirty=True, error='Could not save the updated mix. Check storage and retry.')
                 previous.pop('stage', None)
                 self.save(previous)
-            finally:
+        try:
+            self.collect_mixes(set_id)
+        finally:
+            with self.lock:
                 self.active = None
                 self.process = None
                 self.schedule()
+
+    def collect_mixes(self, set_id):
+        if not self.blobs:
+            return
+        data = self.get(set_id)
+        retained = {data.get('mix_object'), data.get('previous_mix_object')}
+        keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')]
+        obsolete = [key for key in keys if key.startswith(f'mixes/{set_id}/') and key not in retained]
+        try:
+            if obsolete:
+                self.originals.remove_blobs(obsolete)
+        except (OSError, ValueError, httpx.HTTPError):
+            # Keep the ledger reservation until deletion is acknowledged on a later job.
+            return
+        for path in self.directory(set_id).glob('mix-*.wav.transfer.json'):
+            if path.name != data.get('mix_file', '') + '.transfer.json':
+                path.unlink(missing_ok=True)

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import CrowdSet from './CrowdSet';
 import { request } from './api';
 
-vi.mock('./api', () => ({ request: vi.fn(), endpoint: (path) => `/crowd-set/sets${path}` }));
+vi.mock('./api', () => ({ request: vi.fn(), getLimits: async () => ({ recordings: 64, file_bytes: 2 * 1024 ** 3, recording_seconds: 7200 }), endpoint: (path) => `/crowd-set/sets${path}` }));
 const performance = { id: 'one', name: 'A night together', visibility: 'shared', can_manage: true, status: 'idle', clips: [], timeline: null, playable: false };
 const clip = { id: 'clip', name: 'Stage.mp4', role: 'recording', kind: 'video', can_edit: true, included: true };
 const ready = { ...performance, status: 'ready', playable: true, mix_revision: 'published', clips: [clip], timeline: { segments: [{ clip_id: clip.id }] } };
@@ -27,6 +27,16 @@ it('browses sets before opening a simple set detail', async () => {
   expect(screen.getByText('In current mix')).toBeInTheDocument();
   expect(screen.queryByText(/reference|timing details|volume adjustments/i)).not.toBeInTheDocument();
   expect(screen.getByLabelText('Compiled mix').compareDocumentPosition(screen.getByLabelText('Recordings')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it('accepts fifty friends plus a released recording and does not preload every original', async () => {
+  const clips = Array.from({ length: 51 }, (_, index) => ({ ...clip, id: `clip-${index}`, name: `Friend ${index}.mp4` }));
+  request.mockResolvedValueOnce([{ ...ready, clips }]);
+  render(<CrowdSet />);
+  await openSet();
+  expect(screen.getByLabelText('Add videos')).toBeEnabled();
+  expect(screen.getByText(/Up to 64 recordings/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Play Friend 50.mp4')).toHaveAttribute('preload', 'none');
 });
 
 it('creates a set, finds it in the catalog, opens it and uploads a video', async () => {

@@ -1,5 +1,8 @@
 from pathlib import Path
+import math
+import re
 import subprocess
+import tempfile
 import wave
 
 import imageio_ffmpeg
@@ -8,12 +11,40 @@ from scipy.io import wavfile
 from scipy.ndimage import uniform_filter1d
 from scipy.signal import correlate, resample_poly
 
+from .limits import Limits
+
 FPS = 25
 RATE = 32000
 
 
-def decode(source: Path, destination: Path, *, reference=False):
-    limit = 7200 if reference else 1200
+def probe(source: Path, *, limits=None):
+    limits = limits or Limits.environment()
+    command = [imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-hide_banner', '-v', 'info',
+               '-max_alloc', '67108864', '-threads', '1', '-protocol_whitelist', 'file',
+               '-format_whitelist', 'wav,mov,mp3,aac,flac,ogg,matroska,webm',
+               '-i', str(source), '-map', '0:a:0', '-t', '0', '-f', 'null', '-']
+    try:
+        with tempfile.TemporaryFile() as log:
+            result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=log, timeout=30)
+            log.seek(0)
+            report = log.read(65536).decode('utf-8', errors='replace')
+        match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', report)
+        if result.returncode or not match:
+            raise ValueError('Cannot read this recording’s duration and audio. Export it as MP4, M4A or WAV and retry.')
+        hours, minutes, seconds = map(float, match.groups())
+        duration = hours * 3600 + minutes * 60 + seconds
+        if not 1 <= duration <= limits.recording_seconds:
+            raise ValueError(f'Recordings must be between 1 second and {limits.recording_seconds // 60} minutes.')
+        return duration
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError('Reading the recording timed out. Try another export.') from exc
+
+
+def decode(source: Path, destination: Path, *, reference=False, expected_duration=None, limits=None):
+    limits = limits or Limits.environment()
+    limit = limits.recording_seconds
+    if expected_duration is not None:
+        limit = min(limit, math.ceil(expected_duration) + 1)
     rate = 16000 if reference else RATE
     command = [
         imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-v', 'error', '-y',
@@ -27,7 +58,7 @@ def decode(source: Path, destination: Path, *, reference=False):
     try:
         # stderr goes to a file so malformed media cannot grow a captured pipe in RAM.
         with destination.with_suffix('.log').open('wb') as log:
-            result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=log, timeout=180)
+            result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=log, timeout=limits.media_seconds)
         if result.returncode:
             raise ValueError('Cannot decode this file. Use a supported audio/video file with an audio track.')
         rate, samples = wavfile.read(destination, mmap=True)
@@ -36,7 +67,7 @@ def decode(source: Path, destination: Path, *, reference=False):
             raise ValueError(f'Audio must be between 1 second and {limit // 60} minutes.')
         return duration
     except subprocess.TimeoutExpired as exc:
-        raise ValueError('Audio conversion exceeded the 3 minute limit.') from exc
+        raise ValueError('Audio conversion exceeded its time limit. Try another export.') from exc
     finally:
         destination.with_suffix('.log').unlink(missing_ok=True)
 
@@ -222,7 +253,7 @@ def loudness(path, start=0, duration=None):
     trim = f'atrim=duration={duration},asetpts=PTS-STARTPTS,' if duration is not None else ''
     command += ['-af', trim + 'loudnorm=I=-23:TP=-2:LRA=7:print_format=json', '-f', 'null', '-']
     try:
-        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=180)
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=Limits.environment().media_seconds)
         report, _ = json.JSONDecoder().raw_decode('{' + result.stderr.decode('utf-8', errors='replace').rsplit('{', 1)[1])
         integrated, peak = float(report['input_i']), float(report['input_tp'])
         if result.returncode or not np.isfinite(integrated) or not np.isfinite(peak):
