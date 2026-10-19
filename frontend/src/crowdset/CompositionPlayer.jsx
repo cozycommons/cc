@@ -1,7 +1,7 @@
 import React from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RectangleHorizontal, X, LoaderCircle } from 'lucide-react';
 import { endpoint } from './api';
-import ScrubPreview, { useScrubPreviews } from './ScrubPreview';
+import ScrubPreview from './ScrubPreview';
 
 export function playbackTime(seconds) {
   const total = Math.floor(Math.max(0, seconds || 0));
@@ -9,8 +9,7 @@ export function playbackTime(seconds) {
   return `${minutes >= 60 ? `${Math.floor(minutes / 60)}:` : ''}${String(minutes % 60).padStart(minutes >= 60 ? 2 : 1, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
-export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theater = false, onTheaterChange }) {
-  const previews = useScrubPreviews(set);
+export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theater = false, onTheaterChange, previews }) {
   const container = React.useRef(null);
   const insert = React.useRef(null);
   const [playing, setPlaying] = React.useState(false);
