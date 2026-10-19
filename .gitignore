@@ -10,5 +10,9 @@ __pycache__/
 .dice-dev/
 artifacts/
 .dice-verification/
+.crowdset/
+.crowdset-venv/
+
+# Retain exclusions for pre-rename local data and environments.
 .crowd-set/
 .crowd-set-venv/

@@ -1,0 +1,103 @@
+# Crowdset
+
+## Approved behavior
+Signed-in users browse shared sets, open a set, upload videos from that performance, play the original recordings, and watch one current compiled video cut with synchronized audio (or listen when there is no aligned video). Keep the interface to set names, media, useful metadata, actions and actionable status. No reference selection, timing setup, engineering diagnostics, slogans or gain explanations.
+
+1. Show a simple set list and create-set form. Opening a set shows its title, one compiled player when available, and its original recording cards with native video/audio playback and download. Videos are the primary contribution; supported audio files remain a fallback. The cut is selected by the server; there is no video editor.
+2. Upload directly to a set. Preserve original bytes and embedded metadata. Extract audio only for processing. Support existing file/size/count limits: 64 ordinary recordings, 3 GiB each, 1 second–2 hours of audio, with an eight-hour aggregate audio limit per set. Matching another recording generally needs at least 37 seconds of common usable audio; shorter originals remain playable and can supply the initial mix.
+3. Automatically rebuild after uploads or inclusion/removal changes, coalescing changes with a three-second debounce. Queue at most one build per set and run only one job globally. Cache extracted audio, loudness measurements and timing features for unchanged originals. Uploads are temporarily blocked while that set is processing; show a simple wait state. Offer Retry after failure. Uploads, removals, exclusions, processing failures and interrupted processing preserve the current mix; queue the replacement. A successful job atomically publishes one replacement. Block edits while a job/upload is active and retain the existing single-worker resource bounds.
+4. The server selects the longest usable ordinary recording as its internal timing anchor. Usability requires successful audio decode, non-silent finite samples and measurable loudness. Quality only breaks equal-duration ties: fewer clipped samples, then fewer near-silent blocks, then a stable ID. These are limited signal measurements, not perceptual quality estimates. No weighted duration/quality ranking. The anchor is a normal contribution and may supply compiled audio.
+5. Match other usable recordings conservatively to this anchor. Abstain on insufficient or inconsistent evidence. Unmatched and invalid recordings stay visible and playable as originals when the browser supports their format. Show concise status such as “Not in mix” and actionable failures, not correlation statistics.
+6. Compose the union of confident coverage, including sections before and after the anchor. Shift the earliest covered instant to output zero. Preserve actual internal gaps as silence; never compress them. Choose the source extending coverage farthest, with stable ties, and use short fades only inside overlap. No claim of acoustic-quality selection, drift correction, or full-set timing certification.
+7. Retain constant-gain volume matching and true-peak headroom. No denoising, EQ, compression or limiting. One compiled player and its downloads represent the current published result. Originals are distinct from that compiled result.
+8. New sets are shared with all signed-in users: authenticated users can browse, contribute and play originals/current mixes. Anonymous requests cannot access set or media data. Only a recording uploader or the set owner may exclude/remove that recording; only the set owner may delete the set. Preserve exact hosted host/origin and loopback guards. Legacy sets lacking explicit shared visibility remain owner-only; no automatic publishing or audience migration. Local ownerless sets remain inaccessible in hosted mode.
+9. Preserve legacy sets and media without deletion or silent role conversion. Previously explicit timing-only reference files remain playable originals but excluded from new compilation. They are never silently substituted into the mix. Existing compiled results remain available until a successful replacement from ordinary contributions. New uploads have no reference role or selection. The legacy reference upload/API compatibility is not exposed by the UI.
+10. Preserve Commons/Dice paths, old Dice deployment, storage/worker bounds and historical migrations. No database migration. Hosting remains authorized on the existing Coolify server, but cannot bypass a browser policy failure.
+
+Upload batches use an explicit begin/finish boundary: processing stays held while all selected files are attempted, then exactly one update is queued for successful additions. Single-file uploads queue automatically. Failed files remain named in the UI error; successful originals and the old mix are retained. An abandoned batch settles after 60 seconds without an active upload; an in-flight chunk holds the batch open with a two-minute body deadline. Recovery names the interruption and asks for missing files again. Restart retains resumable upload offsets and recovers queued/interrupted jobs with bounded automatic retries. Only the initiating signed-in uploader can append to or finish their batch.
+
+## Mix timeline
+Show one read-only strip spanning the actual compiled duration, with proportional selected source segments, stable colors shared with original cards, and actual gaps. Mark overlap fades within the same strip. Provide compact contributing-source links and segment time details, a playhead and click/keyboard seeking. No separate source tracks or editing controls. Merely aligned recordings must not appear as contributors.
+
+The user explicitly authorized converting the known local five-minute Niteharts fixture from its superseded timing-only role to an eligible ordinary recording. Preserve that original's provenance and bytes, then rebuild. This narrow local data migration does not change unrelated legacy sets, their privacy or recording roles.
+
+## Validation
+Cover longest usable anchor selection, quality tie-breaking, anchor inclusion, negative/positive timeline extensions and true gaps, conservative abstention, video original MIME/range streaming, owner isolation, current mix preservation through edits/failure/restart, atomic successful replacement, and a concise UI flow without reference/diagnostic controls. Verify a real local video upload and resulting mix where tools permit. Record actual evidence and limitations in README.
+
+## Later work
+Explicit opt-in sharing for legacy private sets; social-link import (all Instagram video items, TikTok, YouTube with partial/unavailable results and provenance); capture-time assisted alignment; drift/manual timing correction; individual cleanup; advanced sonic consistency. Preserve capture metadata without extracting or trusting it as timing yet.
+
+## Larger set trial (2026-10-18)
+
+The user requested roughly 50 friends’ recordings, each up to five minutes, alongside a full released recording, and authorized expanding capacity and designing for growth.
+
+1. Support 64 recordings per set, leaving space for the released recording and 50 friends’ clips. Any ordinary recording may be up to two hours; the existing longest-usable-anchor and source-selection behavior remains. A released recording is eligible audio, not a new timing-only mode.
+2. Accept files up to 3 GiB. Preserve original bytes. Report the active limits before uploads. The aggregate decoded duration of a set is at most eight hours; storage is finite and admission can reject a file before it is added.
+3. Upload large files in checked, resumable chunks. Retry temporary network/server failures from the last acknowledged offset. After a page reload, reselecting the same file resumes that user's unfinished upload. Never append another user's bytes or silently duplicate a completed upload after a lost response.
+4. A selected batch uploads sequentially, reports file and byte progress, and queues one replacement after successful additions. Failed files are named and can be retried; committed originals and the current mix survive interruption. Unfinished upload sessions expire after 24 hours.
+5. Queue and batch state survive normal service restart. Interrupted processing restarts using completed cached analyses, at most twice automatically; persistent failures require Retry. A queued/running job never replaces the current published mix until successful atomic publication.
+6. Keep the existing UI layout. Original players load media only on demand so dozens of cards do not fetch every recording at page load. Matching results may be reused only while both immutable recording and anchor remain unchanged.
+7. Operators can expand storage by changing bounded quotas after verifying volume headroom. Default local capacity is 16 GiB for originals/pending uploads plus 10 GiB for generated work; private Cloudflare R2 free-tier mode caps originals, unfinished transfers and retained mixes at 8,000,000,000 bytes with the same local work quota; keep at least 2 GiB free for the host. Limits apply across sets and are shown as actionable upload/storage failures.
+8. This release remains a single processing worker on one persistent host. Optional private Cloudflare R2 holds immutable originals and published mixes; local staging/caches and metadata remain on the persistent host. Jobs may move to a leased database queue later without changing public IDs or ownership. Cloud enablement requires provider capacity and approved billing; local fallback and legacy originals remain supported. No production database migration or automatic media migration is required.
+
+9. R2 free-tier mode stops new cloud operations before 100,000 Class A or 1,000,000 Class B attempts in any rolling 35 days. Persist counters across restarts; missing counters fail closed. Cleanup remains available. The storage cap cannot be raised in this mode. Account-wide usage must be checked before enabling it: these controls cannot govern other apps or buckets. Fifty recordings are supported by count, but their combined bytes and retained mixes must fit the storage cap.
+
+## MVP design handoff (2026-10-19)
+
+The agreed next product loop is Google sign-in → find/create a performance → contribute videos → watch one canonical shared cut. A performance has artist, venue, start/end datetime and timezone (including midnight crossings). Search uses artist, venue or date; creation surfaces likely duplicates. Playback comes first, followed by contribution and concise coverage/status. Empty sets offer Add clips without a nonfunctional Watch action. Contributor attribution remains; shared visibility still requires authentication and private media storage.
+
+Keep copy functional: Sets, New set, Add clips, Review clips, Processing, Retry. Received, processing and unmatched clips do not count as playable coverage. Do not invent timestamps or continuity. Preserve a playable result during failed or pending updates. Exclude captions, comments, votes, angle/version pickers, editing interfaces, separate upload libraries, profiles, social graphs, saves, notifications and new private/custom cuts.
+
+This handoff is product direction, not evidence that the video MVP is complete. The current tested release compiles audio and plays individual original videos. The canonical video delivery contract below now supersedes this audio-only milestone. Structured event metadata, catalog search and likely-duplicate checks are covered by the frontend MVP below. The design prototype's chronological/timestamp fallback and skipped-gap suggestions do not override the approved conservative alignment, actual gaps, overlap fades or legacy reference-only exclusion above. Resolve those video delivery details explicitly before replacing the current pipeline. Finish the R2/Coolify rollout with its existing bounds first.
+
+Design source: `docs/crowdset/DESIGN.md` in the primary checkout and the 2026-10-19 “Design Crowdset app UI” handoff. Prototype data, sign-in and uploads are simulated; they are not production validation. This document remains the implementation contract; do not create a competing spec tree.
+
+
+## Frontend MVP
+
+The catalog supports artist, venue, and date search. New set opens a focused creation form. When the API advertises event metadata, collect artist, venue, local start/end datetimes, and an IANA time zone. The end may fall on the next date. Check the accessible catalog for the same artist, venue and local event date before creating; let the user open that set or explicitly create a different one. Older APIs retain the name-only form.
+
+Set detail prioritizes the current published cut, labeled The cut when video is available and Audio mix otherwise, followed by its read-only coverage timeline and original clips. No angle, cut, or manual inclusion controls. Original removal still follows uploader/owner permissions. Count real contributors when uploader IDs exist; show names only when supplied by the API. Failed upload retry submits only files that did not succeed, preserving successful originals and the current mix. Keep copy functional and concise, without slogans or tutorial legends.
+
+The initial frontend milestone was audio-only; the canonical cut below extends it. Existing authentication, conservative alignment, actual silent gaps, revision publication, limits, and private media access remain unchanged.
+
+
+## Canonical video cut
+
+Publish one shared, server-selected video with the compiled audio as its soundtrack. Select pictures independently from confidently aligned, included ordinary video recordings, including friends' videos when the selected audio is an audio-only release. Prefer the active picture that reaches farthest, with stable ties. Use conservative audio alignment only; event dates never establish recording offsets. Preserve the full audio timeline and real gaps. Uncovered picture intervals use a neutral background; originals remain available.
+
+Respect portrait, landscape, rotation and display aspect without cropping. Deliver a bounded 1080p H.264/AAC MP4. Use one native video player so picture and sound share a clock. The catalog says Watch only when a published video exists. Keep audio playback for older/audio-only results and preserve audio download. The coverage strip describes the visual selection when showing a cut; it does not imply all original recordings were selected. No editor, votes, angle selector, alternate versions, captions or comments.
+
+Audio, video, their timelines and revision publish together. Keep the current and previous complete revisions through processing and failures. Authenticated playback/ranges and downloads must request the same immutable revision. Expired revisions return not found, never different bytes under the old revision. Original files, unpublished outputs and retained generations all count against the existing storage limits.
+
+Validate two-source switching against the aligned audio, portrait/landscape/rotation, delayed stream starts, real gaps, audio-only intervals, encoder/upload/save failure, restart and byte ranges. Verify the browser upload-to-watch flow against actual rendered media. Measure long rendering separately from the earlier audio capacity benchmark.
+
+## YouTube import
+
+A set accepts a pasted public YouTube video link alongside file uploads. Import the whole single video (including released sets), never a playlist or livestream. Show server download/saving progress, then use the same private original storage, audio alignment and canonical cut pipeline. Keep the current player available throughout. Imported recordings show their title and source link and have the same uploader/owner permissions as uploaded clips.
+
+Existing recording count, duration, aggregate duration, disk and R2 budgets apply. Imports run one at a time on the existing worker host with a deadline. Invalid URLs fail before network work; unavailable, restricted or server-blocked videos produce a useful error and leave existing clips/cuts intact. No cookies, account sign-in or access-control bypass. Interrupted imports stop safely and can be retried; they do not silently publish partial media. A repeated request for an already imported URL does not add another copy. No separate design mock was supplied; use the existing set form styling.
+
+## Processing feedback
+
+Show the current preparation, matching, audio mixing, video rendering, finalization, or storage phase. For video encoding, show measured frame progress and an approximate remaining time for rendering only; never imply that rendering at 100% means the cut has been saved. Show elapsed time across phases, keep the previous playable cut available during updates, and explain that processing continues after leaving the page. Upload transfer completion changes to a storage-saving message. A previous failed YouTube attempt is collapsed once a recording exists so it is not confused with the current processing status.
+
+A complete, uncut compatible recording can reuse its original video with the finished audio instead of re-encoding every frame. Keep full audio duration, including a tiny trailing audio pad. Recordings needing cuts, resizing, rotation, timing conversion or codec conversion use the normal renderer.
+
+When another recording leaves the selected video timeline and finished audio unchanged, save its analysis and alignment while keeping the current playable cut and revision. Avoid producing a duplicate full-set video solely to update recording metadata. Storage failures must report the actual storage limit that blocked processing.
+
+## Official soundtrack with friends’ pictures
+
+A set owner can select an ordinary recording as the official set soundtrack. This pins the timing anchor and output bounds to that recording; other uploads never replace its audio. Existing sets without a selection keep their previous compilation behavior. The selected official recording supplies fallback picture throughout its own duration. Confidently aligned shorter video recordings take priority over that picture during their coverage. Once a friend clip starts, keep it until its usable video ends. For overlaps, choose the earliest-starting remaining clip, with stable clip-ID ties; skip an already-started remainder shorter than three seconds. Return to the official picture wherever no friend clip is selected. Keep portrait framing, actual timing and continuous official audio, with hard picture cuts initially. Never use a friend’s microphone in this mode.
+
+The first version plays these picture cuts in the app using the continuous official video/audio as a base and normalized silent friend inserts. Adding a friend does not rebuild the full-length video. The video download is labeled “Full set” and contains the official picture; combined MP4 export is separate future work. If an insert cannot load, keep playing the official picture and audio. Use fullscreen for the whole player where supported, otherwise inline playback.
+
+Only the set owner can change or clear the soundtrack selection. Missing, excluded or unusable selections fail clearly instead of silently choosing different audio. Removing the selected recording clears the selection. Changing the selection rebuilds against the selected timing anchor. Retain the prior playable result until all new referenced media are published. Preserve the 8 GB R2 cap, original bytes and request accounting.
+
+Validation covers onset/exit timing, contained and overlapping clips, stable tie selection, short leftovers, negative offsets and end clipping, continuous official audio, portrait/HEVC normalization, owner permissions, failed publication, playback/seek/pause and unchanged-cut reuse.
+
+## Removed recordings
+
+Remove hides a recording from the set and original-media routes, excludes it from future cuts, and clears its official-audio selection if necessary. Keep its original bytes and metadata as a soft deletion; do not count it toward recording or duration limits. The existing published cut remains available while its replacement processes. Removing the last recording hides playback immediately. No trash or restore screen is included yet.
+
+Retained removed originals still count toward storage. Only when admitting an upload or publishing output would exceed the configured original/cloud quota, permanently reclaim the oldest removed recordings across sets until the operation fits. Keep the R2 cap at 8 GB. Never reclaim active originals or current/previous published outputs this way. Failed remote cleanup retains its reservation and blocks admission if space is still insufficient. Set deletion remains an explicit permanent deletion, including its removed recordings.

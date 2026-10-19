@@ -16,7 +16,11 @@ node_modules
 **/*.pem
 **/*.key
 **/.secrets
-.crowd-set
-.crowd-set-venv
+.crowdset
+.crowdset-venv
 **/__pycache__
 **/.pytest_cache
+
+# Retain exclusions for pre-rename local data and environments.
+.crowd-set/
+.crowd-set-venv/

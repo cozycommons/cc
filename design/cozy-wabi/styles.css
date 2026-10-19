@@ -1133,6 +1133,15 @@ summary:focus-visible {
   transform: rotate(-0.4deg) translateY(-10px);
 }
 
+.project--crowdset {
+  transform: rotate(1.1deg) translateY(6px);
+}
+
+.project--crowdset .project__icon {
+  font-size: 30px;
+  color: var(--paper-light);
+}
+
 .project--waiting {
   background: rgba(223, 208, 181, 0.48);
   color: var(--ink-soft);

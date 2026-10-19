@@ -19,6 +19,8 @@ vi.mock('../../design/dice/App.jsx', () => ({
   default: () => <div>Dice design system</div>,
 }));
 
+vi.mock('./crowdset/Crowdset.jsx', () => ({ default: () => <div>Crowdset application</div> }));
+
 describe('top-level routes', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/');
@@ -34,6 +36,21 @@ describe('top-level routes', () => {
     expect(screen.getByRole('heading', { name: /Make room.*good things\./ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Dice beer die records and stats' })).toHaveAttribute('href', '/dice');
     expect(screen.queryByText('Commons scene page')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Crowdset concert videos' })).toHaveAttribute('href', '/crowdset');
+    expect(screen.getByRole('link', { name: 'Crowdset ↗' })).toHaveAttribute('href', '/crowdset');
+  });
+
+  it('serves Crowdset at its canonical URL', async () => {
+    window.history.replaceState({}, '', '/crowdset');
+    render(<App />);
+    expect(await screen.findByText('Crowdset application')).toBeInTheDocument();
+  });
+
+  it('redirects old Crowdset links while preserving query and recording anchor', async () => {
+    window.history.replaceState({}, '', '/crowd-set?view=set#recording-123');
+    render(<App />);
+    expect(await screen.findByText('Crowdset application')).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe('/crowdset?view=set#recording-123');
   });
 
   it('serves the shared room at /scene', () => {
