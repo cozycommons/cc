@@ -4,6 +4,7 @@ import { endpoint, request, getLimits } from './api';
 import { uploadRecording } from './uploads';
 import MixTimeline, { recordingColor } from './MixTimeline';
 import CreateSet from './CreateSet';
+import YouTubeImport from './YouTubeImport';
 import { eventDate, eventRange, matchesSearch } from './setDetails';
 import './crowd-set.css';
 
@@ -12,7 +13,7 @@ export function time(seconds) {
   return `${Math.floor(value / 60)}:${(value % 60).toFixed(1).padStart(4, '0')}`;
 }
 const accept = '.wav,.mp3,.m4a,.mp4,.mov,.aac,.flac,.ogg,.webm';
-const isBusy = (set) => ['processing', 'uploading'].includes(set?.status);
+const isBusy = (set) => ['processing', 'uploading', 'importing'].includes(set?.status);
 const legacyLimits = { recordings: 8, file_bytes: 512 * 1024 ** 2, recording_seconds: 1200, resumable_uploads: false };
 
 export default function CrowdSet() {
@@ -89,7 +90,7 @@ export default function CrowdSet() {
   const selectedId = selected?.id;
   const selectedStatus = selected?.status;
   React.useEffect(() => {
-    if (!selectedId || !['processing', 'uploading', 'queued'].includes(selectedStatus)) return;
+    if (!selectedId || !['processing', 'uploading', 'queued', 'importing'].includes(selectedStatus)) return;
     let stopped = false;
     let timer;
     const poll = async () => {
@@ -143,7 +144,7 @@ export default function CrowdSet() {
   const recordings = selected?.clips || [];
   const ordinary = recordings.filter((clip) => clip.role !== 'reference');
   const used = new Set([...(selected?.timeline?.segments || []), ...(selected?.video_timeline?.segments || [])].map((segment) => segment.clip_id));
-  const updating = ['queued', 'processing', 'uploading'].includes(selected?.status);
+  const updating = ['queued', 'processing', 'uploading', 'importing'].includes(selected?.status);
   const visibleSets = sets.filter((set) => matchesSearch(set, query));
   const contributors = new Set(recordings.map((clip) => clip.uploader).filter(Boolean)).size;
 
@@ -166,7 +167,7 @@ export default function CrowdSet() {
       <section aria-label="Sets" className="cs-set-list">
         {visibleSets.length ? visibleSets.map((item) => <button className="cs-set" key={item.id} onClick={() => { choose(item); setNotice(''); }}>
           <div className="cs-set-cover"><span className="cs-set-date">{eventDate(item) || (item.visibility === 'shared' ? 'Public' : 'Private')}</span><strong>{item.artist || item.name}</strong><span>{item.venue}</span></div>
-          <div className="cs-set-footer"><span>{item.clips.length} {item.clips.length === 1 ? 'clip' : 'clips'}{item.timeline?.duration ? ` · ${time(item.timeline.duration)}${item.video_playable ? '' : ' audio'}` : ''}</span><span>{item.video_playable ? 'Watch →' : item.playable ? 'Listen →' : ['processing', 'queued', 'uploading'].includes(item.status) ? 'Processing' : item.clips.length ? 'Open →' : 'Add clips →'}</span></div>
+          <div className="cs-set-footer"><span>{item.clips.length} {item.clips.length === 1 ? 'clip' : 'clips'}{item.timeline?.duration ? ` · ${time(item.timeline.duration)}${item.video_playable ? '' : ' audio'}` : ''}</span><span>{item.video_playable ? 'Watch →' : item.playable ? 'Listen →' : ['processing', 'queued', 'uploading', 'importing'].includes(item.status) ? 'Processing' : item.clips.length ? 'Open →' : 'Add clips →'}</span></div>
         </button>) : <p className="cs-empty-catalog">{query ? 'No sets found.' : 'No sets yet.'}</p>}
       </section>
     </> : <>
@@ -184,7 +185,7 @@ export default function CrowdSet() {
           </>}
         </div> : <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Processing' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
         {selected.playable && selected.timeline && <MixTimeline timeline={selected.video_playable ? selected.video_timeline : selected.timeline} video={selected.video_playable} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
-        <p role="status">{busy ? notice || 'Saving…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? selected.stage || 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
+        <p role="status">{busy ? notice || 'Saving…' : selected.status === 'importing' ? selected.youtube_import?.stage || 'Downloading from YouTube…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? selected.stage || 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
         {!updating && (selected.status === 'failed' || selected.dirty || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : 'Update mix'}</button>}
         {!busy && failedFiles.length > 0 && <button disabled={locked} onClick={() => upload(failedFiles)}>Retry {failedFiles.length} {failedFiles.length === 1 ? 'upload' : 'uploads'}</button>}
@@ -194,10 +195,12 @@ export default function CrowdSet() {
           <label className={`cs-upload ${!recordings.length ? 'cs-primary' : ''}`}><Plus size={17} /> Add clips<input aria-label="Add clips" type="file" multiple accept={accept} disabled={locked || ordinary.length >= limits.recordings} onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ''; upload(files); }} /></label>
         </div>
         <details className="cs-upload-limits"><summary>Upload limits</summary><p className="cs-limits">Up to {limits.recordings} clips · {limits.recording_seconds / 60} minutes and {Math.round(limits.file_bytes / 1024 ** 2)} MiB each · Video or audio</p>{limits.free_tier && <p className="cs-limits">{limits.original_bytes / 1e9} GB total storage across all sets.</p>}</details>
+        {limits.youtube_imports && <YouTubeImport key={selected.id} set={selected} disabled={locked || ordinary.length >= limits.recordings} onUpdate={update} />}
         <div className="cs-recordings">{recordings.map((clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
           <Original clip={clip} setId={selected.id} />
           <div className="cs-recording-info"><h3>{clip.name}</h3>
             {clip.uploader_name && <p className="cs-meta">{clip.uploader_name}</p>}
+            {clip.source_url && <p className="cs-meta"><a href={clip.source_url} target="_blank" rel="noreferrer">YouTube source ↗</a></p>}
             <p className="cs-meta">{clip.duration ? `${time(clip.duration)} · ` : ''}{clip.bytes ? `${(clip.bytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
             <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
             <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>

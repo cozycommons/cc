@@ -71,3 +71,9 @@ Respect portrait, landscape, rotation and display aspect without cropping. Deliv
 Audio, video, their timelines and revision publish together. Keep the current and previous complete revisions through processing and failures. Authenticated playback/ranges and downloads must request the same immutable revision. Expired revisions return not found, never different bytes under the old revision. Original files, unpublished outputs and retained generations all count against the existing storage limits.
 
 Validate two-source switching against the aligned audio, portrait/landscape/rotation, delayed stream starts, real gaps, audio-only intervals, encoder/upload/save failure, restart and byte ranges. Verify the browser upload-to-watch flow against actual rendered media. Measure long rendering separately from the earlier audio capacity benchmark.
+
+## YouTube import
+
+A set accepts a pasted public YouTube video link alongside file uploads. Import the whole single video (including released sets), never a playlist or livestream. Show server download/saving progress, then use the same private original storage, audio alignment and canonical cut pipeline. Keep the current player available throughout. Imported recordings show their title and source link and have the same uploader/owner permissions as uploaded clips.
+
+Existing recording count, duration, aggregate duration, disk and R2 budgets apply. Imports run one at a time on the existing worker host with a deadline. Invalid URLs fail before network work; unavailable, restricted or server-blocked videos produce a useful error and leave existing clips/cuts intact. No cookies, account sign-in or access-control bypass. Interrupted imports stop safely and can be retried; they do not silently publish partial media. A repeated request for an already imported URL does not add another copy. No separate design mock was supplied; use the existing set form styling.

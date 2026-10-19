@@ -74,6 +74,11 @@
 .cs-upload:focus-within { outline: 3px solid #7c9650; outline-offset: 3px; }
 .cs-upload-limits { margin: 10px 0 22px; font-size: 12px; color: var(--cs-muted); }
 .cs-upload-limits summary { width: fit-content; cursor: pointer; padding: 6px 0; }
+.cs-youtube { margin: 0 0 26px; }
+.cs-youtube label { display: block; margin-bottom: 8px; font-size: 14px; }
+.cs-youtube-fields { display: flex; flex-wrap: wrap; gap: 8px; }
+.cs-youtube input { flex: 1 1 220px; min-width: 0; min-height: 44px; border: 1px solid var(--cs-line); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 16px; background: var(--cs-paper); color: var(--cs-ink); }
+.cs-youtube .cs-error button { display: block; margin-top: 8px; }
 .cs-recordings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 .cs-recording { border: 1px solid var(--cs-line); border-top-width: 3px; border-radius: 12px; overflow: hidden; background: var(--cs-paper); min-width: 0; scroll-margin-top: 20px; }
 .cs-original { background: #20271f; }
