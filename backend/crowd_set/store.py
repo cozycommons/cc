@@ -193,7 +193,7 @@ class Store:
                 if self.closed:
                     raise ValueError('YouTube import interrupted. Paste the link again to retry.')
                 self.process = subprocess.Popen(
-                    [sys.executable, '-m', 'crowd_set.youtube', str(directory), job['url'], str(self.limits.file_bytes), str(self.limits.recording_seconds)],
+                    [sys.executable, '-m', 'crowd_set.youtube', str(directory), job['url'], str(self.limits.file_bytes), str(self.limits.recording_seconds), str(self.limits.media_seconds)],
                     cwd=Path(__file__).resolve().parents[1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     start_new_session=True, pass_fds=(self.lockfile.fileno(),),
                     env={'PATH': os.environ.get('PATH', ''), 'HOME': str(directory), 'LANG': 'C.UTF-8', 'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'})

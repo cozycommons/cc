@@ -1,9 +1,11 @@
 """Bounded, single-video YouTube imports; runs without storage credentials."""
 import json
 import math
+import os
 from pathlib import Path
 import re
 import resource
+import signal
 import sys
 import time
 from urllib.parse import parse_qs, urlsplit
@@ -97,7 +99,11 @@ def download(directory, url, max_bytes, duration_limit):
 
 
 if __name__ == '__main__':
-    folder, source_url, size, seconds = sys.argv[1:]
+    if os.getpgrp() != os.getpid():
+        raise RuntimeError('Imports must run in a dedicated process group.')
+    folder, source_url, size, seconds, deadline = sys.argv[1:]
+    signal.signal(signal.SIGALRM, lambda *_: os.killpg(os.getpgrp(), signal.SIGKILL))
+    signal.alarm(int(deadline))
     try:
         download(folder, canonical_url(source_url), int(size), int(seconds))
     except Exception as exc:
