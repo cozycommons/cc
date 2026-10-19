@@ -148,3 +148,13 @@
 .cs-processing-steps li { border-bottom: 2px solid var(--cs-line); padding-bottom: 8px; }
 .cs-processing-steps [aria-current="step"] { color: var(--cs-ink); font-weight: 600; border-color: var(--cs-ink); }
 .cs-processing-steps .cs-step-done { border-color: #7c9650; }
+
+.cs-composition { background: #101512; }
+.cs-composition-picture { position: relative; aspect-ratio: 16 / 9; }
+.cs-composition-picture video { width: 100%; height: 100%; object-fit: contain; }
+.cs-composition-picture .cs-composition-insert { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.cs-composition-controls { display: flex; gap: .75rem; padding: .75rem; }
+.cs-composition-controls input { min-width: 0; flex: 1; }
+.crowd-set .cs-composition-controls button { background: #101512; color: #fff; border-color: #667366; }
+.cs-composition:fullscreen { display: flex; flex-direction: column; justify-content: center; }
+.cs-composition:fullscreen .cs-composition-picture { max-height: calc(100vh - 5rem); }

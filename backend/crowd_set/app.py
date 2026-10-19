@@ -76,6 +76,10 @@ class Selection(BaseModel):
     included: bool
 
 
+class Soundtrack(BaseModel):
+    clip_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32}$')
+
+
 class YouTubeImport(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
 
@@ -279,6 +283,25 @@ def create_app(root=None):
     @app.delete('/crowd-set/sets/{set_id}/clips/{clip_id}')
     def remove_clip(set_id: str, clip_id: str, request: Request):
         return present(request.app.state.store.edit_clip(set_id, clip_id, delete=True), request.state.owner)
+
+    @app.put('/crowd-set/sets/{set_id}/soundtrack')
+    def soundtrack(set_id: str, body: Soundtrack, request: Request):
+        return present(request.app.state.store.select_soundtrack(set_id, body.clip_id, request.state.owner), request.state.owner)
+
+    @app.get('/crowd-set/sets/{set_id}/overlays/{asset_id}')
+    def overlay(set_id: str, asset_id: str, request: Request, v: str):
+        store = request.app.state.store
+        data = store.get(set_id)
+        if v != data.get('mix_revision'):
+            data = data.get('previous_revision', {})
+        if v != data.get('mix_revision'):
+            raise HTTPException(404, 'This cut revision is no longer available. Reload the set.')
+        asset = (data.get('composition') or {}).get('assets', {}).get(asset_id)
+        if not asset:
+            raise HTTPException(404, 'Video insert not found.')
+        if asset.get('object'):
+            return stored_media(store, asset['object'], request, 'friend.mp4', False, 'video/mp4')
+        return FileResponse(store.directory(set_id) / asset['file'], media_type='video/mp4')
 
     @app.post('/crowd-set/sets/{set_id}/process', status_code=202)
     def process(set_id: str, request: Request):

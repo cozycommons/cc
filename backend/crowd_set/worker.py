@@ -12,7 +12,7 @@ from .audio import align, decode, features, plan_timeline, render, match_levels,
 from .limits import Limits
 from .storage import OriginalStore
 from .blobs import digest, environment
-from . import video
+from . import video, composition
 
 
 def write_json(path, value):
@@ -98,7 +98,10 @@ def process(directory):
         raise ValueError('No usable recordings. Add a video with audible sound, then retry.')
     if sum(clip['duration'] for clip in usable) > limits.set_seconds:
         raise ValueError('Decoded recordings exceed this set’s duration budget. Exclude recordings and retry.')
-    anchor = choose_anchor(usable)
+    soundtrack = data.get('soundtrack_clip_id')
+    anchor = next((c for c in usable if c['id'] == soundtrack), None) if soundtrack else choose_anchor(usable)
+    if anchor is None or (soundtrack and not anchor.get('video')):
+        raise ValueError('The selected full set is missing, excluded or unusable. Choose another full set recording.')
     ref_features = np.load(directory / f'{anchor["id"]}.npy', mmap_mode='r', allow_pickle=False)
     for index, clip in enumerate(usable):
         progress(f'Matching recording {index + 1} of {len(usable)}…', 'align')
@@ -110,7 +113,7 @@ def process(directory):
             clip['alignment'] = ({'status': 'matched', 'offset_seconds': 0, 'windows': []} if clip is anchor else
                                  align(ref_features, np.load(directory / f'{clip["id"]}.npy', mmap_mode='r', allow_pickle=False)))
             write_json(cache, {'version': 1, 'anchor_id': anchor['id'], 'alignment': clip['alignment']})
-    timeline = plan_timeline(clips)
+    timeline = plan_timeline([anchor] if soundtrack else clips)
     timeline['anchor_id'] = anchor['id']
     sources = {c['id']: directory / f'{c["id"]}.wav' for c in usable if c['alignment']['status'] == 'matched'}
     match_levels(timeline, sources, {c['id']: c['measurement'] for c in usable})
@@ -131,25 +134,40 @@ def process(directory):
             raise ValueError('Output peak headroom could not be verified. Try different sources.')
         timeline['output_true_peak_dbfs'] = peak
     visual = video.plan_video(clips, timeline)
+    base = visual
+    if soundtrack:
+        visual, base = composition.plan(clips, timeline, anchor)
     previous_audio = directory / (data.get('mix_file') or 'reconstruction.wav')
     previous_video_available = data.get('video_object') if originals.blobs else (directory / (data.get('video_file') or 'missing')).is_file()
-    if (playable and data.get('playable') and data.get('mix_revision') and previous_audio.is_file()
-            and bool(visual['segments']) == bool(data.get('video_playable'))
-            and (not visual['segments'] or (previous_video_available and visual == data.get('video_timeline')))
-            and digest(directory / 'pending.wav') == digest(previous_audio)):
+    same_audio = (playable and data.get('playable') and data.get('mix_revision') and previous_audio.is_file()
+            and digest(directory / 'pending.wav') == digest(previous_audio))
+    same_video = (bool(visual['segments']) == bool(data.get('video_playable'))
+                  and (not visual['segments'] or (previous_video_available and visual == data.get('video_timeline'))))
+    if same_audio and same_video and bool(soundtrack) == bool(data.get('composition')):
         progress('Keeping the unchanged cut…', 'finalize')
         write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': True,
                    'video_playable': bool(visual['segments']), 'video_timeline': visual if visual['segments'] else None,
-                   'reuse_revision': data['mix_revision']})
+                   'composition': data.get('composition'), 'reuse_revision': data['mix_revision']})
         return
-    if visual['segments']:
-        originals.admit(limits, work_needed=2 * video.output_bound(visual, clips) +
-                        len(visual['segments'] + visual['gaps']) * 2 * 1024 ** 2 +
-                        max((c.get('bytes', 0) for c in usable if c.get('object_key')), default=0))
-    progress('Preparing video…', 'render')
-    has_video = playable and video.render(visual, clips, originals, data['id'], directory, limits, on_progress=progress)
-    write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': playable,
-                                           'video_playable': has_video, 'video_timeline': visual if has_video else None})
+    base_reused = (soundtrack and same_audio and previous_video_available
+                   and base == ((data.get('composition') or {}).get('base_timeline') or data.get('video_timeline')))
+    result = {'clips': clips, 'timeline': timeline, 'playable': playable,
+              'video_playable': bool(visual['segments']), 'video_timeline': visual if visual['segments'] else None,
+              'composition': None}
+    if soundtrack:
+        assets = composition.prepare(visual, clips, data, originals, directory, limits, progress)
+        result['composition'] = {'soundtrack_clip_id': soundtrack, 'base_timeline': base, 'assets': assets}
+    if base_reused:
+        result['reuse_base_revision'] = data['mix_revision']
+    else:
+        video_clips = [anchor] if soundtrack else clips
+        if base['segments']:
+            originals.admit(limits, work_needed=2 * video.output_bound(base, video_clips) +
+                            len(base['segments'] + base['gaps']) * 2 * 1024 ** 2 +
+                            max((c.get('bytes', 0) for c in video_clips if c.get('object_key')), default=0))
+        progress('Preparing video…', 'render')
+        result['video_playable'] = playable and video.render(base, video_clips, originals, data['id'], directory, limits, on_progress=progress)
+    write_json(directory / 'result.json', result)
 
 
 if __name__ == '__main__':

@@ -203,3 +203,16 @@ it('lets an interrupted YouTube import reuse its link without losing the cut', a
   expect(screen.getByRole('button', { name: 'Add video' })).toBeEnabled();
   expect(screen.getByLabelText('Current mix')).toBeInTheDocument();
 });
+
+it('lets the owner select official audio and labels the base download separately', async () => {
+  const updated = { ...ready, soundtrack_clip_id: clip.id, status: 'queued' };
+  request.mockResolvedValueOnce([ready]).mockResolvedValueOnce(updated);
+  render(<CrowdSet />);
+  await openSet();
+  fireEvent.click(screen.getByRole('button', { name: 'Use as official set' }));
+  await screen.findByText('Official set audio');
+  expect(request).toHaveBeenLastCalledWith('/one/soundtrack', expect.objectContaining({
+    method: 'PUT', body: JSON.stringify({ clip_id: clip.id }),
+  }));
+  expect(screen.getByRole('button', { name: 'Clear official audio' })).toBeInTheDocument();
+});

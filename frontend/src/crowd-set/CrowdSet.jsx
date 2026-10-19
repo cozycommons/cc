@@ -6,6 +6,7 @@ import MixTimeline, { recordingColor } from './MixTimeline';
 import CreateSet from './CreateSet';
 import YouTubeImport from './YouTubeImport';
 import ProcessingStatus from './ProcessingStatus';
+import CompositionPlayer from './CompositionPlayer';
 import { eventDate, eventRange, matchesSearch } from './setDetails';
 import './crowd-set.css';
 
@@ -179,14 +180,15 @@ export default function CrowdSet() {
       <section className={`cs-mix ${selected.playable ? 'cs-mix-ready' : ''}`} aria-label="Compiled mix">
         {selected.playable ? <div className="cs-audio-surface">
           <div className="cs-inline"><span>{selected.video_playable ? 'The cut' : 'Audio mix'}</span><div>
-            {selected.video_playable && <a aria-label="Download video" href={endpoint(`/${selected.id}/video?download=true&v=${selected.mix_revision}`)}><Download size={18} /> Video</a>}
+            {selected.video_playable && <a aria-label={selected.composition ? "Download full set video" : "Download video"} href={endpoint(`/${selected.id}/video?download=true&v=${selected.mix_revision}`)}><Download size={18} /> {selected.composition ? 'Full set' : 'Video'}</a>}
             <a aria-label="Download audio" href={endpoint(`/${selected.id}/audio?download=true&v=${selected.mix_revision || 'legacy'}`)}><Download size={18} /> Audio</a>
           </div></div>
-          {selected.video_playable ? <video ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision}`} controls playsInline preload="metadata" src={endpoint(`/${selected.id}/video?v=${selected.mix_revision}`)} aria-label="Current cut" /> : <>
+          {selected.video_playable && selected.composition ? <CompositionPlayer key={`${selected.id}-${selected.mix_revision}`} set={selected} playerRef={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} /> : selected.video_playable ? <video ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision}`} controls playsInline preload="metadata" src={endpoint(`/${selected.id}/video?v=${selected.mix_revision}`)} aria-label="Current cut" /> : <>
             <Music2 className="cs-audio-icon" size={40} strokeWidth={1} aria-hidden="true" />
             <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" />
           </>}
         </div> : selected.status !== 'processing' && <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Getting your recordings ready' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
+        {selected.composition && <p className="cs-meta">Official audio throughout · friends’ pictures in the player. Full set download contains the official picture.</p>}
         {selected.playable && selected.timeline && <MixTimeline timeline={selected.video_playable ? selected.video_timeline : selected.timeline} video={selected.video_playable} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
         {selected.status === 'processing' && !busy ? <ProcessingStatus set={selected} /> : <p role="status">{busy ? notice || 'Saving…' : selected.status === 'importing' ? selected.youtube_import?.stage || 'Downloading from YouTube…' : selected.status === 'queued' ? 'Queued for processing. Your recordings are saved.' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>}
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
@@ -205,8 +207,9 @@ export default function CrowdSet() {
             {clip.uploader_name && <p className="cs-meta">{clip.uploader_name}</p>}
             {clip.source_url && <p className="cs-meta"><a href={clip.source_url} target="_blank" rel="noreferrer">YouTube source ↗</a></p>}
             <p className="cs-meta">{clip.duration ? `${time(clip.duration)} · ` : ''}{clip.bytes ? `${(clip.bytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
-            <p className="cs-clip-status">{used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
+            <p className="cs-clip-status">{selected.soundtrack_clip_id === clip.id ? 'Official set audio' : used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? 'Couldn’t match this recording.' : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
             <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
+              {selected.can_manage && clip.kind === 'video' && clip.role !== 'reference' && clip.included && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/soundtrack`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clip_id: selected.soundtrack_clip_id === clip.id ? null : clip.id }) })))}>{selected.soundtrack_clip_id === clip.id ? 'Clear official audio' : 'Use as official set'}</button>}
               {clip.can_edit && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/clips/${clip.id}`, { method: 'DELETE' })))}>Remove</button>}
             </div>
           </div>

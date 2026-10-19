@@ -587,6 +587,22 @@ class Store:
                 data['status'] = 'ready' if data['timeline'] else 'idle'
             return self.queue(data) if data.get('dirty') or set_id in self.batches else self.save(data)
 
+    def select_soundtrack(self, set_id, clip_id, owner):
+        with self.lock:
+            data = self.editable(set_id)
+            if data.get('owner') != owner:
+                raise HTTPException(403, 'Only the set owner can choose the full set audio.')
+            if clip_id is not None:
+                clip = next((c for c in data['clips'] if c['id'] == clip_id), None)
+                if not clip or clip['role'] == 'reference' or not clip['included']:
+                    raise HTTPException(400, 'Choose an included recording as the full set.')
+            if data.get('soundtrack_clip_id') == clip_id:
+                return data
+            data['soundtrack_clip_id'] = clip_id
+            data['recovery_attempts'] = 0
+            self.invalidate(data)
+            return self.queue(data)
+
     def edit_clip(self, set_id, clip_id, included=None, delete=False):
         with self.lock:
             data = self.editable(set_id)
@@ -603,6 +619,8 @@ class Store:
                 for name in (clip['id'] + '.wav', clip['id'] + '.npy', clip['id'] + '.analysis.json', clip['id'] + '.alignment.json'):
                     (directory / name).unlink(missing_ok=True)
                 data['clips'].remove(clip)
+                if data.get('soundtrack_clip_id') == clip_id:
+                    data['soundtrack_clip_id'] = None
             else:
                 clip['included'] = included
             return self.queue(data)
@@ -686,24 +704,43 @@ class Store:
                 (directory / 'pending.wav').unlink(missing_ok=True)
             else:
                 revision = uuid4().hex
-                filename = f'mix-{revision}.wav'
-                (directory / 'pending.wav').replace(directory / filename)
-                artifacts = {'mix': (filename, 'audio/wav')}
-                if result.get('video_playable'):
-                    video_filename = f'mix-{revision}.mp4'
-                    (directory / 'pending.mp4').replace(directory / video_filename)
-                    artifacts['video'] = (video_filename, 'video/mp4')
-                publication = {'mix_object': None, 'mix_bytes': 0, 'video_file': None, 'video_object': None, 'video_bytes': 0}
+                current = self.get(set_id)
+                base_reused = result.pop('reuse_base_revision', None)
+                artifacts = {}
+                if base_reused:
+                    if base_reused != current.get('mix_revision') or not current.get('video_playable'):
+                        raise ValueError('The published full set changed during processing. Retry the mix.')
+                    (directory / 'pending.wav').unlink(missing_ok=True)
+                    publication = {key: current.get(key) for key in ('mix_file', 'mix_object', 'mix_bytes',
+                                   'video_file', 'video_object', 'video_bytes')}
+                else:
+                    filename = f'mix-{revision}.wav'
+                    (directory / 'pending.wav').replace(directory / filename)
+                    artifacts['mix'] = (filename, 'audio/wav')
+                    if result.get('video_playable'):
+                        video_filename = f'mix-{revision}.mp4'
+                        (directory / 'pending.mp4').replace(directory / video_filename)
+                        artifacts['video'] = (video_filename, 'video/mp4')
+                    publication = {'mix_object': None, 'mix_bytes': 0, 'video_file': None, 'video_object': None, 'video_bytes': 0}
+                assets = (result.get('composition') or {}).get('assets', {})
+                new_assets = {key: asset for key, asset in assets.items() if not asset.get('object')}
                 if self.blobs:
                     with self.lock:
-                        self.originals.admit(self.limits, incoming=sum((directory / name).stat().st_size for name, _ in artifacts.values()))
+                        incoming = sum((directory / name).stat().st_size for name, _ in artifacts.values())
+                        incoming += sum((directory / asset['file']).stat().st_size for asset in new_assets.values())
+                        self.originals.admit(self.limits, incoming=incoming)
                         for kind, (name, _) in artifacts.items():
                             key = f'mixes/{set_id}/{revision}{Path(name).suffix}'
                             size = (directory / name).stat().st_size
                             self.originals.record_blob(key, size)
                             publication.update({f'{kind}_object': key, f'{kind}_bytes': size})
+                        for asset in new_assets.values():
+                            asset['object'] = f"mixes/{set_id}/{asset['file']}"
+                            self.originals.record_blob(asset['object'], asset['bytes'])
                     for kind, (name, mime) in artifacts.items():
                         self.blobs.put(directory / name, publication[f'{kind}_object'], mime)
+                    for asset in new_assets.values():
+                        self.blobs.put(directory / asset['file'], asset['object'], 'video/mp4')
                 publication.update({f'{kind}_file': name for kind, (name, _) in artifacts.items()})
         except Exception as exc:
             error = exc.detail if isinstance(exc, HTTPException) else str(exc)
@@ -717,7 +754,7 @@ class Store:
                         data.update(result, status='ready', error=None, dirty=False, recovery_attempts=0)
                     else:
                         previous = {key: data.get(key) for key in ('mix_revision', 'mix_file', 'mix_object', 'mix_bytes',
-                                    'video_file', 'video_object', 'video_bytes', 'video_playable', 'playable')}
+                                    'video_file', 'video_object', 'video_bytes', 'video_playable', 'playable', 'composition')}
                         previous['mix_file'] = data.get('mix_file') or 'reconstruction.wav'
                         data.update(previous_revision=previous, previous_mix_object=data.get('mix_object'), previous_mix_bytes=data.get('mix_bytes', 0))
                         data.update(result, **publication, status='ready', error=None, dirty=False, mix_revision=revision, recovery_attempts=0)
@@ -744,8 +781,15 @@ class Store:
         data = self.get(set_id)
         previous = data.get('previous_revision', {})
         retained_files = {data.get('mix_file', 'reconstruction.wav'), data.get('video_file'), previous.get('mix_file'), previous.get('video_file')}
+        assets = [asset for revision in (data, previous)
+                  for asset in (revision.get('composition') or {}).get('assets', {}).values()]
+        retained_files.update(asset['file'] for asset in assets)
         if self.blobs:
             retained = {data.get('mix_object'), data.get('previous_mix_object'), data.get('video_object'), previous.get('video_object')}
+            retained.update(asset.get('object') for asset in assets)
+            for asset in assets:
+                if asset.get('object'):
+                    (self.directory(set_id) / asset['file']).unlink(missing_ok=True)
             for revision in (data, previous):
                 if revision.get('video_playable') and revision.get('video_object') and revision.get('video_file'):
                     # Published cloud video is streamed remotely; retain audio for rebuild comparison.
@@ -758,7 +802,7 @@ class Store:
             except (OSError, ValueError, httpx.HTTPError):
                 # Retain reservations until remote deletion is acknowledged.
                 return
-        for pattern in ('mix-*.wav', 'mix-*.mp4', 'mix-*.transfer.json'):
+        for pattern in ('mix-*.wav', 'mix-*.mp4', 'mix-*.transfer.json', 'overlay-*.mp4', 'overlay-*.transfer.json', 'overlay-*.progress'):
             for path in self.directory(set_id).glob(pattern):
                 if path.name.removesuffix('.transfer.json') not in retained_files:
                     path.unlink(missing_ok=True)

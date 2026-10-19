@@ -203,11 +203,7 @@ def render(timeline, clips, originals, set_id, directory, limits, *, on_progress
                 timestamp = segment['start'] - segment['offset'] + clip['video']['audio_start']
                 inputs = ['-copyts', '-seek_timestamp', '1', '-ss', str(max(0, timestamp)),
                           '-protocol_whitelist', 'file', '-format_whitelist', FORMATS, '-i', str(source), '-map', '0:V:0']
-                filters = (f'trim=start={timestamp},setpts=PTS-({timestamp})/TB,'
-                           f"scale=w='if(gt(dar,{WIDTH}/{HEIGHT}),{WIDTH},max(2,trunc({HEIGHT}*dar/2)*2))':"
-                           f"h='if(gt(dar,{WIDTH}/{HEIGHT}),max(2,trunc({WIDTH}/dar/2)*2),{HEIGHT})',setsar=1,"
-                           f'pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x243027,setsar=1,'
-                           f'fps={FRAME_RATE}:start_time=0,tpad=stop_mode=add:stop_duration={duration}:color=0x243027')
+                filters = picture_filters(timestamp, duration)
             else:
                 inputs = ['-f', 'lavfi', '-i', f'color=c=0x243027:s={WIDTH}x{HEIGHT}:r={FRAME_RATE}']
                 filters = 'null'
@@ -240,3 +236,11 @@ def render(timeline, clips, originals, set_id, directory, limits, *, on_progress
         if destination.stat().st_size >= byte_bound(timeline['duration']):
             raise ValueError('The video rendition exceeded its storage bound.')
     return True
+
+
+def picture_filters(timestamp, duration):
+    return (f'trim=start={timestamp},setpts=PTS-({timestamp})/TB,'
+            f"scale=w='if(gt(dar,{WIDTH}/{HEIGHT}),{WIDTH},max(2,trunc({HEIGHT}*dar/2)*2))':"
+            f"h='if(gt(dar,{WIDTH}/{HEIGHT}),max(2,trunc({WIDTH}/dar/2)*2),{HEIGHT})',setsar=1,"
+            f'pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x243027,setsar=1,'
+            f'fps={FRAME_RATE}:start_time=0,tpad=stop_mode=add:stop_duration={duration}:color=0x243027')
