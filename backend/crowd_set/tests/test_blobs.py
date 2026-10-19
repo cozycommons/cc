@@ -201,3 +201,54 @@ def test_cloud_staging_and_object_reservation_count_once(tmp_path):
     store.record_blob('originals/set/clip/hash', 3)
     assert store.usage()[0] == 3
     assert (folder / 'session.part').read_bytes() == b'abc'
+
+
+@pytest.mark.parametrize('failure', ['video_upload', 'metadata_save'])
+def test_paired_publication_failure_preserves_entire_revision(tmp_path, monkeypatch, failure):
+    from types import SimpleNamespace
+    from crowd_set.store import Store
+    from crowd_set.worker import write_json
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    store = Store(tmp_path)
+    uploaded, removed = [], []
+
+    def put(path, key, mime):
+        uploaded.append(key)
+        if failure == 'video_upload' and mime == 'video/mp4':
+            raise BlobError('simulated second artifact failure')
+
+    store.blobs = SimpleNamespace(put=put, remove=lambda keys: removed.extend(keys))
+    store.originals.blobs = store.blobs
+    monkeypatch.setattr('crowd_set.store.subprocess.Popen', lambda *args, **kwargs: SimpleNamespace(wait=lambda **kwargs: 0, poll=lambda: 0))
+    data = store.create('Paired publication')
+    prefix = f'mixes/{data["id"]}/'
+    data.update(status='processing', playable=True, video_playable=True, mix_revision='old',
+                mix_file='mix-old.wav', video_file='mix-old.mp4', mix_object=prefix+'old.wav', video_object=prefix+'old.mp4',
+                timeline={'old': 'audio'}, video_timeline={'old': 'video'})
+    store.save(data)
+    folder = store.directory(data['id'])
+    for suffix in ('wav', 'mp4'):
+        (folder / f'mix-old.{suffix}').write_bytes(b'old!')
+        (folder / f'pending.{suffix}').write_bytes(b'new!')
+        store.originals.record_blob(prefix + f'old.{suffix}', 4)
+    write_json(folder / 'result.json', {'playable': True, 'video_playable': True, 'clips': [], 'timeline': {'new': 'audio'}, 'video_timeline': {'new': 'video'}})
+    original_save = store.save
+
+    def save(value):
+        if failure == 'metadata_save' and value['status'] == 'ready':
+            raise OSError('simulated atomic save failure')
+        return original_save(value)
+
+    monkeypatch.setattr(store, 'save', save)
+    try:
+        store.run(data['id'])
+        saved = store.get(data['id'])
+        assert saved['status'] == 'failed'
+        for key in ('mix_revision', 'mix_file', 'video_file', 'mix_object', 'video_object', 'timeline', 'video_timeline'):
+            assert saved[key] == data[key]
+        assert len(uploaded) == 2
+        assert set(uploaded) <= set(removed)
+        assert prefix+'old.wav' not in removed and prefix+'old.mp4' not in removed
+        assert store.originals.usage()[0] == 8
+    finally:
+        store.close()

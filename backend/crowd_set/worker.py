@@ -10,12 +10,21 @@ from .audio import align, decode, features, plan_timeline, render, match_levels,
 from .limits import Limits
 from .storage import OriginalStore
 from .blobs import environment
+from . import video
 
 
 def write_json(path, value):
     temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(value, allow_nan=False))
+    with temporary.open('w') as output:
+        json.dump(value, output, allow_nan=False)
+        output.flush()
+        os.fsync(output.fileno())
     temporary.replace(path)
+    descriptor = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def process(directory):
@@ -43,7 +52,7 @@ def process(directory):
     total = sum(clip['expected_duration'] for clip in candidates)
     if total > limits.set_seconds:
         raise ValueError(f'This set exceeds {limits.set_seconds // 3600} hours of included recordings. Exclude recordings and retry.')
-    needed = int(total * RATE * 2) + 32 * 1024 ** 2
+    needed = int(total * RATE * 2) + video.PROBE_BYTES + 32 * 1024 ** 2
     for clip in candidates:
         if not all((directory / f'{clip["id"]}{suffix}').exists() for suffix in ('.wav', '.npy', '.analysis.json')):
             needed += int((clip['expected_duration'] + 2) * (RATE * 4 + FPS * 24 * 4)) + 16384
@@ -57,19 +66,20 @@ def process(directory):
         feature_path = directory / f'{clip["id"]}.npy'
         try:
             analysis = json.loads(cache.read_text()) if cache.exists() else {}
-            if analysis.get('version') != 1 or not path.exists() or not feature_path.exists():
+            if analysis.get('version') != 2 or not path.exists() or not feature_path.exists():
                 source = originals.materialize(data['id'], clip, directory)
                 try:
                     duration = decode(source, path, expected_duration=clip['expected_duration'], limits=limits)
+                    picture = video.probe(source, limits, directory)
                 finally:
                     if clip.get('object_key'):
                         source.unlink(missing_ok=True)
                 quality = recording_quality(path)
                 measurement = loudness(path)
                 np.save(feature_path, features(path), allow_pickle=False)
-                analysis = {'version': 1, 'duration': duration, 'quality': quality, 'measurement': measurement}
+                analysis = {'version': 2, 'duration': duration, 'quality': quality, 'measurement': measurement, 'video': picture}
                 write_json(cache, analysis)
-            clip.update({key: analysis[key] for key in ('duration', 'quality', 'measurement')})
+            clip.update({key: analysis[key] for key in ('duration', 'quality', 'measurement', 'video')})
             usable.append(clip)
         except ValueError as exc:
             clip['alignment'] = {'status': 'error', 'reason': str(exc), 'windows': []}
@@ -110,7 +120,15 @@ def process(directory):
         if peak > -1.9:
             raise ValueError('Output peak headroom could not be verified. Try different sources.')
         timeline['output_true_peak_dbfs'] = peak
-    write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': playable})
+    visual = video.plan_video(clips, timeline)
+    if visual['segments']:
+        originals.admit(limits, work_needed=2 * video.byte_bound(timeline['duration']) +
+                        len(visual['segments'] + visual['gaps']) * 2 * 1024 ** 2 +
+                        max((c.get('bytes', 0) for c in usable if c.get('object_key')), default=0))
+    progress('Rendering video…')
+    has_video = playable and video.render(visual, clips, originals, data['id'], directory, limits)
+    write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': playable,
+                                           'video_playable': has_video, 'video_timeline': visual if has_video else None})
 
 
 if __name__ == '__main__':

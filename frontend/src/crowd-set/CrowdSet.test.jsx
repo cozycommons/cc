@@ -159,3 +159,18 @@ it('connects the timeline seek and playhead to the current audio player', async 
   expect(screen.getByRole('slider')).toHaveValue('63');
   expect(screen.getByRole('link', { name: 'Stage.mp4' })).toHaveAttribute('href', '#recording-clip');
 });
+
+it('uses one revision-pinned video player and preserves it during processing', async () => {
+  const cut = { ...ready, video_playable: true, video_timeline: ready.timeline };
+  request.mockResolvedValueOnce([cut]).mockResolvedValueOnce({ ...cut, status: 'queued', dirty: true, clips: [clip, { ...clip, id: 'second', name: 'More.mp4' }] });
+  render(<CrowdSet />);
+  fireEvent.click(await screen.findByRole('button', { name: /Watch/ }));
+  const video = screen.getByLabelText('Current cut');
+  expect(video.tagName).toBe('VIDEO');
+  expect(video).toHaveAttribute('src', '/crowd-set/sets/one/video?v=published');
+  expect(screen.queryByLabelText('Current mix')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Add clips'), { target: { files: [new File(['video'], 'More.mp4', { type: 'video/mp4' })] } });
+  await screen.findByText('Mix queued…');
+  expect(screen.getByLabelText('Current cut')).toBe(video);
+  expect(screen.getByRole('link', { name: 'Download video' })).toHaveAttribute('href', '/crowd-set/sets/one/video?download=true&v=published');
+});

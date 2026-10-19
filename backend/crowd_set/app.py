@@ -286,16 +286,29 @@ def create_app(root=None):
         return FileResponse(store.originals.path(set_id, clip), media_type=types[Path(clip['name']).suffix.lower()],
                             filename=clip['name'], content_disposition_type='attachment' if download else 'inline')
 
-    @app.get('/crowd-set/sets/{set_id}/audio')
-    def audio(set_id: str, request: Request, download: bool = False):
+    def compiled(set_id, request, download, revision, video=False):
         store = request.app.state.store
         data = store.get(set_id)
-        if not data['playable']:
-            raise HTTPException(404, 'No mix is available. Add a recording first.')
-        if data.get('mix_object'):
-            return stored_media(store, data['mix_object'], request, 'crowd-set.wav', download, 'audio/wav')
-        return FileResponse(store.directory(set_id) / data.get('mix_file', 'reconstruction.wav'), media_type='audio/wav',
-                            filename='crowd-set.wav' if download else None, headers={'Cache-Control': 'no-store'})
+        if revision is not None and revision != (data.get('mix_revision') or 'legacy'):
+            data = data.get('previous_revision', {})
+            if revision != (data.get('mix_revision') or 'legacy'):
+                raise HTTPException(404, 'This cut revision is no longer available. Reload the set.')
+        kind, suffix, mime = ('video', 'mp4', 'video/mp4') if video else ('mix', 'wav', 'audio/wav')
+        if not data.get('video_playable' if video else 'playable'):
+            raise HTTPException(404, 'No compiled media is available. Add a recording first.')
+        filename = f'crowd-set.{suffix}'
+        if data.get(f'{kind}_object'):
+            return stored_media(store, data[f'{kind}_object'], request, filename, download, mime)
+        return FileResponse(store.directory(set_id) / (data.get(f'{kind}_file') or 'reconstruction.wav'), media_type=mime,
+                            filename=filename if download else None, headers={'Cache-Control': 'no-store'})
+
+    @app.get('/crowd-set/sets/{set_id}/audio')
+    def audio(set_id: str, request: Request, download: bool = False, v: str | None = None):
+        return compiled(set_id, request, download, v)
+
+    @app.get('/crowd-set/sets/{set_id}/video')
+    def video(set_id: str, request: Request, download: bool = False, v: str | None = None):
+        return compiled(set_id, request, download, v, video=True)
 
     static = os.environ.get('CROWD_SET_STATIC_DIR')
     if static:

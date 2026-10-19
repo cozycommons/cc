@@ -95,11 +95,17 @@ def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
         assert first['timeline']['anchor_id'] == clip_id
         assert first['timeline']['segments'][0]['clip_id'] == clip_id
         assert first['timeline']['output_true_peak_dbfs'] <= -1.9
+        assert first['video_playable']
+        old_video = api.get(path + '/video').content
+        assert api.get(path + '/video', headers={'Range': 'bytes=0-99'}).content == old_video[:100]
+        assert 'attachment' in api.get(path + '/video?download=true').headers['content-disposition']
         old = api.get(path + '/audio').content
         cached = root / first['id'] / (clip_id + '.wav')
         cache_time = cached.stat().st_mtime_ns
         second_audio = write_wav(tmp_path / 'b.wav', raw[20 * 16000:90 * 16000]).read_bytes()
-        queued = upload(api, path, 'b.wav', second_audio).json()
+        from crowd_set.tests.test_video import make_video, frame
+        red = make_video(tmp_path / 'portrait.mp4', tmp_path / 'b.wav')
+        queued = upload(api, path, 'portrait.mp4', red.read_bytes()).json()
         assert queued['playable'] and queued['mix_revision'] == first['mix_revision']
         assert api.get(path + '/audio').content == old
         assert api.post(path + '/process').status_code == 202
@@ -112,6 +118,16 @@ def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
         assert second['timeline']['duration'] == pytest.approx(90, abs=.1)
         assert cached.stat().st_mtime_ns == cache_time
         assert not second['dirty']
+        assert second['video_playable']
+        assert len(second['video_timeline']['segments']) == 2
+        assert api.get(path + '/video?v=' + first['mix_revision']).content == old_video
+        assert api.get(path + '/audio?v=' + first['mix_revision']).content == old
+        assert api.get(path + '/video?v=expired').status_code == 404
+        current_video = api.get(path + '/video').content
+        cut = tmp_path / 'published.mp4'
+        cut.write_bytes(current_video)
+        assert frame(cut, 30)[24, 42, 1] > 90
+        assert frame(cut, 85)[24, 42, 0] > 200
         current = api.get(path + '/audio').content
         # A failed rebuild must not overwrite the current result.
         for clip in second['clips']:
@@ -122,9 +138,11 @@ def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
         assert failed['status'] == 'failed'
         assert failed['playable'] and failed['mix_revision'] == second['mix_revision']
         assert api.get(path + '/audio').content == current
+        assert api.get(path + '/video').content == current_video
     with client(root) as api:
         assert api.get(path).json()['playable']
         assert api.get(path + '/audio').content == current
+        assert api.get(path + '/video').content == current_video
         assert api.get(media).content == original
 
 
@@ -351,3 +369,24 @@ def test_explicit_offset_disambiguates_dst_transition(tmp_path):
         assert response.status_code == 201
         assert response.json()['starts_at'] == '2026-11-01T05:30:00+00:00'
         assert response.json()['ends_at'] == '2026-11-01T06:30:00+00:00'
+
+
+def test_legacy_audio_remains_pinned_after_modern_publication(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from crowd_set.worker import write_json
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    monkeypatch.setattr('crowd_set.store.subprocess.Popen', lambda *args, **kwargs: SimpleNamespace(wait=lambda **kwargs: 0, poll=lambda: 0))
+    with client(tmp_path) as api:
+        path = create(api)
+        store = api.app.state.store
+        data = api.get(path).json()
+        data.update(playable=True)
+        folder = store.directory(data['id'])
+        (folder / 'reconstruction.wav').write_bytes(b'legacy audio')
+        store.save(data)
+        (folder / 'pending.wav').write_bytes(b'new audio')
+        write_json(folder / 'result.json', {'playable': True, 'clips': [], 'timeline': {}})
+        store.run(data['id'])
+        assert api.get(path + '/audio?v=legacy').content == b'legacy audio'
+        assert api.get(path + '/audio').content == b'new audio'
+        assert (folder / 'reconstruction.wav').exists()

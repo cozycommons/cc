@@ -1,6 +1,6 @@
 # Crowd Set prototype
 
-Crowd Set adds a set catalog at `/crowd-set` alongside Dice. Create a named set, upload videos, and listen to its automatically compiled audio mix. The current mix appears above smaller original recording cards with native playback and downloads. Audio uploads are also supported. New hosted sets are shared with all signed-in members; legacy private sets remain private.
+Crowd Set adds a set catalog at `/crowd-set` alongside Dice. Create a named set, upload videos, and watch its automatically compiled video cut with synchronized audio, or listen when only audio is available. The current mix appears above smaller original recording cards with native playback and downloads. Audio uploads are also supported. New hosted sets are shared with all signed-in members; legacy private sets remain private.
 
 Basic constant-gain volume matching is included following the first listening experiment. It preserves within-clip dynamics; it does not remove screams, denoise, restore bass, compress, or equalize audio.
 
@@ -33,11 +33,11 @@ The API binds loopback and checks peer, Host and Origin. The local launcher rema
 ## Use and limits
 
 1. Use **New set** on the homepage, enter a name and choose **Create set**. The empty set opens immediately; **All sets** returns to the catalog.
-2. Choose **Add videos** to upload up to 64 recordings, each at most two hours (eight hours aggregate per set). Audio files are also accepted. There is no reference setup.
+2. Choose **Add clips** to upload up to 64 recordings, each at most two hours (eight hours aggregate per set). Audio files are also accepted. There is no reference setup.
 3. Uploads and recording changes automatically queue a mix. A three-second debounce coalesces bursts; one global worker processes queued sets. Uploads to the running set wait until it finishes.
-4. Play or download the current 32 kHz mono PCM WAV. The previous successful mix stays playable during updates and failures; a completed mix replaces it atomically. Retry a failed or interrupted update from the set page.
+4. Watch the current compiled MP4, or use the audio player for audio-only sets. Download the video or 32 kHz mono PCM WAV. The previous successful mix stays playable during updates and failures; a completed mix replaces it atomically. Retry a failed or interrupted update from the set page.
 5. Inspect the single color-coded mix timeline: it shows actual selected segments, silent gaps and crossfades, with matching colors on originals. Click or use the keyboard to seek; source labels jump to original cards. There are no timeline editing controls.
-6. Play/download every original, including unmatched recordings. Uploaders and the set owner can remove or exclude their permitted recordings. Only the owner can delete a hosted set.
+6. Play/download every original, including unmatched recordings. Uploaders and the set owner can remove their permitted recordings. Only the owner can delete a hosted set.
 
 The longest usable included ordinary recording establishes internal timing and can contribute audio. Clipping and silence metrics break duration ties only; a stable ID breaks remaining ties. Confident matches can extend before or after that recording. Actual gaps remain silent. Legacy explicit reference files remain playable originals but never contribute to new mixes. Existing private sets are not made shared.
 
@@ -89,7 +89,7 @@ Local evidence on 2026-10-15:
 
 See [PRODUCT.md](PRODUCT.md) and [TECH.md](TECH.md). Capture timestamps are preserved inside original files but are not extracted, trusted or used for timing yet. Filename and upload time are never treated as capture time.
 
-Separate future work: capture-time assistance; social-link ingestion (Instagram post video items, TikTok, YouTube with provenance and partial/unavailable results); individual cleanup; advanced sonic consistency; transitive alignment, drift/manual placement; compiled video. Native playback depends on browser codec support; download remains available.
+Separate future work: capture-time assistance; social-link ingestion (Instagram post video items, TikTok, YouTube with provenance and partial/unavailable results); individual cleanup; advanced sonic consistency; transitive alignment, drift/manual placement. Native playback depends on browser codec support; download remains available.
 
 ## Hosted test configuration
 
@@ -113,7 +113,7 @@ Before declaring rollout complete: verify sign-in, upload/processing/playback/do
 Production service: Coolify resource `e5h6wpbgxucsenwle88girmk` (Crowd Set), first deployed from `42e96283c5bb0036d588f726a1b235e0dfcfd586` on 2026-10-16. Persistent volume: `e5h6wpbgxucsenwle88girmk-crowd-set-data`. Manual Traefik labels preserve the exact `/crowd-set` prefix with priority 100. Public health returns JSON and anonymous catalog access returns 401. Commons/Dice resources were not redeployed. Browser API requests bypass caches, including the previously cached HTML fallback from before this service existed. Complete the authenticated rollout checks above when deploying changes.
 
 
-## Capacity/storage extension (2026-10-19; pending deployment)
+## Capacity/storage extension (2026-10-19)
 
 A cold isolated macOS test with a two-hour synthetic anchor and 50 five-minute excerpts completed in 276.41 seconds. All 50 excerpts matched with zero measured offset error; the playable mix spans 7200 seconds. The conservative peak memory bound (Python peak plus largest decoder child peak) was 1,189,625,856 bytes, below the 2 GiB target. This is synthetic capacity evidence, not a hosted timing guarantee or certification of real full-set alignment. Reproduce without touching the preview catalog:
 
@@ -121,6 +121,19 @@ A cold isolated macOS test with a two-hour synthetic anchor and 50 five-minute e
 .crowd-set-venv/bin/python scripts/crowd-set-capacity-check.py --report /tmp/crowd-set-capacity.json
 ```
 
-Cloudflare R2 is the selected storage provider; live activation is pending Cloudflare account access and a Coolify rollout. Free-tier mode caps retained originals, unfinished transfers and published mixes at **8 GB total**, and caps request attempts at 100,000 Class A / 1,000,000 Class B per rolling 35 days. It blocks new work before those limits and preserves cleanup. These caps leave headroom below [R2's Standard free allowance](https://developers.cloudflare.com/r2/pricing/); other account usage must be checked separately. Fifty large videos may exceed 8 GB even though the recording count is supported. See TECH.md for exact runtime variables, one-time durable budget initialization and rollout checks. Supabase Auth is unchanged; no plan upgrade or database migration is needed.
+Cloudflare R2 is active in production through Coolify. The private Standard bucket has public access disabled, a bucket-only Object Read & Write credential stored in server runtime, and a one-day incomplete multipart abort rule. Free-tier mode caps retained originals, unfinished transfers and published mixes at **8 GB total**, and caps request attempts at 100,000 Class A / 1,000,000 Class B per rolling 35 days. It blocks new work before those limits and preserves cleanup. These caps leave headroom below [R2's Standard free allowance](https://developers.cloudflare.com/r2/pricing/); other account usage must be checked separately. Fifty large videos may exceed 8 GB even though the recording count is supported. See TECH.md for exact runtime variables, one-time durable budget initialization and rollout checks. Supabase Auth is unchanged; no plan upgrade or database migration is needed.
 
-Local extension checks: all 44 existing Crowd Set backend tests plus 12 R2 cases and all 361 frontend tests pass. Lint has no errors (one existing Commons hook warning); production build and bundle budget pass. Cloud tests use an isolated HTTP transport to verify resumable transfers, private-bucket validation, range streaming, quota reservations, lost responses and orphan cleanup. R2 cases additionally cover durable atomic request caps, lost creation/part/completion responses, pending-byte reconciliation and read-budget exhaustion. Actual cloud transfer remains a rollout check after account setup.
+Local extension checks: all 44 existing Crowd Set backend tests plus 12 R2 cases and all 361 frontend tests pass. Lint has no errors (one existing Commons hook warning); production build and bundle budget pass. Cloud tests use an isolated HTTP transport to verify resumable transfers, private-bucket validation, range streaming, quota reservations, lost responses and orphan cleanup. R2 cases additionally cover durable atomic request caps, lost creation/part/completion responses, pending-byte reconciliation and read-budget exhaustion. Production verification uploaded three synthetic originals, completed a compiled mix, played the full result and downloaded it; a downloaded MP4 original matched the source SHA256. The persistent ledger reported four objects / 10,394,700 reserved bytes and 14 Class A / 26 Class B attempts at that checkpoint. The separate 51-recording production audio trial also completed before R2 enablement; original legacy local files remain readable.
+
+
+## Canonical video verification
+
+The new renderer creates one 854×480, 24 fps H.264/AAC MP4 using the finalized audio soundtrack. Local tests verify aligned landscape-to-portrait switching, delayed audio/video timestamps, rotation, preserved aspect, neutral gaps and early picture EOF, waveform correspondence, and bounded output. Paired cloud upload/metadata-save failures preserve the complete preceding revision. Both media routes require the existing authorization and honor current/previous revision range requests. The UI offers Watch only for actual published video and retains legacy/audio-only playback.
+
+Run the long motion-video check separately from audio alignment capacity:
+
+```bash
+.crowd-set-venv/bin/python scripts/crowd-set-video-check.py --seconds 7200 --report /tmp/crowd-set-video-capacity.json
+```
+
+The script uses temporary synthetic media and never opens the preview or production catalog. It reports render time, bytes and largest child RSS; host-specific measurements do not certify real concert footage or alignment quality.

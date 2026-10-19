@@ -142,7 +142,7 @@ export default function CrowdSet() {
   const locked = busy || isBusy(selected);
   const recordings = selected?.clips || [];
   const ordinary = recordings.filter((clip) => clip.role !== 'reference');
-  const used = new Set(selected?.timeline?.segments.map((segment) => segment.clip_id) || []);
+  const used = new Set([...(selected?.timeline?.segments || []), ...(selected?.video_timeline?.segments || [])].map((segment) => segment.clip_id));
   const updating = ['queued', 'processing', 'uploading'].includes(selected?.status);
   const visibleSets = sets.filter((set) => matchesSearch(set, query));
   const contributors = new Set(recordings.map((clip) => clip.uploader).filter(Boolean)).size;
@@ -166,15 +166,24 @@ export default function CrowdSet() {
       <section aria-label="Sets" className="cs-set-list">
         {visibleSets.length ? visibleSets.map((item) => <button className="cs-set" key={item.id} onClick={() => { choose(item); setNotice(''); }}>
           <div className="cs-set-cover"><span className="cs-set-date">{eventDate(item) || (item.visibility === 'shared' ? 'Public' : 'Private')}</span><strong>{item.artist || item.name}</strong><span>{item.venue}</span></div>
-          <div className="cs-set-footer"><span>{item.clips.length} {item.clips.length === 1 ? 'clip' : 'clips'}{item.timeline?.duration ? ` · ${time(item.timeline.duration)} audio` : ''}</span><span>{item.playable ? 'Listen →' : ['processing', 'queued', 'uploading'].includes(item.status) ? 'Processing' : item.clips.length ? 'Open →' : 'Add clips →'}</span></div>
+          <div className="cs-set-footer"><span>{item.clips.length} {item.clips.length === 1 ? 'clip' : 'clips'}{item.timeline?.duration ? ` · ${time(item.timeline.duration)}${item.video_playable ? '' : ' audio'}` : ''}</span><span>{item.video_playable ? 'Watch →' : item.playable ? 'Listen →' : ['processing', 'queued', 'uploading'].includes(item.status) ? 'Processing' : item.clips.length ? 'Open →' : 'Add clips →'}</span></div>
         </button>) : <p className="cs-empty-catalog">{query ? 'No sets found.' : 'No sets yet.'}</p>}
       </section>
     </> : <>
       <button className="cs-back" disabled={busy} onClick={() => { choose(null); reload(); }}><ArrowLeft size={17} /> All sets</button>
       <div className="cs-detail-title"><h1>{selected.artist || selected.name}</h1>{selected.venue && <p>{selected.venue}</p>}{eventRange(selected) && <p className="cs-meta">{eventRange(selected)}</p>}{selected.visibility !== 'shared' && <span className="cs-privacy">Private</span>}</div>
       <section className={`cs-mix ${selected.playable ? 'cs-mix-ready' : ''}`} aria-label="Compiled mix">
-        {selected.playable ? <div className="cs-audio-surface"><div className="cs-inline"><span>Audio mix</span><a aria-label="Download audio" href={endpoint(`/${selected.id}/audio?download=true`)}><Download size={18} /></a></div><Music2 className="cs-audio-icon" size={40} strokeWidth={1} aria-hidden="true" /><audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" /></div> : <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Processing' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
-        {selected.playable && selected.timeline && <MixTimeline timeline={selected.timeline} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
+        {selected.playable ? <div className="cs-audio-surface">
+          <div className="cs-inline"><span>{selected.video_playable ? 'The cut' : 'Audio mix'}</span><div>
+            {selected.video_playable && <a aria-label="Download video" href={endpoint(`/${selected.id}/video?download=true&v=${selected.mix_revision}`)}><Download size={18} /> Video</a>}
+            <a aria-label="Download audio" href={endpoint(`/${selected.id}/audio?download=true&v=${selected.mix_revision || 'legacy'}`)}><Download size={18} /> Audio</a>
+          </div></div>
+          {selected.video_playable ? <video ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision}`} controls playsInline preload="metadata" src={endpoint(`/${selected.id}/video?v=${selected.mix_revision}`)} aria-label="Current cut" /> : <>
+            <Music2 className="cs-audio-icon" size={40} strokeWidth={1} aria-hidden="true" />
+            <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" />
+          </>}
+        </div> : <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Processing' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
+        {selected.playable && selected.timeline && <MixTimeline timeline={selected.video_playable ? selected.video_timeline : selected.timeline} video={selected.video_playable} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
         <p role="status">{busy ? notice || 'Saving…' : selected.status === 'queued' ? 'Mix queued…' : selected.status === 'uploading' ? 'Uploading recordings…' : selected.status === 'processing' ? selected.stage || 'Updating mix…' : selected.status === 'failed' ? selected.error : selected.dirty ? 'Mix needs an update.' : ''}</p>
         {selected.upload_notice && <p role="status">{selected.upload_notice}</p>}
         {!updating && (selected.status === 'failed' || selected.dirty || (!selected.playable && ordinary.length > 0)) && <button disabled={locked || !ordinary.some((clip) => clip.included)} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>{selected.status === 'failed' ? 'Retry' : 'Update mix'}</button>}
