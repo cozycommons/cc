@@ -9,9 +9,9 @@ import imageio_ffmpeg
 
 FORMATS = 'wav,mov,mp3,aac,flac,ogg,matroska,webm'
 FRAME_RATE = 24
-WIDTH, HEIGHT = 854, 480
+WIDTH, HEIGHT = 1920, 1080
 PROBE_BYTES = 128 * 1024 ** 2
-BYTES_PER_SECOND = 100_000  # 600 kbps video + 96 kbps audio, container/headroom.
+BYTES_PER_SECOND = 420_000  # 3 Mbps video + 96 kbps audio, container/headroom.
 
 
 def byte_bound(duration):
@@ -48,6 +48,12 @@ def probe(source, limits, workdir=None):
     if not picture:
         return None
     audio = re.search(r'\[Parsed_ashowinfo_\d+[^\n]*?pts_time:([\d.e+-]+)', report)
+    if not audio:
+        # FFmpeg can stop the combined probe after video before logging any audio frame.
+        report = run(['-v', 'info', '-copyts', '-protocol_whitelist', 'file',
+                      '-format_whitelist', FORMATS, '-i', str(source), '-map', '0:a:0',
+                      '-vn', '-af', 'ashowinfo', '-frames:a', '1', '-f', 'null', '-'], min(30, limits.media_seconds))
+        audio = re.search(r'\[Parsed_ashowinfo_\d+[^\n]*?pts_time:([\d.e+-]+)', report)
     if not audio:
         raise ValueError('Cannot establish this video’s audio clock.')
     start, audio_start = float(picture[1]), float(audio[1])
@@ -134,8 +140,8 @@ def render(timeline, clips, originals, set_id, directory, limits):
             progress = folder / 'progress.txt'
             try:
                 actual = run(['-v', 'error', *inputs, '-an', '-sn', '-dn', '-vf', filters,
-                              '-frames:v', str(count), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26',
-                              '-maxrate', '600k', '-bufsize', '1200k', '-pix_fmt', 'yuv420p', '-threads', '1',
+                              '-frames:v', str(count), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                              '-maxrate', '3000k', '-bufsize', '6000k', '-pix_fmt', 'yuv420p', '-threads', '1',
                               '-fs', str(byte_bound(duration)), '-progress', str(progress), str(path)],
                              max(limits.media_seconds, min(limits.job_seconds, math.ceil(duration * 2))), progress=progress)
                 if actual != count or path.stat().st_size >= byte_bound(duration):

@@ -128,7 +128,9 @@ Local extension checks: all 44 existing Crowd Set backend tests plus 12 R2 cases
 
 ## Canonical video verification
 
-The new renderer creates one 854×480, 24 fps H.264/AAC MP4 using the finalized audio soundtrack. Local tests verify aligned landscape-to-portrait switching, delayed audio/video timestamps, rotation, preserved aspect, neutral gaps and early picture EOF, waveform correspondence, and bounded output. Paired cloud upload/metadata-save failures preserve the complete preceding revision. Both media routes require the existing authorization and honor current/previous revision range requests. The UI offers Watch only for actual published video and retains legacy/audio-only playback.
+The new renderer creates one 1920×1080, 24 fps H.264/AAC MP4 using the finalized audio soundtrack. Local tests verify aligned landscape-to-portrait switching, delayed audio/video timestamps, rotation, preserved aspect, neutral gaps and early picture EOF, waveform correspondence, and bounded output. Paired cloud upload/metadata-save failures preserve the complete preceding revision. Both media routes require the existing authorization and honor current/previous revision range requests. The UI offers Watch only for actual published video and retains legacy/audio-only playback.
+
+New cuts render at 1080p; existing published cuts keep their original resolution until reprocessed. The encoder caps video at 3 Mbps and reserves up to 420,000 bytes per second plus container overhead for each rendition. Higher resolution uses more storage and processing time; originals, current and previous revisions still share the enforced 8 GB allowance. Lower-resolution sources retain their original detail.
 
 Run the long motion-video check separately from audio alignment capacity:
 
@@ -136,11 +138,13 @@ Run the long motion-video check separately from audio alignment capacity:
 .crowd-set-venv/bin/python scripts/crowd-set-video-check.py --seconds 7200 --report /tmp/crowd-set-video-capacity.json
 ```
 
+A five-minute 1080p synthetic motion trial on macOS rendered in 66.04 seconds, produced 113,042,335 bytes, and peaked at 254,967,808 bytes of child RSS with one encoder thread. This does not establish two-hour performance on the production host.
+
 The script uses temporary synthetic media and never opens the preview or production catalog. It reports render time, bytes and largest child RSS; host-specific measurements do not certify real concert footage or alignment quality.
 
 ### Import from YouTube
 
-Open a set, paste a single public YouTube URL under **Or add from YouTube**, then choose **Add video**. The server imports the whole video at up to 720p and automatically updates the same audio/video cut used for uploaded clips. Watch download and processing status without keeping the browser open. Originals stay private and retain their YouTube source link.
+Open a set, paste a single public YouTube URL under **Or add from YouTube**, then choose **Add video**. The server imports the whole video at up to 1080p and automatically updates the same audio/video cut used for uploaded clips. Watch download and processing status without keeping the browser open. Originals stay private and retain their YouTube source link.
 
 The same 64-recording, two-hour-per-recording, 2 GiB-per-file and aggregate storage limits apply. One server import runs at a time and reserves a full file slot before downloading. Playlists, active/upcoming livestreams and restricted videos are unsupported. YouTube can reject a server IP; the app reports that without using account cookies or proxies, and file upload remains available. Interrupted downloads can be retried from their source link; partial media is never published.
 

@@ -1,4 +1,5 @@
 import subprocess
+import re
 
 import imageio_ffmpeg
 import numpy as np
@@ -66,6 +67,9 @@ def test_portrait_landscape_gaps_delayed_audio_and_soundtrack(tmp_path):
     timeline = video.plan_video(clips, {'duration': 8, 'origin_seconds': 0})
     assert video.render(timeline, clips, originals, 'set', folder, Limits())
     output = folder / 'pending.mp4'
+    metadata = video.run(['-v', 'info', '-i', str(output), '-frames:v', '1', '-f', 'null', '-'], 30)
+    assert '1920x1080' in metadata
+    assert (timeline['width'], timeline['height']) == (1920, 1080)
     red, gap, blue = [frame(output, t) for t in (1, 4, 5.5)]
     assert red[24, 42, 0] > 200 and red[24, 42, 2] < 40
     assert np.max(np.abs(red[24, 0].astype(int) - [36, 48, 39])) < 10  # Portrait letterbox.
@@ -128,3 +132,20 @@ def test_short_video_cannot_hide_an_available_picture():
     plan = video.plan_video(clips, {'duration': 8, 'origin_seconds': 0})
     assert [(s['clip_id'], s['start'], s['end']) for s in plan['segments']] == [('b', 0, 5), ('c', 5, 7)]
     assert plan['gaps'][0]['start'] == 7
+
+
+def test_probe_recovers_when_ffmpeg_omits_audio_frame_log(tmp_path, monkeypatch):
+    audio = write_wav(tmp_path / 'source.wav', music(3))
+    source = make_video(tmp_path / 'delayed.mp4', audio, delay=1, duration=4)
+    run = video.run
+
+    def omit_combined_audio(args, *positional, **kwargs):
+        report = run(args, *positional, **kwargs)
+        if '-vf' in args:
+            report = re.sub(r'\[Parsed_ashowinfo_[^\n]*', '', report)
+        return report
+
+    monkeypatch.setattr(video, 'run', omit_combined_audio)
+    picture = video.probe(source, Limits())
+    assert picture['audio_start'] == pytest.approx(1, abs=.08)
+    assert picture['start'] == pytest.approx(-picture['audio_start'], abs=.001)

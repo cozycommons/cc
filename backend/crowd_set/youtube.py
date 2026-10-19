@@ -12,6 +12,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from .worker import write_json
 
+FORMAT = 'bv[height<=1080][ext=mp4][vcodec^=avc1]+ba[ext=m4a]/b[height<=1080][ext=mp4]'
+
 
 def canonical_url(value):
     try:
@@ -77,7 +79,7 @@ def download(directory, url, max_bytes, duration_limit):
 
     options = {
         'noplaylist': True, 'allowed_extractors': ['youtube'], 'default_search': 'error',
-        'format': 'bv[height<=720][ext=mp4][vcodec^=avc1]+ba[ext=m4a]/b[height<=720][ext=mp4]',
+        'format': FORMAT,
         'merge_output_format': 'mp4', 'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),
         'js_runtimes': {'node': {}}, 'remote_components': [], 'cachedir': False,
         'socket_timeout': 20, 'retries': 1, 'fragment_retries': 1, 'extractor_retries': 1,

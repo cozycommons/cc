@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory(prefix='crowd-set-video-capacity-') as temporar
             output.writeframes(b'\0' * 64000)
     seed = root / 'seed.mp4'
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-    subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=24:d=5',
+    subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i', f'testsrc2=s={video.WIDTH}x{video.HEIGHT}:r=24:d=5',
                     '-c:v', 'libx264', '-preset', 'veryfast', '-threads', '1', str(seed)], check=True, timeout=30)
     item = {'id': 'motion', 'file': 'motion.mp4', 'name': 'motion.mp4', 'role': 'crowd', 'included': True,
             'duration': args.seconds, 'alignment': {'status': 'matched', 'offset_seconds': 0},
@@ -48,6 +48,7 @@ with tempfile.TemporaryDirectory(prefix='crowd-set-video-capacity-') as temporar
     elapsed = time.monotonic() - started
     rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     report = {'duration_seconds': args.seconds, 'render_seconds': round(elapsed, 2),
+              'width': video.WIDTH, 'height': video.HEIGHT,
               'output_bytes': (folder / 'pending.mp4').stat().st_size,
               'peak_child_rss_bytes': rss if sys.platform == 'darwin' else rss * 1024,
               'encoder_threads': 1, 'host_platform': sys.platform}
