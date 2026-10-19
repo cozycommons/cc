@@ -29,7 +29,11 @@ export default function YouTubeImport({ set, disabled, onUpdate }) {
       </div>
       <p className="cs-meta">One public video · up to 1080p</p>
     </form>
-    {(error || job?.state === 'failed') && <div role="alert" className="cs-error">
+    {!error && job?.state === 'failed' && set.clips?.length > 0 ? <details className="cs-meta">
+      <summary>Previous YouTube import failed</summary>
+      <p>{job.error}</p>
+      <button disabled={disabled || submitting} onClick={() => setUrl(job.url)}>Use link again</button>
+    </details> : (error || job?.state === 'failed') && <div role="alert" className="cs-error">
       {error || job.error}
       {!error && <button disabled={disabled || submitting} onClick={() => { setUrl(job.url); setError(''); }}>Use link again</button>}
     </div>}

@@ -23,7 +23,7 @@ class Limits:
     free_bytes: int = 2 * GIB
     chunk_bytes: int = 8 * MIB
     upload_seconds: int = 86400
-    job_seconds: int = 7200
+    job_seconds: int = 14400
     media_seconds: int = 600
     free_tier: bool = False
 
@@ -39,7 +39,7 @@ class Limits:
             original_bytes=integer('ORIGINAL_BYTES', original_default, MIB, 8_000_000_000 if r2 else 16 * 1024 * GIB),
             work_bytes=integer('WORK_BYTES', 10 * GIB, MIB, 1024 * GIB),
             free_bytes=integer('FREE_BYTES', 2 * GIB, MIB, 1024 * GIB),
-            job_seconds=integer('JOB_SECONDS', 7200, 60, 14400),
+            job_seconds=integer('JOB_SECONDS', 14400, 60, 14400),
             media_seconds=integer('MEDIA_SECONDS', 600, 10, 1800),
             free_tier=r2,
         )

@@ -84,7 +84,7 @@ it('uploads directly and keeps the published player mounted while rebuilding', a
   const source = new File(['video'], 'More.mp4', { type: 'video/mp4' });
   fireEvent.change(screen.getByLabelText('Add clips'), { target: { files: [source] } });
   await screen.findByText('More.mp4');
-  await screen.findByText('Mix queued…');
+  await screen.findByText('Queued for processing. Your recordings are saved.');
   expect(request.mock.calls[1][0]).toBe('/one/clips?name=More.mp4');
   expect(request.mock.calls[1][1].body).toBe(source);
   expect(screen.getByLabelText('Current mix')).toBe(player);
@@ -96,7 +96,7 @@ it('publishes one new player and keeps unmatched originals available', async () 
   request.mockResolvedValueOnce([{ ...ready, status: 'processing' }]).mockResolvedValue({ ...ready, mix_revision: 'new', clips: [clip, unmatched] });
   render(<CrowdSet />);
   await openSet();
-  await screen.findByText('Updating mix…');
+  await screen.findByText('Starting processing…');
   const before = screen.getByLabelText('Current mix');
   expect(screen.getByLabelText('Add clips')).toBeDisabled();
   await screen.findByText('Couldn’t match this recording.', {}, { timeout: 3000 });
@@ -137,7 +137,7 @@ it('finishes a batch once after every upload settles, including a partial failur
     '/one/batches', '/one/clips?name=One.mp4&batch_id=batch', '/one/clips?name=Two.mp4&batch_id=batch',
     '/one/clips?name=Three.mp4&batch_id=batch', '/one/batches/batch/finish',
   ]);
-  expect(screen.getByText('Mix queued…')).toBeInTheDocument();
+  expect(screen.getByText('Queued for processing. Your recordings are saved.')).toBeInTheDocument();
   request.mockResolvedValueOnce(ready);
   fireEvent.click(screen.getByRole('button', { name: 'Retry 1 upload' }));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry 1 upload' })).not.toBeInTheDocument());
@@ -170,7 +170,7 @@ it('uses one revision-pinned video player and preserves it during processing', a
   expect(video).toHaveAttribute('src', '/crowd-set/sets/one/video?v=published');
   expect(screen.queryByLabelText('Current mix')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Add clips'), { target: { files: [new File(['video'], 'More.mp4', { type: 'video/mp4' })] } });
-  await screen.findByText('Mix queued…');
+  await screen.findByText('Queued for processing. Your recordings are saved.');
   expect(screen.getByLabelText('Current cut')).toBe(video);
   expect(screen.getByRole('link', { name: 'Download video' })).toHaveAttribute('href', '/crowd-set/sets/one/video?download=true&v=published');
 });
@@ -195,7 +195,9 @@ it('lets an interrupted YouTube import reuse its link without losing the cut', a
   request.mockResolvedValueOnce([{ ...ready, youtube_import: { state: 'failed', url: 'https://www.youtube.com/watch?v=9dhFH_G5Bow', error: 'Import interrupted. Retry.' } }]);
   render(<CrowdSet />);
   await openSet();
-  expect(screen.getByRole('alert')).toHaveTextContent('Import interrupted. Retry.');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText('Previous YouTube import failed'));
+  expect(screen.getByText('Import interrupted. Retry.')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Use link again' }));
   expect(screen.getByLabelText('Or add from YouTube')).toHaveValue('https://www.youtube.com/watch?v=9dhFH_G5Bow');
   expect(screen.getByRole('button', { name: 'Add video' })).toBeEnabled();
