@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import CrowdSet from './CrowdSet';
 import { request } from './api';
 
-vi.mock('./api', () => ({ request: vi.fn(), getLimits: async () => ({ recordings: 64, file_bytes: 2 * 1024 ** 3, recording_seconds: 7200 }), endpoint: (path) => `/crowd-set/sets${path}` }));
+vi.mock('./api', () => ({ request: vi.fn(), getLimits: async () => ({ recordings: 64, file_bytes: 2 * 1024 ** 3, recording_seconds: 7200, youtube_imports: true }), endpoint: (path) => `/crowd-set/sets${path}` }));
 const performance = { id: 'one', name: 'A night together', visibility: 'shared', can_manage: true, status: 'idle', clips: [], timeline: null, playable: false };
 const clip = { id: 'clip', name: 'Stage.mp4', role: 'recording', kind: 'video', can_edit: true, included: true };
 const ready = { ...performance, status: 'ready', playable: true, mix_revision: 'published', clips: [clip], timeline: { segments: [{ clip_id: clip.id }] } };
@@ -173,4 +173,31 @@ it('uses one revision-pinned video player and preserves it during processing', a
   await screen.findByText('Mix queued…');
   expect(screen.getByLabelText('Current cut')).toBe(video);
   expect(screen.getByRole('link', { name: 'Download video' })).toHaveAttribute('href', '/crowd-set/sets/one/video?download=true&v=published');
+});
+
+it('imports a YouTube link and preserves the current player while downloading', async () => {
+  const importing = { ...ready, status: 'importing', youtube_import: { state: 'downloading', stage: 'Downloading from YouTube · 42%…' } };
+  request.mockResolvedValueOnce([ready]).mockResolvedValueOnce(importing);
+  render(<CrowdSet />);
+  await openSet();
+  const player = screen.getByLabelText('Current mix');
+  fireEvent.change(screen.getByLabelText('Or add from YouTube'), { target: { value: 'https://youtu.be/9dhFH_G5Bow' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add video' }));
+  await screen.findByText('Downloading from YouTube · 42%…');
+  expect(request.mock.calls[1][0]).toBe('/one/youtube');
+  expect(JSON.parse(request.mock.calls[1][1].body)).toEqual({ url: 'https://youtu.be/9dhFH_G5Bow' });
+  expect(screen.getByLabelText('Current mix')).toBe(player);
+  expect(screen.getByLabelText('Add clips')).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Add video' })).toBeDisabled();
+});
+
+it('lets an interrupted YouTube import reuse its link without losing the cut', async () => {
+  request.mockResolvedValueOnce([{ ...ready, youtube_import: { state: 'failed', url: 'https://www.youtube.com/watch?v=9dhFH_G5Bow', error: 'Import interrupted. Retry.' } }]);
+  render(<CrowdSet />);
+  await openSet();
+  expect(screen.getByRole('alert')).toHaveTextContent('Import interrupted. Retry.');
+  fireEvent.click(screen.getByRole('button', { name: 'Use link again' }));
+  expect(screen.getByLabelText('Or add from YouTube')).toHaveValue('https://www.youtube.com/watch?v=9dhFH_G5Bow');
+  expect(screen.getByRole('button', { name: 'Add video' })).toBeEnabled();
+  expect(screen.getByLabelText('Current mix')).toBeInTheDocument();
 });

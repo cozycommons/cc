@@ -63,7 +63,7 @@ def test_hosted_auth_origin_cookie_and_owner_isolation(hosted):
     assert [s['name'] for s in api.get(route, headers=second).json()] == ['Owned']
     legacy_path = route + '/' + next(s['id'] for s in api.get(route, headers=first).json() if s['name'] == 'Legacy private')
     for method, suffix in [('GET', ''), ('GET', '/audio'), ('GET', '/video'), ('GET', '/clips/abc/media'), ('POST', '/process'),
-                           ('DELETE', ''), ('PATCH', '/clips/abc'), ('PUT', '/clips?name=x.wav')]:
+                           ('DELETE', ''), ('POST', '/youtube'), ('PATCH', '/clips/abc'), ('PUT', '/clips?name=x.wav')]:
         assert api.request(method, legacy_path + suffix, headers=second).status_code == 404
     batch = api.post(path + '/batches', headers=second).json()['id']
     assert api.post(path + '/batches/' + batch + '/finish', headers=third).status_code == 403
@@ -86,6 +86,7 @@ def test_hosted_auth_origin_cookie_and_owner_isolation(hosted):
     assert api.get(media).status_code == 401
     assert api.get(path + '/audio').status_code == 401
     assert api.get(path + '/video').status_code == 401
+    assert api.post(path + '/youtube', headers={'Origin': 'https://commons.example'}, json={'url': 'https://youtu.be/9dhFH_G5Bow'}).status_code == 401
     assert api.get(route, headers={'Authorization': 'Bearer anonymous'}).status_code == 403
     assert api.get(route, headers={'Authorization': 'Bearer unavailable'}).status_code == 503
     assert api.delete('/crowd-set/session', headers={'Origin': 'https://commons.example'}).status_code == 204

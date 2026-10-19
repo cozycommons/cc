@@ -137,3 +137,11 @@ Run the long motion-video check separately from audio alignment capacity:
 ```
 
 The script uses temporary synthetic media and never opens the preview or production catalog. It reports render time, bytes and largest child RSS; host-specific measurements do not certify real concert footage or alignment quality.
+
+### Import from YouTube
+
+Open a set, paste a single public YouTube URL under **Or add from YouTube**, then choose **Add video**. The server imports the whole video at up to 720p and automatically updates the same audio/video cut used for uploaded clips. Watch download and processing status without keeping the browser open. Originals stay private and retain their YouTube source link.
+
+The same 64-recording, two-hour-per-recording, 2 GiB-per-file and aggregate storage limits apply. One server import runs at a time and reserves a full file slot before downloading. Playlists, active/upcoming livestreams and restricted videos are unsupported. YouTube can reject a server IP; the app reports that without using account cookies or proxies, and file upload remains available. Interrupted downloads can be retried from their source link; partial media is never published.
+
+Local imports require Node.js 22+ on PATH in addition to `bash scripts/crowd-set-dev.sh setup`. The production image includes Node, pinned yt-dlp/EJS and the existing ffmpeg runtime. No extra provider credentials or R2 allowance changes are needed.

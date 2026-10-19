@@ -76,6 +76,10 @@ class Selection(BaseModel):
     included: bool
 
 
+class YouTubeImport(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
 class Upload(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     size: int = Field(gt=0)
@@ -91,6 +95,9 @@ def present(data, owner):
     data.pop('batch', None)
     data.pop('completed_batch', None)
     data.pop('recovery_attempts', None)
+    if data.get('youtube_import'):
+        data['youtube_import'].pop('owner', None)
+        data['youtube_import'].pop('session_id', None)
     data['can_manage'] = data.get('owner') == owner
     for clip in data['clips']:
         clip['can_edit'] = data['can_manage'] or clip.get('uploader', data.get('owner')) == owner
@@ -186,6 +193,10 @@ def create_app(root=None):
     @app.get('/crowd-set/sets/{set_id}')
     def get_set(set_id: str, request: Request):
         return present(request.app.state.store.get(set_id), request.state.owner)
+
+    @app.post('/crowd-set/sets/{set_id}/youtube', status_code=202)
+    def import_youtube(set_id: str, body: YouTubeImport, request: Request):
+        return present(request.app.state.store.import_youtube(set_id, body.url, request.state.owner), request.state.owner)
 
     @app.delete('/crowd-set/sets/{set_id}', status_code=204)
     def delete_set(set_id: str, request: Request):

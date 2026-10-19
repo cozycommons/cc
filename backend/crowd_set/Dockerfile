@@ -15,6 +15,8 @@ ENV VITE_API_URL=${VITE_API_URL} \
 RUN npm run build -- --base=/crowd-set/ && node scripts/check-bundle-size.js
 
 FROM python:3.12-slim
+COPY --from=frontend /usr/local/bin/node /usr/local/bin/node
+RUN node --version
 ENV PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
     CROWD_SET_DATA_DIR=/data CROWD_SET_STATIC_DIR=/static

@@ -22,6 +22,7 @@ from .limits import Limits
 from .storage import OriginalStore
 from .blobs import BlobError, environment
 from .audio import probe
+from .youtube import canonical_url
 
 ROOT = Path(__file__).resolve().parents[2] / '.crowd-set'
 EXTENSIONS = {'.wav', '.mp3', '.m4a', '.mp4', '.mov', '.aac', '.flac', '.ogg', '.webm'}
@@ -57,6 +58,12 @@ class Store:
             batch = data.get('batch')
             if batch:
                 self.batches[data['id']] = {**batch, 'deadline': time.monotonic() + max(0, batch['expires_at'] - time.time())}
+            if data['status'] == 'importing':
+                saved = any(c.get('source_url') == data['youtube_import']['url'] for c in data['clips'])
+                data.update(status='queued' if saved and data.get('dirty') else 'ready' if data.get('playable') else 'idle')
+                data['youtube_import'].update(state='complete' if saved else 'failed', error=None if saved else 'YouTube import interrupted by a server restart. Paste the link again to retry.')
+                write_json(path, data)
+                self.cleanup_import(data)
             if data['status'] in ('processing', 'queued'):
                 attempts = data.get('recovery_attempts', 0) + 1
                 data.update(recovery_attempts=attempts, dirty=True)
@@ -97,6 +104,10 @@ class Store:
             data = json.loads((directory / 'set.json').read_text())
             if data['status'] == 'processing' and (directory / 'progress.json').exists():
                 data.update(json.loads((directory / 'progress.json').read_text()))
+            if data['status'] == 'importing':
+                progress = directory / 'youtube' / 'progress.json'
+                if progress.exists():
+                    data['youtube_import'].update(json.loads(progress.read_text()))
             return data
 
     def save(self, data):
@@ -119,9 +130,126 @@ class Store:
     def editable(self, set_id, batch_id=None):
         data = self.get(set_id)
         batch = self.batches.get(set_id)
-        if data['status'] == 'processing' or (data['status'] == 'uploading' and (not batch or batch['id'] != batch_id)):
+        if data['status'] in ('processing', 'importing') or (data['status'] == 'uploading' and (not batch or batch['id'] != batch_id)):
             raise HTTPException(409, 'Wait for the current operation to finish.')
         return data
+
+    def import_youtube(self, set_id, url, owner=None):
+        try:
+            url = canonical_url(url)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        with self.lock:
+            data = self.get(set_id)
+            if any(clip.get('source_url') == url for clip in data['clips']):
+                return data
+            current = data.get('youtube_import', {})
+            if data['status'] == 'importing' and current.get('url') == url and current.get('owner') == owner:
+                return data
+            self.editable(set_id)
+            if self.active or self.upload or self.batches:
+                raise HTTPException(409, 'Wait for the current upload or processing job before importing from YouTube.')
+            if current:
+                if not self.cleanup_import(data):
+                    raise HTTPException(503, 'Previous import cleanup is waiting for media storage. Retry shortly.')
+            self.originals.admit(self.limits, incoming=self.limits.file_bytes, work_needed=3 * self.limits.file_bytes + 1024 ** 2)
+            session = self.prepare_session(set_id, 'YouTube video.mp4', self.limits.file_bytes,
+                                           hashlib.sha256(uuid4().bytes).hexdigest(), owner)
+            job = {'url': url, 'owner': owner, 'session_id': session['id'], 'state': 'downloading', 'stage': 'Checking YouTube video…', 'error': None}
+            directory = self.directory(set_id) / 'youtube'
+            directory.mkdir(mode=0o700)
+            self.pending.pop(set_id, None)
+            data.update(status='importing', youtube_import=job)
+            self.save(data)
+            self.active = set_id
+            self.upload = (set_id, session['id'])
+            self.pool.submit(self.run_import, set_id)
+            return data
+
+    def cleanup_import(self, data):
+        job = data['youtube_import']
+        manifest = self.originals.session_directory(data['id']) / f'{job["session_id"]}.json'
+        if manifest.exists():
+            session = json.loads(manifest.read_text())
+            if session['state'] != 'complete':
+                try:
+                    self.remove_unpublished(session)
+                except (OSError, ValueError, httpx.HTTPError):
+                    # Keep the reservation and bytes until remote cleanup is acknowledged.
+                    session['expires_at'] = 0
+                    self.save_session(session)
+                    return False
+                for suffix in ('.part', '.part.transfer.json', '.json'):
+                    manifest.with_name(job['session_id'] + suffix).unlink(missing_ok=True)
+        shutil.rmtree(self.directory(data['id']) / 'youtube', ignore_errors=True)
+        return True
+
+    def run_import(self, set_id):
+        directory = self.directory(set_id) / 'youtube'
+        job = self.get(set_id)['youtube_import']
+        error = None
+        try:
+            with self.lock:
+                if self.closed:
+                    raise ValueError('YouTube import interrupted. Paste the link again to retry.')
+                self.process = subprocess.Popen(
+                    [sys.executable, '-m', 'crowd_set.youtube', str(directory), job['url'], str(self.limits.file_bytes), str(self.limits.recording_seconds)],
+                    cwd=Path(__file__).resolve().parents[1], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True, pass_fds=(self.lockfile.fileno(),),
+                    env={'PATH': os.environ.get('PATH', ''), 'HOME': str(directory), 'LANG': 'C.UTF-8', 'OPENBLAS_NUM_THREADS': '1', 'OMP_NUM_THREADS': '1'})
+            deadline = time.monotonic() + self.limits.media_seconds
+            while self.process.poll() is None:
+                size = 0
+                for path in directory.rglob('*'):
+                    try:
+                        if path.is_file():
+                            size += path.stat().st_size
+                    except FileNotFoundError:
+                        pass
+                if size > 2 * self.limits.file_bytes + 1024 ** 2 or time.monotonic() > deadline:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                    self.process.wait()
+                    raise ValueError('YouTube import exceeded its download time or storage limit. Try a smaller video or upload the file.')
+                time.sleep(0.2)
+            if self.process.returncode:
+                failure = directory / 'failure.json'
+                raise ValueError(json.loads(failure.read_text())['error'] if failure.exists() else 'YouTube import stopped. Try a smaller video or upload the file.')
+            result = json.loads((directory / 'result.json').read_text())
+            source = directory / 'source.mp4'
+            size = source.stat().st_size
+            if not 0 < size <= self.limits.file_bytes:
+                raise ValueError('The YouTube video exceeds the recording size limit.')
+            with self.lock:
+                session = self.session(set_id, job['session_id'], job['owner'])
+                session.update(size=size, offset=size)
+                session['clip'].update(bytes=size, name=result['name'], source_url=job['url'])
+                source.replace(self.originals.session_directory(set_id) / f'{session["id"]}.part')
+                self.save_session(session)
+                data = self.get(set_id)
+                data['youtube_import'].update(stage='Saving YouTube recording…')
+                self.save(data)
+                (directory / 'progress.json').unlink(missing_ok=True)
+            self.complete_session(set_id, session['id'], job['owner'], importing=True)
+        except Exception as exc:
+            error = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        finally:
+            if self.process and self.process.poll() is None:
+                os.killpg(self.process.pid, signal.SIGKILL)
+                self.process.wait()
+            with self.lock:
+                try:
+                    data = self.get(set_id)
+                    data['youtube_import'].update(state='failed' if error else 'complete', error=error)
+                    data.update(status='ready' if data.get('playable') else 'idle')
+                    self.save(data)
+                    self.cleanup_import(data)
+                    if not error:
+                        self.queue(data)
+                finally:
+                    if self.upload == (set_id, job['session_id']):
+                        self.upload = None
+                    self.active = self.process = None
+                    self.schedule()
 
     def invalidate(self, data):
         data.update(status='idle', error=None, dirty=True)
@@ -353,7 +481,7 @@ class Store:
             self.originals.remove_blobs([key for key in keys if key.startswith(prefix)])
         self.originals.path(set_id, clip).unlink(missing_ok=True)
 
-    def complete_session(self, set_id, upload_id, owner=None):
+    def complete_session(self, set_id, upload_id, owner=None, *, importing=False):
         with self.lock:
             session = self.session(set_id, upload_id, owner)
             data = self.get(set_id)
@@ -361,9 +489,10 @@ class Store:
                 session['state'] = 'complete'
                 self.save_session(session)
                 return data
-            if self.upload:
+            if self.upload and not (importing and self.upload == (set_id, upload_id)):
                 raise HTTPException(409, 'A recording is being saved. Retry shortly.')
-            self.editable(set_id, session['batch_id'])
+            if not importing:
+                self.editable(set_id, session['batch_id'])
             if session['offset'] != session['size']:
                 raise HTTPException(409, 'Upload is incomplete. Resume from the saved offset.')
             self.upload = (set_id, upload_id)
@@ -385,7 +514,11 @@ class Store:
                     data['clips'].append(clip)
                 data['recovery_attempts'] = 0
                 self.invalidate(data)
-                result = self.queue(data)
+                if importing:
+                    data['status'] = 'importing'
+                    result = self.save(data)
+                else:
+                    result = self.queue(data)
                 session.update(state='complete', clip=clip)
                 self.save_session(session)
                 partial.unlink(missing_ok=True)
@@ -398,7 +531,8 @@ class Store:
             raise HTTPException(503, 'Media storage is temporarily unavailable. Reselect the file to resume saving it.') from exc
         finally:
             with self.lock:
-                self.upload = None
+                if not importing:
+                    self.upload = None
 
     def begin_upload(self, set_id, name, role='recording', uploader=None, batch_id=None):
         with self.lock:

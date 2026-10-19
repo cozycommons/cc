@@ -45,7 +45,7 @@ class Limits:
         )
 
     def public(self):
-        return {'resumable_uploads': True, 'event_metadata': True, **{key: getattr(self, key) for key in (
+        return {'resumable_uploads': True, 'event_metadata': True, 'youtube_imports': True, **{key: getattr(self, key) for key in (
             'recordings', 'file_bytes', 'recording_seconds', 'set_seconds',
             'original_bytes', 'chunk_bytes', 'upload_seconds', 'free_tier',
         )}}
