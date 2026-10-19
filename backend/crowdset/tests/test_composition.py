@@ -68,9 +68,18 @@ def test_official_audio_and_normalized_friend_video_reuse(tmp_path):
         image = frame(output, 1)
         assert image[24, 42, 0] > 200
         assert np.max(np.abs(image[24, 0].astype(int) - [36, 48, 39])) < 10
+        store = api.app.state.store
+        legacy = store.get(second['id'])
+        legacy.pop('scrub_previews', None)
+        store.save(legacy)
+        for sheet in (tmp_path / 'store' / second['id']).glob('scrub-*'):
+            sheet.unlink()
         assert api.post(path + '/process').status_code == 202
         third = wait(api, path)
         assert third['status'] == 'ready' and third['mix_revision'] == second['mix_revision']
+        assert set(third['scrub_previews']) == {official_id, insert['clip_id']}
+        sheet = third['scrub_previews'][insert['clip_id']]['sheets'][0]
+        assert api.get(path + '/previews/' + sheet + '?v=' + third['mix_revision']).status_code == 200
         assert api.get(url).content == response.content
         asset = third['composition']['assets'][insert['asset_id']]
         (tmp_path / 'store' / third['id'] / asset['file']).unlink()

@@ -12,7 +12,7 @@ from .audio import align, decode, features, plan_timeline, render, match_levels,
 from .limits import Limits
 from .storage import OriginalStore
 from .blobs import digest, environment
-from . import video, composition
+from . import video, composition, previews
 from .timestamps import hint_for, apply_hint
 
 
@@ -172,6 +172,7 @@ def process(directory):
     base = visual
     if soundtrack:
         visual, base = composition.plan(clips, timeline, anchor)
+    scrub_previews = previews.prepare(clips, visual, data, originals, directory, limits, progress)
     previous_audio = directory / (data.get('mix_file') or 'reconstruction.wav')
     previous_video_available = data.get('video_object') if originals.blobs else (directory / (data.get('video_file') or 'missing')).is_file()
     same_audio = (playable and data.get('playable') and data.get('mix_revision') and previous_audio.is_file()
@@ -185,13 +186,13 @@ def process(directory):
         progress('Keeping the unchanged cut…', 'finalize')
         write_json(directory / 'result.json', {'clips': clips, 'timeline': timeline, 'playable': True,
                    'video_playable': bool(visual['segments']), 'video_timeline': visual if visual['segments'] else None,
-                   'composition': data.get('composition'), 'reuse_revision': data['mix_revision']})
+                   'composition': data.get('composition'), 'scrub_previews': scrub_previews, 'reuse_revision': data['mix_revision']})
         return
     base_reused = (soundtrack and same_audio and previous_video_available
                    and base == ((data.get('composition') or {}).get('base_timeline') or data.get('video_timeline')))
     result = {'clips': clips, 'timeline': timeline, 'playable': playable,
               'video_playable': bool(visual['segments']), 'video_timeline': visual if visual['segments'] else None,
-              'composition': None}
+              'composition': None, 'scrub_previews': scrub_previews}
     if soundtrack:
         assets = composition.prepare(visual, clips, data, originals, directory, limits, progress)
         result['composition'] = {'soundtrack_clip_id': soundtrack, 'base_timeline': base, 'assets': assets}

@@ -226,8 +226,7 @@
 .cs-player-progress:hover::before, .cs-player-progress:focus-within::before { height: 5px; }
 .cs-scrub-preview { position: absolute; left: clamp(96px, var(--preview-left), calc(100% - 96px)); bottom: 27px; width: 192px; max-width: calc(100vw - 32px); transform: translateX(-50%); pointer-events: none; color: #fff; text-align: center; }
 .cs-scrub-picture { position: relative; aspect-ratio: 16 / 9; background: #202020; border: 2px solid #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px #0008; }
-.cs-scrub-picture video { width: 100%; height: 100%; object-fit: contain; }
-.cs-scrub-picture > span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; }
+.cs-scrub-sprite { position: absolute; inset: 0; background-repeat: no-repeat; }
 .cs-scrub-time { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 4px; background: #000b; font-size: 12px; font-variant-numeric: tabular-nums; }
 @media (max-width: 700px) {
   .cs-scrub-preview { width: 144px; left: clamp(72px, var(--preview-left), calc(100% - 72px)); }

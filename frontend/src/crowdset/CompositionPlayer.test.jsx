@@ -174,8 +174,8 @@ it('previews the seek position without moving the main video and labels control 
   fireEvent.pointerMove(slider, { clientX: 14 });
   expect(screen.getByRole('img', { name: 'Video preview at 0:14' })).toBeInTheDocument();
   expect(playerRef.current.currentTime).toBe(3);
-  act(() => vi.advanceTimersByTime(180));
-  expect(view.container.querySelector('.cs-scrub-picture video')).toHaveAttribute('src', '/crowdset/sets/set/overlays/friend?v=revision');
+  expect(view.container.querySelector('.cs-scrub-picture video')).toBeNull();
+  expect(screen.queryByText('Loading preview…')).toBeNull();
   fireEvent.pointerLeave(slider);
   expect(screen.queryByRole('img', { name: /Video preview/ })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('aria-keyshortcuts', 'Space K');
