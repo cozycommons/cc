@@ -122,3 +122,5 @@ A cold isolated macOS test with a two-hour synthetic anchor and 50 five-minute e
 ```
 
 Supabase Storage is optional and not yet enabled in production. The existing project is Free; its 50 MB file limit is insufficient. Pro starts at $25/month with 100 GB object storage and 250 GB egress included ([pricing](https://supabase.com/pricing), [file limits](https://supabase.com/docs/guides/storage/uploads/file-limits)). Approval of recurring billing, a private bucket with a 2 GiB file limit, the global project limit, and a server-only runtime key are required before enabling it. See TECH.md for configuration, quotas, cleanup and backup requirements. No Commons/Dice tables or historical migrations change.
+
+Local extension checks: all 44 Crowd Set backend tests and all 361 frontend tests pass. Lint has no errors (one existing Commons hook warning); production build and bundle budget pass. Cloud tests use an isolated HTTP transport to verify resumable transfers, private-bucket validation, range streaming, quota reservations, lost responses and orphan cleanup. Actual cloud transfer remains a rollout check after approved provider setup.
