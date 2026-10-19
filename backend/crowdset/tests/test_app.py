@@ -404,7 +404,7 @@ def test_contained_clip_updates_alignment_without_duplicate_video(tmp_path):
         first = wait(api, path)
         assert first['status'] == 'ready'
         original_video = api.get(path + '/video').content
-        short = write_wav(tmp_path / 'short.wav', raw[20 * 16000:70 * 16000])
+        short = write_wav(tmp_path / 'short.wav', raw[20 * 16000:29 * 16000])
         upload(api, path, 'friend.wav', short.read_bytes())
         second = wait(api, path)
         assert second['status'] == 'ready', second
@@ -416,6 +416,29 @@ def test_contained_clip_updates_alignment_without_duplicate_video(tmp_path):
         assert api.get(path + '/video').content == original_video
         assert len(list((tmp_path / 'store' / second['id']).glob('mix-*.mp4'))) == 1
         assert not (tmp_path / 'store' / second['id'] / 'pending.wav').exists()
+
+        folder = tmp_path / 'store' / second['id']
+        recording = second['clips'][1]['id']
+        alignment_cache = folder / (recording + '.alignment.json')
+        old = json.loads(alignment_cache.read_text())
+        old.update(version=1, alignment={'status': 'unmatched', 'windows': [], 'reason': 'Old minimum length'})
+        alignment_cache.write_text(json.dumps(old))
+        for metadata in folder.glob('*.analysis.json'):
+            analysis = json.loads(metadata.read_text())
+            analysis.pop('capture_version', None)
+            analysis.pop('capture', None)
+            metadata.write_text(json.dumps(analysis))
+        preparation = {p: p.stat().st_mtime_ns for p in folder.iterdir() if p.suffix in ('.wav', '.npy')}
+        assert api.post(path + '/process').status_code == 202
+        third = wait(api, path)
+        assert third['clips'][1]['alignment']['status'] == 'matched'
+        assert json.loads(alignment_cache.read_text())['version'] == 2
+        assert all(p.stat().st_mtime_ns == stamp for p, stamp in preparation.items())
+        assert third['mix_revision'] == first['mix_revision']
+        cache_time = alignment_cache.stat().st_mtime_ns
+        assert api.post(path + '/process').status_code == 202
+        assert wait(api, path)['status'] == 'ready'
+        assert alignment_cache.stat().st_mtime_ns == cache_time
 
 
 def test_worker_preserves_specific_storage_error(tmp_path):

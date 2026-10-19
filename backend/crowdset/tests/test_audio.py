@@ -51,9 +51,9 @@ def test_negative_offset_and_partial_overlap(tmp_path, signal):
     assert match['offset_seconds'] == pytest.approx(-20, abs=.04)
 
 
-def test_reject_unrelated_silence_short_and_edited(tmp_path, signal):
+def test_reject_unrelated_silence_tiny_and_edited(tmp_path, signal):
     ref = features(write_wav(tmp_path / 'ref.wav', signal))
-    sources = [music(50, 99), np.zeros(50 * 16000), signal[:10 * 16000],
+    sources = [music(50, 99), np.zeros(50 * 16000), signal[:2 * 16000],
                np.concatenate((signal[10 * 16000:40 * 16000], signal[60 * 16000:90 * 16000]))]
     for index, source in enumerate(sources):
         result = align(ref, features(write_wav(tmp_path / f'source-{index}.wav', source)))
@@ -219,3 +219,47 @@ def test_anchor_duration_precedes_quality_and_quality_only_breaks_ties(tmp_path)
     assert choose_anchor([longer, clean]) is clean
     with pytest.raises(ValueError, match='No audible'):
         recording_quality(write_wav(tmp_path / 'silent.wav', np.zeros(RATE), RATE))
+
+
+@pytest.mark.parametrize('seconds', [2.6, 3, 4, 6, 9, 12, 18, 25, 35])
+def test_short_noisy_recording_matches(tmp_path, signal, seconds):
+    ref = features(write_wav(tmp_path / 'reference.wav', signal))
+    source = lfilter([.5, .3, .2], [1], signal[20 * 16000:int((20 + seconds) * 16000)])
+    source += np.random.default_rng(41).normal(0, 200, len(source))
+    result = align(ref, features(write_wav(tmp_path / 'short.wav', source)))
+    assert result['status'] == 'matched', result
+    assert result['offset_seconds'] == pytest.approx(20, abs=.08)
+    windows = result['windows']
+    assert all(a['source_seconds'] + a['duration_seconds'] <= b['source_seconds'] + .001
+               for a, b in zip(windows, windows[1:]))
+
+
+def test_short_matches_in_long_reference_reject_decoys_and_edits():
+    rng = np.random.default_rng(123)
+    reference = rng.normal(size=(91 * 60 * 25, 24)).astype(np.float32)
+    offset, size = 12345, 225
+    source = reference[offset:offset + size].copy()
+    result = align(reference, source + rng.normal(0, .5, source.shape))
+    assert result['status'] == 'matched'
+    assert result['offset_seconds'] == pytest.approx(offset / 25)
+    for query in [rng.normal(size=source.shape), np.zeros_like(source), source[::-1],
+                  np.concatenate((source[:150], reference[30000:30075])),
+                  np.stack([np.interp(np.linspace(0, size - 1, size) * 1.08,
+                                     np.arange(size), source[:, b]) for b in range(24)], axis=1)]:
+        assert align(reference, query)['status'] == 'unmatched'
+    reference[80000:80000 + size] = source
+    assert align(reference, source)['status'] == 'unmatched'
+
+
+def test_short_repeated_beats_close_together_are_ambiguous():
+    motif = np.random.default_rng(45).normal(size=(20, 24)).astype(np.float32)
+    reference = np.tile(motif, (40, 1))
+    assert align(reference, reference[100:180])['status'] == 'unmatched'
+
+
+@pytest.mark.parametrize('offset', [0, 400])
+def test_short_clip_at_reference_boundaries(offset):
+    reference = np.random.default_rng(11).normal(size=(500, 24)).astype(np.float32)
+    result = align(reference, reference[offset:offset + 100])
+    assert result['status'] == 'matched'
+    assert result['offset_seconds'] == offset / 25

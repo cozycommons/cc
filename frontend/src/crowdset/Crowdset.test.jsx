@@ -216,3 +216,25 @@ it('lets the owner select official audio and labels the base download separately
   }));
   expect(screen.getByRole('button', { name: 'Clear official audio' })).toBeInTheDocument();
 });
+
+
+it('explains why a clip could not be matched without hiding the original', async () => {
+  const reason = 'Several moments sound alike. Could not choose a reliable match.';
+  request.mockResolvedValueOnce([{ ...performance, clips: [{ ...clip, alignment: { status: 'unmatched', reason } }] }]);
+  render(<Crowdset />);
+  await openSet();
+  expect(screen.getByText(reason)).toBeInTheDocument();
+  expect(screen.getByLabelText('Play Stage.mp4')).toBeInTheDocument();
+});
+
+
+it('retries unmatched clips while preserving the published player', async () => {
+  const state = { ...ready, clips: [clip, { ...clip, id: 'unmatched', alignment: { status: 'unmatched' } }] };
+  request.mockResolvedValueOnce([state]).mockResolvedValueOnce({ ...state, status: 'queued' });
+  render(<Crowdset />);
+  await openSet();
+  const player = screen.getByLabelText('Current mix');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry matching' }));
+  await waitFor(() => expect(request).toHaveBeenCalledWith('/one/process', { method: 'POST' }));
+  expect(screen.getByLabelText('Current mix')).toBe(player);
+});
