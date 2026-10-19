@@ -252,3 +252,44 @@ def test_paired_publication_failure_preserves_entire_revision(tmp_path, monkeypa
         assert store.originals.usage()[0] == 8
     finally:
         store.close()
+
+
+def test_unchanged_cloud_cut_reuses_revision_without_upload_or_extra_reservation(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from crowd_set.store import Store
+    from crowd_set.worker import write_json
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    store = Store(tmp_path)
+    uploaded, removed = [], []
+    store.blobs = SimpleNamespace(put=lambda *args: uploaded.append(args), remove=lambda keys: removed.extend(keys))
+    store.originals.blobs = store.blobs
+    monkeypatch.setattr('crowd_set.store.subprocess.Popen', lambda *args, **kwargs: SimpleNamespace(wait=lambda **kwargs: 0, poll=lambda: 0))
+    data = store.create('Reuse published cut')
+    prefix = f'mixes/{data["id"]}/'
+    data.update(status='processing', playable=True, video_playable=True, mix_revision='old',
+                mix_file='mix-old.wav', video_file='mix-old.mp4', mix_object=prefix+'old.wav', video_object=prefix+'old.mp4',
+                mix_bytes=4, video_bytes=4, previous_revision={'mix_revision': 'previous'})
+    store.save(data)
+    folder = store.directory(data['id'])
+    for suffix in ('wav', 'mp4'):
+        (folder / f'mix-old.{suffix}').write_bytes(b'old!')
+        store.originals.record_blob(prefix + f'old.{suffix}', 4)
+    (folder / 'pending.wav').write_bytes(b'old!')
+    write_json(folder / 'result.json', {'playable': True, 'video_playable': True, 'reuse_revision': 'old',
+               'clips': [{'id': 'new', 'alignment': {'status': 'matched', 'offset_seconds': 10}}], 'timeline': {}, 'video_timeline': {}})
+    store.limits = replace(store.limits, original_bytes=8)
+    try:
+        store.run(data['id'])
+        saved = store.get(data['id'])
+        assert saved['status'] == 'ready', saved
+        assert saved['mix_revision'] == 'old' and saved['previous_revision']['mix_revision'] == 'previous'
+        assert saved['clips'][0]['alignment']['status'] == 'matched'
+        assert saved['video_object'] == prefix + 'old.mp4'
+        assert uploaded == removed == []
+        assert store.originals.usage()[0] == 8
+        assert not (folder / 'mix-old.mp4').exists()
+        assert (folder / 'mix-old.wav').read_bytes() == b'old!'
+        assert not (folder / 'pending.wav').exists()
+    finally:
+        store.close()

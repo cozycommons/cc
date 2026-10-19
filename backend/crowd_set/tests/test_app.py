@@ -260,6 +260,7 @@ def test_failed_publication_retains_pointer_and_queued_sets_are_serial(tmp_path,
                 raise OSError('Injected disk write failure')
             return real_save(data)
         monkeypatch.setattr(store, 'save', fail_publish_once)
+        upload(api, first, 'longer.wav', write_wav(tmp_path / 'longer.wav', music(45)).read_bytes())
         api.post(first + '/process')
         result = wait(api, first)
         assert result['status'] == 'failed'
@@ -297,7 +298,7 @@ def test_batch_completion_gates_one_build_and_retains_successes(tmp_path, monkey
         assert finished.status_code == 200 and finished.json()['status'] == 'queued'
         result = wait(api, path)
         assert result['status'] == 'ready' and len(result['clips']) == 3
-        assert result['mix_revision'] != previous['mix_revision']
+        assert result['mix_revision'] == previous['mix_revision']
         assert starts == [result['id']]
         assert not list((tmp_path / 'store').rglob('*.part'))
 
@@ -390,3 +391,45 @@ def test_legacy_audio_remains_pinned_after_modern_publication(tmp_path, monkeypa
         assert api.get(path + '/audio?v=legacy').content == b'legacy audio'
         assert api.get(path + '/audio').content == b'new audio'
         assert (folder / 'reconstruction.wav').exists()
+
+
+def test_contained_clip_updates_alignment_without_duplicate_video(tmp_path):
+    from crowd_set.tests.test_video import make_video
+    raw = music(80)
+    audio = write_wav(tmp_path / 'full.wav', raw)
+    full = make_video(tmp_path / 'full.mp4', audio, size='160x90', duration=80)
+    with client(tmp_path / 'store') as api:
+        path = create(api)
+        upload(api, path, 'full.mp4', full.read_bytes())
+        first = wait(api, path)
+        assert first['status'] == 'ready'
+        original_video = api.get(path + '/video').content
+        short = write_wav(tmp_path / 'short.wav', raw[20 * 16000:70 * 16000])
+        upload(api, path, 'friend.wav', short.read_bytes())
+        second = wait(api, path)
+        assert second['status'] == 'ready', second
+        assert len(second['clips']) == 2
+        assert second['clips'][1]['alignment']['status'] == 'matched'
+        assert second['clips'][1]['alignment']['offset_seconds'] == pytest.approx(20, abs=.1)
+        assert second['mix_revision'] == first['mix_revision']
+        assert second['video_file'] == first['video_file']
+        assert api.get(path + '/video').content == original_video
+        assert len(list((tmp_path / 'store' / second['id']).glob('mix-*.mp4'))) == 1
+        assert not (tmp_path / 'store' / second['id'] / 'pending.wav').exists()
+
+
+def test_worker_preserves_specific_storage_error(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = tmp_path / 'data'
+    folder = root / ('a' * 32)
+    folder.mkdir(parents=True)
+    (folder / 'job.json').write_text(json.dumps({'id': folder.name, 'clips': []}))
+    env = {key: value for key, value in os.environ.items() if not key.startswith('CROWD_SET_')}
+    env.update(PYTHONPATH=str(Path(__file__).resolve().parents[2]), CROWD_SET_WORK_BYTES=str(1024 ** 2))
+    result = subprocess.run([sys.executable, '-m', 'crowd_set.worker', str(folder)], env=env,
+                            start_new_session=True, capture_output=True, timeout=15)
+    assert result.returncode == 1
+    assert json.loads((folder / 'failure.json').read_text())['error'].startswith('Processing storage is full.')
