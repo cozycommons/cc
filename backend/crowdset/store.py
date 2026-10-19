@@ -22,7 +22,7 @@ import httpx
 from .worker import write_json
 from .limits import Limits
 from .storage import OriginalStore
-from .blobs import BlobError, environment
+from .blobs import BlobError, environment, digest
 from .audio import probe
 from .youtube import canonical_url
 from .progress import snapshot
@@ -511,6 +511,7 @@ class Store:
             keys = [json.loads(path.read_text())['key'] for path in (self.root / 'objects').glob('*.json')]
             self.originals.remove_blobs([key for key in keys if key.startswith(prefix)])
         self.originals.path(set_id, clip).unlink(missing_ok=True)
+        (self.directory(set_id) / f'{clip["id"]}.jpg').unlink(missing_ok=True)
 
     def complete_session(self, set_id, upload_id, owner=None, *, importing=False):
         with self.lock:
@@ -519,7 +520,7 @@ class Store:
             if session['state'] == 'complete' or any(c['id'] == session['clip']['id'] for c in data['clips'] + data.get('deleted_clips', [])):
                 session['state'] = 'complete'
                 self.save_session(session)
-                return data
+                return {**data, **({'duplicate_clip_id': session['duplicate_clip_id']} if session.get('duplicate_clip_id') else {})}
             if self.upload and not (importing and self.upload == (set_id, upload_id)):
                 raise HTTPException(409, 'A recording is being saved. Retry shortly.')
             if not importing:
@@ -531,6 +532,15 @@ class Store:
             partial = self.originals.session_directory(set_id) / f'{upload_id}.part'
         try:
             source = partial if partial.exists() else self.originals.path(set_id, clip)
+            checksum = digest(source)
+            with self.lock:
+                duplicate = next((c for c in self.get(set_id)['clips'] if c.get('sha256') == checksum and c['role'] != 'reference'), None)
+                if duplicate:
+                    self.remove_unpublished(session)
+                    session.update(state='complete', clip=duplicate, duplicate_clip_id=duplicate['id'])
+                    self.save_session(session)
+                    partial.unlink(missing_ok=True)
+                    return {**self.get(set_id), 'duplicate_clip_id': duplicate['id']}
             duration = probe(source, limits=self.limits)
             with self.lock:
                 data = self.get(set_id)
@@ -606,6 +616,13 @@ class Store:
             data = self.get(set_id)
             if set_id in self.batches:
                 data['batch'] = {key: value for key, value in self.batches[set_id].items() if key != 'deadline'}
+            checksum = digest(partial) if success else None
+            duplicate = next((c for c in data['clips'] if checksum and c.get('sha256') == checksum and (c['role'] == 'reference') == (clip['role'] == 'reference')), None)
+            if duplicate:
+                partial.unlink(missing_ok=True)
+                data['status'] = 'ready' if data['timeline'] else 'idle'
+                result = self.queue(data) if data.get('dirty') or set_id in self.batches else self.save(data)
+                return {**result, 'duplicate_clip_id': duplicate['id']}
             if success:
                 data['recovery_attempts'] = 0
                 self.invalidate(data)

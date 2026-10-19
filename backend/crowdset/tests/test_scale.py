@@ -32,8 +32,8 @@ def append(store, data, session, body, owner='alice', offset=0):
 def test_fifty_friends_and_released_recording_admitted_and_persisted(store, tmp_path):
     data = store.create('Many friends', owner='alice')
     batch = store.begin_batch(data['id'], 'alice')['id']
-    audio = write_wav(tmp_path / 'input.wav', music(2)).read_bytes()
     for index in range(51):
+        audio = write_wav(tmp_path / 'input.wav', music(2) * (1 - index / 100)).read_bytes()
         session = start(store, data, audio, batch=batch, fingerprint=f'{index:064x}')
         append(store, data, session, audio)
         saved = store.complete_session(data['id'], session['id'], 'alice')
@@ -43,7 +43,8 @@ def test_fifty_friends_and_released_recording_admitted_and_persisted(store, tmp_
     assert result['status'] == 'queued'
     assert len(result['clips']) == 51
     assert len(store.pending) == 1
-    assert all(store.originals.path(data['id'], clip).read_bytes() == audio for clip in result['clips'])
+    assert len({clip['sha256'] for clip in result['clips']}) == 51
+    assert all(store.originals.path(data['id'], clip).exists() for clip in result['clips'])
 
 
 def test_resume_committed_offset_after_restart_and_idempotent_finish(store, tmp_path, monkeypatch):

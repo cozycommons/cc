@@ -16,6 +16,21 @@ PROBE_BYTES = 128 * 1024 ** 2
 BYTES_PER_SECOND = 420_000  # 3 Mbps video + 96 kbps audio, container/headroom.
 
 
+def thumbnail(source, destination):
+    """Best-effort, bounded preview; a failed preview must not reject an upload."""
+    temporary = destination.with_suffix('.tmp.jpg')
+    try:
+        run(['-protocol_whitelist', 'file', '-format_whitelist', FORMATS,
+             '-i', str(source), '-map', '0:V:0', '-frames:v', '1', '-an',
+             '-vf', 'scale=480:270:force_original_aspect_ratio=decrease',
+             '-q:v', '4', str(temporary)], 20)
+        temporary.replace(destination)
+    except (ValueError, OSError):
+        pass
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def byte_bound(duration):
     return math.ceil(duration * BYTES_PER_SECOND) + 2 * 1024 ** 2
 
