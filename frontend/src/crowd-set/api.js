@@ -20,7 +20,8 @@ export async function request(path = '', options = {}) {
   const response = await fetch(endpoint(path), { ...options, headers, cache: 'no-store' });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw Object.assign(new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${response.status})`), { status: response.status });
+    const detail = typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? body.detail.map((issue) => issue.msg).filter(Boolean).join(' ') : '';
+    throw Object.assign(new Error(detail || `Request failed (${response.status})`), { status: response.status });
   }
   return response.status === 204 ? null : response.json();
 }

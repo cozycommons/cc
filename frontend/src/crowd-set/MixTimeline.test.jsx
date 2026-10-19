@@ -22,8 +22,8 @@ it('renders one proportional strip from selected segments with source links, gap
   expect(recordingColor('a', clips)).not.toBe(recordingColor('b', clips));
   expect(screen.getByRole('link', { name: 'Stage.mp4' })).toHaveAttribute('href', '#recording-a');
   expect(screen.queryByRole('link', { name: 'Unselected.mp4' })).not.toBeInTheDocument();
-  expect(screen.getAllByText('Silence')).toHaveLength(2);
-  expect(screen.getByText('Striped edge: crossfade')).toBeInTheDocument();
+  expect(screen.getByText('Silence')).toBeInTheDocument();
+  expect(screen.queryByText('Striped edge: crossfade')).not.toBeInTheDocument();
   expect(screen.getByRole('slider', { name: 'Seek mix' })).toHaveAttribute('aria-valuetext', '1:15 of 1:40');
 });
 

@@ -34,8 +34,8 @@ it('accepts fifty friends plus a released recording and does not preload every o
   request.mockResolvedValueOnce([{ ...ready, clips }]);
   render(<CrowdSet />);
   await openSet();
-  expect(screen.getByLabelText('Add videos')).toBeEnabled();
-  expect(screen.getByText(/Up to 64 recordings/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Add clips')).toBeEnabled();
+  expect(screen.getByText(/Up to 64 clips/)).toBeInTheDocument();
   expect(screen.getByLabelText('Play Friend 50.mp4')).toHaveAttribute('preload', 'none');
 });
 
@@ -44,18 +44,18 @@ it('creates a set, finds it in the catalog, opens it and uploads a video', async
   request.mockResolvedValueOnce([]).mockResolvedValueOnce(performance).mockResolvedValueOnce([performance]).mockResolvedValueOnce(uploaded);
   render(<CrowdSet />);
   fireEvent.click(await screen.findByRole('button', { name: 'New set' }));
-  expect(screen.getByLabelText('New set')).toHaveFocus();
+  expect(screen.getByLabelText('Set name')).toHaveFocus();
   expect(screen.getByRole('button', { name: 'Create set' })).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('New set'), { target: { value: `  ${performance.name}  ` } });
+  fireEvent.change(screen.getByLabelText('Set name'), { target: { value: `  ${performance.name}  ` } });
   fireEvent.click(screen.getByRole('button', { name: 'Create set' }));
   await screen.findByRole('heading', { name: performance.name });
   expect(JSON.parse(request.mock.calls[1][1].body)).toEqual({ name: performance.name });
-  expect(screen.getByLabelText('Add videos')).toBeEnabled();
-  expect(screen.getByText('No mix yet.')).toBeInTheDocument();
+  expect(screen.getByLabelText('Add clips')).toBeEnabled();
+  expect(screen.getByText('No clips yet.')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /All sets/ }));
   await openSet();
   const file = new File(['video'], clip.name, { type: 'video/mp4' });
-  fireEvent.change(screen.getByLabelText('Add videos'), { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText('Add clips'), { target: { files: [file] } });
   await screen.findByText(clip.name);
   expect(request.mock.calls[3][0]).toBe('/one/clips?name=Stage.mp4');
   expect(request.mock.calls[3][1].body).toBe(file);
@@ -65,13 +65,14 @@ it('shows creation progress and keeps the name when creation fails', async () =>
   let reject;
   request.mockResolvedValueOnce([]).mockImplementationOnce(() => new Promise((resolve, fail) => { reject = fail; }));
   render(<CrowdSet />);
-  fireEvent.change(await screen.findByLabelText('New set'), { target: { value: performance.name } });
+  fireEvent.click(await screen.findByRole('button', { name: 'New set' }));
+  fireEvent.change(await screen.findByLabelText('Set name'), { target: { value: performance.name } });
   fireEvent.click(screen.getByRole('button', { name: 'Create set' }));
   expect(screen.getByRole('button', { name: 'Creating…' })).toBeDisabled();
   reject(new Error('Storage unavailable'));
   await screen.findByRole('alert');
   expect(screen.getByRole('alert')).toHaveTextContent('Storage unavailable');
-  expect(screen.getByLabelText('New set')).toHaveValue(performance.name);
+  expect(screen.getByLabelText('Set name')).toHaveValue(performance.name);
   expect(screen.getByRole('button', { name: 'Create set' })).toBeEnabled();
 });
 
@@ -81,7 +82,7 @@ it('uploads directly and keeps the published player mounted while rebuilding', a
   await openSet();
   const player = screen.getByLabelText('Current mix');
   const source = new File(['video'], 'More.mp4', { type: 'video/mp4' });
-  fireEvent.change(screen.getByLabelText('Add videos'), { target: { files: [source] } });
+  fireEvent.change(screen.getByLabelText('Add clips'), { target: { files: [source] } });
   await screen.findByText('More.mp4');
   await screen.findByText('Mix queued…');
   expect(request.mock.calls[1][0]).toBe('/one/clips?name=More.mp4');
@@ -97,7 +98,7 @@ it('publishes one new player and keeps unmatched originals available', async () 
   await openSet();
   await screen.findByText('Updating mix…');
   const before = screen.getByLabelText('Current mix');
-  expect(screen.getByLabelText('Add videos')).toBeDisabled();
+  expect(screen.getByLabelText('Add clips')).toBeDisabled();
   await screen.findByText('Couldn’t match this recording.', {}, { timeout: 3000 });
   expect(screen.getByLabelText('Current mix')).not.toBe(before);
   expect(screen.getAllByLabelText('Current mix')).toHaveLength(1);
@@ -128,7 +129,7 @@ it('finishes a batch once after every upload settles, including a partial failur
   render(<CrowdSet />);
   await openSet();
   const player = screen.getByLabelText('Current mix');
-  fireEvent.change(screen.getByLabelText('Add videos'), { target: { files: ['One.mp4', 'Two.mp4', 'Three.mp4'].map((name) => new File(['video'], name)) } });
+  fireEvent.change(screen.getByLabelText('Add clips'), { target: { files: ['One.mp4', 'Two.mp4', 'Three.mp4'].map((name) => new File(['video'], name)) } });
   await screen.findByRole('alert');
   expect(screen.getByRole('alert')).toHaveTextContent('Two.mp4: Connection lost');
   expect(screen.getByLabelText('Current mix')).toBe(player);
@@ -137,6 +138,10 @@ it('finishes a batch once after every upload settles, including a partial failur
     '/one/clips?name=Three.mp4&batch_id=batch', '/one/batches/batch/finish',
   ]);
   expect(screen.getByText('Mix queued…')).toBeInTheDocument();
+  request.mockResolvedValueOnce(ready);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry 1 upload' }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry 1 upload' })).not.toBeInTheDocument());
+  expect(request.mock.calls[6][0]).toBe('/one/clips?name=Two.mp4');
 });
 
 it('connects the timeline seek and playhead to the current audio player', async () => {
