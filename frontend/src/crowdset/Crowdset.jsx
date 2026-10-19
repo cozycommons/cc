@@ -179,9 +179,8 @@ export default function Crowdset() {
   const renderClip = (clip) => <article id={`recording-${clip.id}`} key={clip.id} className="cs-recording" style={{ borderTopColor: recordingColor(clip.id, recordings) }}>
     <Original clip={clip} setId={selected.id} />
     <div className="cs-recording-info"><h3>{clip.name}</h3>
-      {clip.uploader_name && <p className="cs-meta">{clip.uploader_name}</p>}
+      <p className="cs-meta cs-uploader">{clip.uploader_name ? `Uploaded by ${clip.uploader_name}` : 'Unknown uploader'}</p>
       {clip.source_url && <p className="cs-meta"><a href={clip.source_url} target="_blank" rel="noreferrer">YouTube source ↗</a></p>}
-      <p className="cs-meta">{clip.duration ? time(clip.duration) : ''}</p>
       <p className="cs-clip-status">{selected.soundtrack_clip_id === clip.id ? 'Official set audio' : used.has(clip.id) ? 'In current mix' : clip.role === 'reference' ? 'Original only' : !clip.included ? 'Not used in mix' : clip.alignment?.status === 'unmatched' ? (clip.alignment.reason || 'Couldn’t match this recording.') : clip.alignment?.status === 'matched' ? 'Matched · not selected' : clip.alignment?.status === 'error' ? 'Couldn’t use this recording. Try another file.' : updating ? 'Waiting for mix' : 'Not used in mix'}</p>
       <div className="cs-recording-actions"><a href={endpoint(`/${selected.id}/clips/${clip.id}/media?download=true`)}>Download original</a>
         {selected.can_manage && clip.kind === 'video' && clip.role !== 'reference' && clip.included && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/soundtrack`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clip_id: selected.soundtrack_clip_id === clip.id ? null : clip.id }) })))}>{selected.soundtrack_clip_id === clip.id ? 'Clear official audio' : 'Use as official set'}</button>}

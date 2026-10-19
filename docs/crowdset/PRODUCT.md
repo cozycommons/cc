@@ -118,5 +118,7 @@ Keep the interactive colored edit timeline, source legend and recording anchors 
 
 - Identical original bytes (SHA-256) within a set reuse the active recording, even if renamed or contributed by another person. Keep its uploader and current cut; report skipped duplicates. Different encodes remain separate. Soft-deleted originals do not block a fresh contribution; legacy timing references remain separate from ordinary recordings.
 - Put recordings outside the current cut in a collapsed “Not in the set” section below included clips. Keep new recordings awaiting processing visible. Retain originals and their actions in both sections.
-- Compact cards show duration, status and a small cached JPEG preview, without individual file sizes. Original video bytes load only on playback. Preview failure does not reject an otherwise usable recording.
+- Compact cards show uploader, status and a small cached JPEG preview, without individual durations or file sizes. Keep action rows and bottom padding tight, and avoid stretching cards to match taller neighbors. Original video bytes load only on playback. Preview failure does not reject an otherwise usable recording.
 - Starting a recording pauses every other player. The compiled player's official audio and muted friend footage form one coordinated player. Collapsing the unused section pauses its media.
+
+Show the uploader’s display name on every clip, using the verified account identity. If a legacy uploader has not returned since names were introduced, show “Unknown uploader” until their profile is known. Keep the colored timeline and source count without a “Clip timeline” heading.

@@ -25,7 +25,8 @@ def hosted(tmp_path, monkeypatch):
         if token not in ('Bearer first', 'Bearer second', 'Bearer anonymous', 'Bearer third'):
             return httpx.Response(401)
         return httpx.Response(200, json={'id': first if token == 'Bearer first' else ('33333333-3333-4333-8333-333333333333' if token == 'Bearer third' else second),
-                                       'is_anonymous': token == 'Bearer anonymous', 'email_confirmed_at': '2026-01-01'})
+                                       'is_anonymous': token == 'Bearer anonymous', 'email_confirmed_at': '2026-01-01',
+                                       'email': 'private@example.com', 'user_metadata': {'full_name': 'Alice' if token == 'Bearer first' else '  Bob  Friend  ', 'id': first, 'role': 'admin'}})
 
     monkeypatch.setattr('crowdset.hosting.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(auth), **kwargs))
     # Local files never become publicly owned when a checkout is hosted.
@@ -140,3 +141,39 @@ def test_legacy_routes_redirect_pages_and_keep_authenticated_api_and_media_worki
     assert len(logout.headers.get_list('set-cookie')) == 2
     assert hosted.get(media).status_code == 401
     assert hosted.get('/crowdset/sets').status_code == 401
+
+
+def test_uploader_names_follow_recording_identity_not_current_viewer(hosted, monkeypatch):
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    owner = {'Authorization': 'Bearer first', 'Origin': 'https://commons.example'}
+    friend = {'Authorization': 'Bearer second', 'Origin': 'https://commons.example'}
+    data = hosted.post('/crowdset/sets', headers=owner, json={'name': 'Attribution'}).json()
+    path = '/crowdset/sets/' + data['id']
+    added = hosted.put(path + '/clips?name=friend.mp4', headers=friend, content=b'original').json()
+    clip = added['clips'][0]
+    assert clip['uploader_name'] == 'Bob Friend'
+    assert clip['uploader'] == '22222222-2222-4222-8222-222222222222'
+    assert hosted.get(path, headers=owner).json()['clips'][0]['uploader_name'] == 'Bob Friend'
+    assert hosted.get('/crowdset/sets', headers=owner).json()[0]['clips'][0]['uploader_name'] == 'Bob Friend'
+    assert 'private@example.com' not in hosted.get(path, headers=owner).text
+    # Names are decoration: user-editable metadata cannot grant set ownership.
+    assert hosted.delete(path, headers=friend).status_code == 403
+
+
+def test_uploader_display_names_survive_restart_and_fill_legacy_recordings(tmp_path, monkeypatch):
+    from crowdset.app import present
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    store = Store(tmp_path)
+    data = store.create('Legacy names', owner='alice')
+    data['clips'] = [{'id': 'old', 'name': 'phone.mov', 'uploader': 'alice'}]
+    store.save(data)
+    store.remember_uploader('alice', 'Alice')
+    store.close()
+    restored = Store(tmp_path)
+    try:
+        assert present(restored.get(data['id']), 'bob', restored.uploaders)['clips'][0]['uploader_name'] == 'Alice'
+        restored.remember_uploader('alice', 'Alice Updated')
+        assert present(restored.get(data['id']), 'bob', restored.uploaders)['clips'][0]['uploader_name'] == 'Alice Updated'
+        assert not present(restored.get(data['id']), 'bob', restored.uploaders)['clips'][0]['can_edit']
+    finally:
+        restored.close()

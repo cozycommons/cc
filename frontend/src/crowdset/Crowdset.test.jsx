@@ -339,3 +339,14 @@ it('reports duplicate uploads without adding another card', async () => {
   expect(await screen.findByText('1 duplicate skipped — already in this set.')).toBeInTheDocument();
   expect(screen.getAllByLabelText('Play Stage.mp4')).toHaveLength(1);
 });
+
+
+it('shows the uploader on compact cards without a duration or timeline heading', async () => {
+  request.mockResolvedValueOnce([{ ...ready, clips: [{ ...clip, uploader_name: 'Jason Keung', duration: 5503.3 }], timeline: { ...ready.timeline, duration: 5503.3 } }]);
+  render(<Crowdset />);
+  await openSet();
+  expect(screen.getByText('Uploaded by Jason Keung')).toBeInTheDocument();
+  expect(screen.getByLabelText('Play Stage.mp4').closest('article')).not.toHaveTextContent('91:43.3');
+  expect(screen.queryByText('Clip timeline')).not.toBeInTheDocument();
+  expect(screen.getByRole('slider', { name: 'Seek mix' })).toBeInTheDocument();
+});

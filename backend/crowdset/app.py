@@ -95,7 +95,7 @@ def visible(data, owner, hosted):
     return not hosted or bool(data.get('owner') and (data['owner'] == owner or data.get('visibility') == 'shared'))
 
 
-def present(data, owner):
+def present(data, owner, uploaders=None):
     data.pop('deleted_clips', None)
     data.pop('batch', None)
     data.pop('completed_batch', None)
@@ -105,6 +105,7 @@ def present(data, owner):
         data['youtube_import'].pop('session_id', None)
     data['can_manage'] = data.get('owner') == owner
     for clip in data['clips']:
+        clip['uploader_name'] = (uploaders or {}).get(clip.get('uploader', data.get('owner'))) or clip.get('uploader_name')
         clip['can_edit'] = data['can_manage'] or clip.get('uploader', data.get('owner')) == owner
         clip.setdefault('kind', 'video' if Path(clip['name']).suffix.lower() in ('.mp4', '.mov', '.webm') else 'audio')
     return data
@@ -149,7 +150,8 @@ def create_app(root=None):
                 if request.method in ('GET', 'HEAD') and not bearer:
                     token = request.cookies.get(COOKIE) or (request.cookies.get('__Secure-crowd-set') if legacy else None)
                 try:
-                    request.state.owner = await hosted.user(token)
+                    request.state.owner, uploader_name = await hosted.user(token)
+                    await asyncio.to_thread(request.app.state.store.remember_uploader, request.state.owner, uploader_name)
                     parts = request.url.path.strip('/').split('/')
                     if len(parts) >= 3:
                         data = await asyncio.to_thread(request.app.state.store.get, parts[2])
@@ -198,21 +200,21 @@ def create_app(root=None):
     def list_sets(request: Request, limits: bool = False):
         if limits:
             return request.app.state.store.limits.public()
-        return [present(item, request.state.owner) for item in request.app.state.store.list()
+        return [present(item, request.state.owner, request.app.state.store.uploaders) for item in request.app.state.store.list()
                 if visible(item, request.state.owner, hosted.origin)]
 
     @app.post('/crowdset/sets', status_code=201)
     def create_set(body: Performance, request: Request):
         event = body.model_dump(exclude={'name'}, exclude_none=True)
-        return present(request.app.state.store.create(body.name, owner=request.state.owner, event=event), request.state.owner)
+        return present(request.app.state.store.create(body.name, owner=request.state.owner, event=event), request.state.owner, request.app.state.store.uploaders)
 
     @app.get('/crowdset/sets/{set_id}')
     def get_set(set_id: str, request: Request):
-        return present(request.app.state.store.get(set_id), request.state.owner)
+        return present(request.app.state.store.get(set_id), request.state.owner, request.app.state.store.uploaders)
 
     @app.post('/crowdset/sets/{set_id}/youtube', status_code=202)
     def import_youtube(set_id: str, body: YouTubeImport, request: Request):
-        return present(request.app.state.store.import_youtube(set_id, body.url, request.state.owner), request.state.owner)
+        return present(request.app.state.store.import_youtube(set_id, body.url, request.state.owner), request.state.owner, request.app.state.store.uploaders)
 
     @app.delete('/crowdset/sets/{set_id}', status_code=204)
     def delete_set(set_id: str, request: Request):
@@ -224,7 +226,7 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/batches/{batch_id}/finish')
     def finish_batch(set_id: str, batch_id: str, request: Request):
-        return present(request.app.state.store.finish_batch(set_id, batch_id, request.state.owner), request.state.owner)
+        return present(request.app.state.store.finish_batch(set_id, batch_id, request.state.owner), request.state.owner, request.app.state.store.uploaders)
 
     @app.post('/crowdset/sets/{set_id}/uploads', status_code=201)
     def prepare_upload(set_id: str, body: Upload, request: Request):
@@ -258,7 +260,7 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/uploads/{upload_id}/finish')
     def complete_upload(set_id: str, upload_id: str, request: Request):
-        return present(request.app.state.store.complete_session(set_id, upload_id, request.state.owner), request.state.owner)
+        return present(request.app.state.store.complete_session(set_id, upload_id, request.state.owner), request.state.owner, request.app.state.store.uploaders)
 
     @app.put('/crowdset/sets/{set_id}/clips', status_code=201)
     async def upload(set_id: str, request: Request, name: str = Query(min_length=1, max_length=180), role: Literal['reference', 'crowd', 'recording'] = 'recording', batch_id: str | None = Query(default=None, max_length=32)):
@@ -286,19 +288,19 @@ def create_app(root=None):
             raise HTTPException(408, 'Upload exceeded 5 minutes. Retry a smaller file.')
         finally:
             data = store.finish_upload(set_id, clip, path, success)
-        return present(data, request.state.owner)
+        return present(data, request.state.owner, request.app.state.store.uploaders)
 
     @app.patch('/crowdset/sets/{set_id}/clips/{clip_id}')
     def select_clip(set_id: str, clip_id: str, body: Selection, request: Request):
-        return present(request.app.state.store.edit_clip(set_id, clip_id, included=body.included), request.state.owner)
+        return present(request.app.state.store.edit_clip(set_id, clip_id, included=body.included), request.state.owner, request.app.state.store.uploaders)
 
     @app.delete('/crowdset/sets/{set_id}/clips/{clip_id}')
     def remove_clip(set_id: str, clip_id: str, request: Request):
-        return present(request.app.state.store.edit_clip(set_id, clip_id, delete=True), request.state.owner)
+        return present(request.app.state.store.edit_clip(set_id, clip_id, delete=True), request.state.owner, request.app.state.store.uploaders)
 
     @app.put('/crowdset/sets/{set_id}/soundtrack')
     def soundtrack(set_id: str, body: Soundtrack, request: Request):
-        return present(request.app.state.store.select_soundtrack(set_id, body.clip_id, request.state.owner), request.state.owner)
+        return present(request.app.state.store.select_soundtrack(set_id, body.clip_id, request.state.owner), request.state.owner, request.app.state.store.uploaders)
 
     @app.get('/crowdset/sets/{set_id}/overlays/{asset_id}')
     def overlay(set_id: str, asset_id: str, request: Request, v: str):
@@ -317,7 +319,7 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/process', status_code=202)
     def process(set_id: str, request: Request):
-        return present(request.app.state.store.start(set_id), request.state.owner)
+        return present(request.app.state.store.start(set_id), request.state.owner, request.app.state.store.uploaders)
 
     @app.get('/crowdset/sets/{set_id}/clips/{clip_id}/thumbnail')
     def thumbnail(set_id: str, clip_id: str, request: Request):
