@@ -1,4 +1,5 @@
 import React from 'react';
+import ScrubPreview from './ScrubPreview';
 
 const colors = ['#356b85', '#9c5838', '#587444', '#815c91', '#a06b19', '#a34f70', '#387b72', '#5e63a0', '#71752c'];
 export function recordingColor(id, clips = []) {
@@ -12,7 +13,7 @@ function timestamp(seconds) {
   return `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
 }
 
-export default function MixTimeline({ timeline, clips, currentTime, onSeek, video = false }) {
+export default function MixTimeline({ timeline, clips, currentTime, onSeek, video = false, set, previews }) {
   const [hoverTime, setHoverTime] = React.useState(null);
   const patternId = React.useId().replaceAll(':', '');
   const duration = timeline.duration;
@@ -27,6 +28,7 @@ export default function MixTimeline({ timeline, clips, currentTime, onSeek, vide
   return <div className="cs-timeline">
     <div className="cs-timeline-heading"><span>{used.length} {used.length === 1 ? 'source' : 'sources'}</span></div>
     <div className="cs-timeline-strip">
+      {video && set && hoverTime !== null && <ScrubPreview set={set} time={hoverTime} left={`${hoverTime / duration * 100}%`} label={timestamp(hoverTime)} loaded={previews} />}
       <svg viewBox="0 0 1000 32" preserveAspectRatio="none" aria-hidden="true">
         <defs><pattern id={patternId} width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6L6 0" stroke="#fff" strokeWidth="1.5" /></pattern></defs>
         <rect width="1000" height="32" fill="#d7d1c5" />
@@ -35,13 +37,17 @@ export default function MixTimeline({ timeline, clips, currentTime, onSeek, vide
         <line x1={position / duration * 1000} x2={position / duration * 1000} y1="0" y2="32" stroke="#fff" strokeWidth="3" />
       </svg>
       <input type="range" min="0" max={duration} step="0.1" value={position} aria-label="Seek mix" aria-valuetext={`${timestamp(position)} of ${timestamp(duration)}`}
-        title={`${timestamp(inspected)} · ${detail}`} onChange={(event) => onSeek(Number(event.target.value))}
-        onPointerMove={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); setHoverTime(Math.max(0, Math.min(duration, (event.clientX - bounds.left) / bounds.width * duration))); }}
-        onPointerLeave={() => setHoverTime(null)} />
+        onChange={(event) => { const value = Number(event.target.value); onSeek(value); setHoverTime(value); }}
+        onPointerMove={(event) => { if (event.pointerType === 'touch' && !event.buttons) return; const bounds = event.currentTarget.getBoundingClientRect(); setHoverTime(Math.max(0, Math.min(duration, (event.clientX - bounds.left) / bounds.width * duration))); }}
+        onFocus={() => setHoverTime(position)} onBlur={() => setHoverTime(null)}
+        onPointerLeave={() => setHoverTime(null)} onPointerUp={(event) => { if (event.pointerType === 'touch') setHoverTime(null); }} onPointerCancel={() => setHoverTime(null)} />
     </div>
     <div className="cs-timeline-times"><span>{timestamp(position)}</span><span>{timestamp(duration)}</span></div>
     <p className="cs-timeline-detail">{detail}</p>
-    <div className="cs-timeline-legend">{used.map((id) => <a key={id} href={`#recording-${id}`} title={timeline.segments.filter((segment) => segment.clip_id === id).map(describe).join(', ')}><span style={{ background: recordingColor(id, clips) }} />{name(id)}</a>)}
+    <div className="cs-timeline-legend">{used.map((id) => {
+      const start = Math.min(...timeline.segments.filter((segment) => segment.clip_id === id).map((segment) => segment.start));
+      return <button type="button" key={id} title={`Jump to ${timestamp(start)} · ${name(id)}`} onClick={() => { setHoverTime(null); onSeek(start); }}><span style={{ background: recordingColor(id, clips) }} />{name(id)}</button>;
+    })}
     </div>
   </div>;
 }

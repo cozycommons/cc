@@ -8,6 +8,7 @@ import CreateSet from './CreateSet';
 import YouTubeImport from './YouTubeImport';
 import ProcessingStatus from './ProcessingStatus';
 import CompositionPlayer from './CompositionPlayer';
+import { useScrubPreviews } from './ScrubPreview';
 import { eventDate, eventRange, matchesSearch } from './setDetails';
 import './crowdset.css';
 
@@ -25,6 +26,7 @@ export default function Crowdset() {
   const navigate = useNavigate();
   const location = useLocation();
   const selected = slug ? sets.find((item) => item.slug === slug || item.id === slug) : null;
+  const previews = useScrubPreviews(selected || {});
   const [theater, setTheater] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [query, setQuery] = React.useState('');
@@ -215,13 +217,13 @@ export default function Crowdset() {
       <button className="cs-back" disabled={busy} onClick={() => { choose(null); reload(); }}><ArrowLeft size={17} /> All sets</button>
       <section className={`cs-mix ${selected.playable ? 'cs-mix-ready' : ''}`} aria-label="Compiled mix">
         {selected.playable ? <div className={selected.video_playable ? 'cs-video-surface' : 'cs-audio-surface'}>
-          {selected.video_playable ? <CompositionPlayer key={`${selected.id}-${selected.mix_revision}`} set={selected} playerRef={player} theater={theater} onTheaterChange={setTheater} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} /> : <>
+          {selected.video_playable ? <CompositionPlayer key={`${selected.id}-${selected.mix_revision}`} set={selected} previews={previews} playerRef={player} theater={theater} onTheaterChange={setTheater} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} /> : <>
             <Music2 className="cs-audio-icon" size={40} strokeWidth={1} aria-hidden="true" />
             <audio ref={player} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onLoadedMetadata={() => setCurrentTime(0)} key={`${selected.id}-${selected.mix_revision || 'legacy'}`} controls preload="metadata" src={endpoint(`/${selected.id}/audio?v=${selected.mix_revision || 'legacy'}`)} aria-label="Current mix" />
           </>}
         </div> : selected.status !== 'processing' && <div className="cs-empty-player"><Music2 size={30} strokeWidth={1.3} aria-hidden="true" /><p>{updating ? 'Getting your recordings ready' : recordings.length ? 'No mix yet.' : 'No clips yet.'}</p></div>}
         <div className="cs-detail-title"><h1>{selected.artist || selected.name}</h1>{selected.venue && <p>{selected.venue}</p>}{eventRange(selected) && <p className="cs-meta">{eventRange(selected)}</p>}{selected.visibility !== 'shared' && <span className="cs-privacy">Private</span>}</div>
-        {selected.playable && selected.timeline && <MixTimeline timeline={selected.video_playable ? selected.video_timeline : selected.timeline} video={selected.video_playable} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
+        {selected.playable && selected.timeline && <MixTimeline set={selected} previews={previews} timeline={selected.video_playable ? selected.video_timeline : selected.timeline} video={selected.video_playable} clips={recordings} currentTime={currentTime} onSeek={(seconds) => { if (player.current) player.current.currentTime = seconds; setCurrentTime(seconds); }} />}
         {selected.playable && <div className="cs-downloads" aria-label="Downloads">
           {selected.video_playable && <a aria-label={selected.composition ? 'Download full set video' : 'Download video'} href={endpoint(`/${selected.id}/video?download=true&v=${selected.mix_revision}`)}><Download size={16} aria-hidden="true" /> {selected.composition ? 'Full set video' : 'Video'}</a>}
           <a aria-label="Download audio" href={endpoint(`/${selected.id}/audio?download=true&v=${selected.mix_revision || 'legacy'}`)}><Download size={16} aria-hidden="true" /> Audio</a>

@@ -161,7 +161,7 @@ it('connects the timeline seek and playhead to the current audio player', async 
   audio.currentTime = 63;
   fireEvent.timeUpdate(audio);
   expect(screen.getByRole('slider')).toHaveValue('63');
-  expect(screen.getByRole('link', { name: 'Stage.mp4' })).toHaveAttribute('href', '#recording-clip');
+  expect(screen.getByRole('button', { name: 'Stage.mp4', exact: true })).toHaveAttribute('title', 'Jump to 0:00 · Stage.mp4');
 });
 
 it('uses one revision-pinned video player and preserves it during processing', async () => {
