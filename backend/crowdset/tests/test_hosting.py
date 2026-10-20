@@ -1,3 +1,4 @@
+import hashlib
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -16,11 +17,18 @@ def hosted(tmp_path, monkeypatch):
     first, second = '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'
     original = httpx.AsyncClient
     admin_roles = {'Bearer admin': True}
+    auth_failures, auth_calls, clients = [], [], []
 
     def auth(request):
         assert request.url == 'https://test.supabase.co/auth/v1/user'
         assert request.headers['apikey'] == 'sb_publishable_test'
         token = request.headers['authorization']
+        auth_calls.append(token)
+        if auth_failures:
+            failure = auth_failures.pop(0)
+            if isinstance(failure, int):
+                return httpx.Response(failure)
+            raise failure('Simulated verification failure', request=request)
         if token == 'Bearer unavailable':
             return httpx.Response(503)
         if token not in ('Bearer first', 'Bearer second', 'Bearer anonymous', 'Bearer third', 'Bearer admin'):
@@ -30,7 +38,12 @@ def hosted(tmp_path, monkeypatch):
                                        'app_metadata': {'crowdset_admin': admin_roles.get(token)},
                                        'email': 'private@example.com', 'user_metadata': {'full_name': 'Alice' if token == 'Bearer first' else '  Bob  Friend  ', 'id': first, 'role': 'admin', 'crowdset_admin': True}})
 
-    monkeypatch.setattr('crowdset.hosting.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(auth), **kwargs))
+    def client(**kwargs):
+        value = original(transport=httpx.MockTransport(auth), **kwargs)
+        clients.append(value)
+        return value
+
+    monkeypatch.setattr('crowdset.hosting.httpx.AsyncClient', client)
     # Local files never become publicly owned when a checkout is hosted.
     store = Store(tmp_path)
     store.create('Local only')
@@ -40,7 +53,73 @@ def hosted(tmp_path, monkeypatch):
     store.close()
     with TestClient(create_app(), base_url='https://commons.example') as api:
         api.app.state.test_admin_roles = admin_roles
+        api.app.state.test_auth_failures = auth_failures
+        api.app.state.test_auth_calls = auth_calls
+        api.app.state.test_auth_clients = clients
         yield api
+    assert all(client.is_closed for client in clients)
+
+
+@pytest.mark.parametrize('failure', [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.RemoteProtocolError, 429, 503, 504])
+def test_upload_recovers_from_transient_auth_failure_between_chunks(hosted, monkeypatch, failure, caplog):
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    monkeypatch.setattr('crowdset.store.probe', lambda *args, **kwargs: 5)
+    headers = {'Authorization': 'Bearer first', 'Origin': 'https://commons.example'}
+    path = '/crowdset/sets/' + hosted.post('/crowdset/sets', headers=headers, json={'name': 'Resume'}).json()['id']
+    batch = hosted.post(path + '/batches', headers=headers).json()['id']
+    fingerprint = hashlib.sha256(b'abcdef').hexdigest()
+    upload = hosted.post(path + '/uploads', headers=headers, json={
+        'name': 'clip.wav', 'size': 6, 'fingerprint': fingerprint, 'batch_id': batch,
+    }).json()
+    route = path + '/uploads/' + upload['id']
+    checksum = hashlib.sha256(b'abc').hexdigest()
+    assert hosted.patch(route + '?offset=0&checksum=' + checksum, headers=headers, content=b'abc').status_code == 200
+    hosted.app.state.test_auth_failures.append(failure)
+    hosted.app.state.test_auth_calls.clear()
+    checksum = hashlib.sha256(b'def').hexdigest()
+    response = hosted.patch(route + '?offset=3&checksum=' + checksum, headers=headers, content=b'def')
+    assert response.status_code == 200 and response.json()['offset'] == 6
+    assert hosted.app.state.test_auth_calls == ['Bearer first', 'Bearer first']
+    assert len(hosted.app.state.test_auth_clients) == 1
+    assert 'verification attempt 1/3 failed' in caplog.text
+    assert 'Bearer first' not in caplog.text
+    saved = hosted.post(route + '/finish', headers=headers)
+    assert saved.status_code == 200
+    clip = saved.json()['clips'][0]
+    store = hosted.app.state.store
+    assert store.originals.path(path.rsplit('/', 1)[1], clip).read_bytes() == b'abcdef'
+    assert hosted.post(path + '/batches/' + batch + '/finish', headers=headers).status_code == 200
+
+
+def test_auth_outage_keeps_saved_offset_and_retry_resumes_same_upload(hosted, monkeypatch):
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    headers = {'Authorization': 'Bearer first', 'Origin': 'https://commons.example'}
+    path = '/crowdset/sets/' + hosted.post('/crowdset/sets', headers=headers, json={'name': 'Outage'}).json()['id']
+    body = {'name': 'clip.wav', 'size': 6, 'fingerprint': 'a' * 64}
+    upload = hosted.post(path + '/uploads', headers=headers, json=body).json()
+    route = path + '/uploads/' + upload['id']
+    checksum = hashlib.sha256(b'abc').hexdigest()
+    assert hosted.patch(route + '?offset=0&checksum=' + checksum, headers=headers, content=b'abc').status_code == 200
+    hosted.app.state.test_auth_failures.extend([httpx.ReadTimeout] * 3)
+    hosted.app.state.test_auth_calls.clear()
+    checksum = hashlib.sha256(b'def').hexdigest()
+    response = hosted.patch(route + '?offset=3&checksum=' + checksum, headers=headers, content=b'def')
+    assert response.status_code == 503
+    assert 'progress is retained' in response.json()['detail']
+    assert len(hosted.app.state.test_auth_calls) == 3
+    resumed = hosted.post(path + '/uploads', headers=headers, json=body).json()
+    assert resumed['id'] == upload['id'] and resumed['offset'] == 3
+    assert hosted.patch(route + '?offset=3&checksum=' + checksum, headers=headers, content=b'def').json()['offset'] == 6
+    other = {**headers, 'Authorization': 'Bearer second'}
+    assert hosted.get(route, headers=other).status_code == 403
+
+
+@pytest.mark.parametrize('status', [401, 403])
+def test_rejected_credentials_are_not_retried(hosted, status):
+    hosted.app.state.test_auth_failures.append(status)
+    hosted.app.state.test_auth_calls.clear()
+    assert hosted.get('/crowdset/sets', headers={'Authorization': 'Bearer first'}).status_code == 401
+    assert hosted.app.state.test_auth_calls == ['Bearer first']
 
 
 def test_hosted_auth_origin_cookie_and_owner_isolation(hosted):

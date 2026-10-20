@@ -119,8 +119,11 @@ def create_app(root=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.store = Store(root) if root else Store()
-        yield
-        await asyncio.to_thread(app.state.store.close)
+        try:
+            yield
+        finally:
+            await hosted.close()
+            await asyncio.to_thread(app.state.store.close)
 
     app = FastAPI(title='Crowdset', lifespan=lifespan, docs_url=None, redoc_url=None)
     if not hosted.origin:
