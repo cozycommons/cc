@@ -841,7 +841,13 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
         elif bench_left > 0:
             target[pid] = BENCH_SLOT
             bench_left -= 1
-        elif IR_SLOT in eligible and ir_left > 0:
+        elif p["out"] and IR_SLOT in eligible and ir_left > 0:
+            # Only an actually injured / IR-eligible (OUT or
+            # INJURY_RESERVE) player may be MOVED to IR. A healthy
+            # displaced starter must never go there — ESPN rejects the
+            # whole transaction ("player is not injured", opening day
+            # 2026-10-20) — he falls through to keeping his starting
+            # slot or, when that slot was taken, the bench below.
             target[pid] = IR_SLOT
             ir_left -= 1
         elif (
@@ -1055,9 +1061,43 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
                 # raises the legacy "no dated pro games" error.
                 period = resolve_scoring_period(base, date=date)
         else:
-            # No target: the league's current scoring period (or the
-            # legacy clean error when the season has not started).
-            period = resolve_scoring_period(base)
+            # No target: the league's current scoring period. When the
+            # payload carries no currentScoringPeriod (the in-season
+            # reality on opening day 2026-10-20, not just preseason),
+            # resolve "today" through the same scoreboard fallback the
+            # explicit-date path uses. Before the season starts (today
+            # precedes the first regular-season date) the legacy clean
+            # error is preserved, so preseason runs stay silent.
+            current = (base.get("status") or {}).get("currentScoringPeriod")
+            if current is not None:
+                period = int(current)
+            elif scoreboard is not None:
+                target_date = datetime.now(_ET).date()
+                start, end = _scoreboard_window(account["season"])
+                season_start = scoreboard.first_regular_season_date(
+                    start, end
+                )
+                if season_start is None or target_date < season_start:
+                    raise ValueError(
+                        "ESPN payload has no currentScoringPeriod; cannot "
+                        "tell which day to set the lineup for"
+                    )
+                period, payload, playing, schedule_info = (
+                    _resolve_period_via_scoreboard(
+                        client,
+                        base,
+                        account["season"],
+                        target_date,
+                        scoreboard,
+                    )
+                )
+            elif has_block:
+                target_date = datetime.now(_ET).date()
+                period = resolve_scoring_period(
+                    base, date=target_date.isoformat()
+                )
+            else:
+                period = resolve_scoring_period(base)
         run["scoring_period_id"] = period
         current = (base.get("status") or {}).get("currentScoringPeriod")
         if payload is None:

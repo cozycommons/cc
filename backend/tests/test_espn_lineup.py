@@ -405,6 +405,45 @@ def test_out_player_benched_no_conflict_and_gtd_counts():
     assert plan[51]["to_slot"] == BE
 
 
+def test_healthy_displaced_starter_goes_to_bench_never_ir():
+    # Opening-day 2026-10-20 regression: only Cason Wallace (here
+    # pid 2) is scheduled; he takes the PG slot from a healthy
+    # Harden-like starter (pid 1, lowest id, so he is placed first
+    # among the unscheduled starters). The bench is full and the IR
+    # slot is empty — the old planner parked him on IR and ESPN
+    # rejected the whole transaction ("player is not injured").
+    entries = [
+        _entry(1, PG, _player(1, 9, [PG, G, UTIL, BE, IR])),
+        _entry(2, G, _player(2, 1, [PG, G, UTIL, BE], 25)),
+        _entry(3, SG, _player(3, 9, [SG, G, UTIL, BE])),
+        _entry(4, SF, _player(4, 9, [SF, F, UTIL, BE])),
+        _entry(5, PF, _player(5, 9, [PF, F, UTIL, BE])),
+        _entry(6, C, _player(6, 9, [C, UTIL, BE])),
+        _entry(7, F, _player(7, 9, [SF, PF, F, UTIL, BE])),
+        _entry(8, UTIL, _player(8, 9, [UTIL, BE])),
+        _entry(9, UTIL, _player(9, 9, [UTIL, BE])),
+        _entry(10, UTIL, _player(10, 9, [UTIL, BE])),
+        _entry(11, BE, _player(11, 9, [UTIL, BE])),
+        _entry(12, BE, _player(12, 9, [UTIL, BE])),
+        _entry(13, BE, _player(13, 9, [UTIL, BE])),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    plan = _plan_players(run)
+    assert plan[2]["scheduled"] is True
+    assert plan[2]["to_slot"] == PG
+    assert plan[1]["out"] is False
+    assert plan[1]["to_slot"] == BE
+    # nobody is planned into IR, and no submitted move targets IR
+    assert all(p["to_slot"] != IR for p in plan.values())
+    assert all(m["toLineupSlotId"] != IR for m in run["moves"])
+    moves = {m["playerId"]: m for m in run["moves"]}
+    assert moves[1]["toLineupSlotId"] == BE
+    assert moves[2]["toLineupSlotId"] == PG
+
+
 def test_ir_activation_and_out_player_parked():
     entries = [
         _entry(61, PG, _player(61, 1, [PG, G, UTIL, BE], 30)),
