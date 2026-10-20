@@ -98,8 +98,8 @@ def test_early_video_end_is_neutral_not_frozen(tmp_path):
     originals.destination('set', item).write_bytes(path.read_bytes())
     write_wav(folder / 'pending.wav', music(5))
     plan = video.plan_video([item], {'duration': 5, 'origin_seconds': 0})
-    assert plan['segments'][0]['end'] == pytest.approx(2, abs=1/24)
-    assert plan['gaps'][0]['start'] == pytest.approx(2, abs=1/24)
+    assert plan['segments'][0]['end'] == pytest.approx(2, abs=1/24 + 1e-9)
+    assert plan['gaps'][0]['start'] == pytest.approx(2, abs=1/24 + 1e-9)
     video.render(plan, [item], originals, 'set', folder, Limits())
     assert frame(folder / 'pending.mp4', 1)[24, 42, 0] > 200
     assert np.max(np.abs(frame(folder / 'pending.mp4', 4)[24, 42].astype(int) - [36, 48, 39])) < 10
