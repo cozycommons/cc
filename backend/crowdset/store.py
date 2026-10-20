@@ -365,6 +365,10 @@ class Store:
     def expire_sessions(self):
         now = time.time()
         for session in self.originals.sessions():
+            # An archived set may retain sessions and originals outside the live catalog.
+            # Without its metadata we cannot safely identify unpublished media.
+            if not (self.directory(session['set_id']) / 'set.json').exists():
+                continue
             folder = self.originals.session_directory(session['set_id'])
             if session['expires_at'] <= now:
                 if self.upload == (session['set_id'], session['id']):

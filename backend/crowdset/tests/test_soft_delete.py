@@ -112,6 +112,57 @@ def test_removed_upload_survives_session_expiry_and_can_be_uploaded_again(store,
     assert len(store.get(data['id'])['deleted_clips']) == 1
 
 
+def test_archived_set_sessions_do_not_block_restart_or_new_uploads(tmp_path, monkeypatch):
+    monkeypatch.setattr(Store, 'schedule', lambda self: None)
+    monkeypatch.setattr('crowdset.store.probe', lambda *args, **kwargs: 5)
+    fingerprint = hashlib.sha256(b'original').hexdigest()
+    original = Store(tmp_path)
+    try:
+        archived = original.create('Archived verification')
+        session = original.prepare_session(archived['id'], 'clip.mp4', 8, fingerprint)
+        original.append_session(archived['id'], session['id'], None, 0, b'original', fingerprint)
+        clip = original.complete_session(archived['id'], session['id'])['clips'][0]
+        session = original.session(archived['id'], session['id'])
+        session['expires_at'] = 0
+        original.save_session(session)
+        archive = tmp_path / '.verification-archive' / archived['id']
+        archive.parent.mkdir()
+        original.directory(archived['id']).rename(archive)
+    finally:
+        original.close()
+
+    recovered = Store(tmp_path)
+    try:
+        live = recovered.create('Live set')
+        fresh = recovered.prepare_session(live['id'], 'new.mp4', 8, fingerprint)
+        recovered.append_session(live['id'], fresh['id'], None, 0, b'original', fingerprint)
+        assert len(recovered.complete_session(live['id'], fresh['id'])['clips']) == 1
+        assert (archive / 'set.json').exists()
+        assert recovered.originals.path(archived['id'], clip).read_bytes() == b'original'
+        assert session in recovered.originals.sessions()
+    finally:
+        recovered.close()
+
+
+def test_expired_orphan_session_preserves_cloud_objects_and_storage_accounting(store):
+    removed = []
+    cloud(store, lambda keys: removed.extend(keys))
+    data = store.create('Archived cloud set')
+    clip = add_clip(store, data['id'])
+    session = {'set_id': data['id'], 'id': uuid4().hex, 'clip': clip,
+               'expires_at': 0, 'state': 'complete', 'size': clip['bytes'], 'offset': clip['bytes']}
+    store.save_session(session)
+    archive = store.root / '.verification-archive' / data['id']
+    archive.parent.mkdir()
+    store.directory(data['id']).rename(archive)
+    before = store.originals.usage()
+    store.expire_sessions()
+    assert removed == []
+    assert store.originals.usage() == before
+    assert session in store.originals.sessions()
+    assert (archive / 'set.json').exists()
+
+
 def test_cloud_reclaims_oldest_only_on_pressure_and_counts_pending_uploads(store):
     removed = []
     cloud(store, lambda keys: removed.extend(keys))
