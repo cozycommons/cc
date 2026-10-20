@@ -23,7 +23,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -528,15 +528,48 @@ def test_no_date_run_uses_scoreboard_for_today():
 
 
 def test_no_date_preseason_keeps_clean_error():
+    # Season has not started yet: the first regular-season date is a
+    # week in the future, so a no-date run keeps the legacy clean
+    # (silent) error instead of resolving a period.
+    today = datetime.now(_ET).date()
     payload = _no_block_payload(_oct26_roster(6), current=None)
     db = FakeSupabase()
     client = StatefulClient(payload)
-    sb = FakeScoreboard({OCT26: OCT26_SLATE})
+    sb = FakeScoreboard({}, season_start=today + timedelta(days=7))
     run = lineup.run_lineup(db, dict(ACCOUNT), client, scoreboard=sb)
     assert run["status"] == "error"
     assert "currentScoringPeriod" in run["error"]
     assert client.posts == []
-    assert sb.calls == []  # no fallback resolution for a targetless run
+    # the scoreboard was consulted only to learn the season start
+    assert sb.calls == [
+        ("first_regular_season_date", date(2026, 10, 1), date(2026, 11, 30))
+    ]
+
+
+def test_no_date_run_without_current_resolves_today_via_scoreboard():
+    # Opening-day shape (2026-10-20): the league payload carries NO
+    # currentScoringPeriod even though the season HAS started. The
+    # no-date run must resolve today via the scoreboard fallback
+    # (period 1 = the first regular-season date) instead of erroring.
+    today = datetime.now(_ET).date()
+    payload = _no_block_payload(_oct26_roster(1), current=None)
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    sb = FakeScoreboard({today: OCT26_SLATE}, season_start=today)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, scoreboard=sb)
+    assert run["status"] == "ok"
+    assert run["scoring_period_id"] == 1
+    schedule = run["plan"]["schedule"]
+    assert schedule["source"] == "scoreboard"
+    assert schedule["target_date"] == today.isoformat()
+    assert schedule["season_start_date"] == today.isoformat()
+    assert schedule["anchor_period"] == 1
+    plan = {p["player_id"]: p for p in run["plan"]["players"]}
+    for pid in range(101, 111):
+        assert plan[pid]["scheduled"] is True
+        assert plan[pid]["to_slot"] in STARTING
+    (post,) = client.posts
+    assert post["scoring_period_id"] == 1
 
 
 def test_explicit_period_with_no_current_uses_season_anchor():
