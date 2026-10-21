@@ -133,6 +133,27 @@ def test_large_original_admission_retains_r2_and_physical_caps(store, monkeypatc
     assert failure.value.status_code == 413
 
 
+def test_remote_recording_limit_uses_worker_capacity_without_raising_storage_budget(monkeypatch):
+    monkeypatch.setenv('CROWDSET_STORAGE_PROVIDER', 'r2')
+    monkeypatch.setenv('CROWDSET_REMOTE_WORKER', '1')
+    limits = Limits.environment()
+    assert limits.file_bytes == 8 * GIB
+    assert limits.original_bytes == 8_000_000_000
+    assert limits.work_bytes == 10 * GIB
+    monkeypatch.setenv('CROWDSET_MAX_FILE_BYTES', str(8 * GIB + 1))
+    with pytest.raises(ValueError, match='MAX_FILE_BYTES'):
+        Limits.environment()
+
+
+def test_local_r2_recording_limit_stays_bounded_by_local_working_space(monkeypatch):
+    monkeypatch.setenv('CROWDSET_STORAGE_PROVIDER', 'r2')
+    monkeypatch.setenv('CROWDSET_REMOTE_WORKER', '0')
+    assert Limits.environment().file_bytes == 3 * GIB
+    monkeypatch.setenv('CROWDSET_MAX_FILE_BYTES', str(3 * GIB + 1))
+    with pytest.raises(ValueError, match='MAX_FILE_BYTES'):
+        Limits.environment()
+
+
 def test_durable_batch_resumes_and_job_recovery_is_bounded(store, tmp_path):
     data = store.create('Recovery')
     batch = store.begin_batch(data['id'], 'alice')['id']

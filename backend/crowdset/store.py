@@ -378,6 +378,10 @@ class Store:
             data = self.get(set_id)
             data.pop('batch', None)
             data['completed_batch'] = {'id': batch_id, 'owner': owner}
+            if self.remote and any(j['set_id'] == set_id and j['kind'] == 'ingest' and j['state'] in ('queued', 'running')
+                                   for j in self.remote.jobs()):
+                data.update(status='queued', stage='Validating recordings on the PC worker…')
+                return self.save(data)
             data['status'] = 'ready' if data['playable'] else 'idle'
             return self.queue(data) if data.get('dirty') else self.save(data)
 

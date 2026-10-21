@@ -60,7 +60,7 @@ After restarting with a simulated interrupted job, the service retained the unfi
 
 ## Automatic updates
 
-The user systemd timer checks public `cozycommons/cc` main about every five minutes (plus up to 30 seconds jitter). Changes must be merged/pushed to **main** and its frontend, backend, container, Ubuntu and macOS checks must all pass on that exact commit. Other GitHub Actions checks on the commit must also pass. Feature branches are never deployed. No GitHub token is needed; normal polling uses at most two API requests per interval, within the anonymous allowance when this is its only API traffic.
+The user systemd timer checks public `cozycommons/cc` main about every five minutes (plus up to 30 seconds jitter). Changes must be merged/pushed to **main** and its frontend, backend, container and Ubuntu checks must all pass on that exact commit. Other GitHub Actions checks on the commit must also pass. Feature branches are never deployed. No GitHub token is needed; normal polling uses at most two API requests per interval, within the anonymous allowance when this is its only API traffic.
 
 The updater stages the two Python modules and three service/timer definitions, checks Python syntax/imports and systemd unit validity, then asks the worker to pause claims after finishing its current job. If a render is still running, the update waits for the next timer run without stopping it. The next update installs files with the spool locked, restarts the service, and verifies the new process writes a fresh healthy status. Identical worker bundles are recorded without restarting. Queue manifests, cached sources and completed videos remain in place.
 
@@ -84,6 +84,8 @@ The optional remote mode keeps large originals, audio caches, normalization and 
 Runtime prerequisites are Python 3.11+, Node.js 22+ on the worker PATH for YouTube challenge handling, and `backend/requirements-crowdset.txt` in a dedicated processing venv. Pin/update those independently from source releases. The release updater installs all required `crowdset/` processing modules with the renderer, preserves active work, and handles expansion from the earlier five-file bundle.
 
 Production Coolify runtime settings: `CROWDSET_REMOTE_WORKER=1`, `CROWDSET_WORKER_TOKEN=<random worker-only secret>`. Preserve existing R2 configuration and request ledger; do not initialize new counters. Configure bucket CORS for exactly `https://cozycommons.dev`, methods GET/HEAD/PUT, allowed headers Content-Type/Range, exposed headers ETag/Content-Length/Content-Range. Public bucket access remains disabled.
+
+Remote mode allows recordings up to 8 GiB by default, including full YouTube sets. Local R2 processing retains its 3 GiB per-recording cap. The configured total R2 budget, worker spool quota and disk free floor still apply independently; enabling remote mode does not increase the storage budget.
 
 PC `~/.local/share/crowdset-worker/worker.env` (mode 0600):
 

@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 REPOSITORY = 'cozycommons/cc'
-REQUIRED = {'frontend', 'backend', 'crowdset-container', 'crowdset (ubuntu-latest)', 'crowdset (macos-latest)'}
+REQUIRED = {'frontend', 'backend', 'crowdset-container', 'crowdset (ubuntu-latest)'}
 FILES = {
     'gpu_worker.py': 'backend/crowdset/gpu_worker.py',
     'crowdset-gpu-worker.service': 'scripts/systemd/crowdset-gpu-worker.service',
