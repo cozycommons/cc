@@ -135,11 +135,27 @@ it('reuses the decoded first frame when seeking exactly to a preloaded clip’s 
   insert.cancelVideoFrameCallback = vi.fn();
   for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
   tick(6);
-  fireEvent.loadedData(insert);
+  expect(insert.requestVideoFrameCallback).toHaveBeenCalledOnce();
   act(() => presented(0, { mediaTime: 0 }));
+  fireEvent.loadedData(insert);
   tick(10);
   expect(insert.style.visibility).toBe('visible');
   expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+});
+
+it('selects the intended clip when the browser rounds a frame boundary to microseconds', () => {
+  const boundary = 1039 + 2 / 24;
+  render(<CompositionPlayer set={{ ...set, video_timeline: { segments: [
+    { start: 1000, end: boundary, asset_id: 'previous' },
+    { start: boundary, end: 1100, asset_id: 'friend' },
+  ] } }} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const insert = screen.getByLabelText('Friend’s picture');
+  for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
+  tick(1039.083333);
+  fireEvent.loadedData(insert);
+  expect(insert).toHaveAttribute('src', '/crowdset/sets/set/overlays/friend?v=revision');
+  expect(insert.currentTime).toBe(0);
+  expect(insert.style.visibility).toBe('visible');
 });
 
 it('holds the last picture during a paused seek and reveals the new frame without starting audio', () => {

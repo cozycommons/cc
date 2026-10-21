@@ -67,3 +67,11 @@ it('shows cached timeline previews without seeking and supports keyboard inspect
   expect(screen.queryByRole('img')).toBeNull();
   vi.unstubAllGlobals();
 });
+
+it('identifies the new source when a frame boundary is rounded to browser microseconds', () => {
+  const boundary = 1039 + 2 / 24;
+  const { container } = render(<MixTimeline timeline={{ duration: 1200, segments: [
+    { clip_id: 'a', start: 0, end: boundary }, { clip_id: 'b', start: boundary, end: 1200 },
+  ] }} clips={clips} currentTime={1039.083333} onSeek={() => {}} video />);
+  expect(container.querySelector('.cs-timeline-detail')).toHaveTextContent(/^Balcony.mp4$/);
+});
