@@ -20,6 +20,7 @@ from fastapi import HTTPException
 import httpx
 
 from .worker import write_json
+from .config import env
 from .limits import Limits
 from .storage import OriginalStore
 from .blobs import BlobError, environment, digest
@@ -72,6 +73,12 @@ class Store:
         self.pending = {}
         self.batches = {}
         self.timer = None
+        self.remote = None
+        if env('CROWDSET_REMOTE_WORKER', '') == '1':
+            from .remote import RemoteJobs
+            if not self.blobs or not hasattr(self.blobs, 'signed') or not env('CROWDSET_WORKER_TOKEN'):
+                raise ValueError('Remote processing requires R2 and a worker credential.')
+            self.remote = RemoteJobs(self)
         paths = sorted(self.root.glob('*/set.json'))
         used_slugs = {json.loads(path.read_text()).get('slug') for path in paths}
         for path in paths:
@@ -83,6 +90,8 @@ class Store:
             batch = data.get('batch')
             if batch:
                 self.batches[data['id']] = {**batch, 'deadline': time.monotonic() + max(0, batch['expires_at'] - time.time())}
+            if self.remote and data['status'] in ('importing', 'processing', 'queued'):
+                continue
             if data['status'] == 'importing':
                 saved = any(c.get('source_url') == data['youtube_import']['url'] for c in data['clips'])
                 data.update(status='queued' if saved and data.get('dirty') else 'ready' if data.get('playable') else 'idle')
@@ -103,6 +112,8 @@ class Store:
                 write_json(path, data)
             for partial in path.parent.glob('*.part'):
                 partial.unlink()
+        if self.remote:
+            self.remote.recover()
         self.expire_sessions()
         self.schedule()
 
@@ -135,7 +146,7 @@ class Store:
             if not (directory / 'set.json').exists():
                 raise HTTPException(404, 'Performance not found')
             data = json.loads((directory / 'set.json').read_text())
-            if data['status'] == 'processing' and (directory / 'progress.json').exists():
+            if not self.remote and data['status'] == 'processing' and (directory / 'progress.json').exists():
                 data.update(snapshot(directory))
             if data['status'] == 'importing':
                 progress = directory / 'youtube' / 'progress.json'
@@ -177,6 +188,11 @@ class Store:
             data = self.get(set_id)
             if any(clip.get('source_url') == url for clip in data['clips']):
                 return data
+            if self.remote:
+                self.remote.admit(self.limits.file_bytes)
+                data['youtube_import'] = {'url': url, 'owner': owner, 'state': 'queued', 'error': None}
+                self.remote.enqueue(data, 'youtube', url=url, owner=owner)
+                return self.get(set_id)
             current = data.get('youtube_import', {})
             if data['status'] == 'importing' and current.get('url') == url and current.get('owner') == owner:
                 return data
@@ -298,6 +314,9 @@ class Store:
             data['status'] = 'uploading'
             return self.save(data)
         if any(c['role'] != 'reference' and c['included'] for c in data['clips']):
+            if self.remote:
+                self.remote.enqueue(data)
+                return self.get(data['id'])
             data['status'] = 'queued'
             self.pending[data['id']] = time.monotonic() + 3
             self.schedule()
@@ -370,6 +389,8 @@ class Store:
             if not (self.directory(session['set_id']) / 'set.json').exists():
                 continue
             folder = self.originals.session_directory(session['set_id'])
+            if self.remote and session.get('direct') and session['state'] == 'validating':
+                continue
             if session['expires_at'] <= now:
                 if self.upload == (session['set_id'], session['id']):
                     continue
@@ -399,7 +420,7 @@ class Store:
         session = json.loads(path.read_text())
         if session['owner'] != owner:
             raise HTTPException(403, 'Only the original uploader can resume this file.')
-        if session['expires_at'] <= time.time():
+        if session['expires_at'] <= time.time() and not (self.remote and session.get('direct') and session['state'] == 'validating'):
             raise HTTPException(410, 'Upload expired. Reselect the file to start again.')
         return session
 
@@ -427,12 +448,16 @@ class Store:
                     if existing['state'] == 'complete' and not any(c['id'] == existing['clip']['id'] for c in data['clips']):
                         continue
                     existing['batch_id'] = batch_id
+                    existing['expires_at'] = time.time() + self.limits.upload_seconds
                     self.save_session(existing)
                     return self.public_session(existing)
             pending = [s for s in self.originals.sessions() if s['set_id'] == set_id and s['state'] == 'uploading' and s['clip']['id'] not in deleted_ids]
             if sum(c['role'] != 'reference' for c in data['clips']) + len(pending) >= self.limits.recordings:
                 raise HTTPException(409, f'This set accepts at most {self.limits.recordings} recordings.')
-            self.originals.admit(self.limits, incoming=size, reclaim=self.reclaim_deleted)
+            if self.remote:
+                self.remote.admit(size)
+            else:
+                self.originals.admit(self.limits, incoming=size, reclaim=self.reclaim_deleted)
             clip = {'id': uuid4().hex, 'name': Path(name).name[:180], 'role': 'recording', 'included': True,
                     'uploader': owner, 'kind': 'video' if suffix in ('.mp4', '.mov', '.webm') else 'audio', 'bytes': size}
             clip['file'] = f'{clip["id"]}{suffix}.upload'
@@ -730,6 +755,9 @@ class Store:
             data = self.editable(set_id)
             if not any(c['role'] != 'reference' and c['included'] for c in data['clips']):
                 raise HTTPException(400, 'Add a recording to update the mix.')
+            if self.remote:
+                self.remote.enqueue(data)
+                return self.get(set_id)
             if self.active or self.upload:
                 return self.queue(data)
             if data['status'] != 'queued':
@@ -864,6 +892,8 @@ class Store:
 
     def collect_mixes(self, set_id):
         data = self.get(set_id)
+        if self.remote:
+            return
         previous = data.get('previous_revision', {})
         retained_files = {data.get('mix_file', 'reconstruction.wav'), data.get('video_file'), previous.get('mix_file'), previous.get('video_file')}
         assets = [asset for revision in (data, previous)

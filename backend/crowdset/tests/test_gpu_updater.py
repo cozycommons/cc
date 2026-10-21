@@ -41,6 +41,8 @@ def prepare(tmp_path, monkeypatch):
         (tmp_path / directory).mkdir()
     monkeypatch.setattr(updater, 'destination', lambda root, name: root / 'units' / name)
     for name in updater.FILES:
+        (tmp_path / 'units' / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / 'incoming' / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / 'units' / name).write_bytes(b'old ' + name.encode())
         (tmp_path / 'incoming' / name).write_bytes(b'new ' + name.encode())
     (tmp_path / 'data' / 'original.mp4').write_bytes(b'original media')
@@ -97,6 +99,7 @@ def test_interrupted_install_recovers_backup_without_network(tmp_path, monkeypat
     pending = prepare(tmp_path, monkeypatch)
     (tmp_path / 'rollback').mkdir()
     for name in updater.FILES:
+        (tmp_path / 'rollback' / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / 'rollback' / name).write_bytes(b'backup ' + name.encode())
     updater.record(tmp_path / 'pending-update.json', dict(pending, phase='installing'))
     monkeypatch.setattr(updater, 'get', Mock(side_effect=AssertionError('Recovery must work offline')))

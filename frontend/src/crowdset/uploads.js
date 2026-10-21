@@ -51,6 +51,13 @@ export async function uploadRecording(setId, file, { batchId, limits, onProgress
       session = await retry(async () => {
         const saved = await request(`/${setId}/uploads/${session.id}`);
         if (saved.offset !== offset) return saved;
+        if (saved.direct) {
+          const number = Math.floor(offset / limits.chunk_bytes) + 1;
+          const part = await request(`/${setId}/uploads/${session.id}/parts/${number}`, { method: 'POST' });
+          const uploaded = await fetch(part.url, { method: 'PUT', body: chunk, credentials: 'omit' });
+          if (!uploaded.ok) throw Object.assign(new Error('Cloud upload failed. Reselect the file to resume.'), { status: uploaded.status });
+          return request(`/${setId}/uploads/${session.id}/parts/${number}?ack=true`, { method: 'POST' });
+        }
         return request(`/${setId}/uploads/${session.id}?offset=${offset}&checksum=${checksum}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk,
         });

@@ -6,6 +6,10 @@ case "$worker_host" in -*|*[!a-zA-Z0-9_.@:-]*) echo 'Use an SSH hostname or alia
 worker_repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ssh "$worker_host" 'test ! -x "$HOME/.local/share/crowdset-worker/ffmpeg/bin/ffmpeg" || { echo "Worker already installed; retain it and upgrade only when its queue is idle." >&2; exit 1; }; mkdir -p "$HOME/.local/share/crowdset-worker" "$HOME/.config/systemd/user"; chmod 700 "$HOME/.local/share/crowdset-worker"'
 scp "$worker_repo/backend/crowdset/gpu_worker.py" "$worker_repo/backend/crowdset/gpu_updater.py" "$worker_host:.local/share/crowdset-worker/"
+ssh "$worker_host" 'mkdir -p "$HOME/.local/share/crowdset-worker/crowdset"'
+for worker_module in audio video progress limits config storage blobs r2 worker composition previews timestamps gpu_worker remote_agent youtube; do
+    scp "$worker_repo/backend/crowdset/$worker_module.py" "$worker_host:.local/share/crowdset-worker/crowdset/"
+done
 for worker_unit in crowdset-gpu-worker.service crowdset-gpu-update.service crowdset-gpu-update.timer; do
     scp "$worker_repo/scripts/systemd/$worker_unit" "$worker_host:.config/systemd/user/$worker_unit"
 done

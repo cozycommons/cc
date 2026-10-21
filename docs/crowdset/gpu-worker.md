@@ -76,3 +76,22 @@ ssh pc 'journalctl --user -u crowdset-gpu-update.service -n 30 --no-pager'
 `deployment.json` records the installed commit and file hashes. `update-status.json` distinguishes waiting for CI, waiting for a release, waiting for a render, current and rolled-back releases. Initially the installed, tested checkout is identified as a bootstrap release until its first main deployment is approved.
 
 Live verification on the PC confirmed that an update waited for a two-minute GPU job to finish, preserved its output, installed and restarted a healthy service, then rolled back a deliberately broken synthetic release. The update timer was enabled and its first outbound check waited for main CI. It does not yet add production job dispatch; only worker deployment is automated.
+
+## Production remote mode
+
+The optional remote mode keeps large originals, audio caches, normalization and render files on the PC. The browser uploads parts directly to R2 using expiring part URLs. The API maintains reservations, multipart completion and renewable job claims. The PC holds a job-control token, never R2 credentials. Published media is served through authorized R2 redirects. Existing local mode remains available when the feature is disabled.
+
+Runtime prerequisites are Python 3.11+ and `backend/requirements-crowdset.txt` in a dedicated processing venv. Pin/update those independently from source releases. The release updater installs all required `crowdset/` processing modules with the renderer, preserves active work, and handles expansion from the earlier five-file bundle.
+
+Production Coolify runtime settings: `CROWDSET_REMOTE_WORKER=1`, `CROWDSET_WORKER_TOKEN=<random worker-only secret>`. Preserve existing R2 configuration and request ledger; do not initialize new counters. Configure bucket CORS for exactly `https://cozycommons.dev`, methods GET/HEAD/PUT, allowed headers Content-Type/Range, exposed headers ETag/Content-Length/Content-Range. Public bucket access remains disabled.
+
+PC `~/.local/share/crowdset-worker/worker.env` (mode 0600):
+
+```text
+CROWDSET_WORKER_URL=https://cozycommons.dev
+CROWDSET_WORKER_TOKEN=<same worker-only secret>
+CROWDSET_WORKER_PYTHON=/home/jason/.local/share/crowdset-worker/processing-venv/bin/python
+IMAGEIO_FFMPEG_EXE=/home/jason/.local/share/crowdset-worker/ffmpeg/bin/ffmpeg
+```
+
+The systemd unit reads this optional file. After installing prerequisites and a CI-approved complete source bundle, activate remote mode on production, then restart the idle PC service. Verify a newly created test set through browser direct upload, worker claim/validation, rendering and playback. Never test by rebuilding the existing live ISOKNOCK set. Inspect `data/status.json`, per-job metadata under `data/remote/`, and the set’s job record under production `/data/remote-jobs/`. Old production caches are retained during rollout; new remote work must not create media files there. Signed URLs are capabilities and must not be printed in logs or copied into error notices.

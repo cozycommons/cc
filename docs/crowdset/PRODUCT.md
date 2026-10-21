@@ -128,3 +128,12 @@ Hovering or scrubbing the main video seek bar or the colored clip timeline shows
 Admins can prepare missing previews for an existing published set. Keep the current cut playable while the cached processing pipeline backfills them.
 
 Clip labels below the timeline seek to the first appearance of that clip in the published cut. Preserve the current play/pause state; labels remain keyboard accessible.
+
+## Worker-owned media processing
+
+1. With remote processing enabled, new browser recordings transfer directly to private R2. Production accepts bounded metadata only; old clients receive a reload-required error instead of uploading media to production.
+2. YouTube links queue downloads on the PC. Queued work waits while the PC is offline, without moving large temporary files onto production. The set page reports waiting, downloading, preparing, matching, rendering and saving states.
+3. The PC validates recording bytes and hashes, prepares previews, matches clips, and produces one MP4 containing the complete picture edit and uninterrupted official soundtrack. Playback and video download use that same file; clip labels and instant scrub previews remain.
+4. Failed, interrupted or stale attempts cannot replace the last playable cut. Originals, soft-deleted originals, prior published revisions and the 100 GB storage budget remain protected. Worker retries retain local preparation when possible.
+5. A worker receives only short-lived transfer URLs for its claimed job. It receives no bucket credential. Concurrent claims and stale results cannot publish another set's media or change ownership.
+6. Existing published sets remain playable during rollout. The first live test uses the new set and includes a browser upload and YouTube import, verifying that production disk does not grow by the transferred media size.

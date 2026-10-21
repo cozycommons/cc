@@ -186,3 +186,13 @@ The worker uses a separate 60 GiB local spool budget and retains 8 GiB free disk
 ### Paid storage budget (October 2026)
 
 Production sets `CROWDSET_ORIGINAL_BYTES=100000000000` (100 GB decimal, shared across originals, reservations and retained outputs). R2 validates against the same configured cap; unset deployments retain the conservative 8 GB default. Request budgets and their persistent ledger remain unchanged. Production sets `CROWDSET_WORK_BYTES=12884901888` (12 GiB) independently; the physical free-space floor still applies. Storage above the account free allowance is billable, approximately $1.35/month for 100 GB stored all month at current Standard rates; request overages remain separately metered.
+
+## Remote media control plane
+
+The remote mode replaces local process launch and local resumable bytes with durable, lease-bound jobs and R2 multipart transfer metadata. Existing processing code runs on the PC with injected storage/limits. A separate worker credential authenticates outbound claims and renewals, scoped by each claim to its input objects and server-assigned output keys. Browser Supabase authentication and ownership checks stay intact. Remote mode is gated until synthetic end-to-end and real PC verification pass.
+
+Production owns multipart creation, authoritative part listing/completion, object reservations, and final atomic set metadata publication. Part URLs sign the exact upload ID, part number and length, expire after five minutes, and consume a conservative issued-request budget. Presigned URLs can be replayed before expiry, so this cannot promise exact request accounting for untrusted clients; bucket-wide request usage must still be monitored. Request counters are never reset. R2 CORS permits only the configured app origin and required methods/headers.
+
+Jobs pin immutable input metadata and the prior published revision. Leases expire and may be reclaimed; every mutation requires the live claim token. Results restore immutable clip fields from server snapshots and reference only completed, size-verified reserved outputs. No publication deletes the last playable revision. The GPU flattener consumes normalized base/inserts, copies official AAC, clears composition and asset IDs, and preserves timeline/previews. Media and preview reads redirect to short-lived R2 URLs after ordinary authorization.
+
+Validation covers private transfer signing, byte bounds, wrong-owner access, lease expiry/restart/stale completion, cloud quota, output publication, request-ledger preservation and browser direct upload. Run existing local-mode tests as regressions, then a synthetic full job on the actual PC and the requested new-set flow. Keep production originals and archived manifests intact.

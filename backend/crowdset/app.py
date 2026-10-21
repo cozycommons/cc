@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import asyncio
+import hmac
+import json
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -148,6 +150,14 @@ def create_app(root=None):
                 return JSONResponse({'status': 'ok'})
             if request.headers.get('host') != urlsplit(hosted.origin).netloc:
                 return JSONResponse({'detail': 'Invalid host.'}, status_code=403)
+            if request.url.path.startswith('/crowdset/worker/'):
+                expected = env('CROWDSET_WORKER_TOKEN', '')
+                supplied = request.headers.get('authorization', '').removeprefix('Bearer ')
+                if not expected or not hmac.compare_digest(expected, supplied) or not request.app.state.store.remote:
+                    return JSONResponse({'detail': 'Invalid worker credential.'}, status_code=403)
+                response = await call_next(request)
+                response.headers['Cache-Control'] = 'no-store'
+                return response
             if (origin and origin != hosted.origin) or (request.method not in ('GET', 'HEAD') and origin != hosted.origin):
                 return JSONResponse({'detail': 'Use the Crowdset website.'}, status_code=403)
             if request.url.path == '/crowdset/sets' or request.url.path.startswith('/crowdset/sets/'):
@@ -194,6 +204,62 @@ def create_app(root=None):
                 response.set_cookie('__Secure-crowd-set', token, secure=True, httponly=True, samesite='strict', path='/crowd-set', max_age=3600)
         return response
 
+    @app.exception_handler(BlobError)
+    async def storage_error(request, error):
+        return JSONResponse({'detail': str(error)}, status_code=503)
+
+    @app.post('/crowdset/worker/{operation}')
+    async def worker_control(operation: str, request: Request):
+        expected = env('CROWDSET_WORKER_TOKEN', '')
+        if not expected or not hmac.compare_digest(expected, request.headers.get('authorization', '').removeprefix('Bearer ')):
+            raise HTTPException(403, 'Invalid worker credential.')
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 2 * 1024 ** 2:
+                raise HTTPException(413, 'Worker metadata exceeds its bound.')
+        try:
+            body = json.loads(raw or b'{}')
+            def execute():
+                store = request.app.state.store
+                remote = store.remote
+                if not remote:
+                    raise HTTPException(503, 'Remote processing is disabled.')
+                with store.lock:
+                    if operation == 'claim':
+                        return remote.claim()
+                    job = remote.owned(body['job'], body['claim'], allow_complete=operation == 'publish')
+                    if operation == 'heartbeat':
+                        return remote.heartbeat(job, body.get('stage', 'Processing on the PC…'))
+                    if operation == 'read':
+                        return remote.read(job, body['key'])
+                    if operation == 'reserve':
+                        return remote.reserve(job, body['name'], body['bytes'], body['sha256'], body.get('mime', 'application/octet-stream'))
+                    if operation == 'part':
+                        return store.blobs.direct_part(job['artifacts'][body['name']]['key'], body['part'])
+                    if operation == 'complete':
+                        return remote.complete(job, body['name'])
+                    if operation == 'publish':
+                        return remote.publish(job, body['result'])
+                    if operation == 'fail':
+                        return remote.fail(job, body['error'])
+                    raise HTTPException(404, 'Unknown worker operation.')
+            return await asyncio.to_thread(execute)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(422, 'Invalid worker metadata.') from exc
+
+    @app.post('/crowdset/sets/{set_id}/uploads/{upload_id}/parts/{number}')
+    def direct_part(set_id: str, upload_id: str, number: int, request: Request, ack: bool = False):
+        store = request.app.state.store
+        with store.lock:
+            session = store.session(set_id, upload_id, request.state.owner)
+            if not store.remote or not session.get('direct') or session['state'] != 'uploading':
+                raise HTTPException(409, 'This recording is not accepting direct parts.')
+            store.remote.touch_batch(session)
+            if ack:
+                return store.remote.browser_ack(session, number)
+            return store.blobs.direct_part(session['object_key'], number)
+
     @app.get('/crowdset/health')
     def health():
         return {'status': 'ok'}
@@ -239,12 +305,18 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/uploads', status_code=201)
     def prepare_upload(set_id: str, body: Upload, request: Request):
-        return request.app.state.store.prepare_session(set_id, body.name, body.size, body.fingerprint, request.state.owner, body.batch_id)
+        store = request.app.state.store
+        value = store.prepare_session(set_id, body.name, body.size, body.fingerprint, request.state.owner, body.batch_id)
+        if store.remote:
+            with store.lock:
+                value = store.remote.browser_prepare(store.session(set_id, value['id'], request.state.owner))
+        return value
 
     @app.get('/crowdset/sets/{set_id}/uploads/{upload_id}')
     def upload_status(set_id: str, upload_id: str, request: Request):
         store = request.app.state.store
-        return store.public_session(store.session(set_id, upload_id, request.state.owner))
+        session = store.session(set_id, upload_id, request.state.owner)
+        return {**store.public_session(session), 'direct': bool(session.get('direct'))}
 
     @app.delete('/crowdset/sets/{set_id}/uploads/{upload_id}', status_code=204)
     def cancel_upload(set_id: str, upload_id: str, request: Request):
@@ -253,6 +325,8 @@ def create_app(root=None):
     @app.patch('/crowdset/sets/{set_id}/uploads/{upload_id}')
     async def upload_chunk(set_id: str, upload_id: str, request: Request, offset: int = Query(ge=0), checksum: str = Query(pattern=r'^[a-f0-9]{64}$')):
         store = request.app.state.store
+        if store.remote:
+            raise HTTPException(409, 'Reload Crowdset to upload directly to cloud storage.')
         await asyncio.to_thread(store.begin_chunk, set_id, upload_id, request.state.owner)
         chunk = bytearray()
         try:
@@ -269,10 +343,16 @@ def create_app(root=None):
 
     @app.post('/crowdset/sets/{set_id}/uploads/{upload_id}/finish')
     def complete_upload(set_id: str, upload_id: str, request: Request):
+        store = request.app.state.store
+        if store.remote:
+            with store.lock:
+                return present(store.remote.browser_finish(store.session(set_id, upload_id, request.state.owner)), request.state.owner, store.uploaders, request.state.is_admin)
         return present(request.app.state.store.complete_session(set_id, upload_id, request.state.owner), request.state.owner, request.app.state.store.uploaders, request.state.is_admin)
 
     @app.put('/crowdset/sets/{set_id}/clips', status_code=201)
     async def upload(set_id: str, request: Request, name: str = Query(min_length=1, max_length=180), role: Literal['reference', 'crowd', 'recording'] = 'recording', batch_id: str | None = Query(default=None, max_length=32)):
+        if request.app.state.store.remote:
+            raise HTTPException(409, 'Reload Crowdset to upload directly to cloud storage.')
         length = request.headers.get('content-length')
         store = request.app.state.store
         maximum = min(MAX_BYTES, store.limits.file_bytes)
@@ -335,6 +415,8 @@ def create_app(root=None):
         if v != data.get('mix_revision') or not any(
                 sheet in preview['sheets'] for preview in (data.get('scrub_previews') or {}).values()):
             raise HTTPException(404, 'Preview unavailable')
+        if data.get('preview_objects', {}).get(sheet):
+            return RedirectResponse(store.blobs.signed('GET', data['preview_objects'][sheet]))
         path = store.directory(set_id) / sheet
         if not path.is_file():
             raise HTTPException(404, 'Preview unavailable')
@@ -350,6 +432,8 @@ def create_app(root=None):
         clip = next((c for c in store.get(set_id)['clips'] if c['id'] == clip_id), None)
         if not clip:
             raise HTTPException(404, 'Recording not found')
+        if clip.get('thumbnail_object'):
+            return RedirectResponse(store.blobs.signed('GET', clip['thumbnail_object']))
         path = store.directory(set_id) / f'{clip["id"]}.jpg'
         if not path.exists():
             raise HTTPException(404, 'Preview unavailable')
@@ -409,6 +493,9 @@ def create_app(root=None):
 
 
 def stored_media(store, key, request, filename, download, media_type):
+    if store.remote:
+        params = {'response-content-disposition': "attachment; filename*=UTF-8''" + quote(filename, safe='')} if download else None
+        return RedirectResponse(store.blobs.signed('GET', key, params=params, expires=14400))
     if not store.blobs:
         raise HTTPException(503, 'Private media storage is not configured.')
     client = store.blobs.client()
