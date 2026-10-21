@@ -64,6 +64,23 @@ def test_remote_claim_survives_restart_and_rejects_expired_result(store):
         restarted.owned(claim['id'], claim['claim'])
 
 
+@pytest.mark.parametrize('claimed', [False, True])
+def test_finished_batch_keeps_first_upload_polling_during_worker_validation(store, claimed):
+    data = store.create('First recording', owner='owner')
+    batch = store.begin_batch(data['id'], 'owner')
+    upload = store.prepare_session(data['id'], 'friend.mp4', 100, 'f' * 64, 'owner', batch['id'])
+    session = store.session(data['id'], upload['id'], 'owner')
+    store.remote.browser_prepare(session)
+    store.remote.browser_ack(session, 1)
+    store.remote.browser_finish(session)
+    if claimed:
+        assert store.remote.claim()['kind'] == 'ingest'
+    value = store.finish_batch(data['id'], batch['id'], 'owner')
+    assert value['clips'] == []
+    assert value['status'] == 'queued'
+    assert 'Validating' in value['stage']
+
+
 def test_remote_inputs_and_output_reservations_are_scoped(store):
     data = store.create('Live set', owner='owner')
     data['clips'] = [recording(data)]
@@ -121,6 +138,7 @@ def test_direct_upload_never_creates_a_partial_file(store):
     assert public['direct']
     store.remote.browser_ack(saved, 1)
     store.remote.browser_finish(saved)
+    assert store.get(data['id'])['status'] == 'queued'
     assert not list(store.root.rglob('*.part'))
     assert store.remote.jobs()[0]['kind'] == 'ingest'
     with pytest.raises(HTTPException):

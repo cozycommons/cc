@@ -55,9 +55,10 @@ class RemoteJobs:
         job = {'id': uuid4().hex, 'set_id': data['id'], 'kind': kind, 'state': 'queued',
                'created_at': time.time(), 'artifacts': {}, **details}
         self.save(job)
-        if kind in ('process', 'youtube'):
-            data.update(status='queued' if kind == 'process' else 'importing', stage='Waiting for the PC worker…')
-            self.store.save(data)
+        data.update(status=('importing' if kind == 'youtube' else
+                            'uploading' if kind == 'ingest' and data['id'] in self.store.batches else 'queued'),
+                    stage='Waiting for the PC worker…')
+        self.store.save(data)
         return job
 
     def claim(self):
