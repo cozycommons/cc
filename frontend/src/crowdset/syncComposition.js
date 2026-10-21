@@ -86,6 +86,7 @@ export default function syncComposition({ base, overlay, still, cuts, source }) 
       if (next) overlay.src = source(loaded);
       else overlay.removeAttribute('src');
       overlay.load();
+      if (next) awaitPicture();
     }
     if (!active) { hide(); waitingSince = undefined; }
     else if (!aligned && waitingSince === undefined) waitingSince = performance.now();

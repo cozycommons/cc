@@ -135,8 +135,9 @@ it('reuses the decoded first frame when seeking exactly to a preloaded clip’s 
   insert.cancelVideoFrameCallback = vi.fn();
   for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
   tick(6);
-  fireEvent.loadedData(insert);
+  expect(insert.requestVideoFrameCallback).toHaveBeenCalledOnce();
   act(() => presented(0, { mediaTime: 0 }));
+  fireEvent.loadedData(insert);
   tick(10);
   expect(insert.style.visibility).toBe('visible');
   expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
