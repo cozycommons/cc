@@ -1,9 +1,39 @@
 import copy
 import hashlib
+import sys
 
 import pytest
 
 from crowdset import gpu_worker
+
+
+def test_remote_startup_hands_off_to_processing_python(monkeypatch):
+    monkeypatch.setenv('CROWDSET_WORKER_URL', 'https://cozycommons.dev')
+    monkeypatch.setenv('CROWDSET_WORKER_PYTHON', '/processing/bin/python')
+    arguments = ['gpu_worker.py', '--root', '/worker/spool', '--ffmpeg', '/ffmpeg', '--ffprobe', '/ffprobe']
+    monkeypatch.setattr(sys, 'argv', arguments)
+    def execv(executable, argv):
+        assert executable == '/processing/bin/python'
+        assert argv == [executable, gpu_worker.__file__, *arguments[1:]]
+        raise SystemExit(73)
+    monkeypatch.setattr(gpu_worker.os, 'execv', execv)
+    with pytest.raises(SystemExit) as result:
+        gpu_worker.main()
+    assert result.value.code == 73
+
+
+def test_remote_startup_uses_current_processing_python(tmp_path, monkeypatch):
+    from crowdset import remote_agent
+    monkeypatch.setenv('CROWDSET_WORKER_URL', 'https://cozycommons.dev')
+    monkeypatch.setenv('CROWDSET_WORKER_PYTHON', sys.executable)
+    monkeypatch.setattr(sys, 'argv', ['gpu_worker.py', '--root', str(tmp_path), '--ffmpeg', '/ffmpeg', '--ffprobe', '/ffprobe'])
+    monkeypatch.setattr(gpu_worker.signal, 'signal', lambda *_: None)
+    monkeypatch.setattr(gpu_worker.os, 'umask', lambda *_: None)
+    called = []
+    monkeypatch.setattr(remote_agent, 'serve', lambda *args: called.append(args))
+    gpu_worker.main()
+    assert len(called) == 1
+    assert called[0][:4] == (tmp_path.resolve(), '/ffmpeg', '/ffprobe', 'h264_nvenc')
 
 
 def edit():

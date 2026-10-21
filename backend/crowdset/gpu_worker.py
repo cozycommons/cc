@@ -12,6 +12,7 @@ import shutil
 import signal
 import threading
 import subprocess
+import sys
 import time
 
 FPS = 24
