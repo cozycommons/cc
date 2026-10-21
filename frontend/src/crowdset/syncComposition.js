@@ -13,7 +13,7 @@ export default function syncComposition({ base, overlay, still, cuts, source }) 
   let lastSeek = -Infinity;
   let generation = 0;
 
-  const activeCut = () => cuts.find((cut) => cut.start <= base.currentTime && base.currentTime < cut.end);
+  const activeCut = () => cuts.find((cut) => cut.start - 0.000001 <= base.currentTime && base.currentTime < cut.end - 0.000001);
   const hide = () => { overlay.style.visibility = 'hidden'; still.style.visibility = 'hidden'; };
   const cancelDecoded = () => {
     if (decodedFrame !== undefined) overlay.cancelVideoFrameCallback?.(decodedFrame);
@@ -89,7 +89,7 @@ export default function syncComposition({ base, overlay, still, cuts, source }) 
     }
     if (!active) { hide(); waitingSince = undefined; }
     else if (!aligned && waitingSince === undefined) waitingSince = performance.now();
-    const target = active ? base.currentTime - active.start : 0;
+    const target = active ? Math.max(0, base.currentTime - active.start) : 0;
     const drift = target - overlay.currentTime;
     const now = performance.now();
     if (next && !failed && !base.seeking && !seeking && !overlay.seeking && overlay.readyState >= 1

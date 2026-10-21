@@ -20,7 +20,7 @@ export default function MixTimeline({ timeline, clips, currentTime, onSeek, vide
   if (!duration) return null;
   const position = Math.min(duration, Math.max(0, currentTime));
   const inspected = hoverTime ?? position;
-  const active = timeline.segments.filter((segment) => segment.start <= inspected && inspected < segment.end);
+  const active = timeline.segments.filter((segment) => segment.start - 0.000001 <= inspected && inspected < segment.end - 0.000001);
   const name = (id) => clips.find((clip) => clip.id === id)?.name || 'Removed recording';
   const used = [...new Set(timeline.segments.map((segment) => segment.clip_id))];
   const describe = (segment) => `${timestamp(segment.start)}–${timestamp(segment.end)}`;
