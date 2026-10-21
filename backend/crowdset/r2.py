@@ -15,6 +15,7 @@ from botocore.credentials import Credentials
 import httpx
 
 from .config import env
+from .limits import integer, MIB
 
 
 from .blobs import BlobError, BlobProvider, digest
@@ -112,6 +113,7 @@ class R2Blobs(BlobProvider):
             raise ValueError('R2 requires an account ID, bucket, and server-only access key pair.')
         self.root = Path(root).resolve()
         self.bucket = bucket
+        self.storage_bytes = integer('ORIGINAL_BYTES', STORAGE_BYTES, MIB, 100_000_000_000)
         self.host = f'{account}.r2.cloudflarestorage.com'
         self.url = f'https://{self.host}/{bucket}'
         self.budget = RequestBudget(self.root, f'{account}/{bucket}')
@@ -138,10 +140,10 @@ class R2Blobs(BlobProvider):
 
     def check_bucket(self, file_bytes):
         if file_bytes > 3 * 1024 ** 3:
-            raise BlobError('R2 free-tier mode limits individual files to 3 GiB.')
+            raise BlobError('R2 limits individual files to 3 GiB.')
         ledger = self.ledger()
-        if sum(ledger.values()) > STORAGE_BYTES:
-            raise BlobError('Recorded media exceeds the free storage budget. Remove an old set before enabling R2.')
+        if sum(ledger.values()) > self.storage_bytes:
+            raise BlobError('Recorded media exceeds the configured storage budget. Reconcile storage before enabling R2.')
         with self.client() as client:
             if client.head(self.url).status_code != 200:
                 raise BlobError('R2 bucket is unavailable. Check its server-only credentials.')
@@ -222,8 +224,8 @@ class R2Blobs(BlobProvider):
         path = Path(path)
         size, checksum = path.stat().st_size, digest(path)
         ledger = self.ledger()
-        if ledger.get(key) != size or sum(ledger.values()) > STORAGE_BYTES:
-            raise BlobError('The free storage budget has no reservation for this upload.')
+        if ledger.get(key) != size or sum(ledger.values()) > self.storage_bytes:
+            raise BlobError('The configured storage budget has no reservation for this upload.')
         state_path = self.state_path(key)
         state = json.loads(state_path.read_text()) if state_path.exists() else None
         if state and (state['key'], state['size'], state['sha256']) != (key, size, checksum):
