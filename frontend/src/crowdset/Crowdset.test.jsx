@@ -16,7 +16,7 @@ async function openSet() {
   fireEvent.click(await screen.findByRole('link', { name: /A night together/ }));
   return screen.findByRole('heading', { name: performance.name });
 }
-beforeEach(() => { request.mockReset(); window.history.replaceState({}, '', '/crowdset'); });
+beforeEach(() => { localStorage.clear(); request.mockReset(); window.history.replaceState({}, '', '/crowdset'); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 it('browses sets before opening a simple set detail', async () => {
