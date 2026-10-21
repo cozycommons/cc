@@ -8,6 +8,7 @@ import CreateSet from './CreateSet';
 import YouTubeImport from './YouTubeImport';
 import ProcessingStatus from './ProcessingStatus';
 import CompositionPlayer from './CompositionPlayer';
+import { readPlayerPreferences, savePlayerPreferences } from './playerPreferences';
 import { useScrubPreviews } from './ScrubPreview';
 import { eventDate, eventRange, matchesSearch } from './setDetails';
 import './crowdset.css';
@@ -27,7 +28,8 @@ export default function Crowdset() {
   const location = useLocation();
   const selected = slug ? sets.find((item) => item.slug === slug || item.id === slug) : null;
   const previews = useScrubPreviews(selected || {});
-  const [theater, setTheater] = React.useState(false);
+  const [theater, setTheater] = React.useState(() => readPlayerPreferences().theater);
+  React.useEffect(() => { savePlayerPreferences({ theater }); }, [theater]);
   const [creating, setCreating] = React.useState(false);
   const [query, setQuery] = React.useState('');
   const [failedFiles, setFailedFiles] = React.useState([]);
@@ -40,12 +42,13 @@ export default function Crowdset() {
   const [needsSignIn, setNeedsSignIn] = React.useState(false);
   const [limits, setLimits] = React.useState(legacyLimits);
   const player = React.useRef(null);
+  const reloadGeneration = React.useRef(0);
+  const authUser = React.useRef(null);
   const [currentTime, setCurrentTime] = React.useState(0);
   const local = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
   const choose = React.useCallback((value) => {
     navigate(value ? `/crowdset/${value.slug || value.id}` : '/crowdset');
-    setTheater(false);
     setStatusError('');
     setCreating(false);
     setFailedFiles([]);
@@ -56,21 +59,28 @@ export default function Crowdset() {
     setSets((previous) => [value, ...previous.filter((item) => item.id !== value.id)]);
   }, []);
 
-  const reload = React.useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const reload = React.useCallback(async ({ background = false } = {}) => {
+    const generation = ++reloadGeneration.current;
+    if (!background) { setLoading(true); setError(''); }
     try {
       const values = await request();
       const activeLimits = await getLimits().catch(() => null);
+      if (generation !== reloadGeneration.current) return;
       if (activeLimits?.recordings) setLimits(activeLimits);
       setSets(values);
       setAvailable(true);
       setNeedsSignIn(false);
+      setStatusError('');
     } catch (failure) {
+      if (generation !== reloadGeneration.current) return;
+      if (background && failure.status !== 401 && failure.status !== 403) {
+        setStatusError(`${failure.message}. Couldn’t refresh set details; playback is unchanged.`);
+        return;
+      }
       setAvailable(false);
       setNeedsSignIn(failure.status === 401);
       setError(failure.status === 401 ? '' : local ? `${failure.message}. Start the local Crowdset API, then reconnect.` : failure.message);
-    } finally { setLoading(false); }
+    } finally { if (generation === reloadGeneration.current) setLoading(false); }
   }, [local]);
 
   React.useEffect(() => { reload(); }, [reload]);
@@ -81,13 +91,21 @@ export default function Crowdset() {
     let timer;
     import('../supabase').then(({ getClient }) => {
       if (stopped) return;
-      subscription = getClient().auth.onAuthStateChange((event) => {
+      subscription = getClient().auth.onAuthStateChange((event, session) => {
+        const user = session?.user?.id || null;
+        if (event === 'INITIAL_SESSION') { authUser.current = user; return; }
         if (event === 'SIGNED_OUT') {
-          fetch('/crowdset/session', { method: 'DELETE' });
-          setSets([]); setAvailable(false); setNeedsSignIn(true);
-        } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+          ++reloadGeneration.current;
           clearTimeout(timer);
-          timer = setTimeout(reload, 0);
+          authUser.current = null;
+          fetch('/crowdset/session', { method: 'DELETE' });
+          setSets([]); setAvailable(false); setNeedsSignIn(true); setLoading(false);
+        } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+          const background = user !== null && user === authUser.current;
+          authUser.current = user;
+          if (!background) { ++reloadGeneration.current; setSets([]); setLoading(true); }
+          clearTimeout(timer);
+          timer = setTimeout(() => reload({ background }), 0);
         }
       }).data.subscription;
     });
@@ -101,7 +119,7 @@ export default function Crowdset() {
     document.title = selectedName ? `${selectedName} · Crowdset` : 'Crowdset';
     return () => { document.title = 'Cozy Commons'; };
   }, [selectedName]);
-  React.useEffect(() => { setTheater(false); setCurrentTime(0); setCreating(false); setFailedFiles([]); setNotice(''); }, [slug]);
+  React.useEffect(() => { setCurrentTime(0); setCreating(false); setFailedFiles([]); setNotice(''); }, [slug]);
   const selectedId = selected?.id;
   const selectedStatus = selected?.status;
   React.useEffect(() => {
@@ -191,7 +209,7 @@ export default function Crowdset() {
     </div>
   </article>;
 
-  return <main className={`crowdset ${theater ? 'cs-theater' : ''}`} onPlayCapture={(event) => {
+  return <main className={`crowdset ${theater && selected?.video_playable ? 'cs-theater' : ''}`} onPlayCapture={(event) => {
     const active = event.target;
     if (active.hasAttribute('data-playback-companion')) return;
     const group = active.closest('.cs-composition');

@@ -11,6 +11,7 @@ let callback;
 let playerRef;
 function tick(time) { act(() => { playerRef.current.currentTime = time; callback(); }); }
 beforeEach(() => {
+  localStorage.clear();
   vi.stubGlobal('requestAnimationFrame', (cb) => { callback = cb; return 1; });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
@@ -19,6 +20,36 @@ beforeEach(() => {
   playerRef = React.createRef();
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+it('remembers volume and mute across player remounts without starting playback', async () => {
+  let view = render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  fireEvent.change(screen.getByRole('slider', { name: 'Volume' }), { target: { value: '0.35' } });
+  fireEvent.volumeChange(playerRef.current);
+  fireEvent.click(screen.getByRole('button', { name: 'Mute', exact: true }));
+  fireEvent.volumeChange(playerRef.current);
+  view.unmount();
+  view = render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  expect(playerRef.current.volume).toBe(0.35);
+  expect(playerRef.current.muted).toBe(true);
+  expect(screen.getByRole('button', { name: 'Unmute', exact: true })).toBeInTheDocument();
+  expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Unmute', exact: true }));
+  expect(playerRef.current.volume).toBe(0.35);
+  view.unmount();
+});
+
+it('uses safe defaults for corrupt preferences and works when storage is unavailable', () => {
+  localStorage.setItem('crowdset:player', '{broken');
+  const view = render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  expect(playerRef.current.volume).toBe(1);
+  view.unmount();
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Storage disabled'); });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage disabled'); });
+  render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  fireEvent.change(screen.getByRole('slider', { name: 'Volume' }), { target: { value: '0.4' } });
+  fireEvent.volumeChange(playerRef.current);
+  expect(playerRef.current.volume).toBe(0.4);
+});
 
 it('switches only muted picture, preloads, seeks, pauses and falls back on buffering or errors', async () => {
   render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);

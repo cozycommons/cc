@@ -2,6 +2,7 @@ import React from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RectangleHorizontal, X, LoaderCircle } from 'lucide-react';
 import { endpoint } from './api';
 import ScrubPreview from './ScrubPreview';
+import { readPlayerPreferences, savePlayerPreferences } from './playerPreferences';
 
 export function playbackTime(seconds) {
   const total = Math.floor(Math.max(0, seconds || 0));
@@ -13,10 +14,11 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
   const container = React.useRef(null);
   const insert = React.useRef(null);
   const [playing, setPlaying] = React.useState(false);
-  const [muted, setMuted] = React.useState(false);
+  const [preferences] = React.useState(readPlayerPreferences);
+  const [muted, setMuted] = React.useState(preferences.muted);
   const [position, setPosition] = React.useState(0);
   const [message, setMessage] = React.useState('');
-  const [volume, setVolume] = React.useState(1);
+  const [volume, setVolume] = React.useState(preferences.volume);
   const [duration, setDuration] = React.useState(set.video_timeline?.duration || 0);
   const [buffered, setBuffered] = React.useState(0);
   const [buffering, setBuffering] = React.useState(false);
@@ -25,7 +27,11 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
   const [preview, setPreview] = React.useState(null);
   const [expanded, setExpanded] = React.useState(false);
   const hideTimer = React.useRef(null);
-  const previousVolume = React.useRef(1);
+  const previousVolume = React.useRef(preferences.volume || 1);
+  React.useLayoutEffect(() => {
+    playerRef.current.volume = preferences.volume;
+    playerRef.current.muted = preferences.muted;
+  }, [playerRef, preferences]);
   const wake = React.useCallback(() => {
     setControls(true);
     clearTimeout(hideTimer.current);
@@ -190,7 +196,12 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
         onPlay={() => setPlaying(true)} onPause={() => { setPlaying(false); setBuffering(false); }} onEnded={() => setPlaying(false)}
         onWaiting={() => setBuffering(true)} onPlaying={() => setBuffering(false)} onCanPlay={() => setBuffering(false)}
         onSeeked={() => setBuffering(false)}
-        onVolumeChange={(event) => { setMuted(event.currentTarget.muted); setVolume(event.currentTarget.volume); }}
+        onVolumeChange={(event) => {
+          const video = event.currentTarget;
+          if (video.volume > 0) previousVolume.current = video.volume;
+          setMuted(video.muted); setVolume(video.volume);
+          savePlayerPreferences({ volume: video.volume || previousVolume.current, muted: video.muted || video.volume === 0 });
+        }}
         onProgress={(event) => { const ranges = event.currentTarget.buffered; if (ranges.length) setBuffered(ranges.end(ranges.length - 1)); }}
         onError={() => { setBuffering(false); setMessage('The video could not load. Reload the set to retry.'); }} />
       {segments !== '[]' && <video data-playback-companion ref={insert} className="cs-composition-insert" muted playsInline preload="auto"
