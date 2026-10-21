@@ -178,7 +178,7 @@ def test_r2_rejects_unreserved_or_over_budget_writes_before_network(tmp_path, mo
     with pytest.raises(HTTPException) as error:
         originals.admit(limits, incoming=1)
     assert error.value.status_code == 507
-    monkeypatch.setenv('CROWDSET_ORIGINAL_BYTES', str(STORAGE_BYTES + 1))
+    monkeypatch.setenv('CROWDSET_ORIGINAL_BYTES', str(100_000_000_000 + 1))
     with pytest.raises(ValueError):
         Limits.environment()
 
@@ -253,4 +253,27 @@ def test_media_budget_exhaustion_returns_service_unavailable(tmp_path):
     with pytest.raises(HTTPException) as error:
         stored_media(SimpleNamespace(blobs=blobs), 'originals/set/clip/hash', request, 'clip.mp4', False, 'video/mp4')
     assert error.value.status_code == 503
+    assert calls == []
+
+
+def test_paid_storage_budget_is_shared_by_admission_and_r2(tmp_path, monkeypatch):
+    monkeypatch.setenv('CROWDSET_STORAGE_PROVIDER', 'r2')
+    monkeypatch.setenv('CROWDSET_ORIGINAL_BYTES', '100000000000')
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, headers={'Content-Length': '3', 'x-amz-meta-sha256': hashlib.sha256(b'abc').hexdigest()})
+    blobs = provider(tmp_path, handler)
+    assert blobs.storage_bytes == Limits.environment().original_bytes == 100_000_000_000
+    originals = reserve(tmp_path, blobs, 'mixes/set/one.wav', 3)
+    originals.record_blob('originals/other/clip/hash', 9_000_000_000)
+    source = tmp_path / 'file'
+    source.write_bytes(b'abc')
+    originals.admit(Limits.environment(), incoming=1)
+    blobs.put(source, 'mixes/set/one.wav')
+    assert len(calls) == 1
+    calls.clear()
+    originals.record_blob('originals/overflow/clip/hash', 100_000_000_000)
+    with pytest.raises(BlobError, match='reservation'):
+        blobs.put(source, 'mixes/set/one.wav')
     assert calls == []

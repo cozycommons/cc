@@ -38,7 +38,7 @@ A manifest uses integer frames on the shared 24 fps clock. Segments are concaten
 
 Use a fresh UUID hex job ID. Write the JSON as `data/inbox/<job>.tmp`, then rename it to `<job>.json` on the same filesystem to submit atomically. Maximums: 128 sources, 512 picture intervals, four hours of output. The renderer checks source size/hash before encoding, deadlines, disk space, byte ceilings, output frame count and duration. A source or output validation failure cannot replace another completed job.
 
-The result is `data/outputs/<job>.mp4`; `data/completed/<job>.json` contains output SHA256, size, duration, frame count, encoder and elapsed seconds. `data/completed/<job>.manifest.json` retains the edit. Failed/interrupted jobs appear under `data/failed`; their temporary files remain under `data/work`. A retry uses a new job ID. Sources and outputs are never automatically deleted; reclaim confirmed disposable local copies when admission rejects new work. These limits do not change production's 8 GB R2 allowance.
+The result is `data/outputs/<job>.mp4`; `data/completed/<job>.json` contains output SHA256, size, duration, frame count, encoder and elapsed seconds. `data/completed/<job>.manifest.json` retains the edit. Failed/interrupted jobs appear under `data/failed`; their temporary files remain under `data/work`. A retry uses a new job ID. Sources and outputs are never automatically deleted; reclaim confirmed disposable local copies when admission rejects new work. These limits do not change production's 100 GB R2 allowance.
 
 ## Operations
 

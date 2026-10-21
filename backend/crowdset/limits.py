@@ -37,7 +37,7 @@ class Limits:
             file_bytes=integer('MAX_FILE_BYTES', 3 * GIB, MIB, (3 if r2 else 16) * GIB),
             recording_seconds=integer('MAX_RECORDING_SECONDS', 7200, 1, 14400),
             set_seconds=integer('MAX_SET_SECONDS', 28800, 1, 86400),
-            original_bytes=integer('ORIGINAL_BYTES', original_default, MIB, 8_000_000_000 if r2 else 16 * 1024 * GIB),
+            original_bytes=integer('ORIGINAL_BYTES', original_default, MIB, 100_000_000_000 if r2 else 16 * 1024 * GIB),
             work_bytes=integer('WORK_BYTES', 10 * GIB, MIB, 1024 * GIB),
             free_bytes=integer('FREE_BYTES', 2 * GIB, MIB, 1024 * GIB),
             job_seconds=integer('JOB_SECONDS', 14400, 60, 14400),
