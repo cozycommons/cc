@@ -1,0 +1,19 @@
+[Unit]
+Description=Crowdset GPU render worker (local spool)
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/crowdset-worker
+ExecStart=/usr/bin/python3 %h/.local/share/crowdset-worker/gpu_worker.py --root %h/.local/share/crowdset-worker/data --ffmpeg %h/.local/share/crowdset-worker/ffmpeg/bin/ffmpeg --ffprobe %h/.local/share/crowdset-worker/ffmpeg/bin/ffprobe
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=4h
+UMask=0077
+NoNewPrivileges=true
+Nice=10
+CPUQuota=400%
+MemoryMax=8G
+
+[Install]
+WantedBy=default.target
