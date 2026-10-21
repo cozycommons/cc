@@ -87,6 +87,8 @@ Production Coolify runtime settings: `CROWDSET_REMOTE_WORKER=1`, `CROWDSET_WORKE
 
 Remote mode allows recordings up to 8 GiB by default, including full YouTube sets. Local R2 processing retains its 3 GiB per-recording cap. The configured total R2 budget, worker spool quota and disk free floor still apply independently; enabling remote mode does not increase the storage budget.
 
+The PC keeps up to 16 GiB of verified source recordings in its spool cache. Analysis, preview generation and video assembly share temporary hard links to those bytes, so stage cleanup does not trigger repeated R2 downloads. Unused cache entries are evicted oldest first; active stage files and authoritative R2 originals are preserved. The cache remains subject to the worker's 60 GiB spool quota and disk free floor.
+
 PC `~/.local/share/crowdset-worker/worker.env` (mode 0600):
 
 ```text
