@@ -31,10 +31,12 @@ class Limits:
     @classmethod
     def environment(cls):
         r2 = env('CROWDSET_STORAGE_PROVIDER', '').lower() == 'r2'
+        remote = r2 and env('CROWDSET_REMOTE_WORKER', '0') == '1'
+        file_default = (8 if remote else 3) * GIB
         original_default = 8_000_000_000 if r2 else (80 if env('CROWDSET_STORAGE_KEY') else 16) * GIB
         return cls(
             recordings=integer('MAX_RECORDINGS', 64, 1, 500),
-            file_bytes=integer('MAX_FILE_BYTES', 3 * GIB, MIB, (3 if r2 else 16) * GIB),
+            file_bytes=integer('MAX_FILE_BYTES', file_default, MIB, (8 if remote else 3 if r2 else 16) * GIB),
             recording_seconds=integer('MAX_RECORDING_SECONDS', 7200, 1, 14400),
             set_seconds=integer('MAX_SET_SECONDS', 28800, 1, 86400),
             original_bytes=integer('ORIGINAL_BYTES', original_default, MIB, 100_000_000_000 if r2 else 16 * 1024 * GIB),

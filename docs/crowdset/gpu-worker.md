@@ -85,6 +85,8 @@ Runtime prerequisites are Python 3.11+, Node.js 22+ on the worker PATH for YouTu
 
 Production Coolify runtime settings: `CROWDSET_REMOTE_WORKER=1`, `CROWDSET_WORKER_TOKEN=<random worker-only secret>`. Preserve existing R2 configuration and request ledger; do not initialize new counters. Configure bucket CORS for exactly `https://cozycommons.dev`, methods GET/HEAD/PUT, allowed headers Content-Type/Range, exposed headers ETag/Content-Length/Content-Range. Public bucket access remains disabled.
 
+Remote mode allows recordings up to 8 GiB by default, including full YouTube sets. Local R2 processing retains its 3 GiB per-recording cap. The configured total R2 budget, worker spool quota and disk free floor still apply independently; enabling remote mode does not increase the storage budget.
+
 PC `~/.local/share/crowdset-worker/worker.env` (mode 0600):
 
 ```text
