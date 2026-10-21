@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
+import threading
 import subprocess
 import time
 
@@ -115,6 +117,8 @@ def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc'):
     disk_admission(root, 2 * bound(frames) + len(value['segments']) * 2 * 1024 ** 2)
     paths, metadata = {}, {}
     for key, source in value['sources'].items():
+        write_json(root / 'status.json', {'state': 'rendering', 'job': job, 'phase': 'validating',
+                   'updated_at': time.time(), 'pid': os.getpid()})
         path = root / 'sources' / f'{source["sha256"]}.mp4'
         if path.is_symlink() or not path.is_file() or path.stat().st_size != source['bytes'] or digest(path) != source['sha256']:
             raise ValueError('Source is missing or its SHA256/size changed')
@@ -203,16 +207,21 @@ def single_worker(root):
         yield
 
 
-def serve(root, ffmpeg, ffprobe, encoder):
+def serve(root, ffmpeg, ffprobe, encoder, stop=None):
+    stop = stop or threading.Event()
     with single_worker(root):
         for abandoned in (root / 'running').glob('*.json'):
             write_json(root / 'failed' / abandoned.name, {'error': 'Interrupted job; source manifest and work retained'})
             abandoned.replace(root / 'failed' / f'{abandoned.stem}.manifest.json')
-        while True:
+        while not stop.is_set():
+            if (root / 'update-requested').exists():
+                write_json(root / 'status.json', {'state': 'paused', 'updated_at': time.time(), 'pid': os.getpid(), 'encoder': encoder})
+                stop.wait(1)
+                continue
             write_json(root / 'status.json', {'state': 'idle', 'updated_at': time.time(), 'pid': os.getpid(), 'encoder': encoder})
             jobs = sorted((root / 'inbox').glob('*.json'))
             if not jobs:
-                time.sleep(2)
+                stop.wait(2)
                 continue
             queued = jobs[0]
             job = queued.stem
@@ -242,7 +251,11 @@ def main():
     root = args.root.resolve()
     for name in ('inbox', 'running', 'completed', 'failed', 'work', 'sources', 'outputs'):
         (root / name).mkdir(parents=True, exist_ok=True, mode=0o700)
-    serve(root, args.ffmpeg, args.ffprobe, args.encoder)
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    serve(root, args.ffmpeg, args.ffprobe, args.encoder, stop)
+    write_json(root / 'status.json', {'state': 'stopped', 'updated_at': time.time(), 'pid': os.getpid()})
 
 
 if __name__ == '__main__':
