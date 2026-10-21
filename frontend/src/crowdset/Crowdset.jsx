@@ -209,7 +209,7 @@ export default function Crowdset() {
     </div>
   </article>;
 
-  return <main className={`crowdset ${theater ? 'cs-theater' : ''}`} onPlayCapture={(event) => {
+  return <main className={`crowdset ${theater && selected?.video_playable ? 'cs-theater' : ''}`} onPlayCapture={(event) => {
     const active = event.target;
     if (active.hasAttribute('data-playback-companion')) return;
     const group = active.closest('.cs-composition');

@@ -100,6 +100,12 @@ it('remembers theater mode across page remounts', async () => {
   await screen.findByLabelText('Current cut');
   fireEvent.click(screen.getByRole('button', { name: 'Theater mode', exact: true }));
   expect(screen.getByRole('main')).toHaveClass('cs-theater');
+  fireEvent.click(screen.getByRole('button', { name: 'All sets', exact: true }));
+  const link = await screen.findByRole('link', { name: /Test set/ });
+  expect(screen.getByRole('main')).not.toHaveClass('cs-theater');
+  fireEvent.click(link);
+  await screen.findByLabelText('Current cut');
+  expect(screen.getByRole('main')).toHaveClass('cs-theater');
   view.unmount();
   view = mount();
   await screen.findByLabelText('Current cut');
