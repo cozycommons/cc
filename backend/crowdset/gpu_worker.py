@@ -146,7 +146,7 @@ def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc'):
                     if progress and progress.exists():
                         matches = re.findall(r'^frame=(\d+)$', progress.read_text(), re.MULTILINE)
                         done = int(matches[-1]) if matches else 0
-                    write_json(root / 'status.json', {'state': 'rendering', 'job': job, 'updated_at': time.time(),
+                    write_json(root / 'status.json', {'state': 'rendering', 'job': job, 'pid': os.getpid(), 'updated_at': time.time(),
                                'completed_frames': min(frames, completed + done), 'total_frames': frames})
                     time.sleep(0.5)
             finally:

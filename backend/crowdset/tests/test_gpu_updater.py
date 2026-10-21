@@ -115,3 +115,11 @@ def test_failed_release_is_not_retried_until_main_changes(tmp_path, monkeypatch)
     updater.update(tmp_path)
     assert get.call_count == 1
     assert not (tmp_path / 'data/update-requested').exists()
+
+
+def test_new_worker_is_healthy_while_processing_queued_jobs(tmp_path, monkeypatch):
+    import time
+    (tmp_path / 'data').mkdir()
+    updater.record(tmp_path / 'data/status.json', {'state': 'rendering', 'pid': 42, 'updated_at': time.time()})
+    monkeypatch.setattr(updater, 'running_pid', lambda: 42)
+    assert updater.healthy(tmp_path, seconds=0.1)
