@@ -15,7 +15,7 @@ from botocore.credentials import Credentials
 import httpx
 
 from .config import env
-from .limits import integer, MIB
+from .limits import integer, MIB, GIB, R2_FILE_BYTES, REMOTE_FILE_BYTES
 
 
 from .blobs import BlobError, BlobProvider, digest
@@ -139,8 +139,9 @@ class R2Blobs(BlobProvider):
         return {item['key']: item['bytes'] for item in (json.loads(path.read_text()) for path in (self.root / 'objects').glob('*.json'))}
 
     def check_bucket(self, file_bytes):
-        if file_bytes > 3 * 1024 ** 3:
-            raise BlobError('R2 limits individual files to 3 GiB.')
+        maximum = REMOTE_FILE_BYTES if env('CROWDSET_REMOTE_WORKER', '0') == '1' else R2_FILE_BYTES
+        if file_bytes > maximum:
+            raise BlobError(f'R2 recording limit is {maximum // GIB} GiB in this processing mode.')
         ledger = self.ledger()
         if sum(ledger.values()) > self.storage_bytes:
             raise BlobError('Recorded media exceeds the configured storage budget. Reconcile storage before enabling R2.')

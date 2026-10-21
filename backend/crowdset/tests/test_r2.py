@@ -10,6 +10,7 @@ from crowdset.blobs import BlobError
 from crowdset.limits import Limits
 from crowdset.r2 import PART_BYTES, STORAGE_BYTES, R2Blobs, RequestBudget, atomic_json
 from crowdset.storage import OriginalStore
+from crowdset.store import Store
 
 ACCOUNT = 'a' * 32
 
@@ -183,8 +184,12 @@ def test_r2_rejects_unreserved_or_over_budget_writes_before_network(tmp_path, mo
         Limits.environment()
 
 
-def test_r2_startup_accepts_environment_default_upload_limit(tmp_path, monkeypatch):
+@pytest.mark.parametrize('remote', [False, True])
+def test_r2_startup_accepts_environment_default_upload_limit(tmp_path, monkeypatch, remote):
     monkeypatch.setenv('CROWDSET_STORAGE_PROVIDER', 'r2')
+    monkeypatch.setenv('CROWDSET_REMOTE_WORKER', '1' if remote else '0')
+    monkeypatch.setenv('CROWDSET_WORKER_TOKEN', 'test-worker-only')
+    monkeypatch.setenv('CROWDSET_ORIGINAL_BYTES', '100000000000')
     calls = []
 
     def handler(request):
@@ -196,9 +201,13 @@ def test_r2_startup_accepts_environment_default_upload_limit(tmp_path, monkeypat
 
     blobs = provider(tmp_path, handler)
     limits = Limits.environment()
-    blobs.check_bucket(limits.file_bytes)
+    store = Store(tmp_path, blobs=blobs)
+    try:
+        assert store.limits.file_bytes == (8 if remote else 3) * 1024 ** 3
+    finally:
+        store.close()
     assert len(calls) == 3
-    with pytest.raises(BlobError, match='3 GiB'):
+    with pytest.raises(BlobError, match=f'{8 if remote else 3} GiB'):
         blobs.check_bucket(limits.file_bytes + 1)
     assert len(calls) == 3
 
