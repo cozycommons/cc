@@ -62,3 +62,26 @@ it('retains transiently failed uploads for resumption and settles its batch', as
   expect(request.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
   expect(request.mock.calls.at(-1)[0]).toBe('/set/batches/batch/finish');
 });
+
+it('sends direct upload bytes only to R2 without forwarding the app credentials', async () => {
+  const file = new File(['abcd'], 'Clip.mp4');
+  let offset = 0;
+  const cloud = vi.fn(async (_url, options) => {
+    expect(options.credentials).toBe('omit');
+    expect(options.headers).toBeUndefined();
+    expect(await options.body.text()).toBe(offset === 0 ? 'ab' : 'cd');
+    return { ok: true };
+  });
+  vi.stubGlobal('fetch', cloud);
+  request.mockImplementation(async (path, options = {}) => {
+    expect(options.method).not.toBe('PATCH');
+    if (path === '/set/uploads' || path === '/set/uploads/upload') return { id: 'upload', offset, state: 'uploading', direct: true };
+    if (path.endsWith('?ack=true')) { offset += 2; return { id: 'upload', offset, state: 'uploading', direct: true }; }
+    if (path.includes('/parts/')) return { url: 'https://media.example/part' };
+    if (path.endsWith('/finish')) return { id: 'set', status: 'queued' };
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  const result = await uploadRecording('set', file, { batchId: 'batch', limits: { resumable_uploads: true, chunk_bytes: 2 } });
+  expect(cloud).toHaveBeenCalledTimes(2);
+  expect(result.status).toBe('queued');
+});

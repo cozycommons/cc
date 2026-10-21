@@ -48,11 +48,11 @@ def capture_clock(analysis, clip, data, originals, directory, limits, source=Non
             materialized.unlink(missing_ok=True)
 
 
-def process(directory):
+def process(directory, *, originals=None, limits=None):
     data = json.loads((directory / 'job.json').read_text())
     clips = data['clips']
-    limits = Limits.environment()
-    originals = OriginalStore(directory.parent, environment(directory.parent))
+    limits = limits or Limits.environment()
+    originals = originals or OriginalStore(directory.parent, environment(directory.parent))
     started = data.get('processing_started_at', time.time())
     def progress(stage, phase='prepare', **details):
         render = details.pop('render', None)

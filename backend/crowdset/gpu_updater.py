@@ -22,10 +22,16 @@ FILES = {
     'crowdset-gpu-update.timer': 'scripts/systemd/crowdset-gpu-update.timer',
     'gpu_updater.py': 'backend/crowdset/gpu_updater.py',
 }
+# Processing modules travel with the same CI-approved release as the renderer.
+for module in ('audio', 'video', 'progress', 'limits', 'config', 'storage', 'blobs', 'r2',
+               'worker', 'composition', 'previews', 'timestamps', 'gpu_worker', 'remote_agent', 'youtube'):
+    FILES['crowdset/' + module + '.py'] = 'backend/crowdset/' + module + '.py'
+
 SERVICE = 'crowdset-gpu-worker.service'
 
 
 def atomic(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = path.with_suffix('.new')
     with temporary.open('wb') as output:
         output.write(content)
@@ -78,8 +84,11 @@ def validate(folder):
             if not content or len(content) > 1024 ** 2:
                 raise ValueError('Release contains an empty or oversized file')
             if name.endswith('.py'):
-                py_compile.compile(str(folder / name), cfile=str(Path(temporary) / (name + 'c')), doraise=True)
-                subprocess.run(['/usr/bin/python3', str(folder / name), '--help'], capture_output=True, check=True, timeout=10)
+                compiled = Path(temporary) / (name + 'c')
+                compiled.parent.mkdir(parents=True, exist_ok=True)
+                py_compile.compile(str(folder / name), cfile=str(compiled), doraise=True)
+                if '/' not in name:
+                    subprocess.run(['/usr/bin/python3', str(folder / name), '--help'], capture_output=True, check=True, timeout=10)
     subprocess.run(['systemd-analyze', '--user', 'verify', *[str(folder / n) for n in FILES if not n.endswith('.py')]],
                    capture_output=True, check=True, timeout=20)
 
@@ -109,7 +118,7 @@ def healthy(root, seconds=15):
     while time.monotonic() < deadline:
         try:
             status = json.loads((root / 'data/status.json').read_text())
-            if status.get('pid') == running_pid() and status.get('state') in ('idle', 'rendering') and time.time() - status['updated_at'] < 10:
+            if status.get('pid') == running_pid() and status.get('state') in ('idle', 'rendering', 'offline') and time.time() - status['updated_at'] < 10:
                 return True
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             pass
@@ -137,6 +146,12 @@ def rollback(root, pending):
 
 
 def deploy(root, pending):
+    for name in FILES:
+        path = destination(root, name)
+        if not path.exists():
+            if not name.startswith('crowdset/'):
+                raise RuntimeError('Worker installation is incomplete; service has not been stopped')
+            atomic(path, (root / 'incoming' / name).read_bytes())
     pause = root / 'data/update-requested'
     pause.touch(mode=0o600)
     if not wait_paused(root):
@@ -186,7 +201,8 @@ def update(root):
         raise ValueError('Invalid main commit')
     installed = json.loads((root / 'deployment.json').read_text()) if (root / 'deployment.json').exists() else {}
     status = json.loads((root / 'update-status.json').read_text()) if (root / 'update-status.json').exists() else {}
-    if installed.get('sha') == sha or status.get('failed_sha') == sha:
+    complete_bundle = FILES.keys() <= installed.get('files', {}).keys() and all(destination(root, name).is_file() for name in FILES)
+    if (installed.get('sha') == sha and complete_bundle) or status.get('failed_sha') == sha:
         return
     checks = json.loads(get(f'https://api.github.com/repos/{REPOSITORY}/commits/{sha}/check-runs?per_page=100'))
     if not approved(checks, sha):

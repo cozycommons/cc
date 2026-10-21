@@ -9,7 +9,7 @@ import time
 from urllib.parse import quote
 import xml.etree.ElementTree as ET
 
-from botocore.auth import S3SigV4Auth
+from botocore.auth import S3SigV4Auth, S3SigV4QueryAuth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 import httpx
@@ -296,6 +296,84 @@ class R2Blobs(BlobProvider):
     def verify(response, size, checksum):
         if response.status_code != 200 or int(response.headers.get('content-length', -1)) != size or response.headers.get('x-amz-meta-sha256') != checksum:
             raise BlobError('Stored media failed its size or integrity check. Original bytes are retained.')
+
+    def signed(self, method, key, *, params=None, headers=None, expires=300):
+        self.budget.consume('b' if method == 'GET' else 'a')
+        request = AWSRequest(method=method, url=self.object_url(key), params=params or {}, headers=headers or {})
+        S3SigV4QueryAuth(self.auth.credentials, 's3', 'auto', expires=expires).add_auth(request)
+        return request.url
+
+    def begin_direct(self, key, size, checksum, mime):
+        if self.ledger().get(key) != size:
+            raise BlobError('Direct upload requires a full storage reservation.')
+        path = self.state_path(key)
+        state = json.loads(path.read_text()) if path.exists() else {
+            'key': key, 'size': size, 'sha256': checksum, 'upload_id': None}
+        if (state['size'], state['sha256']) != (size, checksum):
+            raise BlobError('Upload metadata changed.')
+        with self.client() as client:
+            head = client.head(self.object_url(key))
+            if head.status_code == 200:
+                self.verify(head, size, checksum)
+                if path.exists():
+                    self.abort(client, key, state)
+                    path.unlink()
+                return {**state, 'complete': True}
+            if head.status_code != 404:
+                raise BlobError('Could not check the existing direct transfer.')
+            if not state['upload_id']:
+                atomic_json(path, state)
+                self.recover_creation(client, state)
+                if not state['upload_id']:
+                    response = client.post(self.object_url(key), params={'uploads': ''},
+                        headers={'Content-Type': mime, 'x-amz-meta-sha256': checksum, 'x-amz-storage-class': 'STANDARD'})
+                    if response.status_code != 200 or not xml(response).findtext('UploadId'):
+                        raise BlobError('Could not start direct transfer.')
+                    state['upload_id'] = xml(response).findtext('UploadId')
+                    atomic_json(path, state)
+        return state
+
+    def direct_part(self, key, number):
+        state = json.loads(self.state_path(key).read_text())
+        count = (state['size'] + PART_BYTES - 1) // PART_BYTES
+        if not 1 <= number <= count:
+            raise BlobError('Part number exceeds the reserved object.')
+        size = min(PART_BYTES, state['size'] - (number - 1) * PART_BYTES)
+        headers = {'Content-Length': str(size)}
+        return {'url': self.signed('PUT', key, params={'uploadId': state['upload_id'], 'partNumber': str(number)}, headers=headers),
+                'bytes': size, 'part': number}
+
+    def finish_direct(self, key, size, checksum):
+        with self.client() as client:
+            head = client.head(self.object_url(key))
+            if head.status_code == 200:
+                self.verify(head, size, checksum)
+                if self.state_path(key).exists():
+                    self.abort(client, key, json.loads(self.state_path(key).read_text()))
+                    self.state_path(key).unlink()
+                return
+            state = json.loads(self.state_path(key).read_text())
+            response = client.get(self.object_url(key), params={'uploadId': state['upload_id']})
+            if response.status_code != 200:
+                raise BlobError('Cannot confirm uploaded parts.')
+            listing = xml(response)
+            parts = listing.findall('Part')
+            count = (size + PART_BYTES - 1) // PART_BYTES
+            if listing.findtext('IsTruncated') == 'true' or len(parts) != count:
+                raise BlobError('Upload is incomplete. Retry the missing parts.')
+            complete = ET.Element('CompleteMultipartUpload')
+            for number, part in enumerate(parts, 1):
+                expected = min(PART_BYTES, size - (number - 1) * PART_BYTES)
+                if int(part.findtext('PartNumber', '0')) != number or int(part.findtext('Size', '-1')) != expected or not part.findtext('ETag'):
+                    raise BlobError('Uploaded parts exceed their reserved bounds.')
+                item = ET.SubElement(complete, 'Part')
+                ET.SubElement(item, 'PartNumber').text = str(number)
+                ET.SubElement(item, 'ETag').text = part.findtext('ETag')
+            response = client.post(self.object_url(key), params={'uploadId': state['upload_id']}, content=ET.tostring(complete))
+            if response.status_code != 200 or xml(response).tag == 'Error':
+                raise BlobError('R2 did not confirm completion. Retry shortly.')
+            self.verify(client.head(self.object_url(key)), size, checksum)
+        self.state_path(key).unlink(missing_ok=True)
 
     def remove(self, keys):
         with self.client() as client:

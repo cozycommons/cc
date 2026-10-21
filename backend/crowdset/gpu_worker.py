@@ -241,6 +241,9 @@ def serve(root, ffmpeg, ffprobe, encoder, stop=None):
 
 
 def main():
+    runtime = os.environ.get('CROWDSET_WORKER_PYTHON')
+    if runtime and os.environ.get('CROWDSET_WORKER_URL') and '--help' not in sys.argv and os.path.realpath(runtime) != os.path.realpath(sys.executable):
+        os.execv(runtime, [runtime, __file__, *sys.argv[1:]])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--ffmpeg', required=True)
@@ -254,7 +257,11 @@ def main():
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-    serve(root, args.ffmpeg, args.ffprobe, args.encoder, stop)
+    if os.environ.get('CROWDSET_WORKER_URL'):
+        from crowdset.remote_agent import serve as remote_serve
+        remote_serve(root, args.ffmpeg, args.ffprobe, args.encoder, stop)
+    else:
+        serve(root, args.ffmpeg, args.ffprobe, args.encoder, stop)
     write_json(root / 'status.json', {'state': 'stopped', 'updated_at': time.time(), 'pid': os.getpid()})
 
 

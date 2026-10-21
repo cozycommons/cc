@@ -251,7 +251,7 @@ def test_media_budget_exhaustion_returns_service_unavailable(tmp_path):
     blobs.budget.limits['b'] = 0
     request = Request({'type': 'http', 'headers': [(b'range', b'bytes=1-3')]})
     with pytest.raises(HTTPException) as error:
-        stored_media(SimpleNamespace(blobs=blobs), 'originals/set/clip/hash', request, 'clip.mp4', False, 'video/mp4')
+        stored_media(SimpleNamespace(blobs=blobs, remote=None), 'originals/set/clip/hash', request, 'clip.mp4', False, 'video/mp4')
     assert error.value.status_code == 503
     assert calls == []
 
@@ -277,3 +277,65 @@ def test_paid_storage_budget_is_shared_by_admission_and_r2(tmp_path, monkeypatch
     with pytest.raises(BlobError, match='reservation'):
         blobs.put(source, 'mixes/set/one.wav')
     assert calls == []
+
+
+def test_direct_parts_have_exact_length_and_expiring_scoped_signatures(tmp_path):
+    from urllib.parse import urlsplit, parse_qs
+    blobs = provider(tmp_path, lambda request: httpx.Response(500))
+    key = 'originals/set/clip/direct'
+    reserve(tmp_path, blobs, key, 3)
+    atomic_json(blobs.state_path(key), {'key': key, 'size': 3, 'sha256': 'f' * 64, 'upload_id': 'private-upload'})
+    part = blobs.direct_part(key, 1)
+    params = parse_qs(urlsplit(part['url']).query)
+    assert params['uploadId'] == ['private-upload'] and params['partNumber'] == ['1']
+    assert params['X-Amz-Expires'] == ['300']
+    assert params['X-Amz-SignedHeaders'] == ['content-length;host']
+    assert part['bytes'] == 3
+    with pytest.raises(BlobError):
+        blobs.direct_part(key, 2)
+
+
+def test_direct_completion_uses_authoritative_parts_and_preserves_incomplete_reservations(tmp_path):
+    state = {'complete': False, 'part_size': 2}
+    checksum = hashlib.sha256(b'abc').hexdigest()
+    def handler(request):
+        if request.method == 'HEAD':
+            return httpx.Response(200, headers={'Content-Length': '3', 'x-amz-meta-sha256': checksum}) if state['complete'] else httpx.Response(404)
+        if request.method == 'GET':
+            return httpx.Response(200, content=f'<ListPartsResult><Part><PartNumber>1</PartNumber><Size>{state["part_size"]}</Size><ETag>etag</ETag></Part></ListPartsResult>')
+        state['complete'] = True
+        return httpx.Response(200, content='<CompleteMultipartUploadResult/>')
+    blobs = provider(tmp_path, handler)
+    key = 'originals/set/clip/direct'
+    reserve(tmp_path, blobs, key, 3)
+    atomic_json(blobs.state_path(key), {'key': key, 'size': 3, 'sha256': checksum, 'upload_id': 'upload'})
+    with pytest.raises(BlobError, match='bounds'):
+        blobs.finish_direct(key, 3, checksum)
+    assert blobs.state_path(key).exists() and blobs.ledger()[key] == 3
+    state['part_size'] = 3
+    blobs.finish_direct(key, 3, checksum)
+    assert not blobs.state_path(key).exists()
+    blobs.finish_direct(key, 3, checksum)
+
+
+def test_direct_lost_completion_ack_does_not_leave_unaccounted_multipart(tmp_path):
+    checksum = hashlib.sha256(b'abc').hexdigest()
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if request.method == 'HEAD':
+            return httpx.Response(200, headers={'Content-Length': '3', 'x-amz-meta-sha256': checksum})
+        assert request.method == 'DELETE'
+        return httpx.Response(204)
+    blobs = provider(tmp_path, handler)
+    key = 'originals/set/clip/direct'
+    reserve(tmp_path, blobs, key, 3)
+    state = {'key': key, 'size': 3, 'sha256': checksum, 'upload_id': 'lost-ack-upload'}
+    atomic_json(blobs.state_path(key), state)
+    assert blobs.begin_direct(key, 3, checksum, 'video/mp4')['complete']
+    assert [r.method for r in calls] == ['HEAD', 'DELETE']
+    assert not blobs.state_path(key).exists()
+    atomic_json(blobs.state_path(key), state)
+    blobs.finish_direct(key, 3, checksum)
+    assert [r.method for r in calls][-2:] == ['HEAD', 'DELETE']
+    assert not blobs.state_path(key).exists()
