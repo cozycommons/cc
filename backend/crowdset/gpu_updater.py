@@ -118,7 +118,7 @@ def healthy(root, seconds=15):
     while time.monotonic() < deadline:
         try:
             status = json.loads((root / 'data/status.json').read_text())
-            if status.get('pid') == running_pid() and status.get('state') in ('idle', 'rendering') and time.time() - status['updated_at'] < 10:
+            if status.get('pid') == running_pid() and status.get('state') in ('idle', 'rendering', 'offline') and time.time() - status['updated_at'] < 10:
                 return True
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             pass

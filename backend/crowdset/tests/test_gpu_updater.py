@@ -126,3 +126,28 @@ def test_new_worker_is_healthy_while_processing_queued_jobs(tmp_path, monkeypatc
     updater.record(tmp_path / 'data/status.json', {'state': 'rendering', 'pid': 42, 'updated_at': time.time()})
     monkeypatch.setattr(updater, 'running_pid', lambda: 42)
     assert updater.healthy(tmp_path, seconds=0.1)
+
+
+def test_expanded_bundle_adds_new_modules_before_stopping_service(tmp_path, monkeypatch):
+    pending = prepare(tmp_path, monkeypatch)
+    modules = [name for name in updater.FILES if name.startswith('crowdset/')]
+    for name in modules:
+        (tmp_path / 'units' / name).unlink()
+    monkeypatch.setattr(updater, 'wait_paused', lambda root: True)
+    def control(*args):
+        if args == ('stop', updater.SERVICE):
+            assert all((tmp_path / 'units' / name).exists() for name in modules)
+    monkeypatch.setattr(updater, 'control', control)
+    monkeypatch.setattr(updater, 'healthy', lambda root: True)
+    updater.record(tmp_path / 'pending-update.json', pending)
+    updater.deploy(tmp_path, pending)
+    assert (tmp_path / 'units/crowdset/youtube.py').read_bytes() == b'new crowdset/youtube.py'
+    assert (tmp_path / 'data/original.mp4').read_bytes() == b'original media'
+
+
+def test_worker_can_be_healthy_while_waiting_for_control_plane(tmp_path, monkeypatch):
+    import time
+    (tmp_path / 'data').mkdir()
+    updater.record(tmp_path / 'data/status.json', {'state': 'offline', 'pid': 42, 'updated_at': time.time()})
+    monkeypatch.setattr(updater, 'running_pid', lambda: 42)
+    assert updater.healthy(tmp_path, seconds=0.1)
