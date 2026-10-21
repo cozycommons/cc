@@ -2,6 +2,7 @@ import React from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, RectangleHorizontal, X, LoaderCircle } from 'lucide-react';
 import { endpoint } from './api';
 import ScrubPreview from './ScrubPreview';
+import syncComposition from './syncComposition';
 import { readPlayerPreferences, savePlayerPreferences } from './playerPreferences';
 
 export function playbackTime(seconds) {
@@ -13,6 +14,7 @@ export function playbackTime(seconds) {
 export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theater = false, onTheaterChange, previews }) {
   const container = React.useRef(null);
   const insert = React.useRef(null);
+  const heldPicture = React.useRef(null);
   const [playing, setPlaying] = React.useState(false);
   const [preferences] = React.useState(readPlayerPreferences);
   const [muted, setMuted] = React.useState(preferences.muted);
@@ -59,55 +61,8 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
     const overlay = insert.current;
     const cuts = JSON.parse(segments);
     if (!overlay || !cuts.length) return;
-    let frame;
-    let loaded;
-    let failed = false;
-    let playPending = false;
-    const fail = () => { failed = true; overlay.style.visibility = 'hidden'; };
-    overlay.addEventListener('error', fail);
-    function sync() {
-      const time = base.currentTime;
-      const active = cuts.find((cut) => cut.start <= time && time < cut.end);
-      const next = active || cuts.find((cut) => cut.start > time && cut.start - time < 5);
-      if (next?.asset_id !== loaded) {
-        loaded = next?.asset_id;
-        failed = false;
-        overlay.pause();
-        overlay.style.visibility = 'hidden';
-        if (next) {
-          overlay.src = endpoint(`/${set.id}/overlays/${loaded}?v=${set.mix_revision}`);
-          overlay.load();
-        } else {
-          overlay.removeAttribute('src');
-          overlay.load();
-        }
-      }
-      const target = active ? time - active.start : 0;
-      const drift = Math.abs(overlay.currentTime - target);
-      if (next && !failed && overlay.readyState >= 1 && !overlay.seeking && drift > 0.12) {
-        overlay.currentTime = target;
-      }
-      overlay.muted = true;
-      overlay.playbackRate = base.playbackRate;
-      const ready = active && !failed && !base.seeking && !overlay.seeking && overlay.readyState >= 2 && drift <= 0.15;
-      overlay.style.visibility = ready ? 'visible' : 'hidden';
-      if (active && !failed && !base.paused && !base.seeking && base.readyState >= 3 && overlay.readyState >= 2) {
-        if (overlay.paused && !playPending) {
-          playPending = true;
-          const asset = loaded;
-          overlay.play().catch((error) => {
-            if (asset === loaded && error.name !== 'AbortError') fail();
-          }).finally(() => { playPending = false; });
-        }
-      } else if (!overlay.paused) overlay.pause();
-      frame = requestAnimationFrame(sync);
-    }
-    frame = requestAnimationFrame(sync);
-    return () => {
-      cancelAnimationFrame(frame);
-      overlay.removeEventListener('error', fail);
-      overlay.pause();
-    };
+    return syncComposition({ base, overlay, still: heldPicture.current, cuts,
+      source: (asset) => endpoint(`/${set.id}/overlays/${asset}?v=${set.mix_revision}`) });
   }, [segments, set.id, set.mix_revision, playerRef]);
 
   async function toggle() {
@@ -206,6 +161,7 @@ export default function CompositionPlayer({ set, playerRef, onTimeUpdate, theate
         onError={() => { setBuffering(false); setMessage('The video could not load. Reload the set to retry.'); }} />
       {segments !== '[]' && <video data-playback-companion ref={insert} className="cs-composition-insert" muted playsInline preload="auto"
         disablePictureInPicture aria-label="Friend’s picture" />}
+      {segments !== '[]' && <canvas ref={heldPicture} className="cs-composition-still" aria-hidden="true" />}
       <button className="cs-player-screen" aria-label={playing ? 'Pause video' : 'Play video'} tabIndex={-1}
         onClick={toggle} onDoubleClick={toggleFullscreen}>
         {!playing && !buffering && <span className="cs-player-center"><Play size={30} fill="currentColor" aria-hidden="true" /></span>}

@@ -14,7 +14,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.stubGlobal('requestAnimationFrame', (cb) => { callback = cb; return 1; });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
-  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(function () { this.currentTime = 0; });
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function () { Object.defineProperty(this, 'paused', { configurable: true, value: true }); });
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function () { Object.defineProperty(this, 'paused', { configurable: true, value: false }); return Promise.resolve(); });
   playerRef = React.createRef();
@@ -51,7 +51,7 @@ it('uses safe defaults for corrupt preferences and works when storage is unavail
   expect(playerRef.current.volume).toBe(0.4);
 });
 
-it('switches only muted picture, preloads, seeks, pauses and falls back on buffering or errors', async () => {
+it('switches only muted picture, preloads, seeks, pauses and falls back on errors', async () => {
   render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
   const base = screen.getByLabelText('Current cut');
   const insert = screen.getByLabelText('Friend’s picture');
@@ -61,18 +61,18 @@ it('switches only muted picture, preloads, seeks, pauses and falls back on buffe
   expect(insert.style.visibility).toBe('hidden');
   fireEvent.click(screen.getByRole('button', { name: 'Play' }));
   await act(async () => {});
-  tick(12); tick(12);
+  tick(12); fireEvent.seeked(insert); tick(12);
   expect(insert.currentTime).toBe(2);
   expect(insert.style.visibility).toBe('visible');
   expect(insert.muted).toBe(true);
   expect(base.muted).toBe(false);
   expect(base).toHaveAttribute('src', '/crowdset/sets/set/video?v=revision');
   Object.defineProperty(base, 'paused', { configurable: true, value: true });
-  tick(13); tick(13);
+  tick(13); fireEvent.seeked(insert); tick(13);
   expect(insert.paused).toBe(true);
   Object.defineProperty(insert, 'readyState', { configurable: true, value: 1 });
   tick(14);
-  expect(insert.style.visibility).toBe('hidden');
+  expect(insert.style.visibility).toBe('visible');
   Object.defineProperty(insert, 'readyState', { configurable: true, value: 4 });
   tick(15); tick(15);
   fireEvent.error(insert);
@@ -80,11 +80,130 @@ it('switches only muted picture, preloads, seeks, pauses and falls back on buffe
   expect(insert.style.visibility).toBe('hidden');
   tick(21);
   expect(insert).toHaveAttribute('src', '/crowdset/sets/set/overlays/next?v=revision');
-  tick(26); tick(26);
+  tick(26); fireEvent.seeked(insert); tick(26);
   expect(insert.style.visibility).toBe('visible');
   tick(5);
   expect(insert.style.visibility).toBe('hidden');
   expect(base).toHaveAttribute('src', '/crowdset/sets/set/video?v=revision');
+});
+
+it('waits for a presented frame and tolerates small drift without seeking or flashing the base', async () => {
+  render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const insert = screen.getByLabelText('Friend’s picture');
+  let presented;
+  insert.requestVideoFrameCallback = vi.fn((cb) => { presented = cb; return 1; });
+  insert.cancelVideoFrameCallback = vi.fn();
+  for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
+  tick(12);
+  expect(insert.style.visibility).toBe('hidden');
+  fireEvent.seeked(insert);
+  expect(insert.style.visibility).toBe('hidden');
+  act(() => presented(0, { mediaTime: 0 }));
+  expect(insert.style.visibility).toBe('hidden');
+  tick(12);
+  act(() => presented(0, { mediaTime: 2 }));
+  expect(insert.style.visibility).toBe('visible');
+  fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+  await act(async () => {});
+  tick(12.25);
+  expect(insert.currentTime).toBe(2);
+  expect(insert.playbackRate).toBeGreaterThan(1);
+  expect(insert.style.visibility).toBe('visible');
+  Object.defineProperty(insert, 'readyState', { configurable: true, value: 1 });
+  tick(12.3);
+  expect(insert.style.visibility).toBe('visible');
+  tick(20);
+  expect(insert.style.visibility).toBe('hidden');
+});
+
+it('reveals a preloaded clip at its start in browsers without compositor callbacks', () => {
+  render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const insert = screen.getByLabelText('Friend’s picture');
+  for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
+  tick(6);
+  fireEvent.loadedData(insert);
+  expect(insert.style.visibility).toBe('hidden');
+  tick(10);
+  expect(insert.style.visibility).toBe('visible');
+});
+
+it('reuses the decoded first frame when seeking exactly to a preloaded clip’s start', () => {
+  render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const insert = screen.getByLabelText('Friend’s picture');
+  let presented;
+  insert.requestVideoFrameCallback = vi.fn((cb) => { presented = cb; return 1; });
+  insert.cancelVideoFrameCallback = vi.fn();
+  for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
+  tick(6);
+  fireEvent.loadedData(insert);
+  act(() => presented(0, { mediaTime: 0 }));
+  tick(10);
+  expect(insert.style.visibility).toBe('visible');
+  expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+});
+
+it('holds the last picture during a paused seek and reveals the new frame without starting audio', () => {
+  const draw = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: draw });
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const insert = screen.getByLabelText('Friend’s picture');
+  const still = document.querySelector('.cs-composition-still');
+  for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
+  Object.defineProperties(insert, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 } });
+  tick(12); fireEvent.seeked(insert); tick(12);
+  now = 1200;
+  tick(16);
+  expect(draw).toHaveBeenCalledOnce();
+  expect(still.width).toBe(1280);
+  expect(still.style.visibility).toBe('visible');
+  expect(insert.style.visibility).toBe('hidden');
+  tick(16.1);
+  expect(insert.currentTime).toBe(6);
+  expect(still.style.visibility).toBe('visible');
+  fireEvent.seeked(insert);
+  expect(insert.style.visibility).toBe('visible');
+  expect(still.style.visibility).toBe('hidden');
+  expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+  expect(playerRef.current.muted).toBe(false);
+});
+
+it('ignores stale decoded callbacks after a different clip is selected and cancels on unmount', () => {
+  const view = render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const insert = screen.getByLabelText('Friend’s picture');
+  let presented;
+  insert.requestVideoFrameCallback = vi.fn((cb) => { presented = cb; return 1; });
+  insert.cancelVideoFrameCallback = vi.fn();
+  for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
+  tick(12);
+  const stale = presented;
+  tick(26);
+  fireEvent.seeked(insert);
+  act(() => stale(0, { mediaTime: 1 }));
+  expect(insert.style.visibility).toBe('hidden');
+  act(() => presented(0, { mediaTime: 1 }));
+  expect(insert.style.visibility).toBe('visible');
+  tick(26);
+  view.unmount();
+  expect(insert.cancelVideoFrameCallback).toHaveBeenCalled();
+  act(() => presented(0, { mediaTime: 1 }));
+  expect(insert.style.visibility).toBe('hidden');
+});
+
+it('falls back to the official picture if a corrective seek never completes', () => {
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  render(<CompositionPlayer set={set} playerRef={playerRef} onTimeUpdate={() => {}} />);
+  const insert = screen.getByLabelText('Friend’s picture');
+  for (const media of [playerRef.current, insert]) Object.defineProperty(media, 'readyState', { configurable: true, value: 4 });
+  tick(12);
+  now = 6000;
+  tick(13);
+  expect(insert.style.visibility).toBe('hidden');
+  fireEvent.seeked(insert);
+  expect(insert.style.visibility).toBe('hidden');
+  expect(playerRef.current).toHaveAttribute('src', '/crowdset/sets/set/video?v=revision');
 });
 
 it('uses screen and icon buttons, restores mute volume, and seeks with focused shortcuts', async () => {
