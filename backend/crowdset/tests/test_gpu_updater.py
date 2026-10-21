@@ -14,6 +14,15 @@ def checks():
          'app': {'slug': 'github-actions'}} for i, name in enumerate(sorted(updater.REQUIRED), 1)]}
 
 
+def test_release_requires_all_four_linux_ci_jobs():
+    assert updater.REQUIRED == {'frontend', 'backend', 'crowdset-container', 'crowdset (ubuntu-latest)'}
+    payload = checks()
+    assert updater.approved(payload, SHA)
+    for check in payload['check_runs']:
+        missing = {**payload, 'check_runs': [c for c in payload['check_runs'] if c is not check]}
+        assert not updater.approved(missing, SHA)
+
+
 def test_only_latest_checks_from_actions_on_exact_head_can_approve():
     payload = checks()
     assert updater.approved(payload, SHA)
