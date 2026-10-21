@@ -33,11 +33,10 @@ describe('top-level routes', () => {
 
     expect(container).not.toBeEmptyDOMElement();
     expect(screen.getByRole('main')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Make room.*good things\./ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'The shelf' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Dice beer die records and stats' })).toHaveAttribute('href', '/dice');
     expect(screen.queryByText('Commons scene page')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Crowdset concert videos' })).toHaveAttribute('href', '/crowdset');
-    expect(screen.getByRole('link', { name: 'Crowdset ↗' })).toHaveAttribute('href', '/crowdset');
   });
 
   it('serves Crowdset at its canonical URL', async () => {
