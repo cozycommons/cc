@@ -138,3 +138,33 @@ def test_only_remote_manifest_mode_accepts_bounded_black_gaps():
     del value['segments'][-1]['source']
     with pytest.raises(ValueError, match='Unknown picture'):
         gpu_worker.manifest(value, allow_gaps=True)
+
+
+def test_full_range_mobile_picture_is_converted_to_limited_range_sdr(tmp_path):
+    import os
+    import subprocess
+    import imageio_ffmpeg
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    source = tmp_path / 'phone.mp4'
+    subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                    "nullsrc=s=320x180:r=30,format=yuv420p,geq=lum='255*X/W':cb=128:cr=128",
+                    '-f', 'lavfi', '-i', 'sine=frequency=400:sample_rate=48000', '-t', '3',
+                    '-c:v', 'libx264', '-qp', '0', '-pix_fmt', 'yuvj420p', '-color_range', 'pc',
+                    '-c:a', 'aac', str(source)], check=True)
+    assert gpu_worker.probe('ffprobe', source)[0]['pix_fmt'] == 'yuvj420p'
+    for name in ('sources', 'work', 'outputs', 'completed'):
+        (tmp_path / name).mkdir()
+    checksum = gpu_worker.digest(source)
+    os.link(source, tmp_path / 'sources' / (checksum + '.mp4'))
+    value = {'version': 1, 'audio_source': 'phone',
+             'sources': {'phone': {'sha256': checksum, 'bytes': source.stat().st_size}},
+             'segments': [{'source': 'phone', 'start_frame': 0, 'frames': 48}]}
+    gpu_worker.render(tmp_path, 'phone-range', value, ffmpeg, 'ffprobe', 'libx264', normalize_sources=True)
+    output = tmp_path / 'outputs/phone-range.mp4'
+    stream = gpu_worker.check_video(gpu_worker.probe('ffprobe', output))
+    assert stream['color_range'] == 'tv'
+    pixels = subprocess.check_output([ffmpeg, '-v', 'error', '-i', str(output), '-frames:v', '1',
+                                      '-pix_fmt', 'yuv420p', '-f', 'rawvideo', '-'])
+    row = pixels[540 * 1920:541 * 1920]
+    assert 14 <= min(row) <= 20
+    assert 230 <= max(row) <= 240
