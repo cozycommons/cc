@@ -20,7 +20,20 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-crowdset.txt
       - name: Install media inspection tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        timeout-minutes: 3
+        run: |
+          . /etc/os-release
+          cat > /tmp/crowdset-apt.sources <<EOF
+          Types: deb
+          URIs: https://archive.ubuntu.com/ubuntu
+          Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates ${VERSION_CODENAME}-security
+          Components: main universe
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          options=(-o Dir::Etc::sourcelist=/tmp/crowdset-apt.sources -o Dir::Etc::sourceparts=-
+                   -o Acquire::https::Timeout=30 -o Acquire::Retries=1)
+          sudo apt-get "${options[@]}" update
+          sudo apt-get "${options[@]}" install -y --no-install-recommends ffmpeg
       - run: bash scripts/crowdset-dev.sh setup
       - run: .crowdset-venv/bin/python -m pip install pytest==8.3.4 httpx==0.28.1
       - run: .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q
