@@ -7,6 +7,7 @@ import MixTimeline, { recordingColor } from './MixTimeline';
 import CreateSet from './CreateSet';
 import YouTubeImport from './YouTubeImport';
 import ProcessingStatus from './ProcessingStatus';
+import ProcessingDetails from './ProcessingDetails';
 import CompositionPlayer from './CompositionPlayer';
 import { readPlayerPreferences, savePlayerPreferences } from './playerPreferences';
 import { useScrubPreviews } from './ScrubPreview';
@@ -266,6 +267,7 @@ export default function Crowdset() {
         </details>}
       </section>
       {selected.can_delete && <section className="cs-admin" aria-label="Admin controls"><h2>Admin controls</h2>
+        <ProcessingDetails set={selected} />
         {selected.video_playable && selected.video_timeline?.segments.some((segment) => !selected.scrub_previews?.[segment.clip_id]) && <button disabled={locked} onClick={() => action(async () => update(await request(`/${selected.id}/process`, { method: 'POST' })))}>Prepare video previews</button>}
         <button className="cs-delete" disabled={locked} onClick={() => { if (window.confirm(`Delete “${selected.name}” and its recordings?`)) action(async () => { await request(`/${selected.id}`, { method: 'DELETE' }); choose(null); await reload(); }); }}>Delete set</button></section>}
     </>}

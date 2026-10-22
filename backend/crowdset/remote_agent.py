@@ -17,8 +17,11 @@ from . import gpu_worker, video
 from .audio import probe
 from .blobs import digest
 from .limits import Limits
+from .progress import snapshot
 from .storage import OriginalStore
 from .worker import process, write_json
+
+SOURCE_CACHE_BYTES = 16 * 1024 ** 3
 
 
 class Control:
@@ -89,19 +92,35 @@ class WorkerOriginals(OriginalStore):
         self.blobs = True
 
     def materialize(self, set_id, clip, directory):
-        return self.control.download(clip['object_key'], directory / (clip['id'] + '.original'), clip['bytes'], clip['sha256'])
+        target = directory / (clip['id'] + '.original')
+        cache = self.spool / 'source-cache'
+        cache.mkdir(exist_ok=True, mode=0o700)
+        cached = cache / (clip['sha256'] + '.original')
+        entries = sorted((p for p in cache.iterdir() if p.is_file()), key=lambda p: p.stat().st_mtime)
+        used = sum(p.stat().st_size for p in entries)
+        incoming = max(0, clip['bytes'] - (cached.stat().st_size if cached.exists() else 0))
+        for entry in entries:
+            if used + incoming <= SOURCE_CACHE_BYTES:
+                break
+            if entry != cached and entry.stat().st_nlink == 1:
+                used -= entry.stat().st_size
+                entry.unlink()
+        if used + incoming > SOURCE_CACHE_BYTES:
+            return self.control.download(clip['object_key'], target, clip['bytes'], clip['sha256'])
+        source = self.control.download(clip['object_key'], cached, clip['bytes'], clip['sha256'])
+        source.touch()
+        target.unlink(missing_ok=True)
+        os.link(source, target)
+        return target
 
     def admit(self, limits, incoming=0, work_needed=0, **kwargs):
         gpu_worker.disk_admission(self.spool, work_needed)
 
 
-def flatten(directory, result, ffmpeg, ffprobe, encoder):
-    composition = result.get('composition')
-    if not composition:
+def flatten(directory, result, originals, data, limits, ffmpeg, ffprobe, encoder):
+    if not result.get('video_playable'):
         return
     visual = result['video_timeline']
-    if visual['gaps']:
-        raise ValueError('The full set has picture gaps. It cannot yet be flattened by the GPU worker.')
     root = directory / 'gpu'
     for name in ('sources', 'work', 'outputs', 'completed'):
         (root / name).mkdir(parents=True, exist_ok=True)
@@ -112,17 +131,47 @@ def flatten(directory, result, ffmpeg, ffprobe, encoder):
         if not target.exists():
             os.link(path, target)
         sources[key] = {'sha256': checksum, 'bytes': path.stat().st_size}
-    add('official', directory / 'pending.mp4')
+    clips = {clip['id']: clip for clip in result['clips']}
+    materialized = []
+    def original(clip_id):
+        path = originals.materialize(data['id'], clips[clip_id], directory)
+        materialized.append(path)
+        if clip_id not in sources:
+            add(clip_id, path)
+        return path
     segments = []
-    for segment in visual['segments']:
-        asset_id = segment.get('asset_id')
-        if asset_id:
-            add(asset_id, directory / composition['assets'][asset_id]['file'])
-        segments.append({'source': asset_id or 'official',
-                         'start_frame': 0 if asset_id else segment['first_frame'],
+    for segment in sorted(visual['segments'] + visual['gaps'], key=lambda s: s['first_frame']):
+        clip_id = segment.get('clip_id')
+        timestamp = 0
+        if clip_id:
+            original(clip_id)
+            timestamp = segment['start'] - segment['offset'] + clips[clip_id]['video']['audio_start']
+        segments.append({'source': clip_id,
+                         'start_frame': round(max(0, timestamp) * gpu_worker.FPS),
                          'frames': segment['last_frame'] - segment['first_frame']})
+    audio_source = None
+    official = data.get('soundtrack_clip_id')
+    if official:
+        path = original(official)
+        audio = [s for s in gpu_worker.probe(ffprobe, path, formats=video.FORMATS) if s['codec_type'] == 'audio']
+        if (len(audio) == 1 and audio[0]['codec_name'] == 'aac'
+                and abs(float(audio[0].get('start_time', 0))) < 1e-6
+                and float(audio[0].get('duration') or 0) + .1 >= sum(s['frames'] for s in segments) / gpu_worker.FPS
+                and 0 < int(audio[0].get('bit_rate') or 0) <= 512000):
+            audio_source = official
+    if audio_source is None:
+        audio_file = directory / 'audio-source.mp4'
+        video.run(['-v', 'error', '-protocol_whitelist', 'file', '-i', str(directory / 'pending.wav'),
+                   '-vn', '-c:a', 'aac', '-b:a', '192k', str(audio_file)], limits.media_seconds)
+        audio_source = 'mixed_audio'
+        add(audio_source, audio_file)
     job = uuid4().hex
-    gpu_worker.render(root, job, {'version': 1, 'audio_source': 'official', 'sources': sources, 'segments': segments}, ffmpeg, ffprobe, encoder)
+    try:
+        gpu_worker.render(root, job, {'version': 1, 'audio_source': audio_source, 'sources': sources, 'segments': segments},
+                          ffmpeg, ffprobe, encoder, normalize_sources=True, progress_directory=directory)
+    finally:
+        for path in materialized:
+            path.unlink(missing_ok=True)
     (root / 'outputs' / (job + '.mp4')).replace(directory / 'pending.mp4')
     result['composition'] = None
     for segment in visual['segments']:
@@ -163,17 +212,28 @@ def execute(root, control, job, ffmpeg, ffprobe, encoder):
     data = dict(job['snapshot'])
     # Full rebuild on the worker avoids relying on production's old local audio cache.
     data.update(playable=False, composition=None, previous_revision={}, mix_file=None, video_timeline=None, video_object=None)
-    previous = sorted(root.glob('remote/*/*/' + job['set_id'] + '/published.json'), key=lambda p: p.stat().st_mtime)
-    if previous:
-        for clip in data['clips']:
-            for suffix in ('.wav', '.npy', '.analysis.json', '.alignment.json'):
-                cached = previous[-1].parent / (clip['id'] + suffix)
+    previous = sorted(root.glob('remote/*/*/' + job['set_id'] + '/job.json'), key=lambda p: p.stat().st_mtime)
+    for clip in data['clips']:
+        for manifest_path in reversed(previous):
+            if manifest_path.parent == directory:
+                continue
+            cached_clips = json.loads(manifest_path.read_text()).get('clips', [])
+            if not any(c['id'] == clip['id'] and c.get('sha256') == clip.get('sha256') for c in cached_clips):
+                continue
+            required = [manifest_path.parent / (clip['id'] + suffix) for suffix in ('.wav', '.npy', '.analysis.json')]
+            if not all(p.is_file() for p in required):
+                continue
+            for cached in required + [manifest_path.parent / (clip['id'] + '.alignment.json')]:
                 if cached.is_file():
                     shutil.copyfile(cached, directory / cached.name)
+            break
     write_json(directory / 'job.json', data)
-    process(directory, originals=WorkerOriginals(directory.parent, control), limits=limits)
+    originals = WorkerOriginals(directory.parent, control)
+    process(directory, originals=originals, limits=limits, render_video=False)
     result = json.loads((directory / 'result.json').read_text())
-    flatten(directory, result, ffmpeg, ffprobe, encoder)
+    flatten(directory, result, originals, data, limits, ffmpeg, ffprobe, encoder)
+    write_json(directory / 'progress.json', {'stage': 'Saving the finished cut to cloud storage…',
+               'processing': {'phase': 'save', 'updated_at': time.time()}})
     for name in ('pending.wav', 'pending.mp4'):
         if (directory / name).is_file():
             control.upload(directory / name, mime='video/mp4' if name.endswith('.mp4') else 'audio/wav')
@@ -208,9 +268,9 @@ def serve(root, ffmpeg, ffprobe, encoder, stop):
                 while not heartbeat_stop.wait(15):
                     try:
                         directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
-                        progress = directory / 'progress.json'
-                        stage = json.loads(progress.read_text()).get('stage') if progress.exists() else None
-                        control.call('heartbeat', stage=stage or ('Downloading YouTube on the PC…' if job['kind'] == 'youtube' else 'Processing on the PC…'))
+                        value = snapshot(directory)
+                        control.call('heartbeat', stage=value.get('stage') or ('Downloading YouTube on the PC…' if job['kind'] == 'youtube' else 'Processing on the PC…'),
+                                     processing=value.get('processing'))
                         gpu_worker.write_json(root / 'status.json', {'state': 'rendering', 'job': job['id'],
                                              'pid': os.getpid(), 'updated_at': time.time()})
                     except Exception:
@@ -223,7 +283,7 @@ def serve(root, ffmpeg, ffprobe, encoder, stop):
                 directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
                 write_json(directory / 'published.json', {'job': job['id'], 'published_at': time.time()})
                 # Cloud publication has committed; these are reconstructible worker staging files.
-                for pattern in ('pending.*', 'source.*', 'overlay-*.mp4'):
+                for pattern in ('pending.*', 'source.*', 'overlay-*.mp4', 'audio-source.mp4'):
                     for staged in directory.glob(pattern):
                         staged.unlink(missing_ok=True)
                 shutil.rmtree(directory / 'gpu', ignore_errors=True)

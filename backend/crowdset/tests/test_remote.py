@@ -157,12 +157,17 @@ def test_publication_rejects_wrong_clip_identity_and_infinite_metadata(store):
         store.remote.publish(job, {'playable': True, 'duration': float('nan')})
 
 
-def test_real_media_runs_off_api_and_publishes_from_worker(store, tmp_path):
+def test_real_media_runs_off_api_and_publishes_from_worker(store, tmp_path, monkeypatch):
     import imageio_ffmpeg
     import subprocess
     import shutil
     from crowdset.blobs import digest
     from crowdset.remote_agent import execute
+    from crowdset import video, composition
+    def forbidden(*args, **kwargs):
+        pytest.fail('Remote rendering must not normalize video with the old CPU pipeline')
+    monkeypatch.setattr(video, 'render', forbidden)
+    monkeypatch.setattr(composition, 'prepare', forbidden)
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     source = tmp_path / 'synthetic.mp4'
     subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=24',
@@ -199,6 +204,14 @@ def test_real_media_runs_off_api_and_publishes_from_worker(store, tmp_path):
     assert result['composition'] is None
     assert not list(store.directory(data['id']).glob('*.mp4'))
     assert not list(store.directory(data['id']).glob('*.wav'))
+    # A retry can reuse matching prepared audio even if the prior attempt was not published by serve().
+    from crowdset import worker
+    monkeypatch.setattr(worker, 'decode', forbidden)
+    store.remote.enqueue(result)
+    job = store.remote.claim()
+    job['limits'] = __import__('dataclasses').asdict(store.limits)
+    execute(spool, SyntheticControl(), job, ffmpeg, 'ffprobe', 'libx264')
+    assert store.get(data['id'])['status'] == 'ready'
 
 
 def test_worker_api_requires_credential_and_legacy_bytes_are_blocked(store, monkeypatch):
@@ -276,3 +289,31 @@ def test_ingest_replay_never_deletes_its_already_published_original(store):
     result = store.remote.publish(job, {'sha256': 'b' * 64, 'duration': 10})
     assert result['clips'][0]['object_key'] in store.blobs.ledger()
     assert len(result['clips']) == 1
+
+
+def test_measured_worker_progress_is_bounded_and_events_are_admin_only(store):
+    from crowdset.app import present
+    data = store.create('Progress', owner='owner')
+    data['clips'] = [recording(data)]
+    store.save(data)
+    store.remote.enqueue(data)
+    job = store.remote.claim()
+    telemetry = {'phase': 'render', 'completed': 240, 'total': 2400, 'fps': 48.0,
+                 'remaining_seconds': 45, 'updated_at': time.time(), 'engine': 'h264_nvenc',
+                 'file': '/private/local/path', 'token': 'must-not-leak'}
+    for _ in range(3):
+        store.remote.heartbeat(job, 'Rendering video on the PC GPU…', telemetry)
+    value = store.get(data['id'])
+    assert value['processing']['percent'] == 10
+    assert value['processing']['remaining_seconds'] == 45
+    assert value['processing']['engine'] == 'h264_nvenc'
+    assert 'token' not in value['processing'] and 'file' not in value['processing']
+    assert len(value['processing_events']) == 3  # queued, claimed, rendering; no heartbeat spam
+    assert 'processing_events' not in present(deepcopy(value), 'owner')
+    assert len(present(deepcopy(value), 'owner', is_admin=True)['processing_events']) == 3
+    for n in range(50):
+        store.remote.heartbeat(job, f'Stage {n}', {'phase': 'bad', 'fps': float('inf'), 'completed': -1, 'total': True})
+    value = store.get(data['id'])
+    assert len(value['processing_events']) == 40
+    assert value['processing']['phase'] == 'remote'
+    assert 'percent' not in value['processing'] and 'fps' not in value['processing']

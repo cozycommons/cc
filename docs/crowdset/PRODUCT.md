@@ -137,3 +137,7 @@ Clip labels below the timeline seek to the first appearance of that clip in the 
 4. Failed, interrupted or stale attempts cannot replace the last playable cut. Originals, soft-deleted originals, prior published revisions and the 100 GB storage budget remain protected. Worker retries retain local preparation when possible.
 5. A worker receives only short-lived transfer URLs for its claimed job. It receives no bucket credential. Concurrent claims and stale results cannot publish another set's media or change ownership.
 6. Existing published sets remain playable during rollout. The first live test uses the new set and includes a browser upload and YouTube import, verifying that production disk does not grow by the transferred media size.
+
+### Rendering status and admin details
+
+While a cut renders, show a measured percentage bar and approximate rendering time remaining. Do not invent progress during preparation, matching or upload, or show stale estimates. The existing playable cut stays available until a replacement is ready. Keep technical progress and a bounded list of recent processing events in a collapsed Processing details section within admin controls. Render the remote picture edit directly on the PC GPU, avoiding a full CPU encode first; the same compiled MP4 serves playback and download.

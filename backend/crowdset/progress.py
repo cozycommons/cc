@@ -31,7 +31,7 @@ def snapshot(directory):
             return result
         result['processing'].update(completed=completed, total=total, unit='frames',
                                     percent=min(100, math.floor(completed / total * 100)),
-                                    updated_at=path.stat().st_mtime)
+                                    updated_at=path.stat().st_mtime, fps=fps)
         if math.isfinite(fps) and fps > 0 and frames >= 120:
             result['processing']['remaining_seconds'] = math.ceil(max(0, total - completed) / fps)
     except (OSError, ValueError):

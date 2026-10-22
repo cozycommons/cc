@@ -39,7 +39,7 @@ def digest(path):
     return result.hexdigest()
 
 
-def manifest(value):
+def manifest(value, *, allow_gaps=False):
     if not isinstance(value, dict) or type(value.get('version')) is not int or value['version'] != 1:
         raise ValueError('Unsupported edit manifest')
     sources, segments = value.get('sources'), value.get('segments')
@@ -58,7 +58,8 @@ def manifest(value):
         raise ValueError('Official audio source is missing')
     total = 0
     for segment in segments:
-        if not isinstance(segment, dict) or not isinstance(segment.get('source'), str) or segment['source'] not in sources:
+        if not isinstance(segment, dict) or not (allow_gaps and 'source' in segment and segment['source'] is None or
+                isinstance(segment.get('source'), str) and segment['source'] in sources):
             raise ValueError('Unknown picture source')
         if (type(segment.get('start_frame')) is not int or type(segment.get('frames')) is not int
                 or segment['start_frame'] < 0 or segment['frames'] <= 0
@@ -70,21 +71,31 @@ def manifest(value):
     return value
 
 
-def probe(binary, path, *, count=False):
-    args = [binary, '-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist', 'mov']
+def probe(binary, path, *, count=False, formats='mov'):
+    args = [binary, '-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist', formats]
     if count:
         args += ['-count_packets']
-    result = subprocess.run(args + ['-show_streams', '-of', 'json', str(path)], capture_output=True, timeout=120)
+    result = subprocess.run(args + ['-show_streams', '-show_format', '-of', 'json', str(path)], capture_output=True, timeout=120)
     if result.returncode:
         raise ValueError('Cannot inspect the normalized MP4')
-    return json.loads(result.stdout)['streams']
+    metadata = json.loads(result.stdout)
+    for stream in metadata['streams']:
+        if not stream.get('duration') and metadata.get('format', {}).get('duration'):
+            stream['duration'] = str(max(0, float(metadata['format']['duration']) - float(stream.get('start_time') or 0)))
+    return metadata['streams']
 
 
-def check_video(streams):
+def check_video(streams, *, allow_normalization=False):
     pictures = [s for s in streams if s['codec_type'] == 'video' and not s.get('disposition', {}).get('attached_pic')]
     if len(pictures) != 1:
         raise ValueError('Expected one picture stream')
     stream = pictures[0]
+    if allow_normalization:
+        if (stream.get('codec_name') not in ('h264', 'hevc', 'mpeg4', 'mjpeg', 'vp8', 'vp9', 'av1')
+                or not 0 < stream.get('width', 0) <= 3840 or not 0 < stream.get('height', 0) <= 3840
+                or stream['width'] * stream['height'] > 3840 * 2160):
+            raise ValueError('Worker picture inputs must use a supported codec and fit within 4K')
+        return stream
     if (stream['codec_name'] != 'h264' or stream['width'] != WIDTH or stream['height'] != HEIGHT
             or stream['pix_fmt'] != 'yuv420p' or stream['r_frame_rate'] != '24/1'
             or stream.get('avg_frame_rate', '24/1') != '24/1' or abs(float(stream.get('start_time', 0))) > 1e-6
@@ -97,7 +108,7 @@ def check_video(streams):
 
 
 def bound(frames):
-    return math.ceil(frames / FPS * 420000) + 2 * 1024 ** 2
+    return math.ceil(frames / FPS * 500000) + 2 * 1024 ** 2
 
 
 def disk_admission(root, needed):
@@ -106,8 +117,8 @@ def disk_admission(root, needed):
         raise ValueError('Worker disk budget is full; existing sources and outputs are retained')
 
 
-def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc'):
-    value = manifest(value)
+def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc', *, normalize_sources=False, progress_directory=None):
+    value = manifest(value, allow_gaps=normalize_sources)
     started = time.time()
     folder = root / 'work' / job
     output = root / 'outputs' / f'{job}.mp4'
@@ -117,6 +128,8 @@ def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc'):
     frames = sum(s['frames'] for s in value['segments'])
     disk_admission(root, 2 * bound(frames) + len(value['segments']) * 2 * 1024 ** 2)
     paths, metadata = {}, {}
+    picture_sources = {s['source'] for s in value['segments'] if s['source'] is not None}
+    formats = 'mov,matroska,webm' if normalize_sources else 'mov'
     for key, source in value['sources'].items():
         write_json(root / 'status.json', {'state': 'rendering', 'job': job, 'phase': 'validating',
                    'updated_at': time.time(), 'pid': os.getpid()})
@@ -124,8 +137,9 @@ def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc'):
         if path.is_symlink() or not path.is_file() or path.stat().st_size != source['bytes'] or digest(path) != source['sha256']:
             raise ValueError('Source is missing or its SHA256/size changed')
         paths[key] = path
-        metadata[key] = probe(ffprobe, path)
-        check_video(metadata[key])
+        metadata[key] = probe(ffprobe, path, formats=formats)
+        if not normalize_sources or key in picture_sources:
+            check_video(metadata[key], allow_normalization=normalize_sources)
     audio = [s for s in metadata[value['audio_source']] if s['codec_type'] == 'audio']
     if (len(audio) != 1 or audio[0]['codec_name'] != 'aac'
             or abs(float(audio[0].get('start_time', 0))) > 1e-6
@@ -157,19 +171,43 @@ def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc'):
             if process.returncode:
                 raise ValueError('FFmpeg failed; see the job ffmpeg.log')
     for index, segment in enumerate(value['segments']):
-        info = check_video(metadata[segment['source']])
-        if float(info.get('duration', 0)) * FPS + 1 < segment['start_frame'] + segment['frames']:
+        info = check_video(metadata[segment['source']], allow_normalization=normalize_sources) if segment['source'] else None
+        if info and float(info.get('duration') or 0) * FPS + 1 < segment['start_frame'] + segment['frames']:
             raise ValueError('Picture interval exceeds source duration')
         part = folder / f'{index}.mp4'
         progress = folder / f'{index}.progress'
-        gpu = ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'] if encoder == 'h264_nvenc' else []
+        gpu = (['-hwaccel', 'cuda'] + ([] if normalize_sources else ['-hwaccel_output_format', 'cuda'])) if encoder == 'h264_nvenc' and (not normalize_sources or info and info['codec_name'] in ('h264', 'hevc', 'vp8', 'vp9')) else []
         settings = (['-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', '23'] if encoder == 'h264_nvenc'
                     else ['-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p'])
-        run(['-v', 'error', '-ss', str(segment['start_frame'] / FPS), *gpu,
-             '-protocol_whitelist', 'file', '-format_whitelist', 'mov', '-i', str(paths[segment['source']]),
+        timestamp = segment['start_frame'] / FPS
+        if info:
+            inputs = ['-ss', str(timestamp), *gpu, '-protocol_whitelist', 'file', '-format_whitelist', formats,
+                      '-i', str(paths[segment['source']])]
+            if normalize_sources:
+                inputs = ['-copyts', '-seek_timestamp', '1', *inputs]
+        else:
+            inputs = ['-f', 'lavfi', '-i', f'color=c=0x243027:s={WIDTH}x{HEIGHT}:r={FPS}']
+        filters = []
+        if normalize_sources and info:
+            tone = ('zscale=t=linear:npl=100,format=gbrpf32le,tonemap=hable:desat=0,'
+                    'zscale=p=bt709:t=bt709:m=bt709:r=tv,' if info.get('color_transfer') in ('smpte2084', 'arib-std-b67') else '')
+            filters = ['-vf', tone + f'trim=start={timestamp},setpts=PTS-({timestamp})/TB,'
+                       f"scale=w='if(gt(dar,{WIDTH}/{HEIGHT}),{WIDTH},max(2,trunc({HEIGHT}*dar/2)*2))':"
+                       f"h='if(gt(dar,{WIDTH}/{HEIGHT}),max(2,trunc({WIDTH}/dar/2)*2),{HEIGHT})',setsar=1,"
+                       f'pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x243027,'
+                       f'fps={FPS}:start_time=0,tpad=stop_mode=add:stop_duration={segment["frames"] / FPS},format=yuv420p']
+        colors = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709'] if normalize_sources else []
+        if progress_directory is not None:
+            write_json(progress_directory / 'progress.json', {
+                'stage': 'Rendering video on the PC GPU…' if encoder == 'h264_nvenc' else 'Rendering video on the PC CPU…',
+                'processing': {'phase': 'render', 'started_at': started, 'engine': encoder},
+                'render': {'file': str(progress.relative_to(progress_directory)), 'completed_frames': completed,
+                           'segment_frames': segment['frames'], 'total_frames': frames},
+            })
+        run(['-v', 'error', *inputs,
              '-map', '0:v:0', '-an', '-sn', '-dn', '-frames:v', str(segment['frames']),
-             '-c:v', encoder, *settings, '-profile:v', 'high', '-b:v', '3000k', '-maxrate', '3000k',
-             '-bufsize', '6000k', '-g', '48', '-bf', '2', '-r', '24', '-fps_mode', 'cfr',
+             *filters, '-c:v', encoder, *settings, *colors, '-profile:v', 'high', '-b:v', '3000k', '-maxrate', '3000k',
+             '-bufsize', '6000k', '-g', '48', '-bf', '0' if normalize_sources else '2', '-r', '24', '-fps_mode', 'cfr',
              '-map_metadata', '-1', '-fs', str(bound(segment['frames'])), '-progress', str(progress), str(part)],
             segment['frames'] / FPS, progress)
         info = check_video(probe(ffprobe, part, count=True))
@@ -177,8 +215,12 @@ def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc'):
             raise ValueError('Encoded segment failed its frame/byte bounds')
         parts.append(part)
         completed += segment['frames']
+    if progress_directory is not None:
+        write_json(progress_directory / 'progress.json', {'stage': 'Combining video and official audio…',
+                   'processing': {'phase': 'finalize', 'started_at': started, 'updated_at': time.time(), 'engine': encoder}})
     listing = folder / 'segments.txt'
-    listing.write_text(''.join(f"file '{p.name}'\n" for p in parts))
+    listing.write_text(''.join(f"file '{p.name}'\nduration {segment['frames'] / FPS:.9f}\n"
+                               for p, segment in zip(parts, value['segments'])))
     pending = folder / 'output.mp4'
     run(['-v', 'error', '-protocol_whitelist', 'file', '-f', 'concat', '-safe', '1', '-i', str(listing),
          '-protocol_whitelist', 'file', '-format_whitelist', 'mov', '-i', str(paths[value['audio_source']]),

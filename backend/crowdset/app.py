@@ -98,6 +98,8 @@ def visible(data, owner, hosted, is_admin=False):
 
 
 def present(data, owner, uploaders=None, is_admin=False):
+    if not is_admin:
+        data.pop('processing_events', None)
     data.pop('deleted_clips', None)
     data.pop('batch', None)
     data.pop('completed_batch', None)
@@ -230,7 +232,7 @@ def create_app(root=None):
                         return remote.claim()
                     job = remote.owned(body['job'], body['claim'], allow_complete=operation == 'publish')
                     if operation == 'heartbeat':
-                        return remote.heartbeat(job, body.get('stage', 'Processing on the PC…'))
+                        return remote.heartbeat(job, body.get('stage', 'Processing on the PC…'), body.get('processing'))
                     if operation == 'read':
                         return remote.read(job, body['key'])
                     if operation == 'reserve':
