@@ -19,6 +19,8 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements-crowdset.txt
+      - name: Install media inspection tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: bash scripts/crowdset-dev.sh setup
       - run: .crowdset-venv/bin/python -m pip install pytest==8.3.4 httpx==0.28.1
       - run: .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q
