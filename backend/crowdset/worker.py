@@ -48,7 +48,7 @@ def capture_clock(analysis, clip, data, originals, directory, limits, source=Non
             materialized.unlink(missing_ok=True)
 
 
-def process(directory, *, originals=None, limits=None):
+def process(directory, *, originals=None, limits=None, render_video=True):
     data = json.loads((directory / 'job.json').read_text())
     clips = data['clips']
     limits = limits or Limits.environment()
@@ -193,6 +193,9 @@ def process(directory, *, originals=None, limits=None):
     result = {'clips': clips, 'timeline': timeline, 'playable': playable,
               'video_playable': bool(visual['segments']), 'video_timeline': visual if visual['segments'] else None,
               'composition': None, 'scrub_previews': scrub_previews}
+    if not render_video:
+        write_json(directory / 'result.json', result)
+        return
     if soundtrack:
         assets = composition.prepare(visual, clips, data, originals, directory, limits, progress)
         result['composition'] = {'soundtrack_clip_id': soundtrack, 'base_timeline': base, 'assets': assets}

@@ -116,3 +116,25 @@ def test_rejects_hdr_and_non_normalized_sources():
         changed[0].update(patch)
         with pytest.raises(ValueError):
             gpu_worker.check_video(changed)
+
+
+def test_remote_inputs_can_be_normalized_without_weakening_output_validation():
+    streams = [{'codec_type': 'video', 'codec_name': 'hevc', 'width': 1080, 'height': 1920,
+                'pix_fmt': 'yuv420p10le', 'r_frame_rate': '60000/1001', 'color_transfer': 'smpte2084'}]
+    assert gpu_worker.check_video(streams, allow_normalization=True)['height'] == 1920
+    with pytest.raises(ValueError):
+        gpu_worker.check_video(streams)
+    streams[0]['width'] = 7680
+    with pytest.raises(ValueError, match='4K'):
+        gpu_worker.check_video(streams, allow_normalization=True)
+
+
+def test_only_remote_manifest_mode_accepts_bounded_black_gaps():
+    value = edit()
+    value['segments'].append({'source': None, 'start_frame': 0, 'frames': 2})
+    with pytest.raises(ValueError, match='Unknown picture'):
+        gpu_worker.manifest(value)
+    assert gpu_worker.manifest(value, allow_gaps=True)['segments'][-1]['frames'] == 2
+    del value['segments'][-1]['source']
+    with pytest.raises(ValueError, match='Unknown picture'):
+        gpu_worker.manifest(value, allow_gaps=True)

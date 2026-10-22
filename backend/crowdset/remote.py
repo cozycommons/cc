@@ -58,6 +58,7 @@ class RemoteJobs:
         data.update(status=('importing' if kind == 'youtube' else
                             'uploading' if kind == 'ingest' and data['id'] in self.store.batches else 'queued'),
                     stage='Waiting for the PC worker…')
+        self.event(data, 'Queued for the PC worker')
         self.store.save(data)
         return job
 
@@ -85,6 +86,8 @@ class RemoteJobs:
             data.update(status=('uploading' if job['kind'] == 'ingest' and job['set_id'] in self.store.batches else
                                 'importing' if job['kind'] == 'youtube' else 'processing'),
                         stage='Starting on the PC worker…', processing_started_at=now)
+            data.pop('processing', None)
+            self.event(data, 'PC worker claimed the job')
             self.store.save(data)
             return {**deepcopy(job), 'limits': asdict(self.store.limits)}
         return None
@@ -105,7 +108,13 @@ class RemoteJobs:
             raise HTTPException(409, 'The published cut changed. Claim a new job.')
         return job
 
-    def heartbeat(self, job, stage):
+    def event(self, data, message):
+        events = data.setdefault('processing_events', [])
+        if not events or events[-1]['message'] != message:
+            events.append({'at': time.time(), 'message': message})
+            del events[:-40]
+
+    def heartbeat(self, job, stage, processing=None):
         if time.time() - job['started_at'] > self.store.limits.job_seconds:
             raise HTTPException(409, 'Worker job exceeded its deadline.')
         job['lease_until'] = time.time() + 120
@@ -114,7 +123,23 @@ class RemoteJobs:
         data['stage'] = str(stage)[:180]
         if job['kind'] == 'youtube':
             data['youtube_import']['stage'] = data['stage']
-        data['processing'] = {'phase': 'remote', 'started_at': job['started_at'], 'updated_at': time.time()}
+        now = time.time()
+        value = {'phase': 'remote', 'started_at': job['started_at'], 'updated_at': now}
+        if isinstance(processing, dict):
+            if processing.get('phase') in ('prepare', 'align', 'audio', 'render', 'finalize', 'save'):
+                value['phase'] = processing['phase']
+            for key, maximum in [('completed', 345600), ('total', 345600), ('fps', 100000),
+                                 ('remaining_seconds', 86400), ('updated_at', now)]:
+                number = processing.get(key)
+                if type(number) in (int, float) and math.isfinite(number) and 0 <= number <= maximum:
+                    value[key] = number
+            if value.get('total', 0) > 0 and 'completed' in value:
+                value['percent'] = min(100, math.floor(value['completed'] / value['total'] * 100))
+                value['unit'] = 'frames'
+            if processing.get('engine') in ('h264_nvenc', 'libx264'):
+                value['engine'] = processing['engine']
+        data['processing'] = value
+        self.event(data, data['stage'])
         self.store.save(data)
         return {'lease_until': job['lease_until']}
 
@@ -319,6 +344,7 @@ class RemoteJobs:
                     playable=True, video_playable=bool(video), status='ready', error=None, dirty=False)
         data.pop('stage', None)
         data.pop('processing', None)
+        self.event(data, 'Cut ready')
         self.store.save(data)
         job['state'] = 'complete'
         self.save(job)
@@ -330,5 +356,8 @@ class RemoteJobs:
         self.save(job)
         data = self.store.get(job['set_id'])
         data.update(status='failed', error=job['error'], dirty=True)
+        data.pop('stage', None)
+        data.pop('processing', None)
+        self.event(data, 'Processing failed')
         self.store.save(data)
         return {'state': 'failed'}

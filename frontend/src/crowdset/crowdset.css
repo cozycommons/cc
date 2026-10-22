@@ -237,3 +237,11 @@
 @media (hover: hover) { .cs-player-controls:hover { opacity: 1; pointer-events: auto; } }
 
 .cs-composition-still { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+.cs-processing-details { margin: 12px 0; font-size: 13px; }
+.cs-processing-details summary { cursor: pointer; }
+.cs-processing-details dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; }
+.cs-processing-details dt, .cs-processing-details time { color: var(--cs-muted); }
+.cs-processing-details dd { margin: 0; overflow-wrap: anywhere; }
+.cs-processing-details ol { max-height: 200px; overflow: auto; padding-left: 20px; }
+.cs-processing-details li { padding: 3px 0; overflow-wrap: anywhere; }
