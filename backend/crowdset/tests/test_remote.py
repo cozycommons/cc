@@ -204,6 +204,14 @@ def test_real_media_runs_off_api_and_publishes_from_worker(store, tmp_path, monk
     assert result['composition'] is None
     assert not list(store.directory(data['id']).glob('*.mp4'))
     assert not list(store.directory(data['id']).glob('*.wav'))
+    # A retry can reuse matching prepared audio even if the prior attempt was not published by serve().
+    from crowdset import worker
+    monkeypatch.setattr(worker, 'decode', forbidden)
+    store.remote.enqueue(result)
+    job = store.remote.claim()
+    job['limits'] = __import__('dataclasses').asdict(store.limits)
+    execute(spool, SyntheticControl(), job, ffmpeg, 'ffprobe', 'libx264')
+    assert store.get(data['id'])['status'] == 'ready'
 
 
 def test_worker_api_requires_credential_and_legacy_bytes_are_blocked(store, monkeypatch):

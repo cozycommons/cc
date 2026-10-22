@@ -212,13 +212,21 @@ def execute(root, control, job, ffmpeg, ffprobe, encoder):
     data = dict(job['snapshot'])
     # Full rebuild on the worker avoids relying on production's old local audio cache.
     data.update(playable=False, composition=None, previous_revision={}, mix_file=None, video_timeline=None, video_object=None)
-    previous = sorted(root.glob('remote/*/*/' + job['set_id'] + '/published.json'), key=lambda p: p.stat().st_mtime)
-    if previous:
-        for clip in data['clips']:
-            for suffix in ('.wav', '.npy', '.analysis.json', '.alignment.json'):
-                cached = previous[-1].parent / (clip['id'] + suffix)
+    previous = sorted(root.glob('remote/*/*/' + job['set_id'] + '/job.json'), key=lambda p: p.stat().st_mtime)
+    for clip in data['clips']:
+        for manifest_path in reversed(previous):
+            if manifest_path.parent == directory:
+                continue
+            cached_clips = json.loads(manifest_path.read_text()).get('clips', [])
+            if not any(c['id'] == clip['id'] and c.get('sha256') == clip.get('sha256') for c in cached_clips):
+                continue
+            required = [manifest_path.parent / (clip['id'] + suffix) for suffix in ('.wav', '.npy', '.analysis.json')]
+            if not all(p.is_file() for p in required):
+                continue
+            for cached in required + [manifest_path.parent / (clip['id'] + '.alignment.json')]:
                 if cached.is_file():
                     shutil.copyfile(cached, directory / cached.name)
+            break
     write_json(directory / 'job.json', data)
     originals = WorkerOriginals(directory.parent, control)
     process(directory, originals=originals, limits=limits, render_video=False)
