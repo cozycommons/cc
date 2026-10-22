@@ -193,10 +193,10 @@ def render(root, job, value, ffmpeg, ffprobe, encoder='h264_nvenc', *, normalize
                     'zscale=p=bt709:t=bt709:m=bt709:r=tv,' if info.get('color_transfer') in ('smpte2084', 'arib-std-b67') else '')
             filters = ['-vf', tone + f'trim=start={timestamp},setpts=PTS-({timestamp})/TB,'
                        f"scale=w='if(gt(dar,{WIDTH}/{HEIGHT}),{WIDTH},max(2,trunc({HEIGHT}*dar/2)*2))':"
-                       f"h='if(gt(dar,{WIDTH}/{HEIGHT}),max(2,trunc({WIDTH}/dar/2)*2),{HEIGHT})',setsar=1,"
+                       f"h='if(gt(dar,{WIDTH}/{HEIGHT}),max(2,trunc({WIDTH}/dar/2)*2),{HEIGHT})':out_range=tv,setsar=1,"
                        f'pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x243027,'
                        f'fps={FPS}:start_time=0,tpad=stop_mode=add:stop_duration={segment["frames"] / FPS},format=yuv420p']
-        colors = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709'] if normalize_sources else []
+        colors = ['-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv'] if normalize_sources else []
         if progress_directory is not None:
             write_json(progress_directory / 'progress.json', {
                 'stage': 'Rendering video on the PC GPU…' if encoder == 'h264_nvenc' else 'Rendering video on the PC CPU…',
