@@ -1,6 +1,5 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Dice3, Music2 } from 'lucide-react';
 import '../../../design/cozy-wabi/components.css';
 import './cozy-home.css';
 
@@ -23,17 +22,26 @@ export default function CozyWabiLanding() {
         <section className="cc-home-shelf" id="shelf" aria-labelledby="shelf-title">
           <h1 id="shelf-title">The shelf</h1>
           <div className="cc-home-shelf__projects">
-            <Link className="cc-card cc-card--interactive cc-home-project" to="/dice" aria-label="Open Dice beer die records and stats">
-              <Dice3 className="cc-home-project__icon" size={32} strokeWidth={1.5} aria-hidden="true" />
-              <h2 className="cc-h3">Dice</h2>
-              <p className="cc-body">Beer die records and stats.</p>
-              <span className="cc-card__arrow" aria-hidden="true">↗</span>
+            <span className="cc-home-shelf__backdrop" aria-hidden="true" />
+            <span className="cc-home-shelf__line cc-home-shelf__line--top" aria-hidden="true" />
+            <span className="cc-home-shelf__line cc-home-shelf__line--bottom" aria-hidden="true" />
+            <Link className="cc-home-project" to="/dice" aria-label="Open Dice beer die records and stats">
+              <span className="cc-home-project__icon" aria-hidden="true">
+                <span className="cc-home-die"><i /></span>
+              </span>
+              <div className="cc-home-project__body">
+                <h2>Dice</h2>
+                <p>Beer die records and stats.</p>
+              </div>
+              <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
             </Link>
-            <Link className="cc-card cc-card--interactive cc-home-project" to="/crowdset" aria-label="Open Crowdset concert videos">
-              <Music2 className="cc-home-project__icon" size={32} strokeWidth={1.5} aria-hidden="true" />
-              <h2 className="cc-h3">Crowdset</h2>
-              <p className="cc-body">Shared concert videos.</p>
-              <span className="cc-card__arrow" aria-hidden="true">↗</span>
+            <Link className="cc-home-project cc-home-project--crowdset" to="/crowdset" aria-label="Open Crowdset concert videos">
+              <span className="cc-home-project__icon" aria-hidden="true">♫</span>
+              <div className="cc-home-project__body">
+                <h2>Crowdset</h2>
+                <p>Shared concert videos.</p>
+              </div>
+              <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
             </Link>
           </div>
         </section>
