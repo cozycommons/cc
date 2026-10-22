@@ -232,6 +232,16 @@ it('explains why a clip could not be matched without hiding the original', async
 });
 
 
+it('labels timestamp-only placement as an estimate in the cut', async () => {
+  request.mockResolvedValueOnce([{ ...ready, clips: [{ ...clip, alignment: {
+    status: 'matched', match_method: 'timestamp', timestamp_assisted: true,
+  } }] }]);
+  render(<Crowdset />);
+  await openSet();
+  expect(screen.getByText('In current mix · timestamp estimate')).toBeInTheDocument();
+});
+
+
 it('retries unmatched clips while preserving the published player', async () => {
   const state = { ...ready, clips: [clip, { ...clip, id: 'unmatched', alignment: { status: 'unmatched' } }] };
   request.mockResolvedValueOnce([state]).mockResolvedValueOnce({ ...state, status: 'queued' });
