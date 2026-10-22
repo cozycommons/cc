@@ -109,3 +109,55 @@ def test_capture_cache_retries_failed_probe_and_newly_eligible_official(tmp_path
     assert len(calls) == 2 and analysis['capture_version'] == 1
     capture_clock(analysis, clip, data, originals, tmp_path, Limits())
     assert len(calls) == 2
+
+
+def test_short_noisy_clip_uses_calibrated_clock_without_claiming_audio_confidence():
+    rng = np.random.default_rng(92)
+    reference = rng.normal(size=(5000, 24)).astype(np.float32)
+    source = rng.normal(size=(56, 24)).astype(np.float32)
+    audio = align(reference, source)
+    assert audio['status'] == 'unmatched'
+    hint = {'offset_seconds': 40.3, 'tolerance_seconds': 15,
+            'uncertainty_seconds': 2, 'peer_ids': ['a', 'b']}
+    estimated = apply_hint(reference, source, audio, hint)
+    assert estimated['status'] == 'matched'
+    assert estimated['offset_seconds'] == 40.3
+    assert estimated['match_method'] == 'timestamp'
+    assert estimated['uncertainty_seconds'] == 2 and estimated['agreement'] == 0
+    assert estimated['timestamp_assisted']
+    assert apply_hint(reference, source, audio, None) == audio
+    assert apply_hint(reference, np.zeros_like(source), audio, hint) == audio
+    # Never turn a clip partly outside the recording into a timestamp-only insert.
+    assert apply_hint(reference, source, audio, {**hint, 'offset_seconds': -.5}) == audio
+    assert apply_hint(reference, source, audio, {**hint, 'offset_seconds': 199}) == audio
+
+
+def test_guided_matching_can_abstain_on_a_noisy_section_but_not_a_conflicting_one():
+    rng = np.random.default_rng(93)
+    reference = rng.normal(size=(5000, 24)).astype(np.float32)
+    source = reference[1000:1250].copy()
+    source[166:] = rng.normal(size=(84, 24))
+    original = align(reference, source)
+    assert original['status'] == 'unmatched'
+    hint = {'offset_seconds': 40, 'tolerance_seconds': 15, 'peer_ids': ['a', 'b']}
+    matched = apply_hint(reference, source, original, hint)
+    assert matched['status'] == 'matched' and matched['offset_seconds'] == 40
+    assert matched['agreement'] == 2 and not matched['windows'][-1]['strong']
+    # An actual edit to a different moment inside the search region must still fail.
+    source[166:] = reference[1400:1484]
+    edited = align(reference, source)
+    assert apply_hint(reference, source, edited, hint)['status'] == 'unmatched'
+
+
+def test_guided_long_clip_resolves_repeated_audio_without_relaxing_global_matching():
+    rng = np.random.default_rng(94)
+    reference = rng.normal(size=(10000, 24)).astype(np.float32)
+    source = reference[1000:2000].copy()
+    reference[7000:8000] = source
+    original = align(reference, source)
+    assert original['status'] == 'unmatched'
+    hint = {'offset_seconds': 40, 'tolerance_seconds': 15, 'peer_ids': ['a', 'b']}
+    matched = apply_hint(reference, source, original, hint)
+    assert matched['status'] == 'matched' and matched['agreement'] == 3
+    assert matched['offset_seconds'] == 40
+    assert apply_hint(reference, source, original, {**hint, 'offset_seconds': 140}) == original
