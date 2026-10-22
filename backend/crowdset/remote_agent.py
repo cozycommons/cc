@@ -20,6 +20,8 @@ from .limits import Limits
 from .storage import OriginalStore
 from .worker import process, write_json
 
+SOURCE_CACHE_BYTES = 16 * 1024 ** 3
+
 
 class Control:
     def __init__(self, url, token, job=None):
@@ -89,7 +91,26 @@ class WorkerOriginals(OriginalStore):
         self.blobs = True
 
     def materialize(self, set_id, clip, directory):
-        return self.control.download(clip['object_key'], directory / (clip['id'] + '.original'), clip['bytes'], clip['sha256'])
+        target = directory / (clip['id'] + '.original')
+        cache = self.spool / 'source-cache'
+        cache.mkdir(exist_ok=True, mode=0o700)
+        cached = cache / (clip['sha256'] + '.original')
+        entries = sorted((p for p in cache.iterdir() if p.is_file()), key=lambda p: p.stat().st_mtime)
+        used = sum(p.stat().st_size for p in entries)
+        incoming = max(0, clip['bytes'] - (cached.stat().st_size if cached.exists() else 0))
+        for entry in entries:
+            if used + incoming <= SOURCE_CACHE_BYTES:
+                break
+            if entry != cached and entry.stat().st_nlink == 1:
+                used -= entry.stat().st_size
+                entry.unlink()
+        if used + incoming > SOURCE_CACHE_BYTES:
+            return self.control.download(clip['object_key'], target, clip['bytes'], clip['sha256'])
+        source = self.control.download(clip['object_key'], cached, clip['bytes'], clip['sha256'])
+        source.touch()
+        target.unlink(missing_ok=True)
+        os.link(source, target)
+        return target
 
     def admit(self, limits, incoming=0, work_needed=0, **kwargs):
         gpu_worker.disk_admission(self.spool, work_needed)
