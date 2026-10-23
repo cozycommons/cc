@@ -27,10 +27,10 @@ FILES = {
 }
 # Processing modules travel with the same CI-approved release as the renderer.
 for module in ('audio', 'video', 'progress', 'limits', 'config', 'storage', 'blobs', 'r2',
-               'worker', 'composition', 'previews', 'timestamps', 'gpu_worker', 'remote_agent', 'youtube'):
+               'worker', 'composition', 'previews', 'timestamps', 'gpu_worker', 'remote_agent', 'youtube', 'compute_jobs'):
     FILES['crowdset/' + module + '.py'] = 'backend/crowdset/' + module + '.py'
 
-for module in ('__init__', 'jobs', 'queue', 'client', 'runner', 'execute', 'worker', 'example'):
+for module in ('__init__', 'jobs', 'queue', 'client', 'runner', 'execute', 'worker', 'example', 'process'):
     FILES['compute/' + module + '.py'] = 'backend/compute/' + module + '.py'
 
 SERVICE = 'crowdset-gpu-worker.service'

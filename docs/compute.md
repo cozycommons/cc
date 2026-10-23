@@ -115,7 +115,24 @@ claim and finish jobs but cannot submit. Use HTTPS outside loopback.
 
 ## Crowdset and deployment
 
-Crowdset now uses the shared runner through an adapter. Its existing durable queue,
+Crowdset uses the shared runner through an adapter and declares its resources in
+`backend/crowdset/compute_jobs.py`:
+
+| Workload | CPU | RAM | GPU |
+| --- | --- | --- | --- |
+| Render/process (`h264_nvenc`) | 4 | 8192 MiB | 1 |
+| Render/process (`libx264`, explicitly selected) | 4 | 8192 MiB | 0 |
+| Ingest or YouTube import | 2 | 2048 MiB | 0 |
+
+The API checks capacity before granting a claim; unsuitable jobs remain queued.
+The adapter and generic queue share the same worker capacity configuration.
+Crowdset defaults GPU capacity to 1 for NVENC and 0 for libx264; an explicit
+`CC_WORKER_GPU` overrides that default. A GPU-disabled worker can ingest while
+leaving GPU renders for a capable worker. Rendering is not silently switched to CPU.
+Crowdset execution now has a child-process deadline (default four hours) and stops
+on heartbeat failure; descendants are killed before the shared slot is released.
+
+Its existing durable queue,
 original-object transfer protocol, generation checks and publication logic remain
 in place; no migration of pending media jobs is required. Set `CC_COMPUTE_URL`,
 `CC_COMPUTE_WORKER_TOKEN`, `CC_JOB_MODULES`, and capacity variables in its worker
@@ -128,7 +145,11 @@ from a deployed repository checkout on `PYTHONPATH`). The existing updater manag
 its explicit file bundle; it does not automatically deploy arbitrary project code.
 An older updater needs two update cycles to expand that bundle: after the first,
 the upgraded runner stays healthy without claiming jobs until the shared runtime
-arrives. Existing in-flight work drains before either update.
+arrives. Existing in-flight work drains before either update. The new adapter uses the
+resource-aware `claim-v2` operation. Deploy the updated Crowdset API before the
+worker; if the API has not upgraded, the worker waits without taking an unchecked
+claim. The original claim operation remains available for older workers during
+rollout.
 
 `backend/compute/Dockerfile` builds the independent API image; persist `/data`, set
 the registry/token environment variables, and route HTTPS to port 8011. It copies

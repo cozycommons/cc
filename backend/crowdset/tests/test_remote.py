@@ -317,3 +317,61 @@ def test_measured_worker_progress_is_bounded_and_events_are_admin_only(store):
     assert len(value['processing_events']) == 40
     assert value['processing']['phase'] == 'remote'
     assert 'percent' not in value['processing'] and 'fps' not in value['processing']
+
+
+def test_crowdset_resource_admission_leaves_ineligible_render_queued(store):
+    from compute.jobs import Resources
+    data = store.create('Render', owner='owner')
+    render = store.remote.enqueue(data)
+    assert store.remote.claim(Resources(cpu=4, memory_mb=8192, gpu=0)) is None
+    assert store.remote.jobs()[0]['state'] == 'queued'
+    assert store.remote.claim(Resources(cpu=3, memory_mb=8192, gpu=1)) is None
+    assert store.remote.claim(Resources(cpu=4, memory_mb=4096, gpu=1)) is None
+    job = store.remote.claim(Resources(cpu=4, memory_mb=8192, gpu=1))
+    assert job['id'] == render['id']
+    assert job['resources'] == {'cpu': 4, 'memory_mb': 8192, 'gpu': 1}
+
+
+@pytest.mark.parametrize('kind', ['ingest', 'youtube'])
+def test_crowdset_ingestion_can_run_on_small_cpu_worker(store, kind):
+    from compute.jobs import Resources
+    data = store.create('Ingest', owner='owner')
+    store.remote.enqueue(data, kind)
+    job = store.remote.claim(Resources(cpu=2, memory_mb=2048))
+    assert job['kind'] == kind
+    assert job['resources'] == {'cpu': 2, 'memory_mb': 2048, 'gpu': 0}
+
+
+def test_crowdset_explicit_cpu_encoder_and_deadline_fencing(store):
+    from compute.jobs import Resources
+    data = store.create('CPU render', owner='owner')
+    store.remote.enqueue(data)
+    job = store.remote.claim(Resources(cpu=4, memory_mb=8192), encoder='libx264')
+    assert job['resources']['gpu'] == 0
+    job['started_at'] = time.time() - store.limits.job_seconds - 1
+    job['lease_until'] = time.time() + 120
+    store.remote.save(job)
+    with pytest.raises(HTTPException, match='lease expired'):
+        store.remote.owned(job['id'], job['claim'])
+
+
+def test_resource_aware_claim_api_requires_valid_capacity(store, monkeypatch):
+    from fastapi.testclient import TestClient
+    from crowdset import app as module
+    monkeypatch.setattr(module, 'Store', lambda *args, **kwargs: store)
+    data = store.create('API render', owner=None)
+    store.remote.enqueue(data)
+    headers = {'Authorization': 'Bearer test-worker-secret'}
+    with TestClient(module.create_app(store.root), base_url='http://127.0.0.1') as client:
+        endpoint = '/crowdset/worker/claim-v2'
+        assert client.post(endpoint, json={}).status_code == 403
+        assert client.post(endpoint, headers=headers, json={}).status_code == 422
+        small = {'capacity': {'cpu': 2, 'memory_mb': 2048, 'gpu': 0}, 'encoder': 'h264_nvenc'}
+        assert client.post(endpoint, headers=headers, json=small).json() is None
+        assert store.remote.jobs()[0]['state'] == 'queued'
+        invalid = {**small, 'encoder': 'unknown'}
+        assert client.post(endpoint, headers=headers, json=invalid).status_code == 422
+        suitable = {'capacity': {'cpu': 4, 'memory_mb': 8192, 'gpu': 1}, 'encoder': 'h264_nvenc'}
+        result = client.post(endpoint, headers=headers, json=suitable)
+        assert result.status_code == 200
+        assert result.json()['resources'] == suitable['capacity']

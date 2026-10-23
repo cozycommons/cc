@@ -230,6 +230,9 @@ def create_app(root=None):
                 with store.lock:
                     if operation == 'claim':
                         return remote.claim()
+                    if operation == 'claim-v2':
+                        from compute.jobs import Resources
+                        return remote.claim(Resources(**body['capacity']), body['encoder'])
                     job = remote.owned(body['job'], body['claim'], allow_complete=operation == 'publish')
                     if operation == 'heartbeat':
                         return remote.heartbeat(job, body.get('stage', 'Processing on the PC…'), body.get('processing'))

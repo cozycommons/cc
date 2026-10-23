@@ -186,13 +186,13 @@ only the lightweight selection checks and required-check gates.
 
 | Changed files | Tests selected |
 | --- | --- |
-| `frontend/src/{dice,commons,crowdset,trips,design}/` or matching `frontend/public/` assets | That frontend project's tests plus shared frontend tests |
+| `frontend/src/{dice,crowdset,trips,design}/` or matching `frontend/public/` assets | That frontend project's tests plus shared frontend tests |
 | Shared frontend code, frontend dependencies/configuration, or `design/` | All frontend tests |
 | `backend/{dice,commons,trips,espn,resy,partiful}/`, project test files, or project scripts | That backend project's tests plus shared migration, release, and health tests |
 | `backend/ig_logger/` | Beli tests plus shared backend tests |
 | `backend/crowdset/`, its requirements, or Crowdset scripts | Crowdset tests and container smoke check |
+| `backend/compute/` or its requirements | Compute tests/container; runtime edits also run Crowdset compatibility checks |
 | Shared backend code/dependencies, database scaffolding, or root npm dependencies | All shared-API backend projects and real Trips integration |
-| `shared/commons/` | Commons frontend and backend tests |
 | CI workflow/selection code or unmapped infrastructure | All checks |
 
 Trips backend changes also run its real local Supabase integration job. Dice
@@ -204,14 +204,14 @@ accompany every backend selection. New project directories conservatively run
 the full corresponding suite until assigned in `scripts/ci-selection.py`.
 
 Frontend selections retain lint, bundle budgets, and both frontend container
-builds: the Commons and Crowdset images both compile the complete Vite app.
+builds: the shared frontend and Crowdset images both compile the complete Vite app.
 Backend selections retain the shared API container and release checks because
 the projects ship together. Trips and backend jobs run concurrently.
 
 The required `frontend` and `backend` jobs are final gates. They accept a skipped
 job only when selection explicitly excluded it, and fail on selection errors,
 test failures, cancellation, or unexpected skips. The backend gate also enforces
-selected Trips and Crowdset checks. Keep the workflow triggers unfiltered so
+selected Trips, Crowdset, and compute checks. Keep the workflow triggers unfiltered so
 docs-only PRs still receive both required statuses. Superseded PR runs are
 cancelled; pushes to `main` and merge-group runs are not cancelled by this policy.
 

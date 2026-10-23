@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from importlib import import_module
 import re
+import os
 from typing import Callable
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,6 +13,12 @@ class Resources(BaseModel):
     cpu: int = Field(default=1, ge=1, le=256)
     memory_mb: int = Field(default=512, ge=1)
     gpu: int = Field(default=0, ge=0, le=1)
+
+    @classmethod
+    def environment(cls, default_gpu=0):
+        return cls(cpu=int(os.environ.get('CC_WORKER_CPU', '4')),
+                   memory_mb=int(os.environ.get('CC_WORKER_MEMORY_MB', '8192')),
+                   gpu=int(os.environ.get('CC_WORKER_GPU', str(default_gpu))))
 
     def fits(self, capacity):
         return all(getattr(self, key) <= getattr(capacity, key) for key in ('cpu', 'memory_mb', 'gpu'))

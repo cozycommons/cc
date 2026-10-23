@@ -9,7 +9,7 @@ import re
 import subprocess
 
 
-FRONTEND_PROJECTS = ("commons", "crowdset", "dice", "design", "trips")
+FRONTEND_PROJECTS = ("crowdset", "dice", "design", "trips")
 BACKEND_PROJECTS = ("beli", "commons", "dice", "espn", "partiful", "resy", "trips")
 INTEGRATIONS = {"beli", "espn", "partiful", "resy"}
 JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute")
@@ -45,9 +45,6 @@ def select(paths, test_files):
             frontend.update({project} if project else FRONTEND_PROJECTS)
         elif path.startswith("design/"):
             frontend.update(FRONTEND_PROJECTS)
-        elif path.startswith("shared/commons/"):
-            frontend.add("commons")
-            backend.add("commons")
         elif path.startswith("backend/ig_logger/"):
             backend.add("beli")
         elif path.startswith("backend/tests/test_") and backend_test_project(path):

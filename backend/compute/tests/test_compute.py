@@ -223,3 +223,37 @@ def test_shared_lock_prevents_second_runner(tmp_path):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(RuntimeError, match='Another worker'):
             serve(tmp_path, [], threading.Event())
+
+
+def test_timeout_is_independent_of_blocked_heartbeat(tmp_path):
+    import sys
+    import time
+    from compute.process import run
+    entered = threading.Event()
+    release = threading.Event()
+    def heartbeat():
+        entered.set()
+        release.wait(5)
+    started = time.monotonic()
+    try:
+        with (tmp_path / 'worker.log').open('wb') as log, pytest.raises(TimeoutError):
+            run([sys.executable, '-c', 'import time; time.sleep(60)'], log,
+                0.4, heartbeat, interval=0.01)
+        assert entered.is_set()
+        assert time.monotonic() - started < 2
+    finally:
+        release.set()
+
+
+def test_process_supervisor_kills_descendants(tmp_path):
+    import sys
+    import time
+    from compute.process import run
+    ticks = tmp_path / 'ticks'
+    child = 'import time; f=open(' + repr(str(ticks)) + ', "w", buffering=1)\nwhile True: f.write("x\\n"); time.sleep(.02)'
+    parent = 'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",' + repr(child) + ']); time.sleep(60)'
+    with (tmp_path / 'worker.log').open('wb') as log, pytest.raises(TimeoutError):
+        run([sys.executable, '-c', parent], log, 1, lambda: None)
+    before = ticks.read_bytes()
+    time.sleep(.2)
+    assert before and ticks.read_bytes() == before

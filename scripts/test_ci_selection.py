@@ -89,11 +89,6 @@ class SelectionTests(unittest.TestCase):
                 self.assertTrue(plan["trips"])
                 self.assertFalse(plan["crowdset"])
 
-    def test_shared_contract_selects_both_commons_sides(self):
-        plan = ci.select(["shared/commons/scene-contract-v1.json"], TEST_FILES)
-        self.assertEqual(plan["frontend_projects"], ["commons"])
-        self.assertEqual(plan["backend_projects"], ["commons"])
-
     def test_dice_profile_contract_changes_also_run_trips(self):
         for path in ["backend/dice/routes.py", "backend/dice/repository.py", "backend/dice/schemas.py"]:
             with self.subTest(path=path):

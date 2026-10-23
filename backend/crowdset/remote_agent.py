@@ -7,7 +7,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import threading
 import time
 from uuid import uuid4
 
@@ -190,7 +189,7 @@ def execute(root, control, job, ffmpeg, ffprobe, encoder):
             code = [sys.executable, '-m', 'crowdset.youtube', str(directory), job['url'], str(limits.file_bytes),
                     str(limits.recording_seconds), str(limits.media_seconds)]
             try:
-                subprocess.run(code, check=True, timeout=limits.media_seconds + 10, start_new_session=True,
+                subprocess.run(code, check=True, timeout=limits.media_seconds + 10,
                                stdout=subprocess.DEVNULL, stderr=(directory / 'youtube.log').open('wb'))
             except subprocess.CalledProcessError:
                 failure = directory / 'failure.json'
@@ -245,35 +244,41 @@ def execute(root, control, job, ffmpeg, ffprobe, encoder):
 
 class Source:
     """Keep Crowdset's fenced media protocol behind the shared runner interface."""
-    def __init__(self, root, ffmpeg, ffprobe, encoder):
+    def __init__(self, root, ffmpeg, ffprobe, encoder, capacity=None):
+        from compute.jobs import Resources
+        self.capacity = capacity or Resources.environment(default_gpu=int(encoder == 'h264_nvenc'))
         self.root, self.ffmpeg, self.ffprobe, self.encoder = root, ffmpeg, ffprobe, encoder
         self.control = Control(os.environ['CROWDSET_WORKER_URL'], os.environ['CROWDSET_WORKER_TOKEN'])
 
     def claim(self):
-        return self.control.call('claim')
+        return self.control.call('claim-v2', capacity=self.capacity.model_dump(), encoder=self.encoder)
 
     def run(self, job):
-        root, control = self.root, self.control
+        root = self.root
+        control = Control(self.control.url, self.control.token, job)
+        control.transport = self.control.transport
         ffmpeg, ffprobe, encoder = self.ffmpeg, self.ffprobe, self.encoder
         status = {'pid': os.getpid(), 'updated_at': time.time()}
-        heartbeat_stop = threading.Event()
-        control.job = job
+        from compute.process import run as run_process
+        from .compute_jobs import resources
+        directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
         def heartbeat():
-            while not heartbeat_stop.wait(15):
-                try:
-                    directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
-                    value = snapshot(directory)
-                    control.call('heartbeat', stage=value.get('stage') or ('Downloading YouTube on the PC…' if job['kind'] == 'youtube' else 'Processing on the PC…'),
-                                 processing=value.get('processing'))
-                    gpu_worker.write_json(root / 'status.json', {'state': 'rendering', 'job': job['id'],
-                                         'pid': os.getpid(), 'updated_at': time.time()})
-                except Exception:
-                    pass  # Publication still requires a live lease; never publish offline.
-        thread = threading.Thread(target=heartbeat, daemon=True)
-        thread.start()
+            value = snapshot(directory)
+            gpu_worker.write_json(root / 'status.json', {'state': 'rendering', 'job': job['id'],
+                                 'pid': os.getpid(), 'updated_at': time.time()})
+            control.call('heartbeat', stage=value.get('stage') or 'Processing on the PC…',
+                         processing=value.get('processing'))
         try:
             gpu_worker.write_json(root / 'status.json', {**status, 'state': 'rendering', 'job': job['id']})
-            execute(root, control, job, ffmpeg, ffprobe, encoder)
+            if not resources(job['kind'], encoder).fits(self.capacity):
+                raise ValueError('Crowdset job exceeds worker capacity')
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            request = directory / 'request.json'
+            write_json(request, job)
+            with (directory / 'worker.log').open('wb') as log:
+                run_process([sys.executable, '-m', 'crowdset.remote_agent', '--root', str(root),
+                             '--job', str(request), '--ffmpeg', ffmpeg, '--ffprobe', ffprobe,
+                             '--encoder', encoder], log, job['limits']['job_seconds'], heartbeat)
             directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
             write_json(directory / 'published.json', {'job': job['id'], 'published_at': time.time()})
             # Cloud publication has committed; these are reconstructible worker staging files.
@@ -291,10 +296,6 @@ class Source:
                 control.call('fail', error=message)
             except Exception:
                 pass
-        finally:
-            heartbeat_stop.set()
-            thread.join(timeout=125)
-            control.job = None
 
 
 def serve(root, ffmpeg, ffprobe, encoder, stop):
@@ -313,5 +314,22 @@ def serve(root, ffmpeg, ffprobe, encoder, stop):
     sources = [Source(root, ffmpeg, ffprobe, encoder)]
     if os.environ.get('CC_COMPUTE_URL'):
         from compute.worker import configured_source
-        sources.append(configured_source(root))
+        sources.append(configured_source(root, sources[0].capacity))
     run_sources(root, sources, stop)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Execute one fenced Crowdset attempt')
+    parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--job', type=Path, required=True)
+    parser.add_argument('--ffmpeg', required=True)
+    parser.add_argument('--ffprobe', required=True)
+    parser.add_argument('--encoder', choices=['h264_nvenc', 'libx264'], required=True)
+    args = parser.parse_args()
+    job = json.loads(args.job.read_text())
+    control = Control(os.environ['CROWDSET_WORKER_URL'], os.environ['CROWDSET_WORKER_TOKEN'])
+    execute(args.root, control, job, args.ffmpeg, args.ffprobe, args.encoder)
+
+
+if __name__ == '__main__':
+    main()
