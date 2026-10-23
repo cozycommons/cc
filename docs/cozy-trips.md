@@ -2,7 +2,136 @@
 
 Cozy Commons project at `/trips`, with its authenticated API under `/trips`.
 
-## First delivery
+## Proposed integration plan — 2026-10-23
+
+Status: active goal, authorized 2026-10-23. Deliver the core functionality,
+complete end-to-end verification, database migrations, and a PR with passing CI
+for the existing release path. Track live feature/test status in
+[`cozy-trips-tests.md`](cozy-trips-tests.md). The existing implementation is a
+synthetic local prototype. Shared Google login, reuse of existing profiles, and
+import of Matt's Splitwise data have not been verified. This plan supersedes the
+prototype's completion claim below.
+
+### Outcome and stopping point
+
+Matt and the friends on one existing Splitwise trip can open Cozy Trips from
+Cozy Commons, use the existing Commons login, recognize their profiles, and see
+the trip's actual expenses and balances. They can add or edit an expense and
+record an outside repayment. An agent can operate the same labeled controls or
+authenticated API. Stop when that one trip reconciles and the acceptance checks
+below pass; further features stay parked.
+
+Cozy Trips belongs to the `cozycommons/cc` monorepo, its normal React app at
+`/trips`, shared FastAPI backend, and existing Supabase identity system. Use the
+normal Commons build and release path. The local checkout's directory name does
+not define a separate product, repository, deployment, or account system.
+
+### Immediate delivery unit: one imported trip in Commons
+
+1. **Establish the real source and a reconciliation target.** Inspect the
+   existing authorized Splitwise session and look for an available export before
+   asking Matt for data. Prior account work references `NITEHARTS 26`; verify its
+   current contents and suitability rather than importing old conversation
+   totals. Capture one trip read-only using an export, supplemented by visible
+   account data if needed. Record members, currencies, expenses, payer amounts,
+   individual shares, repayments, available source IDs, and current net balances.
+   Keep raw personal data and identity mappings in ignored local storage. Commit
+   only synthetic fixtures. Dismiss optional Pro prompts; stop at a genuine
+   paid-feature restriction without subscribing or bypassing it.
+
+2. **Integrate with the existing Commons session and profiles.** Use the shared
+   Supabase singleton, Google login, canonical `auth.users.id`, and normal backend
+   authentication. Preserve the requested trip or invitation through login and
+   reload. Resolve display name/avatar from an existing Dice profile when
+   available, then authenticated display metadata, with a guest label for an
+   unclaimed trip member. Profile reads expose only needed display fields to
+   authorized users. Do not create Dice game records as a side effect of opening
+   Trips. Explicitly map Splitwise member IDs to known Commons user IDs; matching
+   names alone never links accounts or grants access. Friends without Commons
+   accounts remain distinct trip members and can claim their place by invitation.
+
+3. **Import with a preview and exact accounting.** Show the source trip, people
+   mapping, expenses, repayments, and any unsupported records before saving.
+   Preserve available source IDs and import provenance. Re-importing the same
+   snapshot adds nothing; distinct identical-looking expenses remain distinct.
+   If an export omits stable IDs, retain a snapshot manifest and row identities
+   rather than silently merging rows by description or amount. Validate and save
+   the import atomically. Keep integer minor-unit accounting and revision checks.
+   Retain the existing ledger structure unless the observed source requires a
+   small extension, such as multiple payers. Do not silently approximate splits,
+   currencies, settlements, or missing history. Require exact per-person net
+   balance reconciliation for each currency before declaring the import complete.
+
+4. **Fit the existing Commons interface.** Use the shared Commons navigation and
+   `/design` components, spacing, typography, controls, dialogs, and avatar
+   conventions. Compare the actual Commons and Dice screens before changing the
+   Trips layout. Make the trip ledger and add-expense action the primary content;
+   reduce the prototype's oversized introduction and decorative postcard. Reuse
+   components where they fit, with mobile access and stable accessible names for
+   computer use. Avoid a platform-wide design or profile-system rewrite.
+
+5. **Verify the complete trip workflow.** Run focused import, identity,
+   authorization, accounting, and conflict checks, plus the normal frontend
+   build. Through computer use, enter Trips from Commons, authenticate, open the
+   imported trip, inspect participants and balances, edit an expense, reload,
+   record and undo a repayment, and return to Commons/Dice with the session
+   intact. Use a local working copy for changes to imported financial records;
+   preserve the captured source snapshot. Verify the same route on desktop and
+   phone through the private Tailscale preview. Leave a concise reconciliation
+   report and record which checks used synthetic versus actual accounts.
+
+### Acceptance evidence
+
+- Commons opens `/trips` through its normal navigation and build; `/dice` keeps
+  working. The interface uses existing Commons components and conventions.
+- Existing Commons Google login opens the intended Trips destination. The same
+  canonical user ID and appropriate existing profile appear across projects;
+  session persistence and sign-out work across navigation and reload.
+- The captured source and imported trip have matching members, expense and
+  repayment counts, and exact per-person net balances for every included
+  currency. Every excluded or unsupported record is explained; unresolved
+  differences prevent acceptance. Re-importing the same snapshot changes no
+  records or balances.
+- A second member can claim the intended place without duplicating a person or
+  changing their historical shares. An unrelated account cannot read or mutate
+  the trip, including through the Data API.
+- Add/edit and repayment/undo persist and update balances correctly. Concurrent
+  changes produce a reviewable conflict. Native labels and API errors support
+  agent operation without a second permission or credential system.
+- Desktop and phone computer-use evidence covers the workflow above. A working
+  synthetic local preview is recorded as local evidence only.
+
+### Environment boundary
+
+Develop, migrate, and exercise database writes against loopback Supabase, using
+the repository's existing guards. Do not reset shared services or weaken those
+guards. Use the normal Commons application composition for integration checks;
+retain the isolated Trips harness only as a regression fixture where useful.
+
+Actual Commons SSO and existing production identities require validation against
+the existing Commons environment. Before any production-connected operation,
+present the concrete reviewed diff, migration/configuration changes, target
+environment, and rollback steps for explicit authorization, as required by
+`AGENTS.md`. In particular, verify the intended OAuth return origin is allowed;
+do not repoint the guarded local harness at production. Until that validation is
+authorized and succeeds, mark real SSO acceptance pending. Local test users
+cannot satisfy it. No production migration or deployment is authorized by
+creating this plan.
+
+### Outside this slice
+
+Continuous Splitwise synchronization, all-account migration, exchange-rate
+conversion, payment processing, receipt OCR, notifications, a new global profile
+platform, separate agent credentials, and a separate Trips deployment.
+
+Current state: branch `feat/cozy-trips`, prototype commits `3bd5385` and
+`99c8312`, with no push, merge, or production rollout. A fresh source snapshot and
+visible expense IDs are captured in ignored local storage. Migration, release
+readiness, and CI coverage are the immediate implementation unit. Continue
+incrementally through import/profile integration and the full acceptance run;
+keep the verification ledger current through PR and CI.
+
+## Prototype scope (historical)
 
 Friends share a trip ledger: add named members, invite each friend to claim their
 place using the existing Supabase login, add/edit/delete expenses, split equally
@@ -147,6 +276,6 @@ and frontend route wiring, the Commons shelf, the shared migration runner,
 `scripts/trips-dev.py`, and `supabase/trips-local.toml`. Focused tests live beside
 the frontend and in `backend/tests/test_trips.py`.
 
-Next concrete step: open the private preview, choose Continue as Matt, and
-explore the synthetic Cabin weekend or create a new trip. No release work is
-pending within this local increment.
+The synthetic Cabin weekend remains a regression fixture. The proposed
+integration plan above defines the next delivery; this historical prototype
+handoff does not establish that Cozy Trips is ready for actual Commons users.

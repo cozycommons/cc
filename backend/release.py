@@ -8,7 +8,7 @@ import sys
 def main():
     root = Path(__file__).resolve().parent
     # A failure exits before the HTTP listener exists. The runner holds a
-    # database advisory lock and validates both migration families.
+    # database advisory lock and validates every included migration family.
     subprocess.run(
         [sys.executable, str(root / "migration_runner.py"), "--family", "all"],
         cwd=root, check=True,

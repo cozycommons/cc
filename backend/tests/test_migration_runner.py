@@ -36,12 +36,9 @@ def test_real_runner_fresh_existing_retry_and_checksum_rejection(tmp_path):
     assert sql('create database "'+name+'";').returncode == 0
     url = urlunparse(parsed._replace(path="/"+name))
     try:
-        setup = """create schema auth; create table auth.users(id uuid primary key);
-        grant usage on schema public to service_role;
-        alter default privileges in schema public grant all on tables to service_role;
-        """
+        setup = (Path(__file__).resolve().parents[2] / 'scripts/supabase-test-scaffold.sql').read_text()
         assert sql(setup,url).returncode == 0
-        driver = migration_runner.render(["dice","commons"])
+        driver = migration_runner.render(["dice", "commons", "beli", "trips"])
         first = sql(driver,url)
         assert first.returncode == 0, first.stdout+first.stderr
         assert sql("select public.dice_release_readiness();",url).returncode == 0

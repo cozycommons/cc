@@ -52,7 +52,26 @@ def test_ready_checks_database_and_core_schema():
     response = _client(supabase).get("/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
-    assert supabase.tables == ["dice_release_readiness"]
+    assert supabase.tables == ["dice_release_readiness", "trips_release_readiness"]
+
+
+def test_ready_fails_when_trips_schema_is_not_ready():
+    class TripsUnavailable(_Supabase):
+        def rpc(self, name):
+            if name == "trips_release_readiness":
+                return _Query(RuntimeError("Trips migration missing"))
+            return super().rpc(name)
+
+    assert _client(TripsUnavailable()).get("/ready").status_code == 503
+
+
+def test_ready_rejects_false_schema_attestation():
+    class FalseAttestation(_Supabase):
+        def rpc(self, name):
+            from types import SimpleNamespace
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=False))
+
+    assert _client(FalseAttestation()).get("/ready").status_code == 503
 
 
 def test_ready_fails_when_database_is_unavailable():
