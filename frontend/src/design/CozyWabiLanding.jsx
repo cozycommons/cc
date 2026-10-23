@@ -19,8 +19,7 @@ export default function CozyWabiLanding() {
       </header>
 
       <main>
-        <section className="cc-home-shelf" id="shelf" aria-labelledby="shelf-title">
-          <h1 id="shelf-title">The shelf</h1>
+        <section className="cc-home-shelf" id="shelf" aria-label="Projects">
           <div className="cc-home-shelf__projects">
             <span className="cc-home-shelf__backdrop" aria-hidden="true" />
             <span className="cc-home-shelf__line cc-home-shelf__line--top" aria-hidden="true" />

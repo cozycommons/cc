@@ -11,10 +11,6 @@ vi.mock('./dice/App.jsx', () => ({
   default: () => <div>Dice application</div>,
 }));
 
-vi.mock('./commons/CommonsScenePage.jsx', () => ({
-  default: () => <div>Commons scene page</div>,
-}));
-
 vi.mock('../../design/dice/App.jsx', () => ({
   default: () => <div>Dice design system</div>,
 }));
@@ -34,9 +30,8 @@ describe('top-level routes', () => {
 
     expect(container).not.toBeEmptyDOMElement();
     expect(screen.getByRole('main')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'The shelf' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Projects' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Dice beer die records and stats' })).toHaveAttribute('href', '/dice');
-    expect(screen.queryByText('Commons scene page')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Crowdset concert videos' })).toHaveAttribute('href', '/crowdset');
     expect(screen.getByRole('link', { name: 'Open Cozy Trips shared trip expenses' })).toHaveAttribute('href', '/trips');
   });
@@ -69,12 +64,12 @@ describe('top-level routes', () => {
     expect(window.location.pathname + window.location.search + window.location.hash).toBe('/crowdset?view=set#recording-123');
   });
 
-  it('serves the shared room at /scene', () => {
+  it('returns retired scene links to the project picker', async () => {
     window.history.replaceState({}, '', '/scene');
-
     render(<App />);
 
-    expect(screen.getByText('Commons scene page')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(screen.getByRole('region', { name: 'Projects' })).toBeInTheDocument();
   });
 
   it('serves Dice and initializes Supabase under /dice', async () => {
@@ -92,7 +87,7 @@ describe('top-level routes', () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /A small kit.*close at hand\./ })).toBeInTheDocument());
-    expect(screen.getByRole('link', { name: 'landing room' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'homepage' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('heading', { name: /Raised keys.*soft landing\./ })).toBeInTheDocument();
   });
 

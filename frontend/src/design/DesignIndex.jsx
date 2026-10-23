@@ -194,7 +194,7 @@ export default function DesignIndex() {
           <span className="cc-menu-toggle__label">{menuOpen ? 'close menu' : 'open menu'}</span>
         </button>
         <nav className={`cc-navbar__links${menuOpen ? '' : ' is-collapsed'}`} id="cc-site-navigation" aria-label="Component library navigation">
-          <Link to="/">landing room</Link>
+          <Link to="/">homepage</Link>
           <a href="#buttons">inventory</a>
           <Link to="/dice">Dice ↗</Link>
         </nav>
@@ -266,7 +266,7 @@ export default function DesignIndex() {
         {toast && <div className="cc-toast" role="status" aria-live="polite"><span className="cc-toast__mark" aria-hidden="true">·</span><span>{toast}</span><button className="cc-toast__close" type="button" onClick={() => setToast(null)} aria-label="Dismiss toast">×</button></div>}
       </main>
 
-      <footer className="cc-footer"><p className="cc-mono">cozy commons / common UI / chosen direction</p><div className="cc-footer__links"><Link to="/">return to landing room</Link><Link to="/dice">Dice app ↗</Link></div></footer>
+      <footer className="cc-footer"><p className="cc-mono">cozy commons / common UI / chosen direction</p><div className="cc-footer__links"><Link to="/">return to homepage</Link><Link to="/dice">Dice app ↗</Link></div></footer>
     </div>
   );
 }

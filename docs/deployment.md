@@ -70,8 +70,8 @@ Keep automatic deployments disabled until the first manual deployment and
 smoke test succeed. When enabled, use Coolify watch paths so frontend-only
 changes do not rebuild the backend and vice versa:
 
-- Backend: `backend/**`, `shared/commons/scene-contract-v1.json`, `.dockerignore`
-- Frontend: `frontend/**`, `shared/commons/scene-contract-v1.json`, `design/**`
+- Backend: `backend/**`, `.dockerignore`
+- Frontend: `frontend/**`, `design/**`
 
 ## GitHub Actions
 
@@ -81,7 +81,9 @@ container builds, migration family ownership, duplicate migration versions, and
 the migration runners' fresh and existing-database behavior.
 
 The incoming backend image runs the Dice, Commons, Beli, and Trips migration
-families before starting HTTP:
+families before starting HTTP. The retired Commons room migration family remains
+for compatibility with historical Dice readiness checks; the room API and assets
+are no longer shipped:
 
 ```bash
 python -m release

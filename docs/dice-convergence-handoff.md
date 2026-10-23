@@ -23,7 +23,7 @@ with no real users.
   passed; public `/health` and `/ready` returned 200.
 - Frontend `rrmtxvricbf8ifbldflw2brb`: deployment `rtcnre5jrtfapjfhnnmo8ext`
   succeeded at the same commit. Root context, `/frontend/Dockerfile`, port 80.
-  Watch paths include `frontend/**`, `shared/commons/scene-contract-v1.json`
+  Watch paths include `frontend/**`, `design/**`
   and `design/**` (the latter became a build dependency in upstream PR #6).
 - Both resources were restored to **Deploy on push (webhooks)** after the controlled
   rollout; each setting was reloaded and verified. GitHub App `coolify-cc` targets main.
@@ -74,8 +74,9 @@ Storage, with the lightbox linking the original object. Local evidence lives und
 
 Enhancements now ship in Commons. Use `.agents/skills/verify-dice/` and
 `docs/dice-feature-map.md` for future work, on fresh branches from Commons main.
-Keep `/dice`, current Commons scenes/shared contracts, incoming-release migrations
-and the database CI checks. The separate local `supabase_*_dummi-dice` stack was
+Keep `/dice`, incoming-release migrations, and the database CI checks.
+The Commons room project was subsequently retired; its historical migrations
+remain for deployment compatibility. The separate local `supabase_*_dummi-dice` stack was
 never reset or stopped. No access dependency remains for this release.
 
 Upstream PR #6 subsequently merged as 8fb3ed0d, adding the hosted design system.

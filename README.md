@@ -6,7 +6,6 @@ A monorepo for community projects amongst our friends.
 
 ## Projects
 
-- **[Commons](docs/commons-ambient-scene/README.md)** — our shared homepage and ambient room.
 - **[Dice](docs/dice-feature-map.md)** — live scoring, tournaments, player ratings, and predictions.
 - **[Crowdset](docs/crowdset/README.md)** — combine friends’ concert recordings into synchronized video and audio mixes.
 - **[Cozy Trips](docs/cozy-trips.md)** — shared trip expenses, balances, and repayments.
@@ -22,7 +21,7 @@ A monorepo for community projects amongst our friends.
 - `supabase/` — local database configuration and seed data
 - `scripts/` — development, migration, and verification tooling
 - `docs/` — project guides, specs, and operations
-- `design/` and `art/` — design system, visual explorations, and artwork
+- `design/` — design system and visual explorations
 
 ## Deployment
 

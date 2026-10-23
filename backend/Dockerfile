@@ -22,7 +22,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Application source comes last: changes here invalidate only this layer.
 COPY --chown=app:app backend/ /app/
-COPY --chown=app:app shared/commons/scene-contract-v1.json /app/shared/commons/scene-contract-v1.json
 
 USER app
 
