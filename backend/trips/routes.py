@@ -1,17 +1,19 @@
 """Supabase-authenticated HTTP commands shared by people and agents."""
-from datetime import date
+from copy import deepcopy
+from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gotrue.errors import AuthApiError
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from postgrest.exceptions import APIError
 
 from .ledger import LedgerError, apply_command, claim_invite, new_group, require_member
 from .imports import ImportTrip, prepare_import, require_same_import
 from .profiles import current_profile, render_group, render_groups
+from .venmo import normalize_username
 
 router = APIRouter(tags=['Cozy Trips'])
 bearer = HTTPBearer(auto_error=False)
@@ -49,12 +51,25 @@ class Expense(Revision):
     description: Name
     amount_minor: Money
     paid_by: UUID
-    split_mode: Literal['equal', 'exact'] = 'equal'
+    split_mode: Literal['equal', 'exact', 'shares'] = 'equal'
     participants: Annotated[list[UUID], Field(min_length=1, max_length=30)]
     shares: dict[UUID, Share] = Field(default_factory=dict)
     date: date
     category: Literal['food', 'stay', 'transport', 'activities', 'other'] = 'other'
     notes: Annotated[str, StringConstraints(max_length=1000)] = ''
+
+
+class VenmoUsername(Input):
+    venmo_username: Annotated[str, StringConstraints(max_length=200)] | None = None
+
+    @field_validator('venmo_username')
+    @classmethod
+    def valid_username(cls, value):
+        return normalize_username(value)
+
+
+class MemberVenmo(Revision, VenmoUsername):
+    pass
 
 
 class Repayment(Revision):
@@ -98,9 +113,33 @@ def save_revision(request, before, after):
     return render_group(client(request), rows[0])
 
 
+RETRYABLE = {'add_expense': 'expenses', 'add_repayment': 'repayments'}
+AUDIT_FIELDS = {'created_at', 'created_by', 'updated_at', 'updated_by'}
+
+
+def already_saved(row, user_id, kind, payload):
+    """A retried create whose first response was lost returns the saved trip instead of a conflict.
+
+    Replaying the retry must produce exactly the saved record (split, shares, notes and all); anything else conflicts."""
+    collection = RETRYABLE.get(kind)
+    saved = next((item for item in row['data'][collection] if item['id'] == payload['id']), None) if collection else None
+    if saved is None:
+        return False
+    trial = deepcopy(row)
+    trial['data'][collection] = [item for item in trial['data'][collection] if item['id'] != payload['id']]
+    replay, _ = apply_command(trial, user_id, kind, {**payload, 'revision': row['revision']})
+    candidate = next(item for item in replay['data'][collection] if item['id'] == payload['id'])
+    if {k: v for k, v in candidate.items() if k not in AUDIT_FIELDS} == {k: v for k, v in saved.items() if k not in AUDIT_FIELDS}:
+        return True
+    raise LedgerError('This item was already saved with different details. Refresh to see it.', 409)
+
+
 def command(request, trip_id, user, kind, payload):
     try:
         before = read_row(request, trip_id)
+        require_member(before, user.id)
+        if already_saved(before, user.id, kind, payload):
+            return render_group(client(request), before)
         after, invitation = apply_command(before, user.id, kind, payload)
         group = save_revision(request, before, after)
         return {'group': group, 'invite_token': invitation} if invitation else group
@@ -153,6 +192,22 @@ def get_my_profile(request: Request, user=Depends(current_user)):
     return current_profile(client(request), user)
 
 
+@router.put('/me')
+def update_my_profile(payload: VenmoUsername, request: Request, user=Depends(current_user)):
+    # Only the caller's own account is writable. GoTrue merges these keys into existing metadata.
+    username = payload.venmo_username
+    provenance = {'source': 'self', 'provided_by_user_id': user.id,
+                  'provided_at': datetime.now(timezone.utc).isoformat(), 'owner_confirmed': True} if username else None
+    try:
+        updated = client(request).auth.admin.update_user_by_id(
+            user.id, {'user_metadata': {'venmo_username': username, 'venmo_username_provenance': provenance}}).user
+    except AuthApiError:
+        raise HTTPException(503, 'Could not save your Venmo username. Try again.')
+    if not updated or updated.id != user.id:
+        raise HTTPException(503, 'Could not confirm your Venmo username was saved. Reload to check.')
+    return current_profile(client(request), updated)
+
+
 @router.post('/groups', status_code=201)
 def create_trip(payload: CreateTrip, request: Request, user=Depends(current_user)):
     existing = client(request).table('trips_groups').select('*').eq('id', str(payload.id)).execute().data
@@ -193,6 +248,11 @@ def add_member(trip_id: UUID, payload: AddMember, request: Request, user=Depends
 @router.post('/groups/{trip_id}/members/{member_id}/invite')
 def invite_member(trip_id: UUID, member_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'invite_member', {**payload.model_dump(), 'member_id': str(member_id)})
+
+
+@router.put('/groups/{trip_id}/members/{member_id}/venmo')
+def set_member_venmo(trip_id: UUID, member_id: UUID, payload: MemberVenmo, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'set_member_venmo', {**payload.model_dump(), 'member_id': str(member_id)})
 
 
 @router.post('/groups/{trip_id}/join')

@@ -51,7 +51,7 @@ it('shows the canonical shared profile and does not ask for a separate trip iden
   expect(screen.getByText('Existing Dice name')).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'New trip', exact: true }));
   expect(screen.queryByLabelText('Your name')).not.toBeInTheDocument();
-  expect(screen.getByText('Joining as Existing Dice name with your Commons account.')).toBeInTheDocument();
+  expect(screen.getByText('You’ll join as Existing Dice name.')).toBeInTheDocument();
 });
 
 it('keeps the account name and photo while the shared profile is loading', async () => {
@@ -60,7 +60,7 @@ it('keeps the account name and photo while the shared profile is loading', async
   mocked.auth.user.user_metadata.avatar_url = '/google-avatar.png';
   mocked.request.mockResolvedValue([]);
   open();
-  const identity = screen.getByLabelText('Signed in as Account name');
+  const identity = screen.getByRole('button', { name: 'Signed in as Account name. Open profile' });
   expect(identity).toHaveTextContent('Account name');
   expect(identity.querySelector('img')).toHaveAttribute('src', '/google-avatar.png');
   expect(screen.getByRole('button', { name: 'Sign out', exact: true })).toBeInTheDocument();
@@ -82,7 +82,7 @@ it('shows a missing invitation error without submitting a join', async () => {
   mocked.request.mockResolvedValue([]);
   open('/trips/join/trip-id');
   fireEvent.click(screen.getByRole('button', { name: 'Join trip', exact: true }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('missing its secret');
+  expect(await screen.findByRole('alert')).toHaveTextContent('missing its code');
   expect(mocked.request.mock.calls.some(call => call[2] === 'POST')).toBe(false);
 });
 
@@ -119,10 +119,12 @@ it('distinguishes repeated descriptions by payer, amount and date for edit and d
     <Route path="/trips/:tripId" element={<TripsApp />} />
   </Routes></MemoryRouter>);
   const edit = await screen.findByRole('button', { name: 'Edit Dinner, $25.00 paid by Guest on 2026-10-23', exact: true });
-  expect(screen.getByRole('button', { name: 'Delete Dinner, $10.00 paid by Owner on 2026-10-22', exact: true })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Edit Dinner, $10.00 paid by Owner on 2026-10-22', exact: true })).toBeInTheDocument();
   fireEvent.click(edit);
   expect(screen.getByLabelText('Description')).toHaveValue('Dinner');
   expect(screen.getByLabelText('Amount (USD)')).toHaveValue('25.00');
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('dialog', { name: 'Delete this expense?' })).toHaveTextContent('Dinner · $25.00');
 });
 
 it('ignores an old trip save after navigating to a different trip', async () => {

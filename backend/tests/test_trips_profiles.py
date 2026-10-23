@@ -64,7 +64,8 @@ def test_current_account_falls_back_without_creating_a_dice_profile():
     user = SimpleNamespace(id='new-user', user_metadata={'full_name': 'New friend', 'avatar_url': 'https://example.com/avatar.png'})
     profile = current_profile(client, user)
     assert profile == {'user_id': 'new-user', 'display_name': 'New friend',
-                       'avatar_url': 'https://example.com/avatar.png', 'profile_source': 'account'}
+                       'avatar_url': 'https://example.com/avatar.png', 'profile_source': 'account',
+                       'venmo_username': None, 'venmo_confirmed': False}
 
 
 def test_linked_account_metadata_fills_missing_dice_profile_without_name_matching():
@@ -75,7 +76,7 @@ def test_linked_account_metadata_fills_missing_dice_profile_without_name_matchin
     account = SimpleNamespace(id='linked-2', user_metadata={'full_name': 'Canonical guest', 'avatar_url': 'https://example.com/guest.png'})
     client = ProfileClient([{'user_id': 'owner-1', 'display_name': 'Dice owner', 'avatar_url': '/owner.png'}], {'linked-2': account})
     groups = render_groups(client, [row, row])
-    assert client.account_queries == ['linked-2']  # Deduplicated across the returned trips.
+    assert client.account_queries == ['owner-1', 'linked-2']  # Linked IDs only, deduplicated across trips.
     assert groups[0]['members'][1]['display_name'] == 'Canonical guest'
     assert groups[0]['members'][1]['avatar_url'] == 'https://example.com/guest.png'
     assert groups[0]['members'][1]['name'] == 'Imported guest'
