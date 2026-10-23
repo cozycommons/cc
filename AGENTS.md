@@ -55,6 +55,9 @@ Windows-path syntax to repository scripts or documented developer commands.
 
 ## Invariants
 
+- Keep the root README brief and describe only projects and behavior on `main`.
+  Never mention ongoing branches or work in progress; any branch references must
+  point to `main`.
 - Developer tooling must run on Ubuntu and macOS Bash 3.2.
 - Keep Dice feature implementation behavior stable during repository migration.
 - Preserve `/dice` frontend and API paths until an explicit product change.
