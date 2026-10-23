@@ -1,11 +1,13 @@
 # AGENTS.md
 
-This is the Cozy Commons monorepo. Dice is the first project.
+This is the `cozycommons/cc` monorepo. Dice and Cozy Trips (`/trips`) are
+features of its shared application. A local checkout name or location does not
+define a separate repository or make a feature WSL-specific.
 
 ## Layout
 
-- `frontend/`: Vite + React Cozy Commons home plus the Dice project at `/dice`.
-- `backend/`: FastAPI shared API with Dice routes under `/dice` and other project integrations.
+- `frontend/`: Vite + React Cozy Commons home, Dice at `/dice`, and Cozy Trips at `/trips`.
+- `backend/`: FastAPI shared API with Dice routes under `/dice`, Trips under `/trips`, and other project integrations.
 - `backend/ig_logger/`: generic Instagram-source → sink platform; routes under `/ig-logger`. `backend/ig_logger/sinks/beli/`: multi-tenant Beli restaurant app (the first sink); routes under `/beli`, MCP server at `/beli/mcp`.
 - `supabase/`: isolated local Supabase configuration and project seed data.
 - `scripts/`: shared development plus project-specific migration and verification tooling.

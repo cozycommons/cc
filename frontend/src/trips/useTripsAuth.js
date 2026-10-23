@@ -40,6 +40,14 @@ export function useTripsAuth() {
     error: state.error || (identity.userId === userId ? identity.error : ''),
     signIn: () => auth.signInWithGoogle(`${window.location.origin}${window.location.pathname}${window.location.search}`),
     signOut: () => auth.signOut(),
+    // Writes only the caller's own account. A response for an account that has since signed out is dropped.
+    saveVenmo: async (username) => {
+      if (!userId) throw new Error('Please sign in again to continue.');
+      const saved = await tripRequest(supabase, '/me', 'PUT', { venmo_username: username }, userId);
+      if (saved.user_id !== userId) throw new Error('Your account changed. Reload to continue.');
+      setIdentity((current) => (current.userId === saved.user_id ? { ...current, profile: saved, error: '' } : current));
+      return saved;
+    },
     signInLocal: async (name) => {
       if (!localDemo) throw new Error('Local demo is disabled.');
       const { error } = await supabase.auth.signInWithPassword({ email: `${name.toLowerCase()}@trips.local`, password: 'local-trips-password' });

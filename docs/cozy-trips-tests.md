@@ -31,7 +31,7 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | EXP-01 | Add/edit/delete expense | Description, amount, payer, date, category, note; draft retained on error | passed desktop/phone browser, reload, validation and real API |
 | SPLIT-01 | Equal split with selected people | Integer cents, deterministic rounding, subset selection | passed local browser: two-person odd-cent split and single-person subset |
 | SPLIT-02 | Unequal amounts | Exact shares sum to cost; preserve source penny allocation | passed local browser validation/correction and exact source reconciliation |
-| SPLIT-03 | Percentages and share weights | Assess as follow-up after equal/exact source trip works | deferred from first core release |
+| SPLIT-03 | Percentages and share weights | Integer share weights with exact penny allocation; percentages deferred | shares implemented: backend/frontend allocation parity tests, local browser 2:1:1 split |
 | BAL-01 | Group balances | Exact per-person net balances and simplified transfer suggestions | passed source reconciliation, browser edits/repayments and conservation tests |
 | PAY-01 | Settle up | Record outside payment and undo; never initiate money transfers | passed local browser and real API; both balances clear, then restore on undo |
 | ACT-01 | Expense provenance / updates | Who changed what and when, readable expense details | passed local activity inspection; import activity plus retained source IDs/digest/original balances in API; notes persist after phone edit |
@@ -41,7 +41,8 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | AGENT-01 | Form controls and actions | Stable native labels, predictable errors, same authenticated HTTP API | passed native hosted forms, Google flow, import/repeat and synthetic mutations; API scenarios pass locally/CI |
 | UI-01 | Commons project conventions | Reuse Commons navigation/design components; desktop and phone | passed built app desktop and 390x844, shared account identity and native dialogs; page 375/375 and dialog 335/335 widths |
 | UI-02 | Compact working interface | Keep the palette, remove decorative copy, show expenses sooner | passed local desktop/phone and hosted account/list/ledger after PR #87 deployment |
-| PAY-02 | Venmo request composition | Optional own profile username; prepare person/amount/note and review | pending workflow alignment; no payment-profile schema or request submission added |
+| PAY-02 | Venmo request composition | Optional own profile username; prepare person/amount/note and review | implemented: own save/clear/reload and outsider/validation API tests on real local Supabase; Pay/Request direction, encoding, USD gating, missing-handle fallback, zero writes on open and single record on retry covered in tests and local browser; link lands on Venmo's payment-link page with the same details |
+| UI-03 | Mobile navigation and entry | Bottom tabs, reachable add/save, chips for payer/people/category | local 390px run: tab bar pinned, add button clear of it, sheet actions in view, no horizontal overflow |
 | IMPORT-04 | Broader Splitwise content | Import the intended real sources without synthetic filler | pending account/scope clarification; connected account's dashboard/All expenses shows one group and 14 entries |
 | DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally and hosted: receipts 1/2 and readiness; `test_trips_migrations.py`, `test_migration_runner.py` |
 | SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed real local API/RLS/drift tests and hosted catalog/owner/outsider/anonymous checks |
@@ -150,6 +151,138 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### UI rework and Venmo — 2026-10-23
+
+Branch `feat/trips-preview-icons`, rebased by merge on `main` at `a3b078e`.
+TripsApp was split into `TripView`, `ExpenseForm`, `Settle`, `People` and
+small `people.js`/`venmo.js` helpers. No schema change: Venmo usernames use the
+existing Auth `user_metadata` fields, plus an optional creator-entered
+`venmo_username` on unjoined trip members.
+
+Delivered: phone bottom tab bar, add button and bottom-sheet dialogs; per-person
+colours and avatars throughout; payer/participant/category chips with
+Everyone/Just me/Clear; by-shares split; remembered last payer/people/category
+per trip on the device; amount-first entry with `$`, `1,250.50` and `45,50`;
+own Venmo username in the profile dialog; creator-set usernames for people who
+haven't joined; Pay/Request review with copy buttons; explicit Mark as paid with
+Undo; `?tab=` sections and `?add=expense` prefill.
+
+State fixes from two adversarial review rounds (GPT‑6.1 Sol) and two UX reviews
+(Sonnet): each dialog saves against the revision it opened from and shows the
+full saved version on conflict, including delete; identical create retries return
+the trip and changed ones conflict; stale refreshes cannot regress a newer save;
+cut-off responses are reported as uncertain; the own-username write is bound to
+the session token it sends; Remove/Delete share the form's pending lock; optional
+profile lookups never fail a committed write; late create/import/join responses
+don't navigate; mismatched currency symbols are rejected; partial multi-add keeps
+earlier invite links; and seeded or provenance-less usernames show as
+unconfirmed.
+
+Evidence, synthetic local data only (local Supabase, `Continue as Matt/Jamie`
+on the private Tailscale preview; not hosted SSO): Trips frontend tests 88/88,
+full frontend suite 507/507 at the first commit, lint 0 errors, `build:check`
+with bundle budget; Trips backend tests 73/73 including real local Supabase
+own-username save/clear/isolation, owner-only placeholder usernames and
+idempotent retry; full backend suite 784 passed, 47 skipped. A headless Chromium
+run at 1280×860 and 390×844 covered:
+- create a trip, add three people at once, and get three invite links;
+- reject an invalid username and save a valid one;
+- reject `€300` in a USD trip while keeping the draft;
+- a shares split and a 3-of-4 split;
+- missing-username fallback;
+- zero ledger writes when opening Venmo, one record on Mark, and Undo;
+- own username persisting across reload and clearing;
+- no horizontal overflow, a pinned tab bar, the add button above it, and sheet actions in view;
+- an outsider getting a 404.
+
+The generated `venmo.com/{user}?txn=…` link redirected to
+`account.venmo.com/payment-link` with the same recipient, amount, note and
+action. Logged out on desktop it read "Sign in to request $1.23 from Matthew
+Ho"; a phone user agent receives the same page with an app banner. No money or
+request was sent. Screenshots are outside Git in
+`artifacts/cozy-trips/v2/`.
+
+Remaining limits: friends' accounts still aren't linked to the imported trip,
+so only Matt's username shows there until they join or the creator enters
+theirs. Settlement stays greedy (minimum dollars moved, not guaranteed fewest
+payments). Native-browser focus trapping is not separately verified.
+
+### Mobile profile, form and calculation clarity
+
+The user requested their name/photo in the header, closer Dice styling, a
+mobile form repair and an explanation of a missing direct creditor payment.
+The header's mobile CSS had hidden the entire identity; it now retains the
+name/photo and uses Dice's existing PlayerAvatar, with account-metadata fallback
+while the shared profile loads. On the private local demo only, the existing
+Matt test profile's display fields reuse the user's requested hosted name/photo.
+The previous display fields are privately backed up; canonical account IDs and
+the complete imported trip row stayed unchanged. LOCAL remains visible.
+
+Native browser inspection reproduced unequal 134/164-pixel form columns caused
+by the date control's intrinsic minimum. Phone forms now stack fields, use
+consistent 44-pixel controls and keep Save/Cancel reachable. At the verified
+390x844 viewport all five main controls are 288 pixels wide, the dialog is
+320/320 pixels (client/scroll), and all exact-split rows are 256/256. Filling the
+last note field, switching split modes and canceling saved no financial data.
+The attempted narrower override did not apply; do not claim a 320-pixel browser
+run or Safari device test.
+
+The imported source and a fresh local ledger read agree: group-net suggestions
+combine debts involving multiple people, rather than preserving every original
+creditor. The Balances tab now explains this and offers a native expandable
+breakdown of paid/share/repayment totals plus direct relationships. The group
+algorithm, expense splits and repayment logic are unchanged. Private source
+numbers remain out of Git. Three synthetic regression cases cover canceled
+direct debts, both repayment directions, and payers outside the split; their
+direct totals reconcile with the overall net. A header regression covers the
+photo/name while the shared profile is loading. All 45 Trips frontend checks,
+lint (zero errors; one existing CommonsScene warning), the production build and
+bundle budget pass. Screenshots remain outside Git in
+`artifacts/cozy-trips/mobile-form-fixed.png` and `mobile-balance-breakdown.png`.
+These changes are on the private preview branch, with no new public deployment.
+
+### Icons and Tailscale demo follow-up
+
+Branch `feat/trips-preview-icons` adds functional icons to all four section tabs,
+section headings, summary labels, invitation/repayment/delete/sign-out actions,
+activity markers and trip rows. Text labels and the compact layout remain.
+All 41 Trips frontend checks pass; lint has zero errors and its one existing
+CommonsScene warning. The production build and bundle budget pass. Native
+browser checks exercised all four tabs, the trip list, and dialog open/cancel.
+At 390x844 the page is 375/375 pixels and the dialog 320/320 (client/scroll),
+with no trip-row overflow. Screenshots remain outside Git in
+`artifacts/cozy-trips/icons-preview-desktop.png` and `icons-preview-phone.png`.
+No financial mutations or hosting changes were made.
+
+The existing Tailscale service still runs `scripts/trips-dev.py run` against its
+dedicated local Supabase, with synthetic sign-ins. The user's question about
+hosted accounts/data is being clarified; no live-data switch is authorized by
+an unanswered choice. Connecting the preview to the hosted project needs a
+separate explicit frontend configuration and an allowed OAuth return URL for
+the private origin. Keep the sandbox's loopback guards unchanged and never
+bring a hosted service-role key into a frontend. The Supabase dashboard's URL
+configuration page currently requires sign-in, so its existing redirect allow
+list has not been verified. Next step: resolve the user's data-mode choice,
+then inspect/prepare the exact private callback configuration before changing it.
+
+### Venmo seed follow-up
+
+The user supplied and confirmed all six username mappings, then explicitly
+requested seeding. The existing hosted Supabase Auth accounts now contain
+`user_metadata.venmo_username` and `venmo_username_provenance`; see
+`cozy-trips.md` for the field contract. The seed used the supported Admin API,
+verified canonical Google-backed identities, stopped on existing conflicting
+values, and saved a mode-0600 metadata backup before updates. Six fresh account
+reads verified exact values and preservation of every other metadata field,
+application permissions and login identities. Dice display profiles and the
+complete imported trip row remained identical. No schema, code deployment,
+expense/repayment or trip membership changed. Private backup and receipt:
+`/root/cozy-trips-venmo-seed-20261023.json` and
+`/root/cozy-trips-venmo-seed-20261023-receipt.json`. The ignored local proposal
+now records the completed action. Username ownership is not independently
+verified in Venmo. The next increment is profile editing/display and prepared
+Pay/Request details; the UI does not expose these seeded fields yet.
+
 ### Profile and review follow-up
 
 Branch `fix/trips-profiles-polish` follows PR #87. The user requested existing
@@ -180,7 +313,21 @@ No financial entries were saved during these checks. Browser testing also
 reproduced the existing top-left dialog placement caused by reset CSS; the
 dialog now explicitly centers within its viewport. Screenshots remain outside
 Git in `artifacts/cozy-trips/profiles-trip-desktop.png` and
-`profiles-trip-phone.png`. Final PR/CI/deployment evidence is pending.
+`profiles-trip-phone.png`.
+
+PR #88 passed all five checks in run `39961318193` and merged as
+`2679cc93749132bdd3d441370646b8aa92925fa8`. Both existing webhooks deployed that
+commit successfully: backend `nqjtmcpu0pametu7whws1zdt`, frontend
+`70t0go4gcp1l8r8ssyjbgkxv`. Both resulting containers were inspected healthy.
+Hosted Google session/profile, all 14 expense actions, branding, centered
+dialog, padding preserving an unsaved draft and cancellation passed. Six
+document routes passed HEAD 200/ETag 304 cache checks; health/readiness and
+anonymous denial passed. Hosted desktop proof is
+`artifacts/cozy-trips/profiles-hosted-desktop.png`. The phone override did not
+apply to the hosted tab, so phone evidence is explicitly local. All five
+merged-main checks passed in run `39962370964`. This release adds no schema
+migration and does not refresh the
+Chrome-captured 14-expense/six-person source snapshot.
 
 Five existing Google-backed accounts were identified read-only for the imported
 people, including one Auth-only identity without a Dice profile. Exact UUIDs and
@@ -229,9 +376,8 @@ agent use plus easier Venmo request composition.
 - The connected Splitwise account's dashboard/All expenses screen shows only
   the existing group and its 14 entries. Another account/source and the desired
   import scope need clarification before broader import.
-- Venmo profile sharing/request composition is awaiting the user's workflow
-  choice before schema work. Plain-language agent behavior is documented in
-  `cozy-trips.md`; this UI uses the existing account/form/API contract.
+- (Superseded 2026-10-23: the Venmo workflow was agreed and is implemented; see
+  "UI rework and Venmo" below.)
 
 ### Delivered core release
 

@@ -171,7 +171,10 @@ the same authenticated HTTP API is documented by FastAPI OpenAPI.
 
 ## Implementation decisions
 
-- Work locally in Ubuntu-24.04 at `~/repo/cozy-trips`, branch `feat/cozy-trips`.
+- Cozy Trips is the `/trips` feature in `cozycommons/cc`; develop it in the
+  existing monorepo checkout. This machine currently uses
+  `/home/matthewho/repo/cozy-trips` in WSL. That path is a local environment
+  detail, not a separate Trips repository or a WSL-only product requirement.
 - One JSON ledger per small trip in Supabase Postgres, atomically updated with a
   revision check. Concurrent edits return 409 rather than overwrite each other.
 - Integer minor units for all money; deterministic remainder distribution and
@@ -189,12 +192,14 @@ the same authenticated HTTP API is documented by FastAPI OpenAPI.
 
 ## Run locally
 
-Requirements: Node 22, Python 3.12, Docker, and `psql`. Use Ubuntu/WSL for all
-commands. Install the repository's locked dependencies and a backend virtual
-environment, then:
+Requirements: Node 22, Python 3.12, Docker, and `psql`. Follow the repository's
+supported development tooling. The commands below are Bash examples; this
+machine currently runs them in WSL. Native Windows tools can be used where
+supported; a complete native Windows setup has not been verified here. Install
+the repository's locked dependencies and a backend virtual environment, then:
 
 ```bash
-cd ~/repo/cozy-trips
+cd /path/to/cc  # the existing cozycommons/cc checkout
 backend/.venv/bin/python scripts/trips-dev.py setup
 backend/.venv/bin/python scripts/trips-dev.py run
 ```
@@ -251,6 +256,8 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 
 | Endpoint | Operation |
 | --- | --- |
+| GET /me | Caller's display profile plus `venmo_username` / `venmo_confirmed` |
+| PUT /me | Set or clear (`null`/empty) the caller's own `venmo_username` |
 | GET /groups | List the caller's trips |
 | POST /imports/preview | Validate a Splitwise snapshot and preview the reconciled trip |
 | POST /imports | Atomically save that snapshot, or reopen the identical existing import |
@@ -258,6 +265,7 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 | GET /groups/{id} | Full trip, integer balances, suggested transfers, revision |
 | POST /groups/{id}/members | Creator adds a named person; returns a one-use invite |
 | POST /groups/{id}/members/{member}/invite | Creator rotates that person's invite |
+| PUT /groups/{id}/members/{member}/venmo | Creator sets/clears a username for someone who hasn't joined |
 | POST /groups/{id}/join | Claim an invitation with invite_token |
 | POST /groups/{id}/expenses | Create an expense |
 | PUT /groups/{id}/expenses/{expense} | Edit an expense |
@@ -265,17 +273,47 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 | POST /groups/{id}/repayments | Record an outside repayment |
 | DELETE /groups/{id}/repayments/{repayment} | Undo a repayment record |
 
-Every mutation to an existing trip except joining includes its latest `revision`.
-409 means reload and review; never blindly retry or overwrite another edit.
-Expense/repayment IDs are client-generated UUIDs so a lost response can be
-reconciled by re-reading the trip. Date fields use YYYY-MM-DD.
+Every mutation to an existing trip except joining includes the `revision` the
+caller last reviewed. 409 means reload and review; never blindly retry or
+overwrite another edit. Expense/repayment IDs are client-generated UUIDs. Resending
+an identical create (same ID and the same resulting record) returns the trip
+without saving twice; the same ID with different details returns 409. Date fields
+use YYYY-MM-DD.
 
 Expense input: id, revision, description, amount_minor, paid_by (member UUID),
-split_mode (`equal` or `exact`), participants (member UUIDs), shares (member UUID
-to nonnegative integer minor units, for exact splits), date, category, notes.
-Equal splits distribute remainder pennies in displayed member order. Repayment
-input: id, revision, from_member, to_member, amount_minor, date, notes.
+split_mode (`equal`, `exact` or `shares`), participants (member UUIDs), shares,
+date, category, notes. For `exact`, shares maps each participant to nonnegative
+integer minor units that sum to the amount. For `shares`, it maps each
+participant to an integer weight 1–1000; the saved expense keeps `weights` and
+integer `shares`, with leftover pennies going to the largest remainders, then
+member order. Equal splits distribute remainder pennies in member order.
+Repayment input: id, revision, from_member, to_member, amount_minor, date, notes.
 Positive balances mean owed; negative balances mean owing.
+
+Prefilled, unsaved expense (UI): `/trips/{id}?add=expense&description=Dinner&amount=42.50&paid_by={member}&participants={member},{member}&category=food`
+opens the form for review. Sections are addressable with `?tab=expenses|balances|people|activity`.
+
+### Venmo
+
+Trip members carry `venmo_username`, `venmo_confirmed` and `venmo_source`
+(`account` for people who joined, `trip` for a username the creator entered for
+someone who hasn't joined, else null). Account usernames live in Supabase Auth
+`user_metadata.venmo_username`; a self-save writes `venmo_username_provenance`
+with `source: self` and `owner_confirmed: true`. Anything else, including the
+seeded values, is shown as unconfirmed. None of this is proof of Venmo account
+ownership or used for authorization. Joining a trip drops the creator-entered
+username in favour of the account's own.
+
+From a suggested payment, the debtor gets Pay and the creditor gets Request.
+The UI prepares `https://venmo.com/{username}?txn=pay|charge&amount=12.34&note=…`,
+shows recipient, amount and note with copy buttons, and opens Venmo in a new tab.
+Venmo redirects that link to `account.venmo.com/payment-link` with the same
+recipient, amount, note and action (checked 2026-10-23, desktop and phone user
+agents). The person confirms in Venmo. Opening the link never writes to the trip.
+Recording the payment is a separate explicit action whose ID is fixed per dialog,
+so retries cannot record twice. Venmo is offered only for USD trips. Without a
+username the dialog keeps the copyable amount/note and asks the creator (or the
+person) to add one.
 
 ### Splitwise snapshot contract
 
@@ -338,12 +376,23 @@ found one visible group and the same 14 source entries, with no additional group
 or non-group expenses shown. Broader import needs the intended account/source
 and scope clarified. Do not manufacture trips to populate the list.
 
-Venmo direction requested: an optional username on the person's existing Commons
-identity and a prepared person/amount/note request from balances. Confirm the
-first workflow before adding payment-profile storage: own username editing,
-sharing with trip members, user review in Venmo, and recording the actual
-repayment separately. No payment-profile schema or automatic request submission
-is included in this UI slice. The workflow question is pending with the user.
+Venmo direction agreed: an optional username on the person's existing Commons
+identity and a prepared person/amount/note request from balances, reviewed in
+Venmo before submission. Record the actual repayment separately.
+
+On 2026-10-23 the user supplied and confirmed six username mappings and explicitly
+requested the seed. They were saved on those existing Supabase Auth accounts as
+`user_metadata.venmo_username`. `venmo_username_provenance` contains `source`
+(`matt_provided`), `provided_by_user_id`, `provided_at`, and `owner_confirmed`
+(`false`). These fields are display data, never authorization or proof of Venmo
+account ownership. No Dice profile is created or repurposed. The raw mappings
+remain private and ignored; the complete pre-update metadata and verified
+receipt are backed up with mode 0600 on the hosted server. Fresh Admin API reads
+confirmed every username/provenance value and preservation of all other metadata,
+app permissions and login identities. Dice display profiles and the complete
+imported trip row remained unchanged. No schema migration is needed for this
+metadata-only seed. Profile editing, trip display and Pay/Request composition
+are not implemented yet; consume these same fields in that next increment.
 
 The compact UI shipped through [PR #87](https://github.com/cozycommons/cc/pull/87)
 as `2494643` after all five PR checks passed. The frontend webhook rollout and

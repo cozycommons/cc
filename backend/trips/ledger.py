@@ -46,6 +46,16 @@ def transfers(amounts):
     return result
 
 
+def weighted_shares(amount, weights):
+    """Split minor units by weight. Leftover pennies go to the largest remainders, then member order."""
+    total = sum(weights.values())
+    shares = {key: amount * weight // total for key, weight in weights.items()}
+    order = sorted(weights, key=lambda key: -(amount * weights[key] % total))  # Stable: ties keep member order.
+    for key in order[:amount - sum(shares.values())]:
+        shares[key] += 1
+    return shares
+
+
 def public_group(row):
     data = deepcopy(row['data'])
     for member in data['members']:
@@ -105,11 +115,17 @@ def apply_command(row, user_id, command, payload):
         if not participants or len(set(participants)) != len(participants) or not set(participants) <= members.keys():
             raise LedgerError('Choose each participant once from this trip.')
         amount = payload['amount_minor']
+        # Member order, rather than checkbox order, makes pennies deterministic.
+        ordered = [key for key in members if key in participants]
+        weights = None
         if payload['split_mode'] == 'equal':
-            # Member order, rather than checkbox order, makes pennies deterministic.
-            ordered = [key for key in members if key in participants]
             quotient, remainder = divmod(amount, len(ordered))
             shares = {key: quotient + int(index < remainder) for index, key in enumerate(ordered)}
+        elif payload['split_mode'] == 'shares':
+            if set(payload['shares']) != set(participants) or any(not 1 <= w <= 1000 for w in payload['shares'].values()):
+                raise LedgerError('Give each selected person between 1 and 1000 shares.')
+            weights = {key: payload['shares'][key] for key in ordered}
+            shares = weighted_shares(amount, weights)
         else:
             shares = payload['shares']
             if set(shares) != set(participants) or sum(shares.values()) != amount:
@@ -123,6 +139,9 @@ def apply_command(row, user_id, command, payload):
             raise LedgerError('This trip has reached its expense limit.')
         expense = {**(existing or {}), **{key: payload[key] for key in
                    ['id', 'description', 'amount_minor', 'paid_by', 'split_mode', 'date', 'category', 'notes']}}
+        expense.pop('weights', None)
+        if weights:
+            expense['weights'] = weights
         expense.update(shares=shares, created_by=existing['created_by'] if existing else user_id,
                        created_at=existing['created_at'] if existing else timestamp,
                        updated_by=user_id, updated_at=timestamp)
@@ -131,6 +150,20 @@ def apply_command(row, user_id, command, payload):
         else:
             data['expenses'].append(expense)
         summary = f"{'Updated' if existing else 'Added'} {expense['description']}"
+    elif command == 'set_member_venmo':
+        if row['owner_id'] != user_id:
+            raise LedgerError('Only the trip creator can set Venmo for people who have not joined.', 403)
+        member = members.get(payload['member_id'])
+        if not member:
+            raise LedgerError('That person is not on this trip.', 404)
+        if member.get('user_id'):
+            raise LedgerError('People who joined manage their own Venmo username.', 409)
+        if payload['venmo_username']:
+            member['venmo_username'] = payload['venmo_username']
+            summary = f"Set Venmo for {member['name']}"
+        else:
+            member.pop('venmo_username', None)
+            summary = f"Removed Venmo for {member['name']}"
     elif command == 'delete_expense':
         expense = next((e for e in data['expenses'] if e['id'] == payload['id']), None)
         if not expense:
@@ -177,6 +210,7 @@ def claim_invite(row, user_id, token):
     target = next(m for m in result['data']['members'] if m['id'] == member['id'])
     target['user_id'] = user_id
     target.pop('invite_hash')
+    target.pop('venmo_username', None)  # The account owner manages their own username after joining.
     result['member_user_ids'].append(user_id)
     result['revision'] += 1
     result['updated_at'] = now()

@@ -1,9 +1,13 @@
 """Reuse canonical Dice display fields without creating game/profile records."""
+import logging
 from urllib.parse import urlparse
 
 from gotrue.errors import AuthApiError
 
 from .ledger import public_group
+from .venmo import account_venmo, stored_username
+
+logger = logging.getLogger(__name__)
 
 
 def avatar_url(value):
@@ -32,41 +36,62 @@ def profile_map(client, user_ids):
 
 def current_profile(client, user):
     existing = profile_map(client, [user.id]).get(user.id)
+    account = account_profile(user)
     if existing:
-        return {'user_id': user.id, **existing, 'profile_source': 'dice'}
-    return account_profile(user)
+        return {**account, **existing, 'profile_source': 'dice'}
+    return account
 
 
 def account_profile(user):
     metadata = user.user_metadata or {}
     name = metadata.get('full_name') or metadata.get('name') or 'Travel friend'
     return {'user_id': user.id, 'display_name': str(name)[:80],
-            'avatar_url': avatar_url(metadata.get('avatar_url')), 'profile_source': 'account'}
+            'avatar_url': avatar_url(metadata.get('avatar_url')), 'profile_source': 'account',
+            **account_venmo(metadata)}
 
 
-def render_groups(client, rows):
-    # Only resolve IDs already attached to authorized trip rows, never names or emails.
-    profiles = profile_map(client, [member.get('user_id') for row in rows for member in row['data']['members']])
-    linked_ids = dict.fromkeys(member.get('user_id') for row in rows for member in row['data']['members'] if member.get('user_id'))
-    # Resolve each authorized linked identity once, without creating a Dice profile.
-    for user_id in linked_ids:
-        if user_id in profiles:
-            continue
+def linked_accounts(client, user_ids):
+    """Read only accounts already linked to authorized trip rows; never search by name or email."""
+    accounts = {}
+    for user_id in dict.fromkeys(user_ids):
         try:
             user = client.auth.admin.get_user_by_id(user_id).user
         except AuthApiError as error:
-            if error.status == 404:
-                continue  # A deleted account still retains its historical ledger identity.
-            raise
+            if error.status != 404:
+                logger.warning('Trips profile lookup failed with status %s', error.status)
+            continue  # A deleted or unreachable account keeps its historical ledger identity.
+        except Exception:  # noqa: BLE001 - optional display data must never fail a committed write.
+            logger.warning('Trips profile lookup failed', exc_info=True)
+            continue
         if user and user.id == user_id:
-            profiles[user_id] = account_profile(user)
+            accounts[user_id] = account_profile(user)
+    return accounts
+
+
+def render_groups(client, rows):
+    linked_ids = [member['user_id'] for row in rows for member in row['data']['members'] if member.get('user_id')]
+    try:
+        profiles = profile_map(client, linked_ids)
+    except Exception:  # noqa: BLE001 - optional display data must never fail a committed write.
+        logger.warning('Trips Dice profile lookup failed', exc_info=True)
+        profiles = {}
+    accounts = linked_accounts(client, linked_ids)
     results = []
     for row in rows:
         group = public_group(row)
         for member in group['members']:
-            profile = profiles.get(member.get('user_id'), {})
+            account = accounts.get(member.get('user_id'), {})
+            profile = profiles.get(member.get('user_id')) or account
             member['display_name'] = profile.get('display_name') or member['name']
             member['avatar_url'] = profile.get('avatar_url')
+            if member.get('user_id'):
+                member['venmo_username'] = account.get('venmo_username')
+                member['venmo_confirmed'] = account.get('venmo_confirmed', False)
+                member['venmo_source'] = 'account' if member['venmo_username'] else None
+            else:
+                member['venmo_username'] = stored_username(member.get('venmo_username'))
+                member['venmo_confirmed'] = False
+                member['venmo_source'] = 'trip' if member['venmo_username'] else None
         results.append(group)
     return results
 
