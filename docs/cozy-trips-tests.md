@@ -150,6 +150,30 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Icons and Tailscale demo follow-up
+
+Branch `feat/trips-preview-icons` adds functional icons to all four section tabs,
+section headings, summary labels, invitation/repayment/delete/sign-out actions,
+activity markers and trip rows. Text labels and the compact layout remain.
+All 41 Trips frontend checks pass; lint has zero errors and its one existing
+CommonsScene warning. The production build and bundle budget pass. Native
+browser checks exercised all four tabs, the trip list, and dialog open/cancel.
+At 390x844 the page is 375/375 pixels and the dialog 320/320 (client/scroll),
+with no trip-row overflow. Screenshots remain outside Git in
+`artifacts/cozy-trips/icons-preview-desktop.png` and `icons-preview-phone.png`.
+No financial mutations or hosting changes were made.
+
+The existing Tailscale service still runs `scripts/trips-dev.py run` against its
+dedicated local Supabase, with synthetic sign-ins. The user's question about
+hosted accounts/data is being clarified; no live-data switch is authorized by
+an unanswered choice. Connecting the preview to the hosted project needs a
+separate explicit frontend configuration and an allowed OAuth return URL for
+the private origin. Keep the sandbox's loopback guards unchanged and never
+bring a hosted service-role key into a frontend. The Supabase dashboard's URL
+configuration page currently requires sign-in, so its existing redirect allow
+list has not been verified. Next step: resolve the user's data-mode choice,
+then inspect/prepare the exact private callback configuration before changing it.
+
 ### Venmo seed follow-up
 
 The user supplied and confirmed all six username mappings, then explicitly
