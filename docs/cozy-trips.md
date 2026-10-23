@@ -328,8 +328,10 @@ it. Expense, invitation and repayment permissions and accounting are unchanged.
 Two known synthetic local acceptance ledgers were removed after a private backup;
 the imported source copy was compared before/after and preserved. Test fixtures
 and the guarded local account harness remain available for regression checks.
-The empty hosted release-check ledger is a separate cleanup target; do not
-filter trips by their names in application code to conceal test data.
+The empty hosted release-check ledger was also backed up and removed under the
+user's cleanup request. Whole-row equality guarded the delete and the real
+imported row's fingerprint remained unchanged. No application name filter was
+added to conceal test data.
 
 Read-only inspection of the connected Splitwise dashboard and All expenses view
 found one visible group and the same 14 source entries, with no additional group
@@ -342,6 +344,11 @@ first workflow before adding payment-profile storage: own username editing,
 sharing with trip members, user review in Venmo, and recording the actual
 repayment separately. No payment-profile schema or automatic request submission
 is included in this UI slice. The workflow question is pending with the user.
+
+The compact UI shipped through [PR #87](https://github.com/cozycommons/cc/pull/87)
+as `2494643` after all five PR checks passed. The frontend webhook rollout and
+hosted account/list/ledger, cache and health checks passed. The unchanged backend
+remains on `efbaf35`. Final release evidence is in `cozy-trips-tests.md`.
 
 ## Verification and handoff
 

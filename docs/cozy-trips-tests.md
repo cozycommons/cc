@@ -40,6 +40,9 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | IMPORT-03 | Source balance check | All people/currencies reconcile exactly; fail on unsupported data | 14 actual expenses and all six USD balances reconcile exactly; capture/date/unsupported-data tests pass |
 | AGENT-01 | Form controls and actions | Stable native labels, predictable errors, same authenticated HTTP API | passed native hosted forms, Google flow, import/repeat and synthetic mutations; API scenarios pass locally/CI |
 | UI-01 | Commons project conventions | Reuse Commons navigation/design components; desktop and phone | passed built app desktop and 390x844, shared account identity and native dialogs; page 375/375 and dialog 335/335 widths |
+| UI-02 | Compact working interface | Keep the palette, remove decorative copy, show expenses sooner | passed local desktop/phone and hosted account/list/ledger after PR #87 deployment |
+| PAY-02 | Venmo request composition | Optional own profile username; prepare person/amount/note and review | pending workflow alignment; no payment-profile schema or request submission added |
+| IMPORT-04 | Broader Splitwise content | Import the intended real sources without synthetic filler | pending account/scope clarification; connected account's dashboard/All expenses shows one group and 14 entries |
 | DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally and hosted: receipts 1/2 and readiness; `test_trips_migrations.py`, `test_migration_runner.py` |
 | SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed real local API/RLS/drift tests and hosted catalog/owner/outsider/anonymous checks |
 | SHIP-01 | Normal Commons release | Backend migrates before listening; `/ready` checks Trips; route served | PR #85 merged/deployed by existing webhooks; hosted migrations 1/2, readiness, maintenance, grants and RLS passed |
@@ -114,7 +117,8 @@ anonymous Trips API request returned 401.
   five unclaimed friends. No source expense or real trip record was edited for QA.
 - A separate synthetic hosted trip passed equal pennies, exact mismatch/draft
   retention and correction, save/edit/reload, outside repayment, undo and delete.
-  It is retained as an empty QA ledger with zero balances and activity evidence.
+  It was initially retained as an empty QA ledger, then privately backed up and
+  removed under the user's later synthetic-data cleanup request (see follow-up).
 - Hosted desktop and 390x844 screenshots are outside Git in
   `artifacts/cozy-trips/hosted-trip-desktop.png` and `hosted-trip-phone.png`.
   The phone page is 375/375 and the import dialog 335/335 (client/scroll widths).
@@ -146,6 +150,51 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Profile and review follow-up
+
+Branch `fix/trips-profiles-polish` follows PR #87. The user requested existing
+Supabase account matching, more compact branding/icons and subtle animation,
+then explicitly requested three high-effort Sol reviews in parallel.
+
+All three reviews completed read-only. Five distinct P2 findings were reproduced
+and fixed locally: storage getters outside invitation error handling; missing
+Auth metadata fallback for linked people without Dice profiles; concurrent trip
+creation reporting a duplicate-key error; pending-save dialog dismissal losing
+a later draft; and repeated descriptions having indistinguishable expense
+action names. The reviewers rechecked their fixes with no remaining findings
+in those bounded diffs. Root also reproduced a late save displaying the wrong
+trip after navigation; workspaces now remount per account and route, with a
+regression test. Dialog padding clicks stay inside the dialog.
+
+Current evidence: 47 real local Supabase/API/profile/runtime/create checks pass.
+The full account fallback is covered before a Dice profile exists, then after
+one is explicitly created. A deterministic two-request barrier reproduces the
+create race. Deferred-submit tests cover every modal dismissal path and route
+navigation; repeated descriptions are selected by amount, payer and full date.
+All 465 frontend tests pass across 69 files; lint has zero errors and its one
+existing CommonsScene warning. The production build and bundle budget pass.
+Native desktop and 390x844 browser checks confirm the branding/icons, centered
+expense dialog, padding preserving an unsaved draft, and normal close/cancel.
+The phone page is 375/375 pixels (client/scroll width); its dialog is 320/320.
+No financial entries were saved during these checks. Browser testing also
+reproduced the existing top-left dialog placement caused by reset CSS; the
+dialog now explicitly centers within its viewport. Screenshots remain outside
+Git in `artifacts/cozy-trips/profiles-trip-desktop.png` and
+`profiles-trip-phone.png`. Final PR/CI/deployment evidence is pending.
+
+Five existing Google-backed accounts were identified read-only for the imported
+people, including one Auth-only identity without a Dice profile. Exact UUIDs and
+the proposed mapping stay in ignored `.trips-dev/private/profile-link-proposal.json`.
+The file is a proposal, not authorization. An explicit action-time confirmation
+is pending before adding those accounts to `member_user_ids`; that grants access
+to private trip data and editing. No hosted account links have been applied.
+Use the current human confirmation, preserve all financial/member/source IDs,
+and record a revision/activity event if applying the confirmed data correction.
+
+The visual change restores compact Commons branding, a Trips mark, small
+functional category icons and restrained dialog/hover/refresh motion. Reduced
+motion disables animations. It does not restore the earlier decorative hero.
+
 ### Compact UI follow-up
 
 Branch `fix/trips-compact-ui` follows the delivered core release. The user asked
@@ -163,8 +212,20 @@ agent use plus easier Venmo request composition.
   Screenshots are outside Git in `artifacts/cozy-trips/compact-trip-desktop.png`
   and `compact-trip-phone.png`.
 - Two known local synthetic ledgers were removed with a private recoverable
-  backup. The 14-expense source copy is byte-for-byte unchanged. Hosted synthetic
-  cleanup and this UI's deployment have not yet been performed.
+  backup. The 14-expense source copy is byte-for-byte unchanged. The empty hosted
+  `Release check · synthetic` ledger was also backed up and removed under the
+  user's cleanup request. Whole-row equality guarded the delete, the real source
+  row fingerprint stayed unchanged, and the hosted list now contains only the
+  real import. The host backup is mode 0600 at
+  `/root/cozy-trips-qa-backup-25ab7c46-20261023.json`.
+- PR #87 passed all five checks in run `39955419844`, merged as
+  `2494643121fddb3f2c9974539158c2d4b0eb1051`, and deployed via the existing frontend
+  webhook (`nzvxici8a1daozoeh1hymgxt`). The running frontend and unchanged backend
+  were inspected healthy. Hosted account/list/expense view, all six document
+  cache checks, health/readiness and anonymous denial passed. All five merged
+  CI jobs passed in `39956079287`. Hosted desktop proof is
+  `artifacts/cozy-trips/compact-hosted-desktop.png`; phone evidence above is from
+  the identical UI against local data, not a claimed hosted phone session.
 - The connected Splitwise account's dashboard/All expenses screen shows only
   the existing group and its 14 entries. Another account/source and the desired
   import scope need clarification before broader import.

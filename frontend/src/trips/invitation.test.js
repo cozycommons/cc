@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { clearInvitation, readInvitation } from './invitation.js';
 
-afterEach(() => { sessionStorage.clear(); vi.restoreAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); sessionStorage.clear(); });
 
 it('retains the invitation when OAuth replaces the URL fragment', () => {
   expect(readInvitation('trip-1', '#invite=one-use-secret')).toBe('one-use-secret');
@@ -20,4 +20,11 @@ it('keeps the original link usable when storage is unavailable', () => {
 it('does not fail a completed join when clearing storage is unavailable', () => {
   const storage = { removeItem: () => { throw new Error('Blocked storage'); } };
   expect(() => clearInvitation('trip-1', storage)).not.toThrow();
+});
+
+it('keeps a fresh invitation usable when accessing storage itself is denied', () => {
+  vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => { throw new DOMException('Blocked', 'SecurityError'); });
+  expect(readInvitation('trip-1', '#invite=link-secret')).toBe('link-secret');
+  expect(readInvitation('trip-1', '#access_token=callback')).toBe('');
+  expect(() => clearInvitation('trip-1')).not.toThrow();
 });

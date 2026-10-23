@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from gotrue.errors import AuthApiError
 
 from trips.profiles import avatar_url, current_profile, render_groups
 from tests.test_trips import local_api
@@ -11,8 +12,16 @@ from trips.ledger import new_group
 
 
 class ProfileClient:
-    def __init__(self, rows):
+    def __init__(self, rows, accounts=None):
         self.rows, self.queries = rows, []
+        self.accounts, self.account_queries = accounts or {}, []
+        self.auth = SimpleNamespace(admin=SimpleNamespace(get_user_by_id=self.account))
+
+    def account(self, user_id):
+        self.account_queries.append(user_id)
+        if user_id not in self.accounts:
+            raise AuthApiError('User not found', 404, 'user_not_found')
+        return SimpleNamespace(user=self.accounts[user_id])
 
     def table(self, name):
         assert name == 'dice_profiles'
@@ -58,6 +67,30 @@ def test_current_account_falls_back_without_creating_a_dice_profile():
                        'avatar_url': 'https://example.com/avatar.png', 'profile_source': 'account'}
 
 
+def test_linked_account_metadata_fills_missing_dice_profile_without_name_matching():
+    row = new_group(str(uuid4()), 'owner-1', 'Trip', 'USD', 'Imported owner')
+    row['data']['members'] += [{'id': 'guest', 'name': 'Imported guest', 'user_id': 'linked-2'},
+                               {'id': 'unclaimed', 'name': 'Canonical guest', 'user_id': None}]
+    before = deepcopy(row)
+    account = SimpleNamespace(id='linked-2', user_metadata={'full_name': 'Canonical guest', 'avatar_url': 'https://example.com/guest.png'})
+    client = ProfileClient([{'user_id': 'owner-1', 'display_name': 'Dice owner', 'avatar_url': '/owner.png'}], {'linked-2': account})
+    groups = render_groups(client, [row, row])
+    assert client.account_queries == ['linked-2']  # Deduplicated across the returned trips.
+    assert groups[0]['members'][1]['display_name'] == 'Canonical guest'
+    assert groups[0]['members'][1]['avatar_url'] == 'https://example.com/guest.png'
+    assert groups[0]['members'][1]['name'] == 'Imported guest'
+    assert groups[0]['members'][2]['user_id'] is None
+    assert groups[0]['members'][2]['avatar_url'] is None
+    assert row == before
+
+
+def test_deleted_linked_account_retains_source_identity():
+    row = new_group(str(uuid4()), 'deleted-user', 'Trip', 'USD', 'Historical owner')
+    group = render_groups(ProfileClient([]), [row])[0]
+    assert group['members'][0]['display_name'] == 'Historical owner'
+    assert group['members'][0]['avatar_url'] is None
+
+
 @pytest.mark.parametrize('url', ['javascript:alert(1)', 'data:image/svg+xml,bad', '//example.com/a.png',
                                'https://user:password@example.com/a.png', 'https://[bad', None])
 def test_unusable_avatar_metadata_does_not_break_the_trip(url):
@@ -89,10 +122,14 @@ def test_real_shared_identity_profile_reuse_and_no_dice_creation(local_api):
     group, invite = result.json()['group'], result.json()['invite_token']
     guest = group['members'][1]
     assert guest['user_id'] is None and guest['avatar_url'] is None
+    joined = api.post(f'{base}/join', headers=tokens['Jamie'], json={'invite_token': invite}).json()
+    assert joined['members'][1]['display_name'] == jamie['display_name']
+    assert joined['members'][1]['avatar_url'] == jamie['avatar_url']
+    assert admin.table('dice_profiles').select('user_id').eq('user_id', jamie_id).execute().data == []
     admin.table('dice_profiles').insert({'user_id': jamie_id, 'display_name': 'Shared profile display',
                                        'avatar_url': '/commons/assets/cozy-plant.svg'}).execute()
     try:
-        joined = api.post(f'{base}/join', headers=tokens['Jamie'], json={'invite_token': invite}).json()
+        joined = api.get(base, headers=tokens['Jamie']).json()
         repeated = api.post(f'{base}/join', headers=tokens['Jamie'], json={'invite_token': invite})
         assert repeated.status_code == 200 and repeated.json()['revision'] == joined['revision']
         person = joined['members'][1]

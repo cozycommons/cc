@@ -1,6 +1,8 @@
 """Reuse canonical Dice display fields without creating game/profile records."""
 from urllib.parse import urlparse
 
+from gotrue.errors import AuthApiError
+
 from .ledger import public_group
 
 
@@ -32,6 +34,10 @@ def current_profile(client, user):
     existing = profile_map(client, [user.id]).get(user.id)
     if existing:
         return {'user_id': user.id, **existing, 'profile_source': 'dice'}
+    return account_profile(user)
+
+
+def account_profile(user):
     metadata = user.user_metadata or {}
     name = metadata.get('full_name') or metadata.get('name') or 'Travel friend'
     return {'user_id': user.id, 'display_name': str(name)[:80],
@@ -41,6 +47,19 @@ def current_profile(client, user):
 def render_groups(client, rows):
     # Only resolve IDs already attached to authorized trip rows, never names or emails.
     profiles = profile_map(client, [member.get('user_id') for row in rows for member in row['data']['members']])
+    linked_ids = dict.fromkeys(member.get('user_id') for row in rows for member in row['data']['members'] if member.get('user_id'))
+    # Resolve each authorized linked identity once, without creating a Dice profile.
+    for user_id in linked_ids:
+        if user_id in profiles:
+            continue
+        try:
+            user = client.auth.admin.get_user_by_id(user_id).user
+        except AuthApiError as error:
+            if error.status == 404:
+                continue  # A deleted account still retains its historical ledger identity.
+            raise
+        if user and user.id == user_id:
+            profiles[user_id] = account_profile(user)
     results = []
     for row in rows:
         group = public_group(row)

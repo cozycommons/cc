@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import TripsApp from './TripsApp.jsx';
 
@@ -91,4 +91,48 @@ it('offers a retry after a trip list network failure', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Connection interrupted');
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Your trips' })).toBeInTheDocument());
+});
+
+it('distinguishes repeated descriptions by payer, amount and date for edit and delete actions', async () => {
+  signedIn();
+  const group = { id: 'trip-id', owner_id: 'user-a', name: 'Trip', currency: 'USD', revision: 1,
+    members: [{ id: 'member-a', user_id: 'user-a', name: 'Owner' }, { id: 'member-b', user_id: 'user-b', name: 'Guest' }],
+    balances: { 'member-a': -750, 'member-b': 750 }, total_minor: 3500, transfers: [], repayments: [], activity: [],
+    expenses: [
+      { id: 'first', description: 'Dinner', amount_minor: 1000, paid_by: 'member-a', date: '2026-10-22', created_at: '2026-10-22T12:00:00Z', category: 'food', notes: '', split_mode: 'equal', shares: { 'member-a': 500, 'member-b': 500 } },
+      { id: 'second', description: 'Dinner', amount_minor: 2500, paid_by: 'member-b', date: '2026-10-23', created_at: '2026-10-23T12:00:00Z', category: 'food', notes: '', split_mode: 'equal', shares: { 'member-a': 1250, 'member-b': 1250 } },
+    ] };
+  mocked.request.mockResolvedValue(group);
+  render(<MemoryRouter initialEntries={['/trips/trip-id']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes>
+    <Route path="/trips/:tripId" element={<TripsApp />} />
+  </Routes></MemoryRouter>);
+  const edit = await screen.findByRole('button', { name: 'Edit Dinner, $25.00 paid by Guest on 2026-10-23', exact: true });
+  expect(screen.getByRole('button', { name: 'Delete Dinner, $10.00 paid by Owner on 2026-10-22', exact: true })).toBeInTheDocument();
+  fireEvent.click(edit);
+  expect(screen.getByLabelText('Description')).toHaveValue('Dinner');
+  expect(screen.getByLabelText('Amount (USD)')).toHaveValue('25.00');
+});
+
+it('ignores an old trip save after navigating to a different trip', async () => {
+  signedIn();
+  const empty = (id, name) => ({ id, name, owner_id: 'user-a', currency: 'USD', revision: 1,
+    members: [{ id: 'member-a', user_id: 'user-a', name: 'Owner' }],
+    expenses: [], repayments: [], transfers: [], activity: [], balances: { 'member-a': 0 }, total_minor: 0 });
+  const first = empty('first', 'First trip');
+  const second = empty('second', 'Second trip');
+  let finish;
+  const pending = new Promise(resolve => { finish = resolve; });
+  mocked.request.mockImplementation((_client, path, method) => method === 'POST' ? pending : Promise.resolve(path.endsWith('/first') ? first : second));
+  render(<MemoryRouter initialEntries={['/trips/first']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes>
+    <Route path="/trips/:tripId" element={<><Link to="/trips/second">Open second trip</Link><TripsApp /></>} />
+  </Routes></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Add expense', exact: true }));
+  fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Dinner' } });
+  fireEvent.change(screen.getByLabelText('Amount (USD)'), { target: { value: '10.00' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+  fireEvent.click(screen.getByRole('link', { name: 'Open second trip' }));
+  expect(await screen.findByRole('heading', { name: 'Second trip' })).toBeInTheDocument();
+  await act(async () => { finish({ ...first, revision: 2 }); await pending; });
+  expect(screen.getByRole('heading', { name: 'Second trip' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'First trip' })).not.toBeInTheDocument();
 });
