@@ -157,6 +157,20 @@ no database schema change. The user separately requested synthetic-data cleanup;
 only the privately backed-up empty hosted QA ledger was removed, with strict
 whole-row matching and a before/after fingerprint check of the real source trip.
 
+PR #88's reviewed Trips reliability/profile/branding changes merged as
+`2679cc93749132bdd3d441370646b8aa92925fa8` after all five PR checks passed.
+Both existing webhooks completed successfully, with healthy running images:
+
+- Backend deployment `nqjtmcpu0pametu7whws1zdt`, image
+  `sha256:0427e67e68155fc1fa16bb0b9d9f3334f6bb06572f1bca2273e6d59b5b22b1b0`.
+- Frontend deployment `70t0go4gcp1l8r8ssyjbgkxv`, image
+  `sha256:343a1618e7cec8dcc8ad18de1fedcdaf94dacd88377fc2283a6f2e8abacec9cb`.
+
+Hosted Google session/profile, ledger, branding/dialog and cache checks passed;
+health/readiness returned 200 and anonymous Trips reads returned 401. No schema
+migration, source refresh or additional identity grant is part of this release.
+The proposed existing-account links remain a separately confirmed data action.
+
 GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
 is active on `main`. It requires the GitHub Actions `frontend` and `backend`
 checks against an up-to-date branch, with no bypass actors. The older disabled
