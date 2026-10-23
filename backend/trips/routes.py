@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gotrue.errors import AuthApiError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from postgrest.exceptions import APIError
 
 from .ledger import LedgerError, apply_command, claim_invite, new_group, public_group, require_member
+from .imports import ImportTrip, prepare_import, require_same_import
 
 router = APIRouter(tags=['Cozy Trips'])
 bearer = HTTPBearer(auto_error=False)
@@ -103,6 +105,39 @@ def command(request, trip_id, user, kind, payload):
         return {'group': group, 'invite_token': invitation} if invitation else group
     except LedgerError as error:
         raise HTTPException(error.status, str(error))
+
+
+def imported_trip(request, payload, user, save=False):
+    try:
+        row, report = prepare_import(payload.snapshot, user.id, payload.own_member_id)
+        existing = client(request).table('trips_groups').select('*').eq('id', row['id']).execute().data
+        if existing:
+            require_same_import(existing[0], row)
+            return {'group': public_group(existing[0]), 'report': report, 'status': 'existing'}
+        if not save:
+            return {'group': public_group(row), 'report': report, 'status': 'preview'}
+        try:
+            saved = client(request).table('trips_groups').insert(row).execute().data[0]
+        except APIError as error:
+            if error.code != '23505':
+                raise
+            # A concurrent identical import or a lost response must not duplicate the trip.
+            saved = read_row(request, row['id'])
+            require_same_import(saved, row)
+            return {'group': public_group(saved), 'report': report, 'status': 'existing'}
+        return {'group': public_group(saved), 'report': report, 'status': 'created'}
+    except LedgerError as error:
+        raise HTTPException(error.status, str(error))
+
+
+@router.post('/imports/preview')
+def preview_import(payload: ImportTrip, request: Request, user=Depends(current_user)):
+    return imported_trip(request, payload, user)
+
+
+@router.post('/imports')
+def save_import(payload: ImportTrip, request: Request, user=Depends(current_user)):
+    return imported_trip(request, payload, user, save=True)
 
 
 @router.get('/groups')

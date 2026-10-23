@@ -34,6 +34,26 @@ Do not commit Linux-only process or filesystem assumptions such as `/proc`,
 `ss`, or `setsid` in shared scripts. Do not add PowerShell, `cmd.exe`, or
 Windows-path syntax to repository scripts or documented developer commands.
 
+## GitHub batching and CI cost
+
+- Distinguish branch backups from PR updates. This repository's CI runs on
+  `pull_request` events, merge queues, and pushes to `main`. Pushing a feature
+  branch without an open PR does not trigger this workflow; frequent branch
+  backups are fine when useful. Draft PRs still trigger CI.
+- Open a PR when a coherent delivery is ready for review and proportional local
+  checks pass. Do not open a draft PR solely to back up unfinished work or use
+  remote CI as the first local test loop, unless the user explicitly requests it.
+- Once a branch has an open PR, batch related changes and local commits into one
+  verified push per meaningful review checkpoint. Do not push each file edit,
+  test attempt, progress update, or documentation-only handoff separately.
+- After a CI failure, inspect its logs, reproduce and fix locally where possible,
+  then push the complete fix batch. Rerun unchanged CI only for a demonstrated
+  transient failure; avoid repeated speculative reruns.
+- Check whether the branch already has an open PR when choosing push cadence.
+  Keep required checks enabled and do not rewrite shared branch history merely
+  to avoid CI. Include instruction/documentation edits with the next appropriate
+  verified batch rather than triggering a separate run for them.
+
 ## Invariants
 
 - Developer tooling must run on Ubuntu and macOS Bash 3.2.

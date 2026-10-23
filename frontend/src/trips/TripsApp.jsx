@@ -1,51 +1,18 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useMatch, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Compass, Luggage, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Compass, Luggage, Plus, RefreshCw, Search } from 'lucide-react';
 import { useTripsAuth, localDemo } from './useTripsAuth.js';
 import { tripRequest } from './api.js';
 import { currencies, decimal, equalShares, money, shortDate, today, toMinor } from './money.js';
+import { Button, Field, Form, Modal } from './ui.jsx';
+import ImportTrip from './ImportTrip.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './trips.css';
 
 const categoryNames = { food: 'Food & drink', stay: 'Stay', transport: 'Getting around', activities: 'Things to do', other: 'Other' };
 const categoryIcons = { food: '☕', stay: '⌂', transport: '↗', activities: '☀', other: '✳' };
-const Button = ({ children, variant = 'secondary', className = '', ...props }) => <button className={`cc-button cc-button--${variant} ${className}`} {...props}>{children}</button>;
 const Initial = ({ name, index = 0 }) => <span className={`trips-avatar trips-avatar--${index % 4}`} aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>;
 const personName = (group, id) => group.members.find((member) => member.id === id)?.name || 'Unknown person';
-
-function Modal({ title, onClose, children }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog.showModal();
-    dialog.querySelector('input, select, textarea')?.focus();
-    return () => { if (dialog.open) dialog.close(); };
-  }, []);
-  return <dialog ref={ref} className="trips-modal" aria-labelledby="trips-modal-title" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === ref.current) onClose(); }}>
-    <div className="trips-modal-head"><h2 id="trips-modal-title">{title}</h2><Button variant="ghost" aria-label="Close dialog" onClick={onClose}><X size={19} /></Button></div>
-    {children}
-  </dialog>;
-}
-
-function Form({ onSubmit, children, submit, onCancel, destructive = false }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  return <form className="trips-form" onSubmit={async (event) => {
-    event.preventDefault();
-    if (busy) return;
-    setBusy(true); setError('');
-    try { await onSubmit(); } catch (err) { setError(err.message); } finally { setBusy(false); }
-  }}>
-    <fieldset disabled={busy} className="trips-form-fields">{children}</fieldset>
-    {error && <p className="trips-error" role="alert">{error}</p>}
-    <div className="trips-form-actions"><Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button><Button variant={destructive ? 'destructive' : 'primary'} disabled={busy}>{busy ? 'Saving…' : submit}</Button></div>
-  </form>;
-}
-
-function Field({ label, children, hint }) {
-  const id = useId();
-  return <div className="trips-field"><label htmlFor={id}>{label}</label>{React.cloneElement(children, { id, ...(hint ? { 'aria-describedby': `${id}-hint` } : {}) })}{hint && <small id={`${id}-hint`}>{hint}</small>}</div>;
-}
 
 function CreateTrip({ user, onSave, onCancel }) {
   const [id] = useState(() => crypto.randomUUID());
@@ -186,7 +153,8 @@ function Workspace({ auth, tripId, joinId, invitation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
-  const request = (path, method, payload) => tripRequest(auth.supabase, path, method, payload);
+  const [importing, setImporting] = useState(false);
+  const request = useCallback((path, method, payload) => tripRequest(auth.supabase, path, method, payload), [auth.supabase]);
   const load = async () => {
     if (tripId) setGroup(await request(`/groups/${tripId}`));
     else setGroups(await request('/groups'));
@@ -197,7 +165,7 @@ function Workspace({ auth, tripId, joinId, invitation }) {
     const path = tripId ? `/groups/${tripId}` : '/groups';
     request(path).then((result) => { if (active) { if (tripId) setGroup(result); else setGroups(result); } }).catch((e) => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [tripId, auth.user.id]); // A new identity remounts this workspace.
+  }, [tripId, auth.user.id, request]); // A new identity remounts this workspace.
   if (joinId) return <section className="trips-join cc-card"><p className="trips-eyebrow">A place saved for you</p><h1>You’re invited.</h1><p>Join this trip to see the shared tab and add your expenses.</p><Form submit="Join trip" onCancel={() => navigate('/trips')} onSubmit={async () => {
     if (!invitation) throw new Error('The invitation link is missing its secret. Open the original link again.');
     const result = await request(`/groups/${joinId}/join`, 'POST', { invite_token: invitation });
@@ -206,11 +174,11 @@ function Workspace({ auth, tripId, joinId, invitation }) {
   if (loading) return <p className="trips-loading" role="status">Opening the shared tab…</p>;
   if (error) return <div className="trips-empty"><p role="alert">{error}</p><Button onClick={async () => { setError(''); setLoading(true); try { await load(); } catch (e) { setError(e.message); } finally { setLoading(false); } }}>Try again</Button><Link to="/trips">All trips</Link></div>;
   if (tripId && group) return <TripView key={group.id} group={group} user={auth.user} request={request} onUpdated={setGroup} onRefresh={load} />;
-  return <><section className="trips-heading trips-heading--home"><div><p className="trips-eyebrow">A Cozy Commons project</p><h1>Good trips.<br /><em>Clear tabs.</em></h1><p className="trips-intro">A shared place for the little costs<br className="trips-desktop-break" /> that make a trip together.</p></div><div className="trips-postcard" aria-hidden="true"><Luggage size={64} strokeWidth={1} /><span>TAKE THE SCENIC ROUTE</span><span className="trips-stamp">CC<br />TRIPS</span></div></section>
-    <div className="trips-panel-heading trips-trip-list-heading"><div><p className="trips-eyebrow">Your shared adventures</p><h2>The trip book</h2></div><Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} /> New trip</Button></div>
+  return <><section className="trips-heading trips-heading--home"><div><p className="trips-eyebrow">Cozy Commons / Trips</p><h1>Your trips</h1><p className="trips-intro">Shared expenses, people, and balances.</p></div><div className="trips-home-actions"><Button onClick={() => setImporting(true)}>Import from Splitwise</Button><Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} /> New trip</Button></div></section>
     {!groups.length ? <div className="trips-empty trips-empty--home"><Luggage size={35} strokeWidth={1.2} /><h2>Where are we going?</h2><p>Start a trip, bring your people,<br />and keep the shared expenses in one place.</p><Button onClick={() => setCreating(true)}><Plus size={16} /> Create your first trip</Button></div>
       : <div className="trips-trip-grid">{groups.map((g) => { const myId = g.members.find((m) => m.user_id === auth.user.id)?.id; const balance = g.balances[myId] || 0; return <Link className="cc-card trips-trip-card" to={`/trips/${g.id}`} key={g.id}><span className="trips-eyebrow">{g.currency} · {g.members.length} people</span><h2>{g.name}</h2><p>{money(g.total_minor, g.currency)} shared · {g.expenses.length} expenses</p><div><span className={balance >= 0 ? 'trips-positive' : ''}>{balance === 0 ? 'You’re all square' : `${balance > 0 ? 'You’re owed' : 'You owe'} ${money(Math.abs(balance), g.currency)}`}</span><ArrowRight size={18} /></div></Link>; })}</div>}
     {creating && <Modal title="Start a new trip" onClose={() => setCreating(false)}><CreateTrip user={auth.user} onCancel={() => setCreating(false)} onSave={async (payload) => { const result = await request('/groups', 'POST', payload); setCreating(false); navigate(`/trips/${result.id}`); }} /></Modal>}
+    {importing && <Modal title="Import from Splitwise" onClose={() => setImporting(false)}><ImportTrip request={request} onCancel={() => setImporting(false)} onImported={group => { setImporting(false); navigate(`/trips/${group.id}`); }} /></Modal>}
   </>;
 }
 

@@ -124,12 +124,34 @@ Continuous Splitwise synchronization, all-account migration, exchange-rate
 conversion, payment processing, receipt OCR, notifications, a new global profile
 platform, separate agent credentials, and a separate Trips deployment.
 
-Current state: branch `feat/cozy-trips`, prototype commits `3bd5385` and
-`99c8312`, with no push, merge, or production rollout. A fresh source snapshot and
-visible expense IDs are captured in ignored local storage. Migration, release
-readiness, and CI coverage are the immediate implementation unit. Continue
-incrementally through import/profile integration and the full acceptance run;
-keep the verification ledger current through PR and CI.
+### Recorded next workflow: draft purchases and receipt matching
+
+Requested 2026-10-23 for later delivery. Any trip member, including through their
+personal agent using that member's trip permissions, can create a placeholder
+purchase before the receipt is available. It can contain free text, rough
+calculations, and who picked up which items. For example: at Safeway, one person
+picked up two Gatorades while four friends bought protein shakes.
+
+Other members or their agents can enrich that same entry with trip metadata and
+later link the matching receipt and receipt items to the original purchase
+context. This is the "join": match the receipt evidence to an existing draft,
+then review people, amounts, and the split before confirming the expense.
+Preserve the original notes while matching. Draft estimates do not affect
+balances; confirming the expense posts its validated amounts. Repeating a receipt
+match or confirmation must not create a duplicate bill.
+
+This direction is parked while the current import, shared identity, migration,
+and release acceptance work is completed. It does not add receipt OCR or a new
+agent credential platform to the current implementation slice.
+
+Current state: branch `feat/cozy-trips`, draft PR
+[#85](https://github.com/cozycommons/cc/pull/85). The published migration/release
+foundation (`7b9de73`) passed all five GitHub CI jobs. No merge or production
+rollout has occurred. A fresh source snapshot and visible expense IDs are in
+ignored local storage. Import UI/API, source conversion, the CI batching
+instructions, and the later draft-purchase direction are in the next local
+batch. Continue with shared profile/session integration and the full acceptance
+run before the next verified PR push; keep the verification ledger current.
 
 ## Prototype scope (historical)
 
@@ -201,6 +223,8 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 | Endpoint | Operation |
 | --- | --- |
 | GET /groups | List the caller's trips |
+| POST /imports/preview | Validate a Splitwise snapshot and preview the reconciled trip |
+| POST /imports | Atomically save that snapshot, or reopen the identical existing import |
 | POST /groups | Create: UUID id, name, currency, display_name |
 | GET /groups/{id} | Full trip, integer balances, suggested transfers, revision |
 | POST /groups/{id}/members | Creator adds a named person; returns a one-use invite |
@@ -223,6 +247,44 @@ to nonnegative integer minor units, for exact splits), date, category, notes.
 Equal splits distribute remainder pennies in displayed member order. Repayment
 input: id, revision, from_member, to_member, amount_minor, date, notes.
 Positive balances mean owed; negative balances mean owing.
+
+### Splitwise snapshot contract
+
+Both import commands accept `{snapshot, own_member_id}`. `snapshot` uses format
+`cozy-trips-splitwise-v1`: source group ID, name, currency, capture time, members
+with stable source IDs, expenses with source IDs/payer/exact integer shares/date,
+repayments, and every member's expected net balance. The API schema is documented
+by FastAPI OpenAPI. The selected source member is linked to the authenticated
+caller. Other people stay unclaimed until they accept an invitation; names alone
+do not grant account access.
+
+The preview validates the whole snapshot and exact ending balances before any
+write. Saving uses one row insert. Stable IDs and a content digest make retries
+and concurrent identical imports safe. A changed source snapshot or owner
+mapping returns 409 for review, preserving the current ledger. Reopening an
+identical import preserves subsequent Trips edits and source IDs.
+
+For the browser-captured all-time printable summary, the local conversion tool
+accepts rendered headings/tables, visible expense IDs, and an explicit member-ID
+map. It cross-checks each person's paid/share amounts, group ending balances,
+and group UI dates against the printable view's UTC day. It never queries
+Splitwise's hidden state or sends changes to Splitwise.
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m trips.splitwise \
+  .trips-dev/private/splitwise-printable.json \
+  --expense-ids .trips-dev/private/splitwise-expense-ids.json \
+  --member-ids .trips-dev/private/splitwise-member-ids.json \
+  --currency USD --output .trips-dev/private/splitwise-snapshot.json
+```
+
+Select that snapshot under **Import from Splitwise**, choose your person, review
+all balances, and save. The printable adapter requires complete all-time
+expense history with one payer per expense and unambiguous source IDs. It stops
+on incomplete/unsupported payment rows, multiple payers, refunds, or ambiguous
+descriptions. The canonical snapshot API supports separately captured repayments.
+Raw source files and local copies of personal trips remain ignored and are never
+committed as fixtures.
 
 ## Verification and handoff
 

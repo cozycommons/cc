@@ -121,8 +121,8 @@ def apply_command(row, user_id, command, payload):
             raise LedgerError('This expense was already saved. Refresh to see it.', 409)
         if command == 'add_expense' and len(data['expenses']) >= 5000:
             raise LedgerError('This trip has reached its expense limit.')
-        expense = {key: payload[key] for key in
-                   ['id', 'description', 'amount_minor', 'paid_by', 'split_mode', 'date', 'category', 'notes']}
+        expense = {**(existing or {}), **{key: payload[key] for key in
+                   ['id', 'description', 'amount_minor', 'paid_by', 'split_mode', 'date', 'category', 'notes']}}
         expense.update(shares=shares, created_by=existing['created_by'] if existing else user_id,
                        created_at=existing['created_at'] if existing else timestamp,
                        updated_by=user_id, updated_at=timestamp)
