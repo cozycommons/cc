@@ -70,7 +70,11 @@ def linked_accounts(client, user_ids):
 
 def render_groups(client, rows):
     linked_ids = [member['user_id'] for row in rows for member in row['data']['members'] if member.get('user_id')]
-    profiles = profile_map(client, linked_ids)
+    try:
+        profiles = profile_map(client, linked_ids)
+    except Exception:  # noqa: BLE001 - optional display data must never fail a committed write.
+        logger.warning('Trips Dice profile lookup failed', exc_info=True)
+        profiles = {}
     accounts = linked_accounts(client, linked_ids)
     results = []
     for row in rows:

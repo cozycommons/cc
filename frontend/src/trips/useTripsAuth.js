@@ -42,9 +42,8 @@ export function useTripsAuth() {
     signOut: () => auth.signOut(),
     // Writes only the caller's own account. A response for an account that has since signed out is dropped.
     saveVenmo: async (username) => {
-      const { data } = await supabase.auth.getSession();
-      if (!userId || data.session?.user?.id !== userId) throw new Error('Your account changed. Reload to continue.');
-      const saved = await tripRequest(supabase, '/me', 'PUT', { venmo_username: username });
+      if (!userId) throw new Error('Please sign in again to continue.');
+      const saved = await tripRequest(supabase, '/me', 'PUT', { venmo_username: username }, userId);
       if (saved.user_id !== userId) throw new Error('Your account changed. Reload to continue.');
       setIdentity((current) => (current.userId === saved.user_id ? { ...current, profile: saved, error: '' } : current));
       return saved;

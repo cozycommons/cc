@@ -98,7 +98,9 @@ describe('trip state', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     const dialog = await screen.findByRole('dialog', { name: 'Edit expense' });
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('your entry is kept');
-    expect(within(dialog).getByText(/Now saved as Dinner · \$20.00 · paid by Matt/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Dinner · $20.00 · Matt paid')).toBeInTheDocument();
+    expect(within(dialog).getByText('Equally: Matt $10.00, Sam $10.00')).toBeInTheDocument();
+    expect(within(dialog).getByText(/“Sam changed this”/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Description')).toHaveValue('Dinner out');
     const puts = mocked.request.mock.calls.filter((call) => call[2] === 'PUT');
     expect(puts.map((call) => call[3].revision)).toEqual([1]); // Opened at revision 1, not silently rebased to 2.
@@ -106,6 +108,90 @@ describe('trip state', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(mocked.request.mock.calls.filter((call) => call[2] === 'PUT').map((call) => call[3].revision)).toEqual([1, 2]);
+  });
+});
+
+describe('trip state, round 2', () => {
+  let TripsApp;
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.doMock('./useTripsAuth.js', () => ({ useTripsAuth: () => mocked.auth, localDemo: false }));
+    vi.doMock('./ui.jsx', async () => ({ ...await vi.importActual('./ui.jsx'),
+      Modal: ({ title, children }) => <section role="dialog" aria-label={title}>{children}</section> }));
+    TripsApp = (await import('./TripsApp.jsx')).default;
+    mocked.request.mockReset();
+    vi.stubGlobal('scrollTo', vi.fn());
+    mocked.auth = { loading: false, error: '', supabase: {}, user: { id: 'user-a', user_metadata: {} }, profile: { user_id: 'user-a', display_name: 'Matt' } };
+  });
+  const group = (revision, expenses = [], extra = []) => ({ id: 'trip-id', owner_id: 'user-a', name: 'Trip', currency: 'USD', revision, created_at: '2026-10-01',
+    members: [{ id: 'a', user_id: 'user-a', name: 'Matt' }, { id: 'b', user_id: null, name: 'Sam' }, ...extra],
+    balances: { a: 0, b: 0 }, transfers: [], repayments: [], activity: [], total_minor: 0, expenses });
+  const dinner = { id: 'e1', description: 'Dinner', amount_minor: 2000, paid_by: 'a', date: '2026-10-20', created_at: '2026-10-20T00:00:00Z',
+    category: 'food', notes: '', split_mode: 'equal', shares: { a: 1000, b: 1000 } };
+  const open = (path = '/trips/trip-id') => render(<MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <Routes><Route path="/trips/:tripId" element={<TripsApp />} /></Routes></MemoryRouter>);
+
+  it('deletes from the editor against the version the editor showed', async () => {
+    let finishRefresh;
+    mocked.request.mockResolvedValueOnce(group(1, [dinner]));
+    open();
+    mocked.request.mockImplementationOnce(() => new Promise((resolve) => { finishRefresh = resolve; }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh trip' }));
+    fireEvent.click(screen.getByRole('button', { name: /Edit Dinner/ }));
+    await act(async () => finishRefresh(group(2, [{ ...dinner, description: 'Hotel', amount_minor: 20000 }])));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    mocked.request.mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 409 })).mockResolvedValueOnce(group(2, [{ ...dinner, description: 'Hotel', amount_minor: 20000 }]));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete expense' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Delete this expense?' });
+    expect(await within(confirm).findByText('Someone changed this expense. Delete this version?')).toBeInTheDocument();
+    expect(within(confirm).getByText('Hotel · $200.00 · Matt paid')).toBeInTheDocument();
+    const deletes = mocked.request.mock.calls.filter((call) => call[2] === 'DELETE');
+    expect(deletes.map((call) => call[3].revision)).toEqual([1]);
+  });
+
+  it('keeps earlier invite links when a multi-add is retried after a partial failure', async () => {
+    const sam2 = { id: 'c', user_id: null, name: 'Alex' };
+    mocked.request.mockResolvedValueOnce(group(1));
+    open('/trips/trip-id?tab=people');
+    fireEvent.click(await screen.findByRole('button', { name: 'Add people' }));
+    fireEvent.change(screen.getByLabelText('Names'), { target: { value: 'Alex, Jordan' } });
+    mocked.request.mockResolvedValueOnce({ group: group(2, [], [sam2]), invite_token: 'alex-token' })
+      .mockRejectedValueOnce(new Error('Network down'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 people' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Added Alex. Could not add Jordan');
+    mocked.request.mockResolvedValueOnce({ group: group(3, [], [sam2, { id: 'd', user_id: null, name: 'Jordan' }]), invite_token: 'jordan-token' });
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 people' }));
+    const links = await screen.findByRole('dialog', { name: 'Invite links' });
+    expect(within(links).getByRole('textbox', { name: 'Invite link for Alex' }).value).toContain('alex-token');
+    expect(within(links).getByRole('textbox', { name: 'Invite link for Jordan' }).value).toContain('jordan-token');
+    const posts = mocked.request.mock.calls.filter((call) => call[2] === 'POST').map((call) => call[3].name);
+    expect(posts).toEqual(['Alex', 'Jordan', 'Jordan']);
+  });
+
+  it('locks Remove while a Venmo save is pending and routes it through the form', async () => {
+    const { VenmoForm } = await vi.importActual('./People.jsx');
+    let finish;
+    const save = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    render(<VenmoForm initial="old-handle" onSave={save} onCancel={() => {}} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Venmo username' }), { target: { value: 'new-handle' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(save.mock.calls).toEqual([['new-handle']]);
+    await act(async () => finish());
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(save.mock.calls).toEqual([['new-handle'], [null]]));
+  });
+});
+
+describe('account-bound writes', () => {
+  it('sends nothing when the session no longer belongs to the expected account', async () => {
+    const { tripRequest } = await vi.importActual('./api.js');
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const supabase = { auth: { getSession: () => Promise.resolve({ data: { session: { access_token: 'b-token', user: { id: 'user-b' } } } }) } };
+    await expect(tripRequest(supabase, '/me', 'PUT', { venmo_username: 'a-handle' }, 'user-a')).rejects.toThrow('Your account changed');
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -125,6 +211,8 @@ describe('own Venmo username', () => {
     await waitFor(() => expect(result.current.profile?.user_id).toBe('user-a'));
     current = 'user-b';
     await expect(result.current.saveVenmo('alex-v')).rejects.toThrow('Your account changed');
-    expect(mocked.request.mock.calls.some((call) => call[2] === 'PUT')).toBe(false);
+    // The write itself is bound to the account the dialog was opened for (checked against the token it sends).
+    const put = mocked.request.mock.calls.find((call) => call[2] === 'PUT');
+    expect(put.slice(1)).toEqual(['/me', 'PUT', { venmo_username: 'alex-v' }, 'user-a']);
   });
 });

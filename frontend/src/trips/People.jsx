@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Link2, Pencil, Share2, UserPlus, UsersRound } from 'lucide-react';
 import { money } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
@@ -33,8 +33,14 @@ export function InviteLinks({ links, onClose }) {
 // Signed-in people manage their own username; the trip creator can fill one in for people who haven't joined.
 export function VenmoForm({ initial, onSave, onCancel, hint }) {
   const [value, setValue] = useState(initial || '');
-  return <Form name="venmo_username" submit="Save" onCancel={onCancel} onSubmit={() => onSave(normalizeUsername(value) || null)}
-    aside={initial && <button type="button" className="trips-text-button trips-danger" onClick={() => onSave(null)}>Remove</button>}>
+  const removing = useRef(false);
+  // Remove goes through the same guarded submit as Save, so the two can't race.
+  return <Form name="venmo_username" submit="Save" onCancel={onCancel} onSubmit={(action) => {
+    const remove = action === 'remove' || removing.current;
+    removing.current = false;
+    return onSave(remove ? null : normalizeUsername(value) || null);
+  }} aside={initial && <button type="submit" name="action" value="remove" formNoValidate className="trips-text-button trips-danger"
+    onClick={() => { removing.current = true; }}>Remove</button>}>
     <Field label="Venmo username" hint={hint}><input name="venmo_username" autoFocus autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" placeholder="@username" value={value} onChange={(e) => setValue(e.target.value)} /></Field>
   </Form>;
 }

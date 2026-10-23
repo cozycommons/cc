@@ -151,6 +151,62 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### UI rework and Venmo — 2026-10-23
+
+Branch `feat/trips-preview-icons`, rebased by merge on `main` at `a3b078e`.
+TripsApp was split into `TripView`, `ExpenseForm`, `Settle`, `People` and
+small `people.js`/`venmo.js` helpers. No schema change: Venmo usernames use the
+existing Auth `user_metadata` fields, plus an optional creator-entered
+`venmo_username` on unjoined trip members.
+
+Delivered: phone bottom tab bar, add button and bottom-sheet dialogs; per-person
+colours and avatars throughout; payer/participant/category chips with
+Everyone/Just me/Clear; by-shares split; remembered last payer/people/category
+per trip on the device; amount-first entry with `$`, `1,250.50` and `45,50`;
+own Venmo username in the profile dialog; creator-set usernames for people who
+haven't joined; Pay/Request review with copy buttons; explicit Mark as paid with
+Undo; `?tab=` sections and `?add=expense` prefill.
+
+State fixes from two adversarial review rounds (GPT‑6.1 Sol) and two UX reviews
+(Sonnet): each dialog saves against the revision it opened from and shows the
+full saved version on conflict, including delete; identical create retries return
+the trip and changed ones conflict; stale refreshes cannot regress a newer save;
+cut-off responses are reported as uncertain; the own-username write is bound to
+the session token it sends; Remove/Delete share the form's pending lock; optional
+profile lookups never fail a committed write; late create/import/join responses
+don't navigate; mismatched currency symbols are rejected; partial multi-add keeps
+earlier invite links; and seeded or provenance-less usernames show as
+unconfirmed.
+
+Evidence, synthetic local data only (local Supabase, `Continue as Matt/Jamie`
+on the private Tailscale preview; not hosted SSO): Trips frontend tests 88/88,
+full frontend suite 507/507 at the first commit, lint 0 errors, `build:check`
+with bundle budget; Trips backend tests 73/73 including real local Supabase
+own-username save/clear/isolation, owner-only placeholder usernames and
+idempotent retry; full backend suite 784 passed, 47 skipped. A headless Chromium
+run at 1280×860 and 390×844 covered:
+- create a trip, add three people at once, and get three invite links;
+- reject an invalid username and save a valid one;
+- reject `€300` in a USD trip while keeping the draft;
+- a shares split and a 3-of-4 split;
+- missing-username fallback;
+- zero ledger writes when opening Venmo, one record on Mark, and Undo;
+- own username persisting across reload and clearing;
+- no horizontal overflow, a pinned tab bar, the add button above it, and sheet actions in view;
+- an outsider getting a 404.
+
+The generated `venmo.com/{user}?txn=…` link redirected to
+`account.venmo.com/payment-link` with the same recipient, amount, note and
+action. Logged out on desktop it read "Sign in to request $1.23 from Matthew
+Ho"; a phone user agent receives the same page with an app banner. No money or
+request was sent. Screenshots are outside Git in
+`artifacts/cozy-trips/v2/`.
+
+Remaining limits: friends' accounts still aren't linked to the imported trip,
+so only Matt's username shows there until they join or the creator enters
+theirs. Settlement stays greedy (minimum dollars moved, not guaranteed fewest
+payments). Native-browser focus trapping is not separately verified.
+
 ### Mobile profile, form and calculation clarity
 
 The user requested their name/photo in the header, closer Dice styling, a

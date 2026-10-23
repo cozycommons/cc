@@ -14,6 +14,18 @@ export const categories = [
 export const categoryOf = (key) => categories.find((category) => category.key === key) || categories[4];
 
 const modes = [['equal', 'Equally'], ['shares', 'By shares'], ['exact', 'Exact amounts']];
+// Every field that changes who owes what, so a conflict can be reviewed before overwriting it.
+export function savedSummary(saved, group) {
+  const name = (id) => memberName(group.members.find((m) => m.id === id));
+  const split = group.members.filter((m) => saved.shares[m.id] !== undefined)
+    .map((m) => `${name(m.id)} ${money(saved.shares[m.id], group.currency)}${saved.weights ? ` (${saved.weights[m.id]} sh)` : ''}`);
+  return [
+    `${saved.description} · ${money(saved.amount_minor, group.currency)} · ${name(saved.paid_by)} paid`,
+    `${modes.find(([key]) => key === saved.split_mode)?.[1] || saved.split_mode}: ${split.join(', ')}`,
+    `${shortDate(saved.date)} · ${categoryOf(saved.category).label}${saved.notes ? ` · “${saved.notes}”` : ''}`,
+  ];
+}
+
 const lastKey = (groupId) => `cozy-trips-last:${groupId}`;
 function readLast(groupId) {
   try { return JSON.parse(localStorage.getItem(lastKey(groupId))) || {}; } catch { return {}; }
@@ -72,9 +84,10 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
         split_mode: mode, participants: selected.map((m) => m.id), shares, revision: group.revision });
       if (!expense) writeLast(group.id, { paid_by: paidBy, participants: selected.map((m) => m.id), category });
     }}>
-    {conflict && expense && <p className="trips-note" role="status">{conflict.latest
-      ? `Now saved as ${conflict.latest.description} · ${money(conflict.latest.amount_minor, group.currency)} · paid by ${memberName(group.members.find((m) => m.id === conflict.latest.paid_by))}. Save to replace it with yours, or cancel to keep it.`
-      : 'Someone deleted this expense. Cancel to accept that.'}</p>}
+    {conflict && expense && <div className="trips-note" role="status">{conflict.latest ? <>
+      <strong>Someone else saved this first:</strong>
+      <ul className="trips-conflict">{savedSummary(conflict.latest, group).map((line) => <li key={line}>{line}</li>)}</ul>
+      Save to replace it with yours, or cancel to keep theirs.</> : 'Someone deleted this expense. Cancel to accept that.'}</div>}
     <div className="trips-form-grid trips-form-grid--lead">
       <Field label={`Amount (${group.currency})`}><input name="amount" className="trips-amount-input" autoFocus inputMode="decimal" enterKeyHint="next" required autoComplete="off" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
       <Field label="Description"><input name="description" required maxLength={80} enterKeyHint="next" autoComplete="off" placeholder="Dinner, gas, cabin…" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>

@@ -4,7 +4,7 @@ import { ArrowLeft, HandCoins, History, Plus, ReceiptText, RefreshCw, Search, Us
 import { money, shortDate } from './money.js';
 import { Avatar, AvatarStack, Button, Form, Modal } from './ui.jsx';
 import { findMember, firstName, memberName, myMember } from './people.js';
-import { ExpenseForm, categoryOf } from './ExpenseForm.jsx';
+import { ExpenseForm, categoryOf, savedSummary } from './ExpenseForm.jsx';
 import { BalancesPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
 import { AddPeopleForm, InviteLinks, PeoplePanel, VenmoForm } from './People.jsx';
 
@@ -115,7 +115,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     const existing = new Set(latest.current.members.map((m) => m.name.toLowerCase()));
     const fresh = names.filter((name) => !existing.has(name.toLowerCase()));
     if (!fresh.length) throw new Error('Everyone listed is already on this trip.');
-    const links = [];
+    const links = addedLinks.current; // Survives a failed attempt, so earlier invite links aren't lost.
     let revision = latest.current.revision;
     for (const name of fresh) {
       let result;
@@ -130,9 +130,11 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
       onUpdated(result.group);
       links.push({ name, link: `${window.location.origin}/trips/join/${group.id}#invite=${result.invite_token}` });
     }
-    setNotice({ message: `Added ${fresh.join(', ')}.` });
+    setNotice({ message: `Added ${links.map((l) => l.name).join(', ')}.` });
+    addedLinks.current = [];
     setModal({ type: 'invites', links });
   };
+  const addedLinks = useRef([]);
   const titles = { expense: modal?.expense ? 'Edit expense' : 'Add expense', repayment: 'Record a payment', venmo: modal?.role === 'request' ? 'Request with Venmo' : 'Pay with Venmo',
     people: 'Add people', invites: 'Invite links', invite: `Invite ${modal?.member ? memberName(modal.member) : ''}`, member_venmo: `Venmo for ${modal?.member ? memberName(modal.member) : ''}`,
     delete_expense: 'Delete this expense?', delete_repayment: 'Undo this payment?' };
@@ -169,7 +171,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
           onVenmo={(transfer, role) => setModal({ type: 'venmo', transfer, role })}
           onRecord={(suggestion) => setModal({ type: 'repayment', suggestion })}
           onRemoveRepayment={(item) => setModal({ type: 'delete_repayment', item })} />}
-        {tab === 'people' && <PeoplePanel group={group} user={user} onEditProfile={onEditProfile} onAdd={() => setModal({ type: 'people' })}
+        {tab === 'people' && <PeoplePanel group={group} user={user} onEditProfile={onEditProfile} onAdd={() => { addedLinks.current = []; setModal({ type: 'people' }); }}
           onInvite={(member) => setModal({ type: 'invite', member })} onEditVenmo={(member) => setModal({ type: 'member_venmo', member })} />}
         {tab === 'activity' && <>
           <div className="trips-panel-heading"><h2 className="trips-section-heading"><History size={16} aria-hidden="true" />Activity</h2></div>
@@ -188,7 +190,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
 
     {modal && <Modal title={titles[modal.type]} onClose={close}>
       {modal.type === 'expense' && <ExpenseForm group={formGroup} user={user} expense={modal.expense} initial={modal.initial} conflict={modal.conflict && modal.expense ? { latest: group.expenses.find((e) => e.id === modal.expense.id) || null } : null} onCancel={close}
-        onDelete={() => setModal({ type: 'delete_expense', item: modal.expense })}
+        onDelete={() => setModalState({ type: 'delete_expense', item: modal.expense, revision: modal.revision })}
         onSave={(payload) => update(`/expenses${modal.expense ? `/${modal.expense.id}` : ''}`, modal.expense ? 'PUT' : 'POST', payload, modal.expense ? 'Expense updated.' : `Added ${payload.description}.`)} />}
       {modal.type === 'repayment' && <RepaymentForm group={formGroup} suggestion={modal.suggestion} onCancel={close} onSave={recordPayment} />}
       {modal.type === 'venmo' && <VenmoReview group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
@@ -203,7 +205,13 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
         hint={`Only for this trip, until ${firstName(modal.member)} joins and adds their own.`}
         onSave={(username) => update(`/members/${modal.member.id}/venmo`, 'PUT', { venmo_username: username, revision: modal.revision }, username ? `Saved @${username}.` : 'Venmo removed.')} />}
       {modal.type === 'delete_expense' && <Form destructive submit="Delete expense" onCancel={close} onSubmit={() => update(`/expenses/${modal.item.id}`, 'DELETE', { revision: modal.revision }, `Deleted ${modal.item.description}.`)}>
-        <p>{modal.item.description} · {money(modal.item.amount_minor, group.currency)}</p><p className="trips-muted">Everyone’s balance will update.</p></Form>}
+        {modal.conflict ? (() => {
+          const current = group.expenses.find((e) => e.id === modal.item.id);
+          return current ? <div className="trips-note" role="status"><strong>Someone changed this expense. Delete this version?</strong>
+            <ul className="trips-conflict">{savedSummary(current, group).map((line) => <li key={line}>{line}</li>)}</ul></div>
+            : <p className="trips-note" role="status">Someone already deleted this expense.</p>;
+        })() : <p>{modal.item.description} · {money(modal.item.amount_minor, group.currency)}</p>}
+        <p className="trips-muted">Everyone’s balance will update.</p></Form>}
       {modal.type === 'delete_repayment' && <Form destructive submit="Undo payment" onCancel={close} onSubmit={() => update(`/repayments/${modal.item.id}`, 'DELETE', { revision: modal.revision }, 'Payment removed.')}>
         <p>{memberName(findMember(group, modal.item.from_member))} → {memberName(findMember(group, modal.item.to_member))} · {money(modal.item.amount_minor, group.currency)}</p></Form>}
     </Modal>}

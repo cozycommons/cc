@@ -1,8 +1,10 @@
 import { getUrl } from '../api.js';
 
-export async function tripRequest(supabase, path, method = 'GET', payload) {
+// `expectedUserId` binds an account-specific write to the exact session whose token is sent.
+export async function tripRequest(supabase, path, method = 'GET', payload, expectedUserId) {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data.session) throw new Error('Please sign in again to continue.');
+  if (expectedUserId && data.session.user?.id !== expectedUserId) throw new Error('Your account changed. Reload to continue.');
   let response;
   try {
     response = await fetch(`${getUrl()}/trips${path}`, {

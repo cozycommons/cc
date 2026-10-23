@@ -135,6 +135,14 @@ def test_committed_writes_survive_profile_lookup_failures():
     member = render_groups(Unavailable([]), [row])[0]['members'][0]
     assert member['display_name'] == 'Owner' and member['venmo_username'] is None
 
+    class NoDice(ProfileClient):
+        def execute(self):
+            raise RuntimeError('dice_profiles unavailable')
+
+    accounts = {'owner-1': SimpleNamespace(id='owner-1', user_metadata={'full_name': 'Account name'})}
+    member = render_groups(NoDice([], accounts), [row])[0]['members'][0]
+    assert member['display_name'] == 'Account name'
+
 
 def test_real_own_username_persistence_and_isolation(local_api):  # noqa: F811
     api, admin, settings, tokens, ids = local_api

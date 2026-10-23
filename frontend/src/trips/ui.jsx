@@ -62,13 +62,13 @@ export function Form({ onSubmit, children, submit, onCancel, destructive = false
     event.preventDefault();
     if (busy) return;
     setBusy(true); setPending?.(true); setError('');
-    try { await onSubmit(); } catch (err) { if (mounted.current) setError(err.message); } finally {
+    try { await onSubmit(event.nativeEvent?.submitter?.value || ''); } catch (err) { if (mounted.current) setError(err.message); } finally {
       if (mounted.current) { setBusy(false); setPending?.(false); }
     }
   }}>
     <fieldset disabled={busy} className="trips-form-fields">{children}</fieldset>
     {error && <p className="trips-error" role="alert">{error}</p>}
-    <div className="trips-form-actions">{aside && <span className="trips-form-aside">{aside}</span>}<Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button><Button type="submit" variant={destructive ? 'destructive' : 'primary'} disabled={busy}>{busy ? 'Saving…' : submit}</Button></div>
+    <div className="trips-form-actions">{aside && <fieldset className="trips-form-aside" disabled={busy}>{aside}</fieldset>}<Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button><Button type="submit" variant={destructive ? 'destructive' : 'primary'} disabled={busy}>{busy ? 'Saving…' : submit}</Button></div>
   </form>;
 }
 
