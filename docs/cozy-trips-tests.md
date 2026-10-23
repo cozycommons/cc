@@ -180,7 +180,21 @@ No financial entries were saved during these checks. Browser testing also
 reproduced the existing top-left dialog placement caused by reset CSS; the
 dialog now explicitly centers within its viewport. Screenshots remain outside
 Git in `artifacts/cozy-trips/profiles-trip-desktop.png` and
-`profiles-trip-phone.png`. Final PR/CI/deployment evidence is pending.
+`profiles-trip-phone.png`.
+
+PR #88 passed all five checks in run `39961318193` and merged as
+`2679cc93749132bdd3d441370646b8aa92925fa8`. Both existing webhooks deployed that
+commit successfully: backend `nqjtmcpu0pametu7whws1zdt`, frontend
+`70t0go4gcp1l8r8ssyjbgkxv`. Both resulting containers were inspected healthy.
+Hosted Google session/profile, all 14 expense actions, branding, centered
+dialog, padding preserving an unsaved draft and cancellation passed. Six
+document routes passed HEAD 200/ETag 304 cache checks; health/readiness and
+anonymous denial passed. Hosted desktop proof is
+`artifacts/cozy-trips/profiles-hosted-desktop.png`. The phone override did not
+apply to the hosted tab, so phone evidence is explicitly local. All five
+merged-main checks passed in run `39962370964`. This release adds no schema
+migration and does not refresh the
+Chrome-captured 14-expense/six-person source snapshot.
 
 Five existing Google-backed accounts were identified read-only for the imported
 people, including one Auth-only identity without a Dice profile. Exact UUIDs and
