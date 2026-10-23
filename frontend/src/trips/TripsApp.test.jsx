@@ -54,6 +54,18 @@ it('shows the canonical shared profile and does not ask for a separate trip iden
   expect(screen.getByText('Joining as Existing Dice name with your Commons account.')).toBeInTheDocument();
 });
 
+it('keeps the account name and photo while the shared profile is loading', async () => {
+  signedIn();
+  mocked.auth.profile = null;
+  mocked.auth.user.user_metadata.avatar_url = '/google-avatar.png';
+  mocked.request.mockResolvedValue([]);
+  open();
+  const identity = screen.getByLabelText('Signed in as Account name');
+  expect(identity).toHaveTextContent('Account name');
+  expect(identity.querySelector('img')).toHaveAttribute('src', '/google-avatar.png');
+  expect(screen.getByRole('button', { name: 'Sign out', exact: true })).toBeInTheDocument();
+});
+
 it('uses the retained invitation after OAuth and navigates after joining', async () => {
   signedIn();
   sessionStorage.setItem('cozy-trips-invite:trip-id', 'retained-secret');

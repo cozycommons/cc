@@ -7,6 +7,8 @@ import { currencies, decimal, equalShares, money, shortDate, today, toMinor } fr
 import { Button, Field, Form, Modal } from './ui.jsx';
 import ImportTrip from './ImportTrip.jsx';
 import { clearInvitation, readInvitation } from './invitation.js';
+import { balanceBreakdown } from './balances.js';
+import PlayerAvatar from '../dice/components/PlayerAvatar.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './trips.css';
 
@@ -118,6 +120,7 @@ function TripView({ group, user, request, onUpdated, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false);
   const me = group.members.find((m) => m.user_id === user.id);
   const myBalance = group.balances[me?.id] || 0;
+  const breakdown = me ? balanceBreakdown(group, me.id) : null;
   const update = async (path, method, payload, message) => {
     const result = await request(`/groups/${group.id}${path}`, method, payload);
     onUpdated(result.group || result); setStatus(message); setModal(null);
@@ -136,7 +139,14 @@ function TripView({ group, user, request, onUpdated, onRefresh }) {
       {tab === 'Expenses' && <><div className="trips-panel-heading"><SectionHeading icon={ReceiptText}>Expenses</SectionHeading><label className="trips-search"><Search size={15} /><input aria-label="Search expenses" placeholder="Search expenses" value={query} onChange={(e) => setQuery(e.target.value)} /></label></div>
         {!expenses.length ? <div className="trips-empty"><h3>{query ? 'No matching expenses' : 'No expenses yet'}</h3><p>{query ? 'Try a different search.' : 'Add an expense to start splitting costs.'}</p></div>
           : <ul className="trips-expense-list">{expenses.map((expense) => <li key={expense.id}><button className="trips-expense" aria-label={`Edit ${expenseContext(group, expense)}`} onClick={() => setModal({ type: 'expense', expense })}><ExpenseCategory category={expense.category} /><span className="trips-expense-detail"><strong>{expense.description}</strong><small>{personName(group, expense.paid_by)} paid · {shortDate(expense.date)} · {Object.keys(expense.shares).length} {Object.keys(expense.shares).length === 1 ? 'person' : 'people'}</small></span><span className="trips-expense-amount"><strong>{money(expense.amount_minor, group.currency)}</strong><small>{expense.split_mode === 'equal' ? 'equal' : 'exact'}</small></span></button><button className="trips-text-button trips-remove" aria-label={`Delete ${expenseContext(group, expense)}`} onClick={() => setModal({ type: 'delete_expense', item: expense })}><Trash2 size={13} aria-hidden="true" />Delete</button></li>)}</ul>}</>}
-      {tab === 'Balances' && <><div className="trips-panel-heading"><SectionHeading icon={Banknote}>Suggested payments</SectionHeading><Button onClick={() => setModal({ type: 'repayment' })} disabled={group.members.length < 2}><Banknote size={15} aria-hidden="true" />Record repayment</Button></div><p className="trips-muted">After someone pays, record it here to update the balances.</p>
+      {tab === 'Balances' && <><div className="trips-panel-heading"><SectionHeading icon={Banknote}>Suggested payments</SectionHeading><Button onClick={() => setModal({ type: 'repayment' })} disabled={group.members.length < 2}><Banknote size={15} aria-hidden="true" />Record repayment</Button></div><p className="trips-muted">These payments settle the whole group. You may pay someone different from the person who covered an expense. Record a repayment after it happens.</p>
+        {breakdown && <details className="trips-calculation"><summary>Your balance breakdown</summary>
+          <dl className="trips-calculation-totals"><div><dt>You paid for expenses</dt><dd>{money(breakdown.paid, group.currency)}</dd></div><div><dt>Your share of expenses</dt><dd>{money(breakdown.share, group.currency)}</dd></div>
+            {!!breakdown.sent && <div><dt>Repayments you sent</dt><dd>{money(breakdown.sent, group.currency)}</dd></div>}{!!breakdown.received && <div><dt>Repayments you received</dt><dd>{money(breakdown.received, group.currency)}</dd></div>}
+            <div><dt>{breakdown.net < 0 ? 'You owe in total' : breakdown.net > 0 ? 'You are owed in total' : 'Your net balance'}</dt><dd>{money(Math.abs(breakdown.net), group.currency)}</dd></div></dl>
+          <h3>Your direct balances</h3><p className="trips-muted">These explain who covered whom, including repayments. They can offset across the group, even when your total is settled.</p>
+          {!breakdown.direct.length ? <p className="trips-muted">No direct balances remaining.</p> : <ul className="trips-direct-balances">{breakdown.direct.map(row => <li key={row.member_id}><span>{personName(group, row.member_id)}</span><strong>{row.amount_minor > 0 ? 'You owe' : 'Owes you'} {money(Math.abs(row.amount_minor), group.currency)}</strong></li>)}</ul>}
+        </details>}
         {!group.transfers.length && <p className="trips-muted">All balances are settled.</p>}
         {group.transfers.map((transfer) => <div className="trips-transfer" key={`${transfer.from_member}-${transfer.to_member}`}><p><strong>{personName(group, transfer.from_member)}</strong><ArrowRight size={16} /><strong>{personName(group, transfer.to_member)}</strong></p><strong>{money(transfer.amount_minor, group.currency)}</strong><Button aria-label={`Record repayment from ${personName(group, transfer.from_member)} to ${personName(group, transfer.to_member)}`} onClick={() => setModal({ type: 'repayment', suggestion: transfer })}><Check size={15} aria-hidden="true" />Record payment</Button></div>)}
         <h3 className="trips-subheading">Recorded repayments</h3>{!group.repayments.length && <p className="trips-muted">No repayments recorded yet.</p>}
@@ -196,6 +206,9 @@ export default function TripsApp() {
   const tripId = useMatch('/trips/:tripId')?.params.tripId;
   const joinId = useMatch('/trips/join/:tripId')?.params.tripId;
   const workspaceKey = `${auth.user?.id}:${joinId || tripId || 'home'}`;
+  const headerProfile = auth.profile || { user_id: auth.user?.id,
+    display_name: auth.user?.user_metadata?.full_name || auth.user?.user_metadata?.name || auth.user?.email || 'Me',
+    avatar_url: auth.user?.user_metadata?.avatar_url || auth.user?.user_metadata?.picture };
   const [error, setError] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const invitation = useRef('');
@@ -210,7 +223,7 @@ export default function TripsApp() {
     invitation.current = readInvitation(joinId);
   }
   const signIn = async (name) => { setError(''); setSigningIn(true); try { if (name) await auth.signInLocal(name); else await auth.signIn(); } catch (e) { setError(e.message); } finally { setSigningIn(false); } };
-  return <div className="cc-page trips"><a href="#trips-main" className="trips-skip">Skip to trip</a><header className="trips-navbar"><Link to="/" className="trips-home-link" aria-label="Cozy Commons home"><span className="trips-commons-mark" aria-hidden="true"><span>cozy</span><small>commons</small></span></Link><Link to="/trips" className="trips-wordmark"><span className="trips-logo" aria-hidden="true"><Luggage size={17} /></span>Cozy Trips</Link><div className="trips-account">{auth.user && <><span className="trips-account-identity"><Avatar member={auth.profile || { name: auth.user.user_metadata?.full_name || "Me" }} /><span>{auth.profile?.display_name || auth.user.user_metadata?.full_name || auth.user.email}</span></span><Button variant="ghost" onClick={async () => { try { await auth.signOut(); } catch (e) { setError(e.message); } }}><LogOut size={14} aria-hidden="true" />Sign out</Button></>}{localDemo && <span className="trips-demo-badge">LOCAL</span>}</div></header>
+  return <div className="cc-page trips"><a href="#trips-main" className="trips-skip">Skip to trip</a><header className="trips-navbar"><Link to="/" className="trips-home-link" aria-label="Cozy Commons home"><span className="trips-commons-mark" aria-hidden="true"><span>cozy</span><small>commons</small></span></Link><Link to="/trips" className="trips-wordmark"><span className="trips-logo" aria-hidden="true"><Luggage size={17} /></span>Cozy Trips</Link><div className="trips-account">{auth.user && <><span className="trips-account-identity" aria-label={`Signed in as ${headerProfile.display_name}`}><PlayerAvatar profile={headerProfile} size={32} linkToProfile={false} /><span className="trips-account-name">{headerProfile.display_name}</span></span><Button variant="ghost" aria-label="Sign out" onClick={async () => { try { await auth.signOut(); } catch (e) { setError(e.message); } }}><LogOut size={14} aria-hidden="true" /><span className="trips-signout-label">Sign out</span></Button></>}{localDemo && <span className="trips-demo-badge">LOCAL</span>}</div></header>
     {(error || auth.error) && <p className="trips-error" role="alert">{error || auth.error}</p>}
     <main id="trips-main">{auth.loading ? <p className="trips-loading" role="status">Loading…</p> : auth.user ? <Workspace key={workspaceKey} auth={auth} tripId={tripId} joinId={joinId} invitation={invitation.current} /> : <section className="trips-welcome"><h1>Cozy Trips</h1><p className="trips-intro">Split expenses and track balances with friends.</p>{joinId && <p>Sign in to accept your trip invitation.</p>}{!localDemo && <><Button variant="primary" disabled={signingIn} onClick={() => signIn()}>Continue with Google <ArrowRight size={17} /></Button><p className="trips-muted">Use your Cozy Commons account.</p></>}
       {localDemo && <div className="trips-demo"><p className="trips-eyebrow">Local test accounts</p><div>{['Matt', 'Alex', 'Jamie'].map((name) => <Button variant={name === 'Matt' ? 'primary' : 'secondary'} key={name} disabled={signingIn} onClick={() => signIn(name)}>Continue as {name}</Button>)}</div></div>}</section>}</main>

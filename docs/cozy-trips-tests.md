@@ -150,6 +150,40 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Mobile profile, form and calculation clarity
+
+The user requested their name/photo in the header, closer Dice styling, a
+mobile form repair and an explanation of a missing direct creditor payment.
+The header's mobile CSS had hidden the entire identity; it now retains the
+name/photo and uses Dice's existing PlayerAvatar, with account-metadata fallback
+while the shared profile loads. On the private local demo only, the existing
+Matt test profile's display fields reuse the user's requested hosted name/photo.
+The previous display fields are privately backed up; canonical account IDs and
+the complete imported trip row stayed unchanged. LOCAL remains visible.
+
+Native browser inspection reproduced unequal 134/164-pixel form columns caused
+by the date control's intrinsic minimum. Phone forms now stack fields, use
+consistent 44-pixel controls and keep Save/Cancel reachable. At the verified
+390x844 viewport all five main controls are 288 pixels wide, the dialog is
+320/320 pixels (client/scroll), and all exact-split rows are 256/256. Filling the
+last note field, switching split modes and canceling saved no financial data.
+The attempted narrower override did not apply; do not claim a 320-pixel browser
+run or Safari device test.
+
+The imported source and a fresh local ledger read agree: group-net suggestions
+combine debts involving multiple people, rather than preserving every original
+creditor. The Balances tab now explains this and offers a native expandable
+breakdown of paid/share/repayment totals plus direct relationships. The group
+algorithm, expense splits and repayment logic are unchanged. Private source
+numbers remain out of Git. Three synthetic regression cases cover canceled
+direct debts, both repayment directions, and payers outside the split; their
+direct totals reconcile with the overall net. A header regression covers the
+photo/name while the shared profile is loading. All 45 Trips frontend checks,
+lint (zero errors; one existing CommonsScene warning), the production build and
+bundle budget pass. Screenshots remain outside Git in
+`artifacts/cozy-trips/mobile-form-fixed.png` and `mobile-balance-breakdown.png`.
+These changes are on the private preview branch, with no new public deployment.
+
 ### Icons and Tailscale demo follow-up
 
 Branch `feat/trips-preview-icons` adds functional icons to all four section tabs,
