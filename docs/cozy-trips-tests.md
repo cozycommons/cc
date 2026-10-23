@@ -151,6 +151,27 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Playful look and motion — 2026-10-23
+
+PR #94 (UI rework and Venmo) merged as `55fb517` after all five checks passed;
+`main` CI passed, the hosted API serves `PUT /trips/me` and the member Venmo route
+(401 unauthenticated), `cozycommons.dev/trips` serves the new Trips chunk, and
+the signed-out page renders on phone and desktop without script errors. Signed-in
+hosted Venmo screens still need a real-account look.
+
+Follow-up branch `feat/trips-playful`, from an Opus design review: inline-SVG
+travel doodles (`doodles.jsx`) for categories and branding, per-trip postage-stamp
+stickers and cover colours derived from the trip id (no data change), a
+ticket-stub balance card with an All square stamp, tactile buttons, sticker
+avatar rings with dashed rings for people who haven't joined, doodle empty states
+and warmer copy. Money words, amounts and Pay/Request direction are unchanged.
+Phase 2 motion is one-shot only: chip pop, new-expense sticker slap-on, All square
+stamp and confetti only when the signed-in balance becomes zero, tab blob pop, card
+press, logo wiggle. A headless browser confirmed animations run normally and are
+`none` under reduced motion with static end states kept; no horizontal overflow at
+390px or 1280px. Screenshots: `artifacts/cozy-trips/v3/`. Deferred: a chooser for
+trip stickers (needs an optional trip field) and a fewest-payments solver.
+
 ### UI rework and Venmo — 2026-10-23
 
 Branch `feat/trips-preview-icons`, rebased by merge on `main` at `a3b078e`.

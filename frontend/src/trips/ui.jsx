@@ -7,7 +7,8 @@ const ModalPendingContext = createContext(null);
 
 export function Avatar({ member, size = 32, ring = false }) {
   const style = { '--person': personColor(member), width: size, height: size, fontSize: Math.round(size * 0.45) };
-  const className = `trips-avatar${ring ? ' trips-avatar--ring' : ''}`;
+  // People who haven't claimed their place get a dashed ring.
+  const className = `trips-avatar${ring ? ' trips-avatar--ring' : ''}${member?.id && !member.user_id ? ' trips-avatar--invited' : ''}`;
   return member?.avatar_url
     ? <img className={className} style={style} src={member.avatar_url} alt="" loading="lazy" decoding="async" />
     : <span className={className} style={style} aria-hidden="true">{memberName(member).slice(0, 1).toUpperCase()}</span>;

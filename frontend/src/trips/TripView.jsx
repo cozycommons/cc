@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, HandCoins, History, Plus, ReceiptText, RefreshCw, Search, UsersRound } from 'lucide-react';
 import { money, shortDate } from './money.js';
 import { Avatar, AvatarStack, Button, Form, Modal } from './ui.jsx';
+import { Bowl, Tent, TripStamp } from './doodles.jsx';
 import { findMember, firstName, memberName, myMember } from './people.js';
 import { ExpenseForm, categoryOf, savedSummary } from './ExpenseForm.jsx';
 import { BalancesPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
@@ -25,12 +26,12 @@ function myEffect(expense, meId) {
   return share ? { text: 'you borrowed', amount: share, tone: 'owe' } : { text: 'not involved' };
 }
 
-function ExpenseList({ group, me, query, onEdit }) {
+function ExpenseList({ group, me, query, fresh, onEdit }) {
   const needle = query.trim().toLowerCase();
   const expenses = group.expenses
     .filter((e) => !needle || `${e.description} ${e.notes} ${memberName(findMember(group, e.paid_by))} ${categoryOf(e.category).label}`.toLowerCase().includes(needle))
     .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at));
-  if (!expenses.length) return <div className="trips-empty"><p>{needle ? 'No matching expenses.' : 'No expenses yet.'}</p></div>;
+  if (!expenses.length) return <div className="trips-empty">{!needle && <Bowl size={64} className="trips-empty-doodle" />}<p>{needle ? 'Nothing matches that.' : 'Nothing spent yet. Add the first receipt.'}</p></div>;
   const days = [];
   for (const expense of expenses) {
     if (days.at(-1)?.date !== expense.date) days.push({ date: expense.date, items: [] });
@@ -42,8 +43,8 @@ function ExpenseList({ group, me, query, onEdit }) {
       const { icon: Icon, color } = categoryOf(expense.category);
       const payer = findMember(group, expense.paid_by);
       const effect = me ? myEffect(expense, me.id) : null;
-      return <li key={expense.id}><button className="trips-expense" aria-label={`Edit ${expenseContext(group, expense)}`} onClick={() => onEdit(expense)}>
-        <span className="trips-category" style={{ '--chip': color }} aria-hidden="true"><Icon size={17} /></span>
+      return <li key={expense.id} className={expense.id === fresh ? 'trips-row--new' : undefined}><button className="trips-expense" aria-label={`Edit ${expenseContext(group, expense)}`} onClick={() => onEdit(expense)}>
+        <span className="trips-category" style={{ '--chip': color }} aria-hidden="true"><Icon size={22} /></span>
         <span className="trips-expense-detail"><strong>{expense.description}</strong>
           <small><Avatar member={payer} size={16} />{payer?.id === me?.id ? 'You' : firstName(payer)} paid · {Object.keys(expense.shares).length} {Object.keys(expense.shares).length === 1 ? 'person' : 'people'}</small></span>
         <span className="trips-expense-amount"><strong>{money(expense.amount_minor, group.currency)}</strong>
@@ -73,6 +74,13 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     if (prefillKeys.some((key) => params.has(key))) setParams((next) => { prefillKeys.forEach((key) => next.delete(key)); return next; }, { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The just-added expense gets a brief "sticker slapped on" highlight.
+  const [fresh, setFresh] = useState(null);
+  useEffect(() => {
+    if (!fresh) return undefined;
+    const timer = setTimeout(() => setFresh(null), 1600);
+    return () => clearTimeout(timer);
+  }, [fresh]);
   useEffect(() => {
     if (!notice) return undefined;
     const timer = setTimeout(() => setNotice(null), notice.undo ? 10000 : 5000);
@@ -144,11 +152,11 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     <div className="trips-breadcrumb"><Link to="/trips"><ArrowLeft size={15} aria-hidden="true" />Trips</Link>
       <button aria-label="Refresh trip" disabled={refreshing} onClick={refresh}><RefreshCw size={14} className={refreshing ? 'trips-refreshing' : ''} aria-hidden="true" />{refreshing ? 'Refreshing…' : 'Refresh'}</button></div>
     <section className="trips-heading">
-      <div><h1 tabIndex={-1}>{group.name}</h1>
-        <p className="trips-trip-meta"><AvatarStack members={group.members} />{group.members.length} {group.members.length === 1 ? 'person' : 'people'} · {money(group.total_minor, group.currency)} total</p></div>
+      <div className="trips-trip-title"><TripStamp trip={group} size={52} /><div><h1 tabIndex={-1}>{group.name}</h1>
+        <p className="trips-trip-meta"><AvatarStack members={group.members} />{group.members.length} {group.members.length === 1 ? 'person' : 'people'} · {money(group.total_minor, group.currency)} total</p></div></div>
       <div className="trips-heading-actions">
         {me && tab !== 'balances' && <button className={`trips-balance-pill trips-balance-pill--${myBalance < 0 ? 'owe' : myBalance > 0 ? 'owed' : 'even'}`} onClick={() => setTab('balances')}>
-          {myBalance < 0 ? `You owe ${money(-myBalance, group.currency)}` : myBalance > 0 ? `You’re owed ${money(myBalance, group.currency)}` : 'Settled up'}</button>}
+          {myBalance < 0 ? `You owe ${money(-myBalance, group.currency)}` : myBalance > 0 ? `You’re owed ${money(myBalance, group.currency)}` : 'All square'}</button>}
         <Button variant="primary" className="trips-add" onClick={() => setModal({ type: 'expense' })}><Plus size={18} aria-hidden="true" /><span>Add expense</span></Button>
       </div>
     </section>
@@ -165,7 +173,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
         {tab === 'expenses' && <>
           <div className="trips-panel-heading"><h2 className="trips-section-heading"><ReceiptText size={16} aria-hidden="true" />Expenses</h2>
             <label className="trips-search"><Search size={15} aria-hidden="true" /><input type="search" name="search" aria-label="Search expenses" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} /></label></div>
-          <ExpenseList group={group} me={me} query={query} onEdit={(expense) => setModal({ type: 'expense', expense })} />
+          <ExpenseList group={group} me={me} query={query} fresh={fresh} onEdit={(expense) => setModal({ type: 'expense', expense })} />
         </>}
         {tab === 'balances' && <BalancesPanel group={group} me={me} profile={profile} onEditProfile={onEditProfile}
           onVenmo={(transfer, role) => setModal({ type: 'venmo', transfer, role })}
@@ -175,7 +183,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
           onInvite={(member) => setModal({ type: 'invite', member })} onEditVenmo={(member) => setModal({ type: 'member_venmo', member })} />}
         {tab === 'activity' && <>
           <div className="trips-panel-heading"><h2 className="trips-section-heading"><History size={16} aria-hidden="true" />Activity</h2></div>
-          {!group.activity.length ? <p className="trips-muted">Nothing yet.</p> : <ol className="trips-activity">{group.activity.map((a) => {
+          {!group.activity.length ? <div className="trips-empty"><Tent size={64} className="trips-empty-doodle" /><p>Quiet so far.</p></div> : <ol className="trips-activity">{group.activity.map((a) => {
             const actor = group.members.find((m) => m.user_id === a.user_id);
             return <li key={a.id}><Avatar member={actor || { name: '?' }} size={28} /><div><strong>{a.summary}</strong>
               <small>{actor ? memberName(actor) : 'Someone'} · {new Date(a.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></div></li>;
@@ -184,14 +192,17 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
       </section>
       <aside className="trips-balance-card" aria-label="Member balances"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Balances</h2>
         {group.members.map((m) => { const balance = group.balances[m.id] || 0; return <div className="trips-balance-row" key={m.id}><Avatar member={m} size={28} /><span>{memberName(m)}</span>
-          <strong className={balance > 0 ? 'trips-positive' : balance < 0 ? 'trips-owe' : ''}><small>{balance < 0 ? 'owes' : balance > 0 ? 'gets back' : 'settled'}</small>{balance !== 0 && money(Math.abs(balance), group.currency)}</strong></div>; })}
+          <strong className={balance > 0 ? 'trips-positive' : balance < 0 ? 'trips-owe' : ''}><small>{balance < 0 ? 'owes' : balance > 0 ? 'gets back' : 'square'}</small>{balance !== 0 && money(Math.abs(balance), group.currency)}</strong></div>; })}
       </aside>
     </div>
 
     {modal && <Modal title={titles[modal.type]} onClose={close}>
       {modal.type === 'expense' && <ExpenseForm group={formGroup} user={user} expense={modal.expense} initial={modal.initial} conflict={modal.conflict && modal.expense ? { latest: group.expenses.find((e) => e.id === modal.expense.id) || null } : null} onCancel={close}
         onDelete={() => setModalState({ type: 'delete_expense', item: modal.expense, revision: modal.revision })}
-        onSave={(payload) => update(`/expenses${modal.expense ? `/${modal.expense.id}` : ''}`, modal.expense ? 'PUT' : 'POST', payload, modal.expense ? 'Expense updated.' : `Added ${payload.description}.`)} />}
+        onSave={async (payload) => {
+          await update(`/expenses${modal.expense ? `/${modal.expense.id}` : ''}`, modal.expense ? 'PUT' : 'POST', payload, modal.expense ? 'Expense updated.' : `Added ${payload.description}.`);
+          if (!modal.expense && alive.current) setFresh(payload.id);
+        }} />}
       {modal.type === 'repayment' && <RepaymentForm group={formGroup} suggestion={modal.suggestion} onCancel={close} onSave={recordPayment} />}
       {modal.type === 'venmo' && <VenmoReview group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
         onEditHandles={group.owner_id === user.id ? () => { close(); setTab('people'); } : findMember(group, modal.role === 'pay' ? modal.transfer.to_member : modal.transfer.from_member)?.user_id === user.id ? onEditProfile : null} />}

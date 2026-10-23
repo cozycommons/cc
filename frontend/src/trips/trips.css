@@ -302,8 +302,8 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
   .trips-category { flex-basis: 34px; width: 34px; height: 34px; }
   .trips-trip-row { gap: 12px; padding: 14px; }
   .trips-trip-row > svg, .trips-trip-icon { display: none; }
-  .trips-transfer-actions { width: 100%; }
-  .trips-transfer-actions .cc-button { flex: 1; min-height: 46px; }
+  .trips-transfer--mine .trips-transfer-actions { width: 100%; }
+  .trips-transfer--mine .trips-transfer-actions .cc-button { flex: 1; min-height: 46px; }
   .trips-person-actions { width: 100%; justify-content: flex-end; }
   .trips-modal { inset: auto 0 0; width: 100%; max-width: none; max-height: calc(100dvh - 24px); margin: 0; padding: 16px 16px 0; border-radius: 18px 18px 0 0; border-bottom: 0; }
   .trips-modal[open] { animation: trips-sheet 200ms ease-out; }
@@ -315,3 +315,94 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
 }
 @keyframes trips-sheet { from { transform: translateY(24px); opacity: .5; } to { transform: translateY(0); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .trips, .trips *, .trips-modal { scroll-behavior: auto; transition: none !important; animation: none !important; } }
+
+/* Playful layer: a travel scrapbook on Commons paper. Stickers, stamps and ticket stubs decorate;
+   amounts, names and owe/owed words stay upright, sans-serif and in their usual colours. */
+.trips-logo { width: 34px; height: 34px; border-radius: var(--radius-small); color: var(--ink); background: var(--butter); --fill: #e6b49a; box-shadow: 0 0 0 2px var(--paper-light), 0 2px 0 2px rgba(61, 47, 41, .14); transform: rotate(-4deg); }
+.trips-wordmark:hover .trips-logo { transform: rotate(4deg); }
+.trips-welcome-mark { width: 72px; height: 72px; border-radius: var(--radius-card); color: var(--ink); background: var(--butter); --fill: #e6b49a; transform: rotate(-4deg); }
+.trips-greeting { color: var(--clay); }
+
+.trips-stamp { position: relative; display: inline-grid; flex: 0 0 auto; place-items: center; border-radius: 4px; color: var(--ink); background: var(--paper-light);
+  --fill: color-mix(in srgb, var(--cover) 45%, var(--paper-light));
+  box-shadow: 0 0 0 3px var(--paper-light), 0 0 0 4px rgba(61, 47, 41, .16), 0 4px 8px rgba(70, 47, 32, .16); transform: rotate(-3deg); }
+.trips-stamp::before { content: ''; position: absolute; inset: 3px; border: 1.5px dashed color-mix(in srgb, var(--cover) 75%, transparent); border-radius: 3px; background: color-mix(in srgb, var(--cover) 20%, var(--paper-light)); }
+.trips-stamp svg { position: relative; }
+.trips-trip-row { border-radius: var(--radius-card); box-shadow: inset 5px 0 0 var(--cover, var(--clay)); padding-left: 20px; }
+.trips-trip-row:hover { box-shadow: inset 5px 0 0 var(--cover, var(--clay)), var(--paper-shadow); }
+.trips-trip-row:hover .trips-stamp { transform: rotate(-7deg); }
+.trips-trip-title { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.trips-trip-title .trips-stamp { margin: 4px; }
+
+.trips-category { color: var(--ink); --fill: color-mix(in srgb, var(--chip) 45%, var(--paper-light)); background: color-mix(in srgb, var(--chip) 18%, var(--paper-light));
+  border-radius: var(--radius-small); box-shadow: 0 0 0 2px var(--paper-light), 0 1px 0 2px rgba(61, 47, 41, .12); transform: rotate(-3deg); }
+.trips-expense-list > li:nth-child(even) .trips-category { transform: rotate(3deg); }
+.trips-chip > svg { color: var(--ink); --fill: color-mix(in srgb, var(--chip, var(--butter)) 45%, var(--paper-light)); }
+.trips-chip:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: color-mix(in srgb, var(--chip, var(--butter)) 22%, #fbf6ec); }
+
+.trips-hero { position: relative; overflow: hidden; border-radius: var(--radius-small);
+  -webkit-mask: radial-gradient(circle 10px at 0 58%, #0000 98%, #000) left / 51% 100% no-repeat, radial-gradient(circle 10px at 100% 58%, #0000 98%, #000) right / 51% 100% no-repeat;
+  mask: radial-gradient(circle 10px at 0 58%, #0000 98%, #000) left / 51% 100% no-repeat, radial-gradient(circle 10px at 100% 58%, #0000 98%, #000) right / 51% 100% no-repeat; }
+.trips-hero::before { content: ''; position: absolute; top: 0; left: 28px; width: 64px; height: 14px; background: color-mix(in srgb, var(--butter) 65%, transparent); transform: rotate(-3deg); }
+.trips-hero .trips-text-button { margin-top: 6px; padding-top: 10px; border-top: 2px dashed rgba(255, 255, 255, .35); border-radius: 0; }
+.trips-hero--even { align-items: center; justify-content: space-between; }
+.trips-square-stamp { display: inline-block; padding: 6px 12px; border: 3px double var(--moss-dark); border-radius: var(--radius-small); color: var(--moss-dark);
+  font: 700 14px var(--mono); letter-spacing: .14em; text-transform: uppercase; transform: rotate(-6deg); opacity: .85; }
+.trips-empty--square .trips-square-stamp { margin: 6px 0 12px; font-size: 18px; }
+
+.trips .cc-button, .trips-modal .cc-button { border-radius: var(--radius-button); }
+.trips :is(.cc-button--primary, .cc-button--secondary), .trips-modal :is(.cc-button--primary, .cc-button--secondary) { box-shadow: var(--key-shadow); }
+.trips :is(.cc-button--primary, .cc-button--secondary):active:not(:disabled), .trips-modal :is(.cc-button--primary, .cc-button--secondary):active:not(:disabled) { box-shadow: var(--key-shadow-pressed); transform: translateY(1px); }
+.trips-balance-pill { border-radius: var(--radius-button); box-shadow: var(--key-shadow); }
+
+span.trips-avatar { box-shadow: 0 0 0 2px var(--paper-light), 0 0 0 3.5px var(--person, var(--moss)); }
+.trips-avatar-stack span.trips-avatar { box-shadow: 0 0 0 2px var(--paper); }
+.trips-avatar.trips-avatar--invited { opacity: .85; box-shadow: none; outline: 1.5px dashed var(--person, var(--moss)); outline-offset: 2px; }
+.trips-you { position: relative; padding: 2px 8px 2px 13px; border-radius: 3px 9px 9px 3px; background: var(--butter); color: var(--espresso); }
+.trips-you::before { content: ''; position: absolute; top: 50%; left: 4px; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--paper-light); }
+
+.trips-empty { text-align: center; }
+.trips-empty-doodle { display: block; margin: 0 auto 10px; color: var(--ink); --fill: color-mix(in srgb, var(--butter) 65%, var(--paper-light)); transform: rotate(-4deg); }
+
+@media (max-width: 640px) {
+  .trips-tabs button[aria-selected="true"] { background: none; color: var(--espresso); font-weight: 700; }
+  .trips-tabs button[aria-selected="true"]::after { content: ''; position: absolute; z-index: -1; top: 5px; left: 50%; width: 46px; height: 30px; margin-left: -23px;
+    border-radius: 60% 40% 55% 45% / 50% 60% 40% 50%; background: color-mix(in srgb, var(--butter) 70%, transparent); }
+  .trips-tabs button[aria-selected="true"] svg { color: var(--espresso); }
+  .trips-add { border-radius: var(--radius-card) !important; box-shadow: var(--key-shadow), 0 10px 22px rgba(70, 47, 32, .24) !important; }
+  .trips-trip-title .trips-stamp { width: 44px !important; height: 44px !important; }
+  .trips-trip-row { flex-wrap: wrap; row-gap: 10px; }
+  .trips-trip-row-main { flex: 1 1 calc(100% - 64px); }
+  .trips-trip-row-balance { flex: 1 1 100%; flex-direction: row; justify-content: space-between; align-items: baseline; padding-left: 60px; text-align: left; }
+  .trips-tabs button[aria-selected="true"]::after { top: 4px; height: 27px; }
+}
+@media (prefers-reduced-motion: reduce) { .trips-wordmark:hover .trips-logo, .trips-trip-row:hover .trips-stamp { transform: none; } }
+
+/* Phase 2 motion: short, one-shot, never looping. The reduced-motion rule above removes all of it,
+   and static end states still show (stamp tilted, new row tinted). */
+.trips { --ease-pop: cubic-bezier(.34, 1.56, .64, 1); --ease-soft: cubic-bezier(.2, .7, .3, 1); }
+.trips-chip:has(input:checked) > svg { animation: trips-pop 260ms var(--ease-pop, ease-out); }
+.trips-split-row input[type="checkbox"]:checked { animation: trips-pop 220ms var(--ease-pop, ease-out); }
+.trips-row--new { background: color-mix(in srgb, var(--butter) 22%, transparent); transition: background-color 1.2s ease 400ms; }
+.trips-row--new > .trips-expense { animation: trips-slide-in 220ms var(--ease-soft, ease-out); }
+.trips-row--new .trips-category { animation: trips-slap 300ms var(--ease-pop, ease-out); }
+.trips-hero--celebrate { animation: trips-nudge 140ms ease 2; }
+.trips-hero--celebrate .trips-square-stamp { animation: trips-stamp-in 340ms var(--ease-pop, ease-out); }
+.trips-hero--celebrate::after { content: ''; position: absolute; top: 18px; left: 50%; width: 7px; height: 7px; border-radius: 2px; background: var(--butter);
+  box-shadow: -60px 0 var(--clay), -30px -8px var(--moss), 30px -4px var(--clay-light), 62px 2px var(--butter), -90px 6px var(--blue-dusk), 92px -6px var(--moss);
+  animation: trips-confetti 800ms ease-out forwards; }
+.trips-tabs button[aria-selected="true"]::after { animation: trips-blob 220ms var(--ease-pop, ease-out); }
+.trips-trip-row:active { transform: scale(.985); transition-duration: 90ms; }
+.trips-trip-row .trips-stamp { transition: transform 180ms var(--ease-pop, ease-out); }
+.trips-wordmark:hover .trips-logo { animation: trips-wiggle 420ms ease; }
+.trips-modal[open] .trips-form-actions .cc-button--primary:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+
+@keyframes trips-pop { 0% { transform: scale(1) rotate(0); } 45% { transform: scale(1.2) rotate(-8deg); } 100% { transform: scale(1) rotate(0); } }
+@keyframes trips-slide-in { from { opacity: .2; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes trips-slap { 0% { transform: scale(1.35) rotate(12deg); } 100% { transform: scale(1) rotate(-3deg); } }
+@keyframes trips-stamp-in { 0% { opacity: 0; transform: scale(1.7) rotate(-14deg); } 100% { opacity: .85; transform: scale(1) rotate(-6deg); } }
+@keyframes trips-nudge { 50% { transform: translateY(2px); } }
+@keyframes trips-confetti { 0% { opacity: 1; transform: translateY(-6px) rotate(0); } 100% { opacity: 0; transform: translateY(30px) rotate(160deg); } }
+@keyframes trips-blob { from { transform: scale(.55); } to { transform: scale(1); } }
+@keyframes trips-wiggle { 0%, 100% { transform: rotate(-4deg); } 30% { transform: rotate(6deg); } 60% { transform: rotate(-8deg); } }
+@media (prefers-reduced-motion: reduce) { .trips-row--new { transition: none; } .trips-trip-row:active { transform: none; } }

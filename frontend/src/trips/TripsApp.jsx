@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useMatch, useNavigate } from 'react-router-dom';
-import { ArrowRight, Download, LogOut, Luggage, Plus } from 'lucide-react';
+import { ArrowRight, Download, LogOut, Plus } from 'lucide-react';
+import { Suitcase, TripStamp, tripSticker } from './doodles.jsx';
 import { useTripsAuth, localDemo } from './useTripsAuth.js';
 import { tripRequest } from './api.js';
 import { currencies, money } from './money.js';
@@ -38,14 +39,14 @@ function ProfileDialog({ auth, profile, onClose, onSignOut }) {
 }
 
 function TripList({ groups, userId }) {
-  if (!groups.length) return <div className="trips-empty"><p>No trips yet. Start one, or import from Splitwise.</p></div>;
+  if (!groups.length) return <div className="trips-empty"><Suitcase size={64} className="trips-empty-doodle" /><p>No trips yet. Pack one, or bring yours over from Splitwise.</p></div>;
   return <ul className="trips-trip-list">{groups.map((g) => {
     const myId = g.members.find((m) => m.user_id === userId)?.id;
     const balance = g.balances[myId] || 0;
-    return <li key={g.id}><Link className="trips-trip-row" to={`/trips/${g.id}`}>
-      <span className="trips-trip-icon" aria-hidden="true"><Luggage size={20} /></span>
+    return <li key={g.id}><Link className="trips-trip-row" style={{ '--cover': tripSticker(g).cover }} to={`/trips/${g.id}`}>
+      <TripStamp trip={g} />
       <span className="trips-trip-row-main"><strong>{g.name}</strong><small><AvatarStack members={g.members} max={4} />{g.members.length} people · {g.expenses.length} {g.expenses.length === 1 ? 'expense' : 'expenses'}</small></span>
-      <span className="trips-trip-row-balance"><strong className={balance > 0 ? 'trips-positive' : balance < 0 ? 'trips-owe' : ''}>{balance === 0 ? 'Settled' : `${balance > 0 ? 'You’re owed' : 'You owe'} ${money(Math.abs(balance), g.currency)}`}</strong><small>{money(g.total_minor, g.currency)} total</small></span>
+      <span className="trips-trip-row-balance"><strong className={balance > 0 ? 'trips-positive' : balance < 0 ? 'trips-owe' : ''}>{balance === 0 ? 'All square' : `${balance > 0 ? 'You’re owed' : 'You owe'} ${money(Math.abs(balance), g.currency)}`}</strong><small>{money(g.total_minor, g.currency)} total</small></span>
       <ArrowRight size={16} aria-hidden="true" />
     </Link></li>;
   })}</ul>;
@@ -90,7 +91,7 @@ function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
   if (error) return <div className="trips-empty"><p role="alert">{error}</p><Button onClick={async () => { setError(''); setLoading(true); try { await load(); } catch (e) { setError(e.message); } finally { setLoading(false); } }}>Try again</Button> <Link to="/trips">All trips</Link></div>;
   if (tripId && group) return <TripView key={group.id} group={group} user={auth.user} profile={auth.profile} request={request} onUpdated={accept} onRefresh={load} onEditProfile={onEditProfile} />;
   return <>
-    <section className="trips-heading trips-heading--home"><div><p className="trips-greeting">Hi, {displayName.split(/\s+/)[0]}</p><h1 tabIndex={-1}>Your trips</h1></div><div className="trips-home-actions">
+    <section className="trips-heading trips-heading--home"><div><p className="trips-greeting">Hi {displayName.split(/\s+/)[0]}, where to next?</p><h1 tabIndex={-1}>Your trips</h1></div><div className="trips-home-actions">
       <Button onClick={() => setImporting(true)}><Download size={15} aria-hidden="true" />Import from Splitwise</Button>
       <Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} aria-hidden="true" />New trip</Button></div></section>
     <TripList groups={groups} userId={auth.user.id} />
@@ -127,7 +128,7 @@ export default function TripsApp() {
   return <div className="cc-page trips"><a href="#trips-main" className="trips-skip">Skip to trip</a>
     <header className="trips-navbar">
       <Link to="/" className="trips-home-link" aria-label="Cozy Commons home"><span className="trips-commons-mark" aria-hidden="true"><span>cozy</span><small>commons</small></span></Link>
-      <Link to="/trips" className="trips-wordmark"><span className="trips-logo" aria-hidden="true"><Luggage size={17} /></span>Cozy Trips</Link>
+      <Link to="/trips" className="trips-wordmark"><span className="trips-logo" aria-hidden="true"><Suitcase size={22} /></span>Cozy Trips</Link>
       <div className="trips-account">
         {localDemo && <span className="trips-demo-badge">LOCAL</span>}
         {auth.user && <>
@@ -140,7 +141,7 @@ export default function TripsApp() {
     {(error || auth.error) && <p className="trips-error" role="alert">{error || auth.error}</p>}
     <main id="trips-main">{auth.loading ? <p className="trips-loading" role="status">Loading…</p> : auth.user
       ? <Workspace key={workspaceKey} auth={auth} tripId={tripId} joinId={joinId} invitation={invitation.current} onEditProfile={() => setProfileOpen(true)} />
-      : <section className="trips-welcome"><span className="trips-welcome-mark" aria-hidden="true"><Luggage size={26} /></span><h1>Cozy Trips</h1><p className="trips-intro">Split trip costs with friends and settle up.</p>{joinId && <p>Sign in to accept your invite.</p>}
+      : <section className="trips-welcome"><span className="trips-welcome-mark" aria-hidden="true"><Suitcase size={40} /></span><h1>Cozy Trips</h1><p className="trips-intro">Split trip costs with friends, then square up.</p>{joinId && <p>Sign in to accept your invite.</p>}
         {!localDemo && <Button variant="primary" disabled={signingIn} onClick={() => signIn()}>Continue with Google <ArrowRight size={17} aria-hidden="true" /></Button>}
         {localDemo && <div className="trips-demo"><p className="trips-eyebrow">Local test accounts</p><div>{['Matt', 'Alex', 'Jamie'].map((name) => <Button variant={name === 'Matt' ? 'primary' : 'secondary'} key={name} disabled={signingIn} onClick={() => signIn(name)}>Continue as {name}</Button>)}</div></div>}</section>}</main>
     {profileOpen && auth.user && <ProfileDialog auth={auth} profile={headerProfile} onClose={() => setProfileOpen(false)} onSignOut={signOut} />}
