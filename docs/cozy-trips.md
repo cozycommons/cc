@@ -2,17 +2,17 @@
 
 Cozy Commons project at `/trips`, with its authenticated API under `/trips`.
 
-## Proposed integration plan — 2026-10-23
+## Integration plan and delivery — 2026-10-23
 
-Status: core shipped and hosted acceptance passed, 2026-10-23; a demonstrated
-document-cache follow-up is in verification. Deliver the core functionality,
+Status: core shipped and hosted acceptance passed, 2026-10-23; the demonstrated
+document-cache follow-up is also deployed and verified. Deliver the core functionality,
 complete end-to-end verification, database migrations, and a PR with passing CI
 for the existing release path. Track live feature/test status in
-[`cozy-trips-tests.md`](cozy-trips-tests.md). The existing implementation is a
-locally verified Commons integration. A captured Splitwise trip reconciles exactly
-in local Supabase, and shared account/profile reuse passes real local Auth/API and
-browser checks. Actual Commons Google OAuth, canonical Dice identity, hosted
-source reconciliation and core mutation checks now pass; see the hosted record.
+[`cozy-trips-tests.md`](cozy-trips-tests.md). The implementation uses the normal
+Commons frontend/backend and hosted Supabase. A captured Splitwise trip reconciles
+exactly in both local and hosted Supabase. Shared account/profile reuse passes
+real local Auth/API and browser checks. Actual Commons Google OAuth, canonical
+Dice identity, hosted source reconciliation and core mutations pass; see the hosted record.
 This plan supersedes the prototype's completion claim below.
 
 ### Outcome and stopping point
@@ -140,15 +140,19 @@ Preserve the original notes while matching. Draft estimates do not affect
 balances; confirming the expense posts its validated amounts. Repeating a receipt
 match or confirmation must not create a duplicate bill.
 
-This direction is parked while the current import, shared identity, migration,
-and release acceptance work is completed. It does not add receipt OCR or a new
-agent credential platform to the current implementation slice.
+This direction remains parked for a separate increment after the completed core
+release. It does not add receipt OCR or a new agent credential platform to the
+current implementation slice.
 
 Current state: [PR #85](https://github.com/cozycommons/cc/pull/85) merged and
 deployed as `efbaf35`; all five PR and main CI jobs passed. Real Google/profile,
 hosted import/repeat/field reconciliation, privacy and synthetic mutation checks
-pass. Branch `fix/trips-document-cache` addresses stale home HTML discovered in
-that run and batches the release evidence with its functional fix. Raw account
+pass. [PR #86](https://github.com/cozycommons/cc/pull/86) merged as `05854ed` after
+all five PR checks passed. Its frontend webhook rollout and hosted cache/navigation
+checks passed, and all five merged-main CI jobs passed in run `39934493875`.
+Backend remains on `efbaf35`; both containers are healthy. This goal's core
+delivery and acceptance work is complete.
+Branch `fix/trips-document-cache` records the final verification. Raw account
 data stays ignored. The later draft-purchase workflow remains parked.
 
 ## Prototype scope (historical)
@@ -235,6 +239,13 @@ only this forwarding later, use `tailscale serve --https=8451 off` on its host.
 
 ## Agent API
 
+In plain language, an agent can read who owes whom and add or edit an expense
+through the same labeled forms you use, or through the API below. It acts with
+the signed-in person's existing trip permissions. There is no separate agent
+mode or extra access. Clear field labels, explicit save actions, validation
+errors and revision conflicts make its actions inspectable. A repayment records
+a payment that already happened; it does not send money.
+
 Use `Authorization: Bearer <existing Supabase access token>`. All endpoints below
 are relative to the backend `/trips` prefix. The UI uses these same commands.
 
@@ -303,6 +314,34 @@ on incomplete/unsupported payment rows, multiple payers, refunds, or ambiguous
 descriptions. The canonical snapshot API supports separately captured repayments.
 Raw source files and local copies of personal trips remain ignored and are never
 committed as fixtures.
+
+## Compact UI follow-up — 2026-10-23
+
+The user requested a cleaner existing interface comparable to Dice, keeping the
+Commons palette. The follow-up removes decorative slogans, large serif hero
+headings, duplicated companion summaries and the footer. Trip cards become
+compact rows. The trip opens directly into a smaller title/summary and expense
+list, with a plain balances panel and the same labeled forms and commands.
+Mobile expense views omit the duplicate balance panel; the Balances tab retains
+it. Expense, invitation and repayment permissions and accounting are unchanged.
+
+Two known synthetic local acceptance ledgers were removed after a private backup;
+the imported source copy was compared before/after and preserved. Test fixtures
+and the guarded local account harness remain available for regression checks.
+The empty hosted release-check ledger is a separate cleanup target; do not
+filter trips by their names in application code to conceal test data.
+
+Read-only inspection of the connected Splitwise dashboard and All expenses view
+found one visible group and the same 14 source entries, with no additional group
+or non-group expenses shown. Broader import needs the intended account/source
+and scope clarified. Do not manufacture trips to populate the list.
+
+Venmo direction requested: an optional username on the person's existing Commons
+identity and a prepared person/amount/note request from balances. Confirm the
+first workflow before adding payment-profile storage: own username editing,
+sharing with trip members, user review in Venmo, and recording the actual
+repayment separately. No payment-profile schema or automatic request submission
+is included in this UI slice. The workflow question is pending with the user.
 
 ## Verification and handoff
 

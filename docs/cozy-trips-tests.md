@@ -1,7 +1,7 @@
 # Cozy Trips feature map and verification ledger
 
-Updated 2026-10-23. This is the living acceptance record for the active goal:
-deliver Cozy Trips at `/trips` inside Cozy Commons, prepare the PR, and pass CI
+Updated 2026-10-23. This is the living acceptance record for the delivered goal:
+deliver Cozy Trips at `/trips` inside Cozy Commons, merge the PR, and pass CI
 with migrations included in the normal release path. Update this file when a
 feature, test, result, or blocker changes. Do not mark the goal complete from
 synthetic browser checks alone.
@@ -23,7 +23,7 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 
 | ID | Splitwise surface / expected behavior | Cozy Trips requirement | Status / evidence |
 | --- | --- | --- | --- |
-| CC-01 | Group list and trip ledger | Enter `/trips` from Commons; deep links/reload work | passed on hosted Commons after deployment; document cache regression found and fixed in the next release batch |
+| CC-01 | Group list and trip ledger | Enter `/trips` from Commons; deep links/reload work | passed on hosted Commons after both releases; Dice → Commons → Trips retains the shared account |
 | AUTH-01 | Account sign-in | Existing Commons Google login and canonical user ID across Dice/Trips | passed fresh hosted Google OAuth; existing Dice profile and canonical ID reused |
 | AUTH-02 | Session continuity | Refresh, navigation, expiry, sign-out and pending invitation return | hosted reload/navigation/shared sign-out and real Google invitation return passed; real local JS SDK refreshed an expired access token and rejected an invalid refresh token |
 | PEOPLE-01 | Group members | Stable trip identities; existing Dice name/avatar where available | passed real local Supabase tests and canonical Matt identity in built Dice/Trips; no Dice profile created on Trips entry |
@@ -36,15 +36,15 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | PAY-01 | Settle up | Record outside payment and undo; never initiate money transfers | passed local browser and real API; both balances clear, then restore on undo |
 | ACT-01 | Expense provenance / updates | Who changed what and when, readable expense details | passed local activity inspection; import activity plus retained source IDs/digest/original balances in API; notes persist after phone edit |
 | IMPORT-01 | Printable/export trip history | Preview source, map people explicitly, preserve source IDs/shares | passed hosted preview/save under the real Commons identity; read-only field-level source hash matches all 14 expenses and all six members |
-| IMPORT-02 | Repeat import | Same snapshot adds nothing; identical distinct expenses remain distinct | passed local browser and concurrent Supabase import tests; changed snapshots fail 409 |
+| IMPORT-02 | Repeat import | Same snapshot adds nothing; identical distinct expenses remain distinct | passed hosted phone repeat import: same trip at revision 1; concurrent Supabase import tests pass; changed snapshots fail 409 |
 | IMPORT-03 | Source balance check | All people/currencies reconcile exactly; fail on unsupported data | 14 actual expenses and all six USD balances reconcile exactly; capture/date/unsupported-data tests pass |
 | AGENT-01 | Form controls and actions | Stable native labels, predictable errors, same authenticated HTTP API | passed native hosted forms, Google flow, import/repeat and synthetic mutations; API scenarios pass locally/CI |
 | UI-01 | Commons project conventions | Reuse Commons navigation/design components; desktop and phone | passed built app desktop and 390x844, shared account identity and native dialogs; page 375/375 and dialog 335/335 widths |
-| DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally; `test_trips_migrations.py`, `test_migration_runner.py` |
-| SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed locally; real Supabase API/RLS and PostgreSQL drift tests |
+| DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally and hosted: receipts 1/2 and readiness; `test_trips_migrations.py`, `test_migration_runner.py` |
+| SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed real local API/RLS/drift tests and hosted catalog/owner/outsider/anonymous checks |
 | SHIP-01 | Normal Commons release | Backend migrates before listening; `/ready` checks Trips; route served | PR #85 merged/deployed by existing webhooks; hosted migrations 1/2, readiness, maintenance, grants and RLS passed |
-| CI-01 | Reviewable release | Required DB tests run in CI; frontend/backend build, tests and lint pass | all five jobs pass for PR #85 and merged efbaf35 (main run 39930286938); document-cache follow-up checks pending |
-| SHIP-02 | Document cache after deployment | Revalidate SPA HTML so new routes and bundle references load | hosted response lacked Cache-Control; local fixed container passes all six document routes on 200 and conditional 304; hosted follow-up pending |
+| CI-01 | Reviewable release | Required DB tests run in CI; frontend/backend build, tests and lint pass | all five jobs pass for PR #85, its main run 39930286938, PR #86 run 39933511499, and merged follow-up run 39934493875 |
+| SHIP-02 | Document cache after deployment | Revalidate SPA HTML so new routes and bundle references load | passed local and hosted: all six document routes on HEAD 200 and ETag 304 send Cache-Control: no-cache; normal shared navigation passed |
 
 Splitwise also exposes recurring expenses, charts, comments, attachments,
 multiple payers, adjustments, and other advanced splits. They are excluded from
@@ -128,7 +128,15 @@ policy. The follow-up adds `Cache-Control: no-cache` to the SPA document, includ
 internal route fallbacks, and adds CI container checks. The fixed local container
 passes HEAD/200 and ETag/304 revalidation for `/`, `/index.html`, `/dice`, `/trips`
 and trip/join deep links. Existing open tabs may need one reload; subsequent
-documents receive the revalidation policy. Final hosted verification is pending.
+documents receive the revalidation policy. PR #86 merged as
+`05854ed78b4da1378589c9f10e4e332afe03cb27`; all five PR checks passed. The existing
+frontend webhook deployed it successfully. Hosted verification passed for all
+six routes on HEAD 200 and ETag 304, health/readiness, anonymous denial, and
+Commons → Trips / Dice → Commons → Trips with the canonical profile. The
+imported trip still has 14 expenses. Both running containers are healthy; see
+`deployment.md` for immutable image identities. Backend remains on `efbaf35`.
+All five merged follow-up CI jobs passed in
+[run 39934493875](https://github.com/cozycommons/cc/actions/runs/39934493875).
 
 Save screenshots and private reconciliation output outside Git. The previous
 synthetic Cabin weekend run remains historical evidence, not a completed run of
@@ -138,20 +146,52 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Compact UI follow-up
+
+Branch `fix/trips-compact-ui` follows the delivered core release. The user asked
+for less decorative copy and a compact Dice-like interface using the same
+palette, cleanup of synthetic data, broader real Splitwise content, and clearer
+agent use plus easier Venmo request composition.
+
+- Compact trip rows, smaller title/summary, direct section names, readable
+  owes/is-owed balances and reduced phone duplication are implemented.
+- All 459 frontend tests pass, including the 35 existing Trips checks; lint has zero errors and its one
+  existing CommonsScene warning; the production build and bundle budget pass.
+- Native browser checks passed on desktop and 390x844: the expense ledger is
+  visible much sooner, labeled expense fields remain available, cancel preserves
+  the source copy, and page/dialog widths are 375/375 and 320/320 respectively.
+  Screenshots are outside Git in `artifacts/cozy-trips/compact-trip-desktop.png`
+  and `compact-trip-phone.png`.
+- Two known local synthetic ledgers were removed with a private recoverable
+  backup. The 14-expense source copy is byte-for-byte unchanged. Hosted synthetic
+  cleanup and this UI's deployment have not yet been performed.
+- The connected Splitwise account's dashboard/All expenses screen shows only
+  the existing group and its 14 entries. Another account/source and the desired
+  import scope need clarification before broader import.
+- Venmo profile sharing/request composition is awaiting the user's workflow
+  choice before schema work. Plain-language agent behavior is documented in
+  `cozy-trips.md`; this UI uses the existing account/form/API contract.
+
+### Delivered core release
+
 Later core workflow recorded from the user: any member or their personal agent
 can start a draft purchase with notes, rough calculations, and item/person
 context; enrich it collaboratively; and join receipt items to it later. Drafts
 stay outside balances until confirmation. Future acceptance must cover shared
 editing, preserved source notes, receipt-to-draft matching, explicit final split,
-and duplicate-safe confirmation. Implementation is parked until this release's
-existing acceptance work is complete; see `cozy-trips.md`.
+and duplicate-safe confirmation. Implementation remains parked for a separate
+increment; see `cozy-trips.md`.
 
 One branch/tree: `fix/trips-document-cache`, continuing from merged PR #85.
-Goal active: complete the demonstrated document-cache fix's CI/deployment and
-verify the hosted headers/navigation. Google SSO, hosted source reconciliation,
-privacy and core mutation acceptance have passed. The required Trips job ran 42
+PRs #85 and #86 are merged and their webhook deployments are verified. Google
+SSO, hosted source reconciliation, privacy, core mutation acceptance and the
+cache fix have passed. Both merged commits' CI runs are fully green. The goal's
+core delivery and acceptance work is complete; no release action remains queued.
+The required Trips job ran 42
 checks with real local Supabase Auth and no skips. Previously local-only CI and
-handoff records are included with this functional fix as one verified batch.
+handoff records were included with the functional fix as one verified batch.
+This final evidence-only update is backed up on the closed feature branch;
+no further open-PR CI run is needed just to record its completed deployment.
 Both Coolify applications use source
 `cozycommons/cc`, `main`/`HEAD`, Deploy on push (webhooks), and watch paths covering
 Trips. The active GitHub ruleset requires fresh frontend/backend checks before
