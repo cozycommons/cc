@@ -150,6 +150,51 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Profile and review follow-up
+
+Branch `fix/trips-profiles-polish` follows PR #87. The user requested existing
+Supabase account matching, more compact branding/icons and subtle animation,
+then explicitly requested three high-effort Sol reviews in parallel.
+
+All three reviews completed read-only. Five distinct P2 findings were reproduced
+and fixed locally: storage getters outside invitation error handling; missing
+Auth metadata fallback for linked people without Dice profiles; concurrent trip
+creation reporting a duplicate-key error; pending-save dialog dismissal losing
+a later draft; and repeated descriptions having indistinguishable expense
+action names. The reviewers rechecked their fixes with no remaining findings
+in those bounded diffs. Root also reproduced a late save displaying the wrong
+trip after navigation; workspaces now remount per account and route, with a
+regression test. Dialog padding clicks stay inside the dialog.
+
+Current evidence: 47 real local Supabase/API/profile/runtime/create checks pass.
+The full account fallback is covered before a Dice profile exists, then after
+one is explicitly created. A deterministic two-request barrier reproduces the
+create race. Deferred-submit tests cover every modal dismissal path and route
+navigation; repeated descriptions are selected by amount, payer and full date.
+All 465 frontend tests pass across 69 files; lint has zero errors and its one
+existing CommonsScene warning. The production build and bundle budget pass.
+Native desktop and 390x844 browser checks confirm the branding/icons, centered
+expense dialog, padding preserving an unsaved draft, and normal close/cancel.
+The phone page is 375/375 pixels (client/scroll width); its dialog is 320/320.
+No financial entries were saved during these checks. Browser testing also
+reproduced the existing top-left dialog placement caused by reset CSS; the
+dialog now explicitly centers within its viewport. Screenshots remain outside
+Git in `artifacts/cozy-trips/profiles-trip-desktop.png` and
+`profiles-trip-phone.png`. Final PR/CI/deployment evidence is pending.
+
+Five existing Google-backed accounts were identified read-only for the imported
+people, including one Auth-only identity without a Dice profile. Exact UUIDs and
+the proposed mapping stay in ignored `.trips-dev/private/profile-link-proposal.json`.
+The file is a proposal, not authorization. An explicit action-time confirmation
+is pending before adding those accounts to `member_user_ids`; that grants access
+to private trip data and editing. No hosted account links have been applied.
+Use the current human confirmation, preserve all financial/member/source IDs,
+and record a revision/activity event if applying the confirmed data correction.
+
+The visual change restores compact Commons branding, a Trips mark, small
+functional category icons and restrained dialog/hover/refresh motion. Reduced
+motion disables animations. It does not restore the earlier decorative hero.
+
 ### Compact UI follow-up
 
 Branch `fix/trips-compact-ui` follows the delivered core release. The user asked

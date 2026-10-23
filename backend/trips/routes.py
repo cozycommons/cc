@@ -163,8 +163,16 @@ def create_trip(payload: CreateTrip, request: Request, user=Depends(current_user
         return render_group(client(request), row)
     display_name = payload.display_name or current_profile(client(request), user)['display_name']
     row = new_group(str(payload.id), user.id, payload.name, payload.currency, display_name)
-    rows = client(request).table('trips_groups').insert(row).execute().data
-    return render_group(client(request), rows[0])
+    try:
+        saved = client(request).table('trips_groups').insert(row).execute().data[0]
+    except APIError as error:
+        if error.code != '23505':
+            raise
+        # A lost response or concurrent retry must reopen, never overwrite, this ID.
+        saved = read_row(request, payload.id)
+        if saved['owner_id'] != user.id:
+            raise HTTPException(409, 'Choose a new trip ID.')
+    return render_group(client(request), saved)
 
 
 @router.get('/groups/{trip_id}')
