@@ -24,6 +24,7 @@ from espn.routes import router as espn_router
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
+from trips.routes import router as trips_router
 from supabase_cache import CachedSupabaseClient, SupabaseTTLCacheStore
 
 RUNTIME_POLICY = initialize_runtime_policy(
@@ -79,6 +80,7 @@ app.state.supabase_admin: Client = CachedSupabaseClient(
 )
 app.state.analytics_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.readiness_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+app.state.trips_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 # Commons scene reads must not use the generic 120-second cache. Every command
 # is fenced by the database version and the next GET must observe it promptly.
 app.state.commons_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -108,6 +110,7 @@ def root():
 
 
 app.include_router(health_router)
+app.include_router(trips_router, prefix="/trips")
 app.include_router(commons_router, prefix="/commons")
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")
