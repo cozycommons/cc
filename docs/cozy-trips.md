@@ -145,9 +145,10 @@ This direction is parked while the current import, shared identity, migration,
 and release acceptance work is completed. It does not add receipt OCR or a new
 agent credential platform to the current implementation slice.
 
-Current state: branch `feat/cozy-trips`, draft PR
+Current state: branch `feat/cozy-trips`, review-ready PR
 [#85](https://github.com/cozycommons/cc/pull/85). Import, shared identity/profile
 reuse, migrations, local browser acceptance, and repository regressions pass.
+All five jobs pass at `cd50bcd` in CI run `39922337068`; the PR is mergeable.
 See the verification ledger and PR checks for the current candidate's evidence.
 No merge or hosted rollout has occurred. Raw source data stays ignored. The next
 external checkpoint is authorization for the hosted Supabase/Google validation

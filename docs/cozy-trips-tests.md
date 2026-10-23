@@ -43,7 +43,7 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally; `test_trips_migrations.py`, `test_migration_runner.py` |
 | SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed locally; real Supabase API/RLS and PostgreSQL drift tests |
 | SHIP-01 | Normal Commons release | Backend migrates before listening; `/ready` checks Trips; route served | both current containers pass locally; saved Coolify main-branch triggers/watch paths verified read-only; hosted rollout pending |
-| CI-01 | Reviewable release | Required DB tests run in CI; frontend/backend build, tests and lint pass | draft PR #85; published foundation green; current import/identity candidate locally verified, remote result available in PR checks |
+| CI-01 | Reviewable release | Required DB tests run in CI; frontend/backend build, tests and lint pass | PR #85 ready for review; all five jobs pass at cd50bcd in CI run 39922337068 |
 
 Splitwise also exposes recurring expenses, charts, comments, attachments,
 multiple payers, adjustments, and other advanced splits. They are excluded from
@@ -101,9 +101,14 @@ editing, preserved source notes, receipt-to-draft matching, explicit final split
 and duplicate-safe confirmation. Implementation is parked until this release's
 existing acceptance work is complete; see `cozy-trips.md`.
 
-One branch/tree: `feat/cozy-trips`. Goal active. Draft PR #85 is attached. The
-import/profile/session batch is locally verified and ready for the next single
-PR push; inspect PR checks for its remote result. Remaining acceptance is actual
+One branch/tree: `feat/cozy-trips`. Goal active. PR #85 is attached and ready for
+review, mergeable with a clean merge state. The import/profile/session batch was
+published once at `cd50bcd`; all five jobs passed in
+[CI run 39922337068](https://github.com/cozycommons/cc/actions/runs/39922337068).
+The required Trips job ran 42 checks with real local Supabase Auth and no skips;
+the dependent backend job also passed. This CI/handoff-only update is committed
+locally for the next meaningful batch, avoiding another full CI run just to
+record that run's result. Remaining acceptance is actual
 Commons Google OAuth, hosted identity/import verification, and the authorized
 merge/rollout. Both Coolify applications were inspected read-only: source
 `cozycommons/cc`, `main`/`HEAD`, Deploy on push (webhooks), and watch paths covering
