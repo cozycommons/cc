@@ -11,10 +11,17 @@ A *conflict* is any day where a scheduled player has to sit: more
 scheduled players than starting slots (``slot_overflow``), or a
 position-eligibility jam (``eligibility_jam``). The best legal lineup
 is still submitted — the lowest-value scheduled players sit, where
-value is projected fantasy points under the ACCOUNT LEAGUE's own
-scoring settings (ESPN's projected stat splits where available,
-last-7-days form as fallback) — and every conflict is recorded in the
-run log (see :func:`list_runs`) for the user to pull on demand.
+value is fantasy points per game under the ACCOUNT LEAGUE's own
+scoring settings, ranked by preference: the day's projected fantasy
+points when ESPN publishes a real projection for that day, otherwise
+the player's recent-7-days fantasy PPG, otherwise his season fantasy
+PPG (Warner's sharpened policy, 2026-10-23) — and every conflict is
+recorded in the run log (see :func:`list_runs`) for the user to pull
+on demand. Conflicts are recorded ONLY for scheduled players who
+actually sit: an unscheduled player shuffling between bench, IR and
+a leftover starting slot is correct placement, never a conflict,
+even when the planner's bench/IR capacity accounting cannot
+formally place him (he is moved to the bench, which ESPN accepts).
 
 Moves are lineup slot moves only (plus IR activation / parking when
 needed for a legal lineup). Adds, drops, trades and waiver claims are
@@ -721,10 +728,19 @@ def _starting_instances(counts: dict) -> list:
 def _match_scheduled(scheduled: list, instances: list) -> dict:
     """Maximum bipartite matching scheduled players -> slot instances.
 
-    Players are processed highest-value first (Kuhn's augmenting paths),
-    so when not everyone fits, the players left unmatched are the
-    lowest-value ones that could not be placed. Returns
-    {player_id: slot_id}.
+    Players are processed highest-value first (value = fantasy PPG:
+    day projection, else recent-7, else season — see
+    :func:`player_value`), and Kuhn's augmenting paths only ever
+    rearrange slot assignments among already-matched players, never
+    unmatch one. So a player is left unmatched only when no legal
+    placement exists alongside the higher-value players matched
+    before him: the sitters are the lowest-value scheduled players,
+    subject to eligibility (a lower-value player may still start in
+    a slot a higher-value sitter is not eligible for — that is the
+    eligibility jam, and it is unavoidable in any legal lineup).
+    Exact value ties break deterministically by player id: the
+    caller sorts by (-value, player_id), so the lower id is matched
+    first and the higher id sits. Returns {player_id: slot_id}.
     """
     slot_owner: list = [None] * len(instances)
     assignment: dict = {}
@@ -771,6 +787,11 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
     )
     assignment = _match_scheduled(scheduled, instances)
     sitters = [p for p in scheduled if p["player_id"] not in assignment]
+    # Report sitters deterministically, lowest value first (ties by
+    # player id): that is the order a reader scans "who sat, and who
+    # was closest to starting". sitting_player_ids follows the same
+    # order as the conflict records.
+    sitters.sort(key=lambda p: (p["value"], p["player_id"]))
 
     conflicts = []
     if sitters:
@@ -778,6 +799,16 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
             "slot_overflow"
             if len(scheduled) > len(instances)
             else "eligibility_jam"
+        )
+        # The value comparison behind each sit decision: the weakest
+        # scheduled player who DID get a starting slot. A sitter at or
+        # below him lost on value; a sitter above him lost purely on
+        # eligibility (no slot he can play was left).
+        kept = [p for p in scheduled if p["player_id"] in assignment]
+        lowest_kept = (
+            min(kept, key=lambda p: (p["value"], p["player_id"]))
+            if kept
+            else None
         )
         for p in sitters:
             conflicts.append(
@@ -802,6 +833,20 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
                         "scheduled_count": len(scheduled),
                         "starting_slots": len(instances),
                         "on_ir": p["current_slot"] == IR_SLOT,
+                        "lowest_starter_value": (
+                            lowest_kept["value"] if lowest_kept else None
+                        ),
+                        "lowest_starter_value_source": (
+                            lowest_kept["value_source"]
+                            if lowest_kept
+                            else None
+                        ),
+                        "lowest_starter_player_id": (
+                            lowest_kept["player_id"] if lowest_kept else None
+                        ),
+                        "lowest_starter_name": (
+                            lowest_kept["name"] if lowest_kept else None
+                        ),
                     },
                 }
             )
@@ -860,18 +905,19 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
             # he is not scheduled.
             target[pid] = p["current_slot"]
         else:
+            # Bench/IR capacity accounting is exhausted, but there is
+            # still a legal real-world placement: the bench (a move
+            # another starter's vacated slot makes room for — ESPN
+            # accepted exactly this on 2026-10-23, Mobley 3 -> 12).
+            # This is NEVER a conflict on its own (Warner's policy,
+            # 2026-10-23): a player landing here is either unscheduled
+            # (bench is his correct place; the old code emitted a
+            # spurious "no legal bench/IR slot" eligibility_jam for
+            # Brooks / Hachimura / Reid / Mobley / Boozer on
+            # 2026-10-20..23 even when every scheduled player started)
+            # or a scheduled sitter, who already carries his
+            # slot_overflow / eligibility_jam conflict from above.
             target[pid] = BENCH_SLOT
-            conflicts.append(
-                {
-                    "kind": "eligibility_jam",
-                    "scoring_period_id": scoring_period_id,
-                    "player_id": pid,
-                    "player_name": p["name"],
-                    "reason": "no legal bench/IR slot available in the plan; "
-                    "player left in place",
-                    "detail": {"placement": "no_legal_slot"},
-                }
-            )
 
     moves = []
     plan_players = []
