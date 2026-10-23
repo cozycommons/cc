@@ -101,8 +101,9 @@ editing, preserved source notes, receipt-to-draft matching, explicit final split
 and duplicate-safe confirmation. Implementation is parked until this release's
 existing acceptance work is complete; see `cozy-trips.md`.
 
-One branch/tree: `feat/cozy-trips`. Goal active. PR #85 is attached and ready for
-review, mergeable with a clean merge state. The import/profile/session batch was
+One branch/tree: `feat/cozy-trips`. Goal awaiting explicit hosted approval.
+PR #85 is attached and ready for review, mergeable with a clean merge state.
+The import/profile/session batch was
 published once at `cd50bcd`; all five jobs passed in
 [CI run 39922337068](https://github.com/cozycommons/cc/actions/runs/39922337068).
 The required Trips job ran 42 checks with real local Supabase Auth and no skips;
@@ -114,6 +115,10 @@ merge/rollout. Both Coolify applications were inspected read-only: source
 `cozycommons/cc`, `main`/`HEAD`, Deploy on push (webhooks), and watch paths covering
 Trips. The active GitHub ruleset requires fresh frontend/backend checks before
 merge, with no bypass actors. No hosted setting, database or deployment changed.
+No further independent local acceptance work remains. On authorization, audit
+the hosted schema/receipts first, then follow the PR's reviewed merge, rollout,
+Google SSO, import reconciliation and rollback plan. Do not treat an automatic
+goal continuation as approval for that production-connected work.
 
 The normal production bundle was used for Dice/Trips session continuity because
 a local browser filter blocks the raw Dice development module. `run --built`
