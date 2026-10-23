@@ -128,6 +128,20 @@ The synthetic Cabin weekend remains available to explore with Matt or Alex.
 The local server and dedicated Supabase instance are left running for the user.
 Live Google OAuth and a production rollout remain outside this local delivery.
 
+### Preview lifetime repair (2026-10-23)
+
+The first preview stopped when its temporary command session ended, leaving
+Tailscale returning HTTP 502. The host now runs the preview through the enabled
+per-user `cozy-trips-preview.service`. It starts the existing idempotent local
+setup and runtime commands with Node 22, independently of agent command sessions,
+and restarts the owned preview if it exits. The host's existing user lingering
+setting was already enabled and was not changed. The database and Tailscale
+forwarding were preserved. The host must remain awake and on the tailnet.
+
+In this WSL host, inspect it with `systemctl --user status cozy-trips-preview`;
+logs are in `journalctl --user-unit cozy-trips-preview`. The service configuration
+lives in the host's user configuration, not in the shared application code.
+
 Main changed files: `backend/trips/`, `frontend/src/trips/`, the shared backend
 and frontend route wiring, the Commons shelf, the shared migration runner,
 `scripts/trips-dev.py`, and `supabase/trips-local.toml`. Focused tests live beside
