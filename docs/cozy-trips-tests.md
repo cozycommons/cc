@@ -41,7 +41,7 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | AGENT-01 | Form controls and actions | Stable native labels, predictable errors, same authenticated HTTP API | passed native hosted forms, Google flow, import/repeat and synthetic mutations; API scenarios pass locally/CI |
 | UI-01 | Commons project conventions | Reuse Commons navigation/design components; desktop and phone | passed built app desktop and 390x844, shared account identity and native dialogs; page 375/375 and dialog 335/335 widths |
 | UI-02 | Compact working interface | Keep the palette, remove decorative copy, show expenses sooner | passed local desktop/phone and hosted account/list/ledger after PR #87 deployment |
-| PAY-02 | Venmo request composition | Optional own profile username; prepare person/amount/note and review | pending workflow alignment; no payment-profile schema or request submission added |
+| PAY-02 | Venmo request composition | Optional own profile username; prepare person/amount/note and review | workflow agreed; six supplied usernames seeded in Auth metadata and read back; profile editing/display and composition pending |
 | IMPORT-04 | Broader Splitwise content | Import the intended real sources without synthetic filler | pending account/scope clarification; connected account's dashboard/All expenses shows one group and 14 entries |
 | DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally and hosted: receipts 1/2 and readiness; `test_trips_migrations.py`, `test_migration_runner.py` |
 | SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed real local API/RLS/drift tests and hosted catalog/owner/outsider/anonymous checks |
@@ -149,6 +149,24 @@ explicit checkpoints under repository instructions; prepare the concrete diff
 and migration evidence before requesting either.
 
 ## Current handoff
+
+### Venmo seed follow-up
+
+The user supplied and confirmed all six username mappings, then explicitly
+requested seeding. The existing hosted Supabase Auth accounts now contain
+`user_metadata.venmo_username` and `venmo_username_provenance`; see
+`cozy-trips.md` for the field contract. The seed used the supported Admin API,
+verified canonical Google-backed identities, stopped on existing conflicting
+values, and saved a mode-0600 metadata backup before updates. Six fresh account
+reads verified exact values and preservation of every other metadata field,
+application permissions and login identities. Dice display profiles and the
+complete imported trip row remained identical. No schema, code deployment,
+expense/repayment or trip membership changed. Private backup and receipt:
+`/root/cozy-trips-venmo-seed-20261023.json` and
+`/root/cozy-trips-venmo-seed-20261023-receipt.json`. The ignored local proposal
+now records the completed action. Username ownership is not independently
+verified in Venmo. The next increment is profile editing/display and prepared
+Pay/Request details; the UI does not expose these seeded fields yet.
 
 ### Profile and review follow-up
 

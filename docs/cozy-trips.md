@@ -338,12 +338,23 @@ found one visible group and the same 14 source entries, with no additional group
 or non-group expenses shown. Broader import needs the intended account/source
 and scope clarified. Do not manufacture trips to populate the list.
 
-Venmo direction requested: an optional username on the person's existing Commons
-identity and a prepared person/amount/note request from balances. Confirm the
-first workflow before adding payment-profile storage: own username editing,
-sharing with trip members, user review in Venmo, and recording the actual
-repayment separately. No payment-profile schema or automatic request submission
-is included in this UI slice. The workflow question is pending with the user.
+Venmo direction agreed: an optional username on the person's existing Commons
+identity and a prepared person/amount/note request from balances, reviewed in
+Venmo before submission. Record the actual repayment separately.
+
+On 2026-10-23 the user supplied and confirmed six username mappings and explicitly
+requested the seed. They were saved on those existing Supabase Auth accounts as
+`user_metadata.venmo_username`. `venmo_username_provenance` contains `source`
+(`matt_provided`), `provided_by_user_id`, `provided_at`, and `owner_confirmed`
+(`false`). These fields are display data, never authorization or proof of Venmo
+account ownership. No Dice profile is created or repurposed. The raw mappings
+remain private and ignored; the complete pre-update metadata and verified
+receipt are backed up with mode 0600 on the hosted server. Fresh Admin API reads
+confirmed every username/provenance value and preservation of all other metadata,
+app permissions and login identities. Dice display profiles and the complete
+imported trip row remained unchanged. No schema migration is needed for this
+metadata-only seed. Profile editing, trip display and Pay/Request composition
+are not implemented yet; consume these same fields in that next increment.
 
 The compact UI shipped through [PR #87](https://github.com/cozycommons/cc/pull/87)
 as `2494643` after all five PR checks passed. The frontend webhook rollout and
