@@ -151,6 +151,14 @@ jobs:
             http://127.0.0.1:8080/trips/10000000-0000-0000-0000-000000000001 >/dev/null
           curl --fail --silent --show-error --max-time 2 \
             http://127.0.0.1:8080/trips/join/10000000-0000-0000-0000-000000000001 >/dev/null
+          # Document routes must revalidate so a deploy cannot leave navigation
+          # or lazy bundle references stuck on a previous release.
+          for route in / /index.html /dice /trips \
+            /trips/10000000-0000-0000-0000-000000000001 \
+            /trips/join/10000000-0000-0000-0000-000000000001; do
+            curl --fail --silent --show-error --head --max-time 2 "http://127.0.0.1:8080$route" \
+              | tr -d '\r' | grep -qi '^Cache-Control: no-cache$'
+          done
           curl --fail --silent --show-error --max-time 2 --location \
             http://127.0.0.1:8080/design >/dev/null
           curl --fail --silent --show-error --max-time 2 \

@@ -115,7 +115,27 @@ Trips frontend/backend changes. The backend retains an empty pre-deploy command
 and `python -m dice_maintenance --rebuild` after deployment. No hosting setting
 was changed. The gate is GitHub's required PR checks before updating `main`;
 Coolify itself is configured to react to the resulting push, not wait on a CI
-workflow. A post-merge deployment and real Google/Trips smoke test remain pending.
+workflow. PR #85 subsequently deployed through those webhooks on 2026-10-23;
+real Google/Trips smoke tests passed. See `cozy-trips-tests.md` for the evidence.
+
+The SPA document must send `Cache-Control: no-cache`, including route fallbacks
+and conditional 304 responses. Otherwise browser heuristic freshness can retain
+old shelf navigation and bundle references across a deployment. CI checks that
+header on Commons, Dice and Trips document/deep-link routes. Hashed assets keep
+their existing behavior.
+
+The initial Trips release used commit
+`efbaf35c91e61f59bba1f6777d16370ccc199c4f` for both resources:
+
+- Backend deployment `dti4jw82cqqa8lhb52bov4o0`, running image identity
+  `sha256:daf2ba7296d034c7b5122083a0f96db7fd27e9565bd5789f6d05e851f0776dd0`.
+- Frontend deployment `acup61c55ypmn2sroc9nmzys`, running image identity
+  `sha256:2cdb394d0bae63d27b70ead89e91f436e3181eb3c6673ed471013adc7e7a127b`.
+
+Both running containers were inspected as healthy. The preceding `e3c511d`
+images were retained for rollback before the merge. Backend post-deploy
+maintenance ran through the existing hook. Only the frontend needs another
+rollout for the document-cache fix; backend code/schema are unchanged.
 
 GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
 is active on `main`. It requires the GitHub Actions `frontend` and `backend`

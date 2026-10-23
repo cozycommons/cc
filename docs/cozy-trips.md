@@ -4,13 +4,15 @@ Cozy Commons project at `/trips`, with its authenticated API under `/trips`.
 
 ## Proposed integration plan — 2026-10-23
 
-Status: active goal, authorized 2026-10-23. Deliver the core functionality,
+Status: core shipped and hosted acceptance passed, 2026-10-23; a demonstrated
+document-cache follow-up is in verification. Deliver the core functionality,
 complete end-to-end verification, database migrations, and a PR with passing CI
 for the existing release path. Track live feature/test status in
 [`cozy-trips-tests.md`](cozy-trips-tests.md). The existing implementation is a
 locally verified Commons integration. A captured Splitwise trip reconciles exactly
 in local Supabase, and shared account/profile reuse passes real local Auth/API and
-browser checks. Actual Commons Google OAuth and the hosted rollout remain pending.
+browser checks. Actual Commons Google OAuth, canonical Dice identity, hosted
+source reconciliation and core mutation checks now pass; see the hosted record.
 This plan supersedes the prototype's completion claim below.
 
 ### Outcome and stopping point
@@ -109,15 +111,12 @@ the repository's existing guards. Do not reset shared services or weaken those
 guards. Use the normal Commons application composition for integration checks;
 retain the isolated Trips harness only as a regression fixture where useful.
 
-Actual Commons SSO and existing production identities require validation against
-the existing Commons environment. Before any production-connected operation,
-present the concrete reviewed diff, migration/configuration changes, target
-environment, and rollback steps for explicit authorization, as required by
-`AGENTS.md`. In particular, verify the intended OAuth return origin is allowed;
-do not repoint the guarded local harness at production. Until that validation is
-authorized and succeeds, mark real SSO acceptance pending. Local test users
-cannot satisfy it. No production migration or deployment is authorized by
-creating this plan.
+The user explicitly approved the hosted audit, merge, rollout and import on
+2026-10-23 after reviewing the PR's target, migration changes and rollback plan.
+The normal release applied Trips migrations 1/2 and real Google SSO succeeded at
+the existing Commons origin. The guarded local harness remains loopback-only.
+Future production-connected work still follows `AGENTS.md`; creating a plan alone
+does not authorize it. Local test users never substitute for actual SSO evidence.
 
 ### Outside this slice
 
@@ -145,14 +144,12 @@ This direction is parked while the current import, shared identity, migration,
 and release acceptance work is completed. It does not add receipt OCR or a new
 agent credential platform to the current implementation slice.
 
-Current state: branch `feat/cozy-trips`, review-ready PR
-[#85](https://github.com/cozycommons/cc/pull/85). Import, shared identity/profile
-reuse, migrations, local browser acceptance, and repository regressions pass.
-All five jobs pass at `cd50bcd` in CI run `39922337068`; the PR is mergeable.
-See the verification ledger and PR checks for the current candidate's evidence.
-No merge or hosted rollout has occurred. Raw source data stays ignored. The next
-external checkpoint is authorization for the hosted Supabase/Google validation
-and release; the later draft-purchase workflow remains parked.
+Current state: [PR #85](https://github.com/cozycommons/cc/pull/85) merged and
+deployed as `efbaf35`; all five PR and main CI jobs passed. Real Google/profile,
+hosted import/repeat/field reconciliation, privacy and synthetic mutation checks
+pass. Branch `fix/trips-document-cache` addresses stale home HTML discovered in
+that run and batches the release evidence with its functional fix. Raw account
+data stays ignored. The later draft-purchase workflow remains parked.
 
 ## Prototype scope (historical)
 

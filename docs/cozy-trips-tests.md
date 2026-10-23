@@ -23,9 +23,9 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 
 | ID | Splitwise surface / expected behavior | Cozy Trips requirement | Status / evidence |
 | --- | --- | --- | --- |
-| CC-01 | Group list and trip ledger | Enter `/trips` from Commons; deep links/reload work | passed in normal production bundle and local shared API |
-| AUTH-01 | Account sign-in | Existing Commons Google login and canonical user ID across Dice/Trips | pending real OAuth proof |
-| AUTH-02 | Session continuity | Refresh, navigation, expiry, sign-out and pending invitation return | local reload, Dice/Trips navigation and cross-project sign-out passed; stale auth events and OAuth/invitation return covered automatically; real OAuth pending |
+| CC-01 | Group list and trip ledger | Enter `/trips` from Commons; deep links/reload work | passed on hosted Commons after deployment; document cache regression found and fixed in the next release batch |
+| AUTH-01 | Account sign-in | Existing Commons Google login and canonical user ID across Dice/Trips | passed fresh hosted Google OAuth; existing Dice profile and canonical ID reused |
+| AUTH-02 | Session continuity | Refresh, navigation, expiry, sign-out and pending invitation return | hosted reload/navigation/shared sign-out and real Google invitation return passed; real local JS SDK refreshed an expired access token and rejected an invalid refresh token |
 | PEOPLE-01 | Group members | Stable trip identities; existing Dice name/avatar where available | passed real local Supabase tests and canonical Matt identity in built Dice/Trips; no Dice profile created on Trips entry |
 | PEOPLE-02 | Invite people | One-use claim preserves all historical shares; outsider denied | local browser claim/retry and unrelated-user denial passed; real API/RLS tests pass |
 | EXP-01 | Add/edit/delete expense | Description, amount, payer, date, category, note; draft retained on error | passed desktop/phone browser, reload, validation and real API |
@@ -35,15 +35,16 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | BAL-01 | Group balances | Exact per-person net balances and simplified transfer suggestions | passed source reconciliation, browser edits/repayments and conservation tests |
 | PAY-01 | Settle up | Record outside payment and undo; never initiate money transfers | passed local browser and real API; both balances clear, then restore on undo |
 | ACT-01 | Expense provenance / updates | Who changed what and when, readable expense details | passed local activity inspection; import activity plus retained source IDs/digest/original balances in API; notes persist after phone edit |
-| IMPORT-01 | Printable/export trip history | Preview source, map people explicitly, preserve source IDs/shares | passed locally through desktop/phone UI and real Supabase API; real Commons identity still pending |
+| IMPORT-01 | Printable/export trip history | Preview source, map people explicitly, preserve source IDs/shares | passed hosted preview/save under the real Commons identity; read-only field-level source hash matches all 14 expenses and all six members |
 | IMPORT-02 | Repeat import | Same snapshot adds nothing; identical distinct expenses remain distinct | passed local browser and concurrent Supabase import tests; changed snapshots fail 409 |
 | IMPORT-03 | Source balance check | All people/currencies reconcile exactly; fail on unsupported data | 14 actual expenses and all six USD balances reconcile exactly; capture/date/unsupported-data tests pass |
-| AGENT-01 | Form controls and actions | Stable native labels, predictable errors, same authenticated HTTP API | passed native computer-use forms and API scenarios locally; actual Google login pending |
+| AGENT-01 | Form controls and actions | Stable native labels, predictable errors, same authenticated HTTP API | passed native hosted forms, Google flow, import/repeat and synthetic mutations; API scenarios pass locally/CI |
 | UI-01 | Commons project conventions | Reuse Commons navigation/design components; desktop and phone | passed built app desktop and 390x844, shared account identity and native dialogs; page 375/375 and dialog 335/335 widths |
 | DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally; `test_trips_migrations.py`, `test_migration_runner.py` |
 | SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed locally; real Supabase API/RLS and PostgreSQL drift tests |
-| SHIP-01 | Normal Commons release | Backend migrates before listening; `/ready` checks Trips; route served | both current containers pass locally; saved Coolify main-branch triggers/watch paths verified read-only; hosted rollout pending |
-| CI-01 | Reviewable release | Required DB tests run in CI; frontend/backend build, tests and lint pass | PR #85 ready for review; all five jobs pass at cd50bcd in CI run 39922337068 |
+| SHIP-01 | Normal Commons release | Backend migrates before listening; `/ready` checks Trips; route served | PR #85 merged/deployed by existing webhooks; hosted migrations 1/2, readiness, maintenance, grants and RLS passed |
+| CI-01 | Reviewable release | Required DB tests run in CI; frontend/backend build, tests and lint pass | all five jobs pass for PR #85 and merged efbaf35 (main run 39930286938); document-cache follow-up checks pending |
+| SHIP-02 | Document cache after deployment | Revalidate SPA HTML so new routes and bundle references load | hosted response lacked Cache-Control; local fixed container passes all six document routes on 200 and conditional 304; hosted follow-up pending |
 
 Splitwise also exposes recurring expenses, charts, comments, attachments,
 multiple payers, adjustments, and other advanced splits. They are excluded from
@@ -66,7 +67,7 @@ sync, currency conversion, payment processing, or separate Trips account system.
 ## Computer-use acceptance run
 
 - [x] Start at Commons and open Trips through normal navigation (built app, local Supabase).
-- [ ] Verify actual shared Google login and canonical identity/profile.
+- [x] Verify actual shared Google login and canonical identity/profile (fresh hosted OAuth, existing Dice account).
 - [x] Preview and import the captured trip; compare every source balance (local Supabase, synthetic Matt session; real source data).
 - [x] Repeat import and verify no record or balance changes (local session; same trip/14 expenses).
 - [x] Add/edit/delete an expense, exercise validation, reload, verify persistence (separate synthetic acceptance trip).
@@ -85,6 +86,50 @@ and phone screenshots are outside Git under `artifacts/cozy-trips/`; page and
 import dialog have no horizontal overflow. These checks use synthetic local
 identity and do not satisfy actual shared Google SSO acceptance.
 
+## Hosted acceptance — 2026-10-23
+
+The user approved the hosted audit, merge, deployment and real-account import.
+PR #85 merged as `efbaf35c91e61f59bba1f6777d16370ccc199c4f`. All five main CI
+jobs passed in [run 39930286938](https://github.com/cozycommons/cc/actions/runs/39930286938).
+Both existing Coolify webhooks deployed that commit successfully; backend first,
+then frontend. Public `/ready` returned ready, `/health` returned ok, and an
+anonymous Trips API request returned 401.
+
+- Pre-merge read-only audit: all Dice/Commons/Beli migration manifests matched
+  the reviewed candidate, with no history gaps or checksum conflicts; Trips was
+  absent. Post-release: Trips receipts 1/2, both readiness functions true, RLS
+  enabled on both Trips tables, anonymous reads denied, authenticated ledger
+  reads allowed and writes revoked, and readiness RPC denied to browser roles.
+  The Supabase connector lacked project access, so the audit used the existing
+  backend connection with PostgreSQL read-only enforcement; credentials stayed
+  in Coolify. Catalog checks are scoped evidence, not a claimed advisor run.
+- Fresh Google OAuth returned to Trips with the existing canonical Dice identity
+  and display profile. Dice/Trips navigation retained it. Signing out in Trips
+  made Dice show Sign in. A real Google round trip preserved a QA invitation;
+  an already joined owner returned without claiming a second place. Real second
+  account claiming remains covered by local Supabase/browser and required CI.
+- The captured trip imported under the real account. Counts, every balance and
+  a field-level financial/source projection match the private snapshot. Repeat
+  import opened the same row at revision 1, with 14 expenses, six members and
+  five unclaimed friends. No source expense or real trip record was edited for QA.
+- A separate synthetic hosted trip passed equal pennies, exact mismatch/draft
+  retention and correction, save/edit/reload, outside repayment, undo and delete.
+  It is retained as an empty QA ledger with zero balances and activity evidence.
+- Hosted desktop and 390x844 screenshots are outside Git in
+  `artifacts/cozy-trips/hosted-trip-desktop.png` and `hosted-trip-phone.png`.
+  The phone page is 375/375 and the import dialog 335/335 (client/scroll widths).
+- A real local Supabase JS SDK check forced an expired access token, refreshed it
+  using its real refresh session, and reached the shared Trips API with the new
+  token. An invalid refresh left no session; cleanup revoked only that test session.
+
+Hosted browser testing twice exposed old Commons HTML being reused after deploy,
+which hid the new shelf link until reload. Response headers confirmed no cache
+policy. The follow-up adds `Cache-Control: no-cache` to the SPA document, including
+internal route fallbacks, and adds CI container checks. The fixed local container
+passes HEAD/200 and ETag/304 revalidation for `/`, `/index.html`, `/dice`, `/trips`
+and trip/join deep links. Existing open tabs may need one reload; subsequent
+documents receive the revalidation policy. Final hosted verification is pending.
+
 Save screenshots and private reconciliation output outside Git. The previous
 synthetic Cabin weekend run remains historical evidence, not a completed run of
 this checklist. Production-connected validation and merge/deployment remain
@@ -101,24 +146,18 @@ editing, preserved source notes, receipt-to-draft matching, explicit final split
 and duplicate-safe confirmation. Implementation is parked until this release's
 existing acceptance work is complete; see `cozy-trips.md`.
 
-One branch/tree: `feat/cozy-trips`. Goal awaiting explicit hosted approval.
-PR #85 is attached and ready for review, mergeable with a clean merge state.
-The import/profile/session batch was
-published once at `cd50bcd`; all five jobs passed in
-[CI run 39922337068](https://github.com/cozycommons/cc/actions/runs/39922337068).
-The required Trips job ran 42 checks with real local Supabase Auth and no skips;
-the dependent backend job also passed. This CI/handoff-only update is committed
-locally for the next meaningful batch, avoiding another full CI run just to
-record that run's result. Remaining acceptance is actual
-Commons Google OAuth, hosted identity/import verification, and the authorized
-merge/rollout. Both Coolify applications were inspected read-only: source
+One branch/tree: `fix/trips-document-cache`, continuing from merged PR #85.
+Goal active: complete the demonstrated document-cache fix's CI/deployment and
+verify the hosted headers/navigation. Google SSO, hosted source reconciliation,
+privacy and core mutation acceptance have passed. The required Trips job ran 42
+checks with real local Supabase Auth and no skips. Previously local-only CI and
+handoff records are included with this functional fix as one verified batch.
+Both Coolify applications use source
 `cozycommons/cc`, `main`/`HEAD`, Deploy on push (webhooks), and watch paths covering
 Trips. The active GitHub ruleset requires fresh frontend/backend checks before
-merge, with no bypass actors. No hosted setting, database or deployment changed.
-No further independent local acceptance work remains. On authorization, audit
-the hosted schema/receipts first, then follow the PR's reviewed merge, rollout,
-Google SSO, import reconciliation and rollback plan. Do not treat an automatic
-goal continuation as approval for that production-connected work.
+merge, with no bypass actors. The approved incoming release applied the additive
+Trips schema and the authorized source import; no unrelated hosting setting,
+legacy Dice deployment or service changed. No messages were sent to friends.
 
 The normal production bundle was used for Dice/Trips session continuity because
 a local browser filter blocks the raw Dice development module. `run --built`
