@@ -25,6 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt \
     && groupadd --system app && useradd --system --gid app --home-dir /app app \
     && mkdir /data && chown app:app /data
 COPY --chown=app:app backend/crowdset/ /app/crowdset/
+COPY --chown=app:app backend/compute/ /app/compute/
 COPY --from=frontend /app/dist /static
 USER app
 EXPOSE 8010

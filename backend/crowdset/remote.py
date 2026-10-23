@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from .blobs import BlobError
 from .worker import write_json
 from .youtube import canonical_url
+from .compute_jobs import resources
 
 HEX = re.compile(r'^[a-f0-9]{64}$')
 NAME = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,179}$')
@@ -62,12 +63,16 @@ class RemoteJobs:
         self.store.save(data)
         return job
 
-    def claim(self):
+    def claim(self, capacity=None, encoder='h264_nvenc'):
+        resources('process', encoder)
         now = time.time()
         jobs = self.jobs()
         if any(j['state'] == 'running' and j.get('lease_until', 0) > now for j in jobs):
             return None
         for job in sorted(jobs, key=lambda j: (j['kind'] == 'process', j['created_at'])):
+            requirement = resources(job['kind'], encoder)
+            if capacity is not None and not requirement.fits(capacity):
+                continue
             if job['state'] not in ('queued', 'running'):
                 continue
             try:
@@ -89,7 +94,8 @@ class RemoteJobs:
             data.pop('processing', None)
             self.event(data, 'PC worker claimed the job')
             self.store.save(data)
-            return {**deepcopy(job), 'limits': asdict(self.store.limits)}
+            return {**deepcopy(job), 'limits': asdict(self.store.limits),
+                    'resources': requirement.model_dump(), 'encoder': encoder}
         return None
 
     def owned(self, identity, claim, *, allow_complete=False):
@@ -99,7 +105,10 @@ class RemoteJobs:
         job = json.loads(path.read_text()) if path.exists() else {}
         if allow_complete and job.get('state') == 'complete' and job.get('claim') == claim:
             return job
-        if job.get('state') != 'running' or job.get('claim') != claim or job.get('lease_until', 0) <= time.time():
+        now = time.time()
+        if (job.get('state') != 'running' or job.get('claim') != claim
+                or job.get('lease_until', 0) <= now
+                or job.get('started_at', 0) + self.store.limits.job_seconds <= now):
             raise HTTPException(409, 'Worker lease expired. The result has not been published.')
         current = self.store.get(job['set_id'])
         if job['kind'] == 'process' and self.generation(current) != job['generation']:
@@ -117,7 +126,7 @@ class RemoteJobs:
     def heartbeat(self, job, stage, processing=None):
         if time.time() - job['started_at'] > self.store.limits.job_seconds:
             raise HTTPException(409, 'Worker job exceeded its deadline.')
-        job['lease_until'] = time.time() + 120
+        job['lease_until'] = min(time.time() + 120, job['started_at'] + self.store.limits.job_seconds)
         self.save(job)
         data = self.store.get(job['set_id'])
         data['stage'] = str(stage)[:180]

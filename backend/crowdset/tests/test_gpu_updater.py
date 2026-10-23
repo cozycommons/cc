@@ -45,6 +45,39 @@ def test_pending_failed_or_skipped_checks_never_deploy(change):
     assert not updater.approved(payload, SHA)
 
 
+def selective_checks():
+    names = sorted(updater.GATES | updater.SELECTIVE_JOBS)
+    return {'total_count': len(names), 'check_runs': [
+        {'id': i, 'name': name, 'status': 'completed', 'head_sha': SHA,
+         'conclusion': 'success' if name in updater.GATES else 'skipped',
+         'app': {'slug': 'github-actions'}} for i, name in enumerate(names, 1)]}
+
+
+def test_selective_ci_accepts_skips_only_with_all_successful_gates():
+    payload = selective_checks()
+    assert updater.approved(payload, SHA)
+    for gate in updater.GATES:
+        for conclusion in ('skipped', 'failure', 'cancelled', None):
+            changed = json.loads(json.dumps(payload))
+            next(c for c in changed['check_runs'] if c['name'] == gate)['conclusion'] = conclusion
+            assert not updater.approved(changed, SHA)
+        missing = {**payload, 'check_runs': [c for c in payload['check_runs'] if c['name'] != gate]}
+        assert not updater.approved(missing, SHA)
+
+
+@pytest.mark.parametrize('conclusion', ['failure', 'cancelled', None])
+def test_selective_ci_does_not_hide_failed_or_pending_jobs(conclusion):
+    payload = selective_checks()
+    next(c for c in payload['check_runs'] if c['name'] == 'trips')['conclusion'] = conclusion
+    assert not updater.approved(payload, SHA)
+
+
+def test_selective_ci_does_not_allow_an_unknown_check_to_skip():
+    payload = selective_checks()
+    payload['check_runs'].append(dict(payload['check_runs'][0], name='new-security-check', id=99, conclusion='skipped'))
+    assert not updater.approved(payload, SHA)
+
+
 def prepare(tmp_path, monkeypatch):
     for directory in ('data', 'units', 'incoming'):
         (tmp_path / directory).mkdir()
@@ -137,9 +170,10 @@ def test_new_worker_is_healthy_while_processing_queued_jobs(tmp_path, monkeypatc
     assert updater.healthy(tmp_path, seconds=0.1)
 
 
-def test_expanded_bundle_adds_new_modules_before_stopping_service(tmp_path, monkeypatch):
+@pytest.mark.parametrize('module', ['crowdset/youtube.py', 'compute/runner.py'])
+def test_expanded_bundle_adds_new_modules_before_stopping_service(tmp_path, monkeypatch, module):
     pending = prepare(tmp_path, monkeypatch)
-    modules = [name for name in updater.FILES if name.startswith('crowdset/')]
+    modules = [name for name in updater.FILES if name.startswith(module.split('/')[0] + '/')]
     for name in modules:
         (tmp_path / 'units' / name).unlink()
     monkeypatch.setattr(updater, 'wait_paused', lambda root: True)
@@ -150,7 +184,7 @@ def test_expanded_bundle_adds_new_modules_before_stopping_service(tmp_path, monk
     monkeypatch.setattr(updater, 'healthy', lambda root: True)
     updater.record(tmp_path / 'pending-update.json', pending)
     updater.deploy(tmp_path, pending)
-    assert (tmp_path / 'units/crowdset/youtube.py').read_bytes() == b'new crowdset/youtube.py'
+    assert (tmp_path / 'units' / module).read_bytes() == b'new ' + module.encode()
     assert (tmp_path / 'data/original.mp4').read_bytes() == b'original media'
 
 

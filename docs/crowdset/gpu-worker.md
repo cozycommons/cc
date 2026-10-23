@@ -60,7 +60,7 @@ After restarting with a simulated interrupted job, the service retained the unfi
 
 ## Automatic updates
 
-The user systemd timer checks public `cozycommons/cc` main about every five minutes (plus up to 30 seconds jitter). Changes must be merged/pushed to **main** and its frontend, backend, container and Ubuntu checks must all pass on that exact commit. Other GitHub Actions checks on the commit must also pass. Feature branches are never deployed. No GitHub token is needed; normal polling uses at most two API requests per interval, within the anonymous allowance when this is its only API traffic.
+The user systemd timer checks public `cozycommons/cc` main about every five minutes (plus up to 30 seconds jitter). Changes must be merged/pushed to **main**. With project-aware CI, `changes`, `frontend`, and `backend` must pass on that exact commit; the final gates verify that every selected job passed and every skipped job was deliberately excluded. Only the known conditional CI jobs may report `skipped`. Other GitHub Actions checks must pass. Older commits without project selection still require successful frontend, backend, Crowdset container and Ubuntu checks. Feature branches are never deployed. No GitHub token is needed; normal polling uses at most two API requests per interval, within the anonymous allowance when this is its only API traffic.
 
 The updater stages the two Python modules and three service/timer definitions, checks Python syntax/imports and systemd unit validity, then asks the worker to pause claims after finishing its current job. If a render is still running, the update waits for the next timer run without stopping it. The next update installs files with the spool locked, restarts the service, and verifies the new process writes a fresh healthy status. Identical worker bundles are recorded without restarting. Queue manifests, cached sources and completed videos remain in place.
 
@@ -100,3 +100,10 @@ PATH=/home/jason/.local/share/crowdset-worker/node/bin:/usr/local/bin:/usr/bin:/
 ```
 
 The systemd unit reads this optional file. After installing prerequisites and a CI-approved complete source bundle, activate remote mode on production, then restart the idle PC service. Verify a newly created test set through browser direct upload, worker claim/validation, rendering and playback. Never test by rebuilding the existing live ISOKNOCK set. Inspect `data/status.json`, per-job metadata under `data/remote/`, and the set’s job record under production `/data/remote-jobs/`. Old production caches are retained during rollout; new remote work must not create media files there. Signed URLs are capabilities and must not be printed in logs or copied into error notices.
+
+### Shared project jobs
+
+The remote worker now uses the shared compute runner. It can alternate Crowdset
+with project-declared jobs using the same execution slot. See
+[Shared project jobs](../compute.md) for declarations, configuration, capacity
+settings, and the two-cycle updater transition.
