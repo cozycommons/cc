@@ -243,61 +243,75 @@ def execute(root, control, job, ffmpeg, ffprobe, encoder):
     control.call('publish', result=result)
 
 
-def serve(root, ffmpeg, ffprobe, encoder, stop):
-    control = Control(os.environ['CROWDSET_WORKER_URL'], os.environ['CROWDSET_WORKER_TOKEN'])
-    with gpu_worker.single_worker(root):
-        while not stop.is_set():
-            status = {'pid': os.getpid(), 'updated_at': time.time()}
-            if (root / 'update-requested').exists():
-                gpu_worker.write_json(root / 'status.json', {**status, 'state': 'paused'})
-                stop.wait(1)
-                continue
-            try:
-                job = control.call('claim')
-            except Exception:
-                gpu_worker.write_json(root / 'status.json', {**status, 'state': 'offline'})
-                stop.wait(10)
-                continue
-            if not job:
-                gpu_worker.write_json(root / 'status.json', {**status, 'state': 'idle'})
-                stop.wait(5)
-                continue
-            heartbeat_stop = threading.Event()
-            control.job = job
-            def heartbeat():
-                while not heartbeat_stop.wait(15):
-                    try:
-                        directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
-                        value = snapshot(directory)
-                        control.call('heartbeat', stage=value.get('stage') or ('Downloading YouTube on the PC…' if job['kind'] == 'youtube' else 'Processing on the PC…'),
-                                     processing=value.get('processing'))
-                        gpu_worker.write_json(root / 'status.json', {'state': 'rendering', 'job': job['id'],
-                                             'pid': os.getpid(), 'updated_at': time.time()})
-                    except Exception:
-                        pass  # Publication still requires a live lease; never publish offline.
-            thread = threading.Thread(target=heartbeat, daemon=True)
-            thread.start()
-            try:
-                gpu_worker.write_json(root / 'status.json', {**status, 'state': 'rendering', 'job': job['id']})
-                execute(root, control, job, ffmpeg, ffprobe, encoder)
-                directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
-                write_json(directory / 'published.json', {'job': job['id'], 'published_at': time.time()})
-                # Cloud publication has committed; these are reconstructible worker staging files.
-                for pattern in ('pending.*', 'source.*', 'overlay-*.mp4', 'audio-source.mp4'):
-                    for staged in directory.glob(pattern):
-                        staged.unlink(missing_ok=True)
-                shutil.rmtree(directory / 'gpu', ignore_errors=True)
-                older = sorted(root.glob('remote/*/*/' + job['set_id'] + '/published.json'), key=lambda p: p.stat().st_mtime)
-                for marker in older[:-1]:
-                    shutil.rmtree(marker.parent)
-            except Exception as exc:
-                message = 'A worker transfer failed. Original recordings are retained; retry shortly.' if isinstance(exc, httpx.HTTPError) else str(exc)[:500]
-                write_json(root / 'failed' / (job['id'] + '.remote.json'), {'error': message, 'job': job['id']})
+class Source:
+    """Keep Crowdset's fenced media protocol behind the shared runner interface."""
+    def __init__(self, root, ffmpeg, ffprobe, encoder):
+        self.root, self.ffmpeg, self.ffprobe, self.encoder = root, ffmpeg, ffprobe, encoder
+        self.control = Control(os.environ['CROWDSET_WORKER_URL'], os.environ['CROWDSET_WORKER_TOKEN'])
+
+    def claim(self):
+        return self.control.call('claim')
+
+    def run(self, job):
+        root, control = self.root, self.control
+        ffmpeg, ffprobe, encoder = self.ffmpeg, self.ffprobe, self.encoder
+        status = {'pid': os.getpid(), 'updated_at': time.time()}
+        heartbeat_stop = threading.Event()
+        control.job = job
+        def heartbeat():
+            while not heartbeat_stop.wait(15):
                 try:
-                    control.call('fail', error=message)
+                    directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
+                    value = snapshot(directory)
+                    control.call('heartbeat', stage=value.get('stage') or ('Downloading YouTube on the PC…' if job['kind'] == 'youtube' else 'Processing on the PC…'),
+                                 processing=value.get('processing'))
+                    gpu_worker.write_json(root / 'status.json', {'state': 'rendering', 'job': job['id'],
+                                         'pid': os.getpid(), 'updated_at': time.time()})
                 except Exception:
-                    pass
-            finally:
-                heartbeat_stop.set()
-                thread.join(timeout=125)
-                control.job = None
+                    pass  # Publication still requires a live lease; never publish offline.
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        try:
+            gpu_worker.write_json(root / 'status.json', {**status, 'state': 'rendering', 'job': job['id']})
+            execute(root, control, job, ffmpeg, ffprobe, encoder)
+            directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
+            write_json(directory / 'published.json', {'job': job['id'], 'published_at': time.time()})
+            # Cloud publication has committed; these are reconstructible worker staging files.
+            for pattern in ('pending.*', 'source.*', 'overlay-*.mp4', 'audio-source.mp4'):
+                for staged in directory.glob(pattern):
+                    staged.unlink(missing_ok=True)
+            shutil.rmtree(directory / 'gpu', ignore_errors=True)
+            older = sorted(root.glob('remote/*/*/' + job['set_id'] + '/published.json'), key=lambda p: p.stat().st_mtime)
+            for marker in older[:-1]:
+                shutil.rmtree(marker.parent)
+        except Exception as exc:
+            message = 'A worker transfer failed. Original recordings are retained; retry shortly.' if isinstance(exc, httpx.HTTPError) else str(exc)[:500]
+            write_json(root / 'failed' / (job['id'] + '.remote.json'), {'error': message, 'job': job['id']})
+            try:
+                control.call('fail', error=message)
+            except Exception:
+                pass
+        finally:
+            heartbeat_stop.set()
+            thread.join(timeout=125)
+            control.job = None
+
+
+def serve(root, ffmpeg, ffprobe, encoder, stop):
+    try:
+        from compute.runner import serve as run_sources
+    except ModuleNotFoundError as exc:
+        if exc.name != 'compute':
+            raise
+        print('Waiting for the updater to install the shared compute runtime.', flush=True)
+        with gpu_worker.single_worker(root):
+            while not stop.is_set():
+                state = 'paused' if (root / 'update-requested').exists() else 'idle'
+                write_json(root / 'status.json', {'state': state, 'pid': os.getpid(), 'updated_at': time.time()})
+                stop.wait(1)
+        return
+    sources = [Source(root, ffmpeg, ffprobe, encoder)]
+    if os.environ.get('CC_COMPUTE_URL'):
+        from compute.worker import configured_source
+        sources.append(configured_source(root))
+    run_sources(root, sources, stop)

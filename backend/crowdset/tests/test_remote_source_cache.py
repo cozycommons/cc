@@ -60,3 +60,23 @@ def test_cache_evicts_unused_bytes_but_retains_active_stage_files(sources, monke
     assert not (cache / (clip('first')['sha256'] + '.original')).exists()
     assert sum(p.stat().st_size for p in cache.iterdir()) == 10
     assert calls == ['first', 'second', 'second']
+
+
+def test_old_updater_waits_for_shared_runtime_without_claiming(tmp_path, monkeypatch):
+    import builtins
+    import json
+    real_import = builtins.__import__
+    def missing_runtime(name, *args, **kwargs):
+        if name == 'compute.runner':
+            raise ModuleNotFoundError("No module named 'compute'", name='compute')
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', missing_runtime)
+    class Stop:
+        done = False
+        def is_set(self):
+            return self.done
+        def wait(self, _seconds):
+            assert json.loads((tmp_path / 'status.json').read_text())['state'] == 'paused'
+            self.done = True
+    (tmp_path / 'update-requested').touch()
+    remote_agent.serve(tmp_path, '/ffmpeg', '/ffprobe', 'libx264', Stop())

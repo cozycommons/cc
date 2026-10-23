@@ -10,6 +10,10 @@ ssh "$worker_host" 'mkdir -p "$HOME/.local/share/crowdset-worker/crowdset"'
 for worker_module in audio video progress limits config storage blobs r2 worker composition previews timestamps gpu_worker remote_agent youtube; do
     scp "$worker_repo/backend/crowdset/$worker_module.py" "$worker_host:.local/share/crowdset-worker/crowdset/"
 done
+ssh "$worker_host" 'mkdir -p ~/.local/share/crowdset-worker/compute'
+for worker_module in __init__ jobs queue client runner execute worker example; do
+    scp "$worker_repo/backend/compute/$worker_module.py" "$worker_host:.local/share/crowdset-worker/compute/"
+done
 for worker_unit in crowdset-gpu-worker.service crowdset-gpu-update.service crowdset-gpu-update.timer; do
     scp "$worker_repo/scripts/systemd/$worker_unit" "$worker_host:.config/systemd/user/$worker_unit"
 done

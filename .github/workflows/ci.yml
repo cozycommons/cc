@@ -6,8 +6,71 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend-tests: ${{ steps.select.outputs.frontend-tests }}
+      backend-tests: ${{ steps.select.outputs.backend-tests }}
+      trips: ${{ steps.select.outputs.trips }}
+      compute: ${{ steps.select.outputs.compute }}
+      crowdset: ${{ steps.select.outputs.crowdset }}
+      crowdset-container: ${{ steps.select.outputs.crowdset-container }}
+      frontend_files: ${{ steps.select.outputs.frontend_files }}
+      backend_files: ${{ steps.select.outputs.backend_files }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify project selection and required-check gates
+        run: python3 -m unittest discover -s scripts -p test_ci_selection.py -v
+      - id: select
+        name: Select affected project suites
+        run: python3 scripts/ci-selection.py plan
+
+  compute:
+    needs: changes
+    if: needs.changes.outputs.compute == 'true'
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-compute.txt
+      - run: pip install -r backend/requirements-compute.txt pytest==8.3.4
+      - run: python -m pytest backend/compute/tests -q
+        env:
+          PYTHONPATH: backend
+      - name: Build independent compute service
+        run: docker build --tag cc-compute-ci -f backend/compute/Dockerfile .
+      - name: Verify compute runtime and durable directory
+        run: >-
+          docker run --rm
+          --env CC_JOB_MODULES=compute.example
+          --env CC_COMPUTE_PROJECT_TOKENS='{"example":"ci-producer"}'
+          --env CC_COMPUTE_WORKER_TOKEN=ci-worker
+          cc-compute-ci python -c
+          'from compute.api import configured_app; configured_app();
+          from compute.jobs import Registry;
+          from compute.queue import Queue;
+          q = Queue("/data/jobs.sqlite3", Registry.load(["compute.example"]));
+          assert q.submit("example", "example.count_words@1", {"text": "hello"})["state"] == "queued"'
+
   trips:
+    needs: changes
+    if: needs.changes.outputs.trips == 'true'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +96,9 @@ jobs:
           TRIPS_INTEGRATION: "1"
 
   crowdset:
+    needs: changes
+    if: needs.changes.outputs.crowdset == 'true'
+    timeout-minutes: 15
     strategy:
       matrix:
         os: [ubuntu-latest]
@@ -66,6 +132,9 @@ jobs:
           PYTHONPATH: backend
 
   crowdset-container:
+    needs: changes
+    if: needs.changes.outputs.crowdset-container == 'true'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +161,10 @@ jobs:
           docker exec crowdset-ci test -w /data
           docker exec crowdset-ci python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_version())'
 
-  frontend:
+  frontend-tests:
+    needs: changes
+    if: needs.changes.outputs.frontend-tests == 'true'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -105,7 +177,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm test -- --run
+      - name: Test affected frontend projects
+        working-directory: .
+        run: python3 scripts/ci-selection.py run frontend
+        env:
+          CI_TEST_FILES: ${{ needs.changes.outputs.frontend_files }}
       - run: npm run lint
       - run: npm run build:check
         env:
@@ -168,11 +244,10 @@ jobs:
             http://127.0.0.1:8080/dice/demo-avatars/alpha.webp --output /tmp/dice-avatar.webp
           cmp public/dice/demo-avatars/alpha.webp /tmp/dice-avatar.webp
 
-  backend:
-    # main requires this existing check name. Its success must also require
-    # the real Supabase Trips integration job, rather than merely an optional job.
-    needs: trips
-    if: ${{ always() }}
+  backend-tests:
+    needs: changes
+    if: needs.changes.outputs.backend-tests == 'true'
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     env:
       DB_URL: postgresql://postgres:postgres@localhost:5432/dummi_test
@@ -189,8 +264,6 @@ jobs:
           --health-cmd "pg_isready -U postgres -d dummi_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - name: Require successful Trips integration
-        run: test '${{ needs.trips.result }}' = success
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -214,9 +287,11 @@ jobs:
           echo 'API_URL=http://127.0.0.1:55431' >> "$GITHUB_ENV"
           echo 'DICE_TEST_REST_URL=http://127.0.0.1:55431' >> "$GITHUB_ENV"
           backend/.venv/bin/python -c "import jwt; print('SECRET_KEY='+jwt.encode({'role':'service_role'},'local-dice-test-jwt-secret-at-least-32-characters',algorithm='HS256'))" >> "$GITHUB_ENV"
-      - run: backend/.venv/bin/python -m pytest backend/tests -q
+      - name: Test affected backend projects
+        run: python3 scripts/ci-selection.py run backend
         env:
           PYTHONPATH: backend
+          CI_TEST_FILES: ${{ needs.changes.outputs.backend_files }}
       - run: scripts/check-dice-migration-contract.sh
       - run: scripts/check-commons-migration-contract.sh
       - run: scripts/test-supabase-db-url.sh
@@ -290,3 +365,27 @@ jobs:
           test -x /app/apply-shared-migrations.sh &&
           test -f /app/trips/migrations/0002_trips_release_readiness.sql &&
           command -v psql'
+
+  frontend:
+    needs: [changes, frontend-tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require selected frontend checks
+        run: python3 scripts/ci-selection.py gate frontend
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+
+  backend:
+    needs: [changes, backend-tests, trips, crowdset, crowdset-container, compute]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require selected backend and Crowdset checks
+        run: python3 scripts/ci-selection.py gate backend
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}

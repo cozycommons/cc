@@ -15,6 +15,9 @@ from urllib.error import HTTPError
 
 REPOSITORY = 'cozycommons/cc'
 REQUIRED = {'frontend', 'backend', 'crowdset-container', 'crowdset (ubuntu-latest)'}
+GATES = {'changes', 'frontend', 'backend'}
+SELECTIVE_JOBS = {'compute', 'frontend-tests', 'backend-tests', 'trips', 'crowdset',
+                  'crowdset (ubuntu-latest)', 'crowdset-container'}
 FILES = {
     'gpu_worker.py': 'backend/crowdset/gpu_worker.py',
     'crowdset-gpu-worker.service': 'scripts/systemd/crowdset-gpu-worker.service',
@@ -26,6 +29,9 @@ FILES = {
 for module in ('audio', 'video', 'progress', 'limits', 'config', 'storage', 'blobs', 'r2',
                'worker', 'composition', 'previews', 'timestamps', 'gpu_worker', 'remote_agent', 'youtube'):
     FILES['crowdset/' + module + '.py'] = 'backend/crowdset/' + module + '.py'
+
+for module in ('__init__', 'jobs', 'queue', 'client', 'runner', 'execute', 'worker', 'example'):
+    FILES['compute/' + module + '.py'] = 'backend/compute/' + module + '.py'
 
 SERVICE = 'crowdset-gpu-worker.service'
 
@@ -62,6 +68,14 @@ def approved(payload, sha):
             continue
         if check['id'] > latest.get(check['name'], {}).get('id', -1):
             latest[check['name']] = check
+    if 'changes' in latest:
+        # Successful final gates attest that every skip was selected intentionally.
+        return GATES <= latest.keys() and all(
+            c['status'] == 'completed' and (
+                c['conclusion'] == 'success'
+                or (name in SELECTIVE_JOBS and c['conclusion'] == 'skipped')
+            ) for name, c in latest.items()
+        )
     return REQUIRED <= latest.keys() and all(c['status'] == 'completed' and c['conclusion'] == 'success' for c in latest.values())
 
 
@@ -149,7 +163,7 @@ def deploy(root, pending):
     for name in FILES:
         path = destination(root, name)
         if not path.exists():
-            if not name.startswith('crowdset/'):
+            if not name.startswith(('crowdset/', 'compute/')):
                 raise RuntimeError('Worker installation is incomplete; service has not been stopped')
             atomic(path, (root / 'incoming' / name).read_bytes())
     pause = root / 'data/update-requested'
