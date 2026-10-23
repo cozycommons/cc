@@ -131,6 +131,8 @@ class DiffTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.git("init", "-q", "-b", "main")
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         self.git("config", "user.email", "ci@example.invalid")
         self.git("config", "user.name", "CI test")
         self.write("README.md")

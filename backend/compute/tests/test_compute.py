@@ -257,3 +257,11 @@ def test_process_supervisor_kills_descendants(tmp_path):
     before = ticks.read_bytes()
     time.sleep(.2)
     assert before and ticks.read_bytes() == before
+
+
+def test_status_writes_do_not_share_temporary_files(tmp_path):
+    from compute.runner import write_status
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda n: write_status(tmp_path, 'rendering', str(n)), range(100)))
+    assert json.loads((tmp_path / 'status.json').read_text())['state'] == 'rendering'
+    assert list(tmp_path.iterdir()) == [tmp_path / 'status.json']

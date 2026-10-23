@@ -258,18 +258,17 @@ class Source:
         control = Control(self.control.url, self.control.token, job)
         control.transport = self.control.transport
         ffmpeg, ffprobe, encoder = self.ffmpeg, self.ffprobe, self.encoder
-        status = {'pid': os.getpid(), 'updated_at': time.time()}
         from compute.process import run as run_process
+        from compute.runner import write_status
         from .compute_jobs import resources
         directory = root / 'remote' / job['id'] / job['claim'] / job['set_id']
         def heartbeat():
             value = snapshot(directory)
-            gpu_worker.write_json(root / 'status.json', {'state': 'rendering', 'job': job['id'],
-                                 'pid': os.getpid(), 'updated_at': time.time()})
+            write_status(root, 'rendering', job['id'])
             control.call('heartbeat', stage=value.get('stage') or 'Processing on the PC…',
                          processing=value.get('processing'))
         try:
-            gpu_worker.write_json(root / 'status.json', {**status, 'state': 'rendering', 'job': job['id']})
+            write_status(root, 'rendering', job['id'])
             if not resources(job['kind'], encoder).fits(self.capacity):
                 raise ValueError('Crowdset job exceeds worker capacity')
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)

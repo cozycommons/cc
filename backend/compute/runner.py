@@ -4,13 +4,17 @@ import json
 import os
 from pathlib import Path
 import time
+from uuid import uuid4
 
 
 def write_status(root, state, job=None):
     value = {'state': state, 'pid': os.getpid(), 'updated_at': time.time(), 'job': job}
-    temporary = root / 'status.new'
-    temporary.write_text(json.dumps(value))
-    temporary.replace(root / 'status.json')
+    temporary = root / ('.status-' + uuid4().hex)
+    try:
+        temporary.write_text(json.dumps(value))
+        temporary.replace(root / 'status.json')
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def serve(root, sources, stop):
