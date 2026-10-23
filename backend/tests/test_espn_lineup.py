@@ -336,8 +336,67 @@ def test_slot_overflow_conflict_lowest_value_sits():
     assert conflict["detail"]["scheduled_count"] == 11
     assert conflict["detail"]["starting_slots"] == 10
     assert conflict["detail"]["value"] == 6
+    # the comparison behind the choice is recorded: the weakest
+    # scheduled player who kept a starting slot projected 18
+    assert conflict["detail"]["value_source"] == "day_projection"
+    assert conflict["detail"]["lowest_starter_value"] == 18
+    assert conflict["detail"]["lowest_starter_player_id"] == 10
+    assert conflict["detail"]["lowest_starter_value_source"] == (
+        "day_projection"
+    )
     # the best legal lineup is still submitted; the sitter goes to BE
     assert len(client.posts) == 1
+    assert run["plan"]["sitting_player_ids"] == [13]
+    assert _plan_players(run)[13]["to_slot"] == BE
+
+
+def _recent7_player(pid, team, eligible, ppg, status="ACTIVE"):
+    """A player with no day projection: value comes from last-7-days
+    form (statSplitTypeId 2, a 7-day total)."""
+    player = _player(pid, team, eligible, None, status=status)
+    player["stats"] = [
+        {
+            "statSourceId": 0,
+            "statSplitTypeId": 2,
+            "appliedTotal": float(ppg) * 7.0,
+        }
+    ]
+    return player
+
+
+def test_slot_overflow_sitter_ranked_by_recent7_ppg_without_projection():
+    # Warner's ranking preference (2026-10-23): with no real day
+    # projection published, the sitter is chosen by recent/season
+    # fantasy PPG — here recent-7 form.
+    entries = [
+        _entry(1, BE, _recent7_player(1, 1, [PG, G, UTIL, BE], 30)),
+        _entry(2, BE, _recent7_player(2, 1, [SG, G, UTIL, BE], 28)),
+        _entry(3, BE, _recent7_player(3, 2, [SF, F, UTIL, BE], 27)),
+        _entry(4, UTIL, _recent7_player(4, 2, [PF, F, UTIL, BE], 26)),
+        _entry(5, C, _recent7_player(5, 3, [C, UTIL, BE], 35)),
+        _entry(6, PG, _recent7_player(6, 2, [PG, SG, G, UTIL, BE], 24)),
+        _entry(7, F, _recent7_player(7, 3, [SF, PF, F, UTIL, BE], 23)),
+        _entry(8, UTIL, _recent7_player(8, 4, [UTIL, BE], 20)),
+        _entry(9, UTIL, _recent7_player(9, 4, [C, UTIL, BE], 19)),
+        _entry(10, SG, _recent7_player(10, 2, [SG, UTIL, BE], 18)),
+        # 11th scheduled player — the lowest recent-7 PPG sits
+        _entry(13, PF, _recent7_player(13, 3, [PF, F, UTIL, BE], 6)),
+        _entry(11, G, _player(11, 9, [PG, G, UTIL, BE])),
+        _entry(12, SF, _player(12, 9, [SF, F, UTIL, BE])),
+        _entry(14, IR, _player(14, 1, [C, UTIL, BE, IR], None, status="OUT")),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "conflict"
+    (conflict,) = run["conflicts"]
+    assert conflict["kind"] == "slot_overflow"
+    assert conflict["player_id"] == 13
+    assert conflict["detail"]["value"] == 6
+    assert conflict["detail"]["value_source"] == "recent7"
+    assert conflict["detail"]["lowest_starter_value"] == 18
+    assert conflict["detail"]["lowest_starter_value_source"] == "recent7"
     assert run["plan"]["sitting_player_ids"] == [13]
     assert _plan_players(run)[13]["to_slot"] == BE
 
@@ -366,10 +425,50 @@ def test_eligibility_jam_conflict():
     (conflict,) = run["conflicts"]
     assert conflict["kind"] == "eligibility_jam"
     assert conflict["player_id"] == 22
+    # the lower-value C-only player (25) lost the contested C slot to
+    # the higher-value one (30); the detail records that he actually
+    # out-valued the weakest starter kept elsewhere (20) — he sat on
+    # eligibility, not value
+    assert conflict["detail"]["value"] == 25
+    assert conflict["detail"]["lowest_starter_value"] == 20
+    assert conflict["detail"]["lowest_starter_player_id"] == 30
     plan = _plan_players(run)
     assert plan[21]["to_slot"] == C
     assert plan[22]["to_slot"] == BE
     assert len(client.posts) == 1
+
+
+def test_eligibility_jam_higher_value_wins_the_contested_slot():
+    # Same jam shape, values swapped: the C-only player on the bench
+    # (30) takes C from the lower-value incumbent (25), who sits.
+    entries = [
+        _entry(21, BE, _player(21, 1, [C, BE], 25)),   # C-only
+        _entry(22, C, _player(22, 2, [C, BE], 30)),    # C-only: wins
+        _entry(23, PG, _player(23, 1, [PG, G, UTIL, BE], 28)),
+        _entry(24, SG, _player(24, 2, [SG, G, UTIL, BE], 27)),
+        _entry(25, SF, _player(25, 3, [SF, F, UTIL, BE], 26)),
+        _entry(26, PF, _player(26, 3, [PF, F, UTIL, BE], 24)),
+        _entry(27, G, _player(27, 4, [PG, SG, G, UTIL, BE], 23)),
+        _entry(28, F, _player(28, 4, [SF, PF, F, UTIL, BE], 22)),
+        _entry(29, UTIL, _player(29, 1, [UTIL, BE], 21)),
+        _entry(30, UTIL, _player(30, 2, [UTIL, BE], 20)),
+        _entry(31, UTIL, _player(31, 9, [UTIL, BE])),
+        _entry(32, BE, _player(32, 9, [PG, UTIL, BE])),
+        _entry(33, IR, _player(33, 9, [UTIL, BE, IR])),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "conflict"
+    (conflict,) = run["conflicts"]
+    assert conflict["kind"] == "eligibility_jam"
+    assert conflict["player_id"] == 21
+    assert conflict["detail"]["value"] == 25
+    plan = _plan_players(run)
+    assert plan[22]["to_slot"] == C
+    assert plan[21]["to_slot"] == BE
+    assert run["plan"]["sitting_player_ids"] == [21]
 
 
 def test_out_player_benched_no_conflict_and_gtd_counts():
@@ -442,6 +541,52 @@ def test_healthy_displaced_starter_goes_to_bench_never_ir():
     moves = {m["playerId"]: m for m in run["moves"]}
     assert moves[1]["toLineupSlotId"] == BE
     assert moves[2]["toLineupSlotId"] == PG
+    # the displaced starter is UNSCHEDULED and the only scheduled
+    # player starts: no conflict, non-conflict status — the old
+    # planner emitted a spurious "no legal bench/IR slot"
+    # eligibility_jam for exactly this shape (Warner, 2026-10-23)
+    assert run["conflicts"] == []
+    assert run["status"] == "ok"
+    assert run["plan"]["sitting_player_ids"] == []
+
+
+def test_unscheduled_starter_swapped_to_bench_is_not_a_conflict():
+    # 2026-10-23 live shape: a scheduled bench player (Boozer-like,
+    # pid 2) swaps into SF with an unscheduled starter (Mobley-like,
+    # pid 1) while the bench is full of other unscheduled players.
+    # Every scheduled player starts and the swap applies cleanly on
+    # ESPN (Mobley went 3 -> 12 live), so: zero conflicts, ok status.
+    entries = [
+        _entry(1, SF, _player(1, 9, [SF, F, UTIL, BE])),
+        _entry(2, BE, _player(2, 1, [SF, F, UTIL, BE], 20)),
+        _entry(3, PG, _player(3, 9, [PG, G, UTIL, BE])),
+        _entry(4, SG, _player(4, 9, [SG, G, UTIL, BE])),
+        _entry(5, PF, _player(5, 9, [PF, F, UTIL, BE])),
+        _entry(6, C, _player(6, 9, [C, UTIL, BE])),
+        _entry(7, G, _player(7, 9, [PG, SG, G, UTIL, BE])),
+        _entry(8, F, _player(8, 9, [SF, PF, F, UTIL, BE])),
+        _entry(9, UTIL, _player(9, 9, [UTIL, BE])),
+        _entry(10, UTIL, _player(10, 9, [UTIL, BE])),
+        _entry(11, UTIL, _player(11, 9, [UTIL, BE])),
+        _entry(12, BE, _player(12, 9, [UTIL, BE])),
+        _entry(13, BE, _player(13, 9, [UTIL, BE])),
+        _entry(14, BE, _player(14, 9, [UTIL, BE])),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    assert run["plan"]["sitting_player_ids"] == []
+    plan = _plan_players(run)
+    assert plan[2]["scheduled"] is True
+    assert plan[2]["to_slot"] == SF
+    assert plan[1]["scheduled"] is False
+    assert plan[1]["to_slot"] == BE
+    moves = {m["playerId"]: m for m in run["moves"]}
+    assert moves[2]["toLineupSlotId"] == SF
+    assert moves[1]["toLineupSlotId"] == BE
 
 
 def test_ir_activation_and_out_player_parked():
@@ -506,6 +651,310 @@ def test_scheduled_player_stuck_on_ir_is_a_conflict():
     plan = _plan_players(run)
     assert plan[91]["scheduled"] is True
     assert plan[91]["to_slot"] == IR  # left parked; ESPN never moved him
+
+
+# --- permutation matrix (Warner, 2026-10-23) -------------------------------------
+#
+# Every test below pins one lineup-setting permutation with explicit
+# expected plan / status / conflicts, per Warner's policy: all
+# scheduled players start if legally possible; on overflow or a jam
+# the higher fantasy-PPG player starts and the lower sits, with a
+# conflict raised ONLY for a scheduled player who actually sits.
+
+ALL_SLOTS = [PG, SG, SF, PF, C, G, F, UTIL, BE]
+
+
+def test_matrix_all_scheduled_already_starting_noop():
+    # Permutation 1: every scheduled player is already in the exact
+    # slot the planner would give him -> no moves, noop, no conflicts.
+    entries = [
+        _entry(1, PG, _player(1, 1, [PG, BE], 30)),
+        _entry(2, SG, _player(2, 1, [SG, BE], 29)),
+        _entry(3, SF, _player(3, 2, [SF, BE], 28)),
+        _entry(4, PF, _player(4, 2, [PF, BE], 27)),
+        _entry(5, C, _player(5, 3, [C, BE], 26)),
+        _entry(6, G, _player(6, 3, [G, BE], 25)),
+        _entry(7, F, _player(7, 4, [F, BE], 24)),
+        _entry(8, UTIL, _player(8, 4, [UTIL, BE], 23)),
+        _entry(9, UTIL, _player(9, 1, [UTIL, BE], 22)),
+        _entry(10, UTIL, _player(10, 2, [UTIL, BE], 21)),
+        _entry(11, BE, _player(11, 9, [UTIL, BE])),
+        _entry(12, BE, _player(12, 9, [UTIL, BE])),
+        _entry(13, BE, _player(13, 9, [UTIL, BE])),
+        _entry(14, IR, _player(14, 9, [UTIL, BE, IR], None, status="OUT")),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "noop"
+    assert run["moves"] == []
+    assert run["conflicts"] == []
+    assert client.posts == []
+    plan = _plan_players(run)
+    for p in plan.values():
+        assert p["to_slot"] == p["from_slot"]
+
+
+def test_matrix_scheduled_on_bench_swapped_in_no_conflict():
+    # Permutation 2: scheduled players on the bench swap in over
+    # unscheduled players occupying starting slots; the displaced
+    # unscheduled players go to the bench. No conflicts.
+    entries = [
+        _entry(1, PG, _player(1, 1, [PG, G, UTIL, BE], 30)),
+        _entry(2, SG, _player(2, 1, [SG, G, UTIL, BE], 29)),
+        _entry(3, SF, _player(3, 2, [SF, F, UTIL, BE], 28)),
+        _entry(4, PF, _player(4, 2, [PF, F, UTIL, BE], 27)),
+        _entry(5, C, _player(5, 3, [C, UTIL, BE], 26)),
+        _entry(6, G, _player(6, 3, [PG, SG, G, UTIL, BE], 25)),
+        _entry(7, F, _player(7, 4, [SF, PF, F, UTIL, BE], 24)),
+        # unscheduled players squatting in the UTIL slots
+        _entry(8, UTIL, _player(8, 9, [UTIL, BE])),
+        _entry(9, UTIL, _player(9, 9, [UTIL, BE])),
+        _entry(10, UTIL, _player(10, 9, [UTIL, BE])),
+        # scheduled players stuck on the bench
+        _entry(11, BE, _player(11, 1, [UTIL, BE], 20)),
+        _entry(12, BE, _player(12, 2, [UTIL, BE], 19)),
+        _entry(13, BE, _player(13, 3, [UTIL, BE], 18)),
+        _entry(14, IR, _player(14, 9, [UTIL, BE, IR], None, status="OUT")),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    assert run["plan"]["sitting_player_ids"] == []
+    plan = _plan_players(run)
+    for pid in (11, 12, 13):
+        assert plan[pid]["scheduled"] is True
+        assert plan[pid]["to_slot"] == UTIL
+    for pid in (8, 9, 10):
+        assert plan[pid]["scheduled"] is False
+        assert plan[pid]["to_slot"] == BE
+
+
+def test_matrix_fewer_scheduled_than_slots_all_start():
+    # Permutation 3: only 4 scheduled players for 10 slots. All four
+    # start; unscheduled players keep the leftover starting slots
+    # they can legally keep, the rest bench. No conflicts.
+    entries = [
+        _entry(1, BE, _player(1, 1, [PG, G, UTIL, BE], 30)),
+        _entry(2, UTIL, _player(2, 2, [C, UTIL, BE], 28)),
+        _entry(3, SG, _player(3, 3, [SG, G, UTIL, BE], 27)),
+        _entry(4, BE, _player(4, 4, [SF, F, UTIL, BE], 26)),
+        _entry(5, PG, _player(5, 9, [PG, G, UTIL, BE])),
+        _entry(6, SF, _player(6, 9, [SF, F, UTIL, BE])),
+        _entry(7, PF, _player(7, 9, [PF, F, UTIL, BE])),
+        _entry(8, G, _player(8, 9, [PG, SG, G, UTIL, BE])),
+        _entry(9, F, _player(9, 9, [SF, PF, F, UTIL, BE])),
+        _entry(10, UTIL, _player(10, 9, [UTIL, BE])),
+        _entry(11, C, _player(11, 9, [C, UTIL, BE])),
+        _entry(12, BE, _player(12, 9, [UTIL, BE])),
+        _entry(13, BE, _player(13, 9, [UTIL, BE])),
+        _entry(14, IR, _player(14, 9, [UTIL, BE, IR], None, status="OUT")),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    assert run["plan"]["sitting_player_ids"] == []
+    plan = _plan_players(run)
+    for pid in (1, 2, 3, 4):
+        assert plan[pid]["scheduled"] is True
+        assert plan[pid]["to_slot"] in STARTING
+    # leftover slots keep their unscheduled occupants where legal
+    for pid in (7, 8, 9, 10):
+        assert plan[pid]["to_slot"] in STARTING
+
+
+def test_matrix_full_slate_overflow_multiple_sitters_lowest_first():
+    # Permutations 4 + 15: a full slate — 13 scheduled for 10 slots.
+    # Exactly the three lowest-PPG scheduled players sit, conflicts
+    # name them lowest-PPG first, and sitting_player_ids matches the
+    # conflict order. Healthy sitters go to the bench, never IR (11).
+    entries = []
+    start_slots = [PG, SG, SF, PF, C, G, F, UTIL, UTIL, UTIL]
+    for pid in range(1, 14):
+        slot = start_slots[pid - 1] if pid <= 10 else BE
+        entries.append(
+            _entry(pid, slot, _player(pid, (pid % 4) + 1, ALL_SLOTS, 40 - pid))
+        )
+    entries.append(
+        _entry(14, IR, _player(14, 1, [C, UTIL, BE, IR], None, status="OUT"))
+    )
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "conflict"
+    # values run 39 (pid 1) down to 27 (pid 13): lowest three sit,
+    # reported lowest first
+    assert run["plan"]["sitting_player_ids"] == [13, 12, 11]
+    assert [c["player_id"] for c in run["conflicts"]] == [13, 12, 11]
+    assert {c["kind"] for c in run["conflicts"]} == {"slot_overflow"}
+    assert [c["detail"]["value"] for c in run["conflicts"]] == [27, 28, 29]
+    for c in run["conflicts"]:
+        assert c["detail"]["lowest_starter_value"] == 30
+    plan = _plan_players(run)
+    for pid in range(1, 11):
+        assert plan[pid]["to_slot"] in STARTING
+    for pid in (11, 12, 13):
+        assert plan[pid]["to_slot"] == BE
+    # no healthy player is ever planned to IR
+    assert all(
+        p["to_slot"] != IR for p in plan.values() if not p["out"]
+    )
+    assert plan[14]["to_slot"] == IR
+
+
+def _dual_source_player(pid, team, day, recent_ppg):
+    """Both a day projection AND recent-7 form, set up so the two
+    sources disagree about who should sit."""
+    player = _player(pid, team, ALL_SLOTS, None)
+    player["stats"] = [
+        {
+            "statSourceId": 1,
+            "statSplitTypeId": 5,
+            "scoringPeriodId": PERIOD,
+            "appliedTotal": float(day),
+        },
+        {
+            "statSourceId": 0,
+            "statSplitTypeId": 2,
+            "appliedTotal": float(recent_ppg) * 7.0,
+        },
+    ]
+    return player
+
+
+def test_matrix_day_projection_beats_recent7_for_sitter():
+    # Permutation 6: ranking precedence. Player 10 has the LOWEST day
+    # projection (5) but elite recent form (50/game); player 11 has a
+    # better projection (10) but terrible form (1/game). The real
+    # projection decides: player 10 sits, player 11 starts.
+    entries = [
+        _entry(pid, BE, _dual_source_player(pid, (pid % 4) + 1, 19 + pid, 30))
+        for pid in range(1, 10)
+    ]
+    entries.append(_entry(10, UTIL, _dual_source_player(10, 1, 5, 50)))
+    entries.append(_entry(11, BE, _dual_source_player(11, 2, 10, 1)))
+    entries.append(_entry(12, BE, _player(12, 9, [UTIL, BE])))
+    entries.append(_entry(13, BE, _player(13, 9, [UTIL, BE])))
+    entries.append(
+        _entry(14, IR, _player(14, 9, [UTIL, BE, IR], None, status="OUT"))
+    )
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "conflict"
+    (conflict,) = run["conflicts"]
+    assert conflict["player_id"] == 10
+    assert conflict["detail"]["value"] == 5
+    assert conflict["detail"]["value_source"] == "day_projection"
+    assert run["plan"]["sitting_player_ids"] == [10]
+    assert _plan_players(run)[11]["to_slot"] in STARTING
+
+
+def test_matrix_ppg_tie_breaks_by_lower_player_id():
+    # Permutation 7: an exact PPG tie for the last starting slot is
+    # deterministic — the planner processes (-value, player_id), so
+    # the lower player id gets the slot and the higher id sits.
+    entries = [
+        _entry(pid, BE, _player(pid, (pid % 4) + 1, ALL_SLOTS, 31 - pid))
+        for pid in range(1, 10)
+    ]
+    entries.append(_entry(10, UTIL, _player(10, 1, ALL_SLOTS, 10)))
+    entries.append(_entry(11, BE, _player(11, 2, ALL_SLOTS, 10)))  # tied
+    entries.append(_entry(12, BE, _player(12, 9, [UTIL, BE])))
+    entries.append(_entry(13, BE, _player(13, 9, [UTIL, BE])))
+    entries.append(
+        _entry(14, IR, _player(14, 9, [UTIL, BE, IR], None, status="OUT"))
+    )
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "conflict"
+    (conflict,) = run["conflicts"]
+    assert conflict["player_id"] == 11
+    assert conflict["detail"]["value"] == 10
+    assert run["plan"]["sitting_player_ids"] == [11]
+    assert _plan_players(run)[10]["to_slot"] in STARTING
+
+
+def test_matrix_zero_scheduled_players_no_conflict():
+    # Permutation 12: nobody on the roster has a game (the slate is
+    # two teams nobody rosters). No scheduled player can sit, so no
+    # conflicts and no moves — the lineup is left exactly as-is.
+    payload = _payload(
+        _full_coverage_payload()["teams"][0]["roster"]["entries"],
+        {PERIOD: _games(20, 21)},
+    )
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "noop"
+    assert run["moves"] == []
+    assert run["conflicts"] == []
+    assert run["plan"]["scheduled_player_ids"] == []
+    assert run["plan"]["sitting_player_ids"] == []
+    assert client.posts == []
+
+
+def test_matrix_bench_full_and_ir_occupied_displaced_starter_benches():
+    # Permutations 13 + 14: bench full AND IR occupied by an OUT
+    # player. The one scheduled player swaps into SF; the displaced
+    # unscheduled starter still lands on the bench (the old planner
+    # emitted the spurious no_legal_slot conflict for this shape).
+    entries = [
+        _entry(1, SF, _player(1, 9, [SF, F, UTIL, BE])),
+        _entry(2, BE, _player(2, 1, [SF, F, UTIL, BE], 20)),
+        _entry(3, PG, _player(3, 9, [PG, G, UTIL, BE])),
+        _entry(4, SG, _player(4, 9, [SG, G, UTIL, BE])),
+        _entry(5, PF, _player(5, 9, [PF, F, UTIL, BE])),
+        _entry(6, C, _player(6, 9, [C, UTIL, BE])),
+        _entry(7, G, _player(7, 9, [PG, SG, G, UTIL, BE])),
+        _entry(8, F, _player(8, 9, [SF, PF, F, UTIL, BE])),
+        _entry(9, UTIL, _player(9, 9, [UTIL, BE])),
+        _entry(10, UTIL, _player(10, 9, [UTIL, BE])),
+        _entry(11, UTIL, _player(11, 9, [UTIL, BE])),
+        _entry(12, BE, _player(12, 9, [UTIL, BE])),
+        _entry(13, BE, _player(13, 9, [UTIL, BE])),
+        _entry(14, BE, _player(14, 9, [UTIL, BE])),
+        _entry(15, IR, _player(15, 9, [UTIL, BE, IR], None, status="OUT")),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    assert run["plan"]["sitting_player_ids"] == []
+    plan = _plan_players(run)
+    assert plan[2]["to_slot"] == SF
+    assert plan[1]["to_slot"] == BE
+    assert plan[15]["to_slot"] == IR
+    # the healthy displaced starter did NOT go to the occupied IR
+    assert all(
+        p["to_slot"] != IR for p in plan.values() if not p["out"]
+    )
+
+
+def test_player_value_season_fallback():
+    # Permutation 6 (cont.): with neither a day projection nor
+    # recent-7 form, value falls back to season fantasy PPG (the
+    # season total divided by the periods played so far).
+    items = [{"stat_id": 0, "points": 1.0}]
+    player = {
+        "stats": [
+            {"statSourceId": 0, "statSplitTypeId": 1, "appliedTotal": 100.0}
+        ]
+    }
+    assert lineup.player_value(player, items, PERIOD) == (20.0, "season")
 
 
 # --- failures ---------------------------------------------------------------------
