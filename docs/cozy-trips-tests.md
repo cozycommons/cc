@@ -146,6 +146,34 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Compact UI follow-up
+
+Branch `fix/trips-compact-ui` follows the delivered core release. The user asked
+for less decorative copy and a compact Dice-like interface using the same
+palette, cleanup of synthetic data, broader real Splitwise content, and clearer
+agent use plus easier Venmo request composition.
+
+- Compact trip rows, smaller title/summary, direct section names, readable
+  owes/is-owed balances and reduced phone duplication are implemented.
+- All 459 frontend tests pass, including the 35 existing Trips checks; lint has zero errors and its one
+  existing CommonsScene warning; the production build and bundle budget pass.
+- Native browser checks passed on desktop and 390x844: the expense ledger is
+  visible much sooner, labeled expense fields remain available, cancel preserves
+  the source copy, and page/dialog widths are 375/375 and 320/320 respectively.
+  Screenshots are outside Git in `artifacts/cozy-trips/compact-trip-desktop.png`
+  and `compact-trip-phone.png`.
+- Two known local synthetic ledgers were removed with a private recoverable
+  backup. The 14-expense source copy is byte-for-byte unchanged. Hosted synthetic
+  cleanup and this UI's deployment have not yet been performed.
+- The connected Splitwise account's dashboard/All expenses screen shows only
+  the existing group and its 14 entries. Another account/source and the desired
+  import scope need clarification before broader import.
+- Venmo profile sharing/request composition is awaiting the user's workflow
+  choice before schema work. Plain-language agent behavior is documented in
+  `cozy-trips.md`; this UI uses the existing account/form/API contract.
+
+### Delivered core release
+
 Later core workflow recorded from the user: any member or their personal agent
 can start a draft purchase with notes, rough calculations, and item/person
 context; enrich it collaboratively; and join receipt items to it later. Drafts
