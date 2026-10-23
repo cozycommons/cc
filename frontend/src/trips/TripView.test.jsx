@@ -46,7 +46,7 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   const dialog = screen.getByRole('dialog', { name: 'Pay with Venmo' });
   expect(dialog).toHaveTextContent('@andsohn');
   expect(dialog).toHaveTextContent('$198.18');
-  expect(dialog).toHaveTextContent('not by Andrew. Check the profile in Venmo');
+  expect(dialog).toHaveTextContent('not by Andrew. Check the name in Venmo.');
   const link = within(dialog).getByRole('link', { name: /Open Venmo to pay/ });
   const url = new URL(link.getAttribute('href'));
   expect([url.pathname, url.searchParams.get('txn'), url.searchParams.get('amount'), url.searchParams.get('note')])

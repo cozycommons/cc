@@ -21,7 +21,7 @@ export function AddPeopleForm({ onSave, onCancel }) {
 
 export function InviteLinks({ links, onClose }) {
   return <div className="trips-invites">
-    <p className="trips-muted">Each link lets one person claim their place, once.</p>
+    <p className="trips-muted">One link per person. Each works once.</p>
     <ul>{links.map(({ name, link }) => <li key={link}>
       <strong>{name}</strong><input readOnly aria-label={`Invite link for ${name}`} value={link} onFocus={(e) => e.target.select()} />
       <span>{navigator.share && <Button variant="ghost" onClick={() => navigator.share({ title: 'Join my trip', url: link }).catch(() => {})}><Share2 size={14} aria-hidden="true" />Share</Button>}<CopyButton value={link} label={`invite link for ${name}`} /></span>
@@ -52,7 +52,7 @@ export function PeoplePanel({ group, user, onAdd, onInvite, onEditVenmo, onEditP
         <div>
           <strong>{memberName(m)}{you && <span className="trips-you">you</span>}</strong>
           <small>{m.user_id === group.owner_id ? 'Created the trip' : m.user_id ? 'Joined' : 'Hasn’t joined'}
-            {m.venmo_username ? <> · <span className="trips-handle">@{m.venmo_username}</span></> : ' · no Venmo'}</small>
+            {m.venmo_username && <> · <span className="trips-handle">@{m.venmo_username}</span></>}</small>
         </div>
         <span className={`trips-person-balance ${balance < 0 ? 'trips-owe' : balance > 0 ? 'trips-positive' : ''}`}>{balance ? `${balance < 0 ? 'owes' : 'gets'} ${money(Math.abs(balance), group.currency)}` : 'settled'}</span>
         <span className="trips-person-actions">
@@ -62,6 +62,6 @@ export function PeoplePanel({ group, user, onAdd, onInvite, onEditVenmo, onEditP
         </span>
       </li>;
     })}</ul>
-    <p className="trips-muted trips-small">Everyone on the trip can add and edit expenses.</p>
+    <p className="trips-muted trips-small">Anyone on the trip can add and edit expenses.</p>
   </>;
 }

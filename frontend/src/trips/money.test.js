@@ -13,8 +13,10 @@ describe('trip money input', () => {
     expect(toMinor('1,250.50')).toBe(125050);
     expect(toMinor('.75')).toBe(75);
     expect(toMinor(' 9 ')).toBe(900);
+    expect(toMinor('45,50')).toBe(4550);
+    expect(toMinor('45,5')).toBe(4550);
   });
-  it.each(['-1', '1.001', '1e3', 'NaN', '', '0', '10000000.01', '.', '1,25', '1.2.3', '$'])('rejects invalid money %s', (value) => {
+  it.each(['-1', '1.001', '1e3', 'NaN', '', '0', '10000000.01', '.', '1,2345', '1.2.3', '$'])('rejects invalid money %s', (value) => {
     expect(() => toMinor(value)).toThrow();
   });
   it('allocates every penny once, including amounts smaller than group size', () => {

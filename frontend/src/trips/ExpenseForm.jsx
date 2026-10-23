@@ -14,22 +14,33 @@ export const categories = [
 export const categoryOf = (key) => categories.find((category) => category.key === key) || categories[4];
 
 const modes = [['equal', 'Equally'], ['shares', 'By shares'], ['exact', 'Exact amounts']];
+const lastKey = (groupId) => `cozy-trips-last:${groupId}`;
+function readLast(groupId) {
+  try { return JSON.parse(localStorage.getItem(lastKey(groupId))) || {}; } catch { return {}; }
+}
+function writeLast(groupId, value) {
+  try { localStorage.setItem(lastKey(groupId), JSON.stringify(value)); } catch { /* Private mode: nothing to remember. */ }
+}
 const parse = (value, allowZero, currency) => { try { return toMinor(value, allowZero, currency); } catch { return null; } };
 
 // `conflict` is set after a stale save: { latest } is the version now saved for this expense (null if deleted).
 export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSave, onCancel, onDelete }) {
   const me = myMember(group, user.id);
   const isMember = (id) => group.members.some((member) => member.id === id);
+  // New expenses start from this trip's last payer/people/category on this device; links and edits override it.
+  const [last] = useState(() => (expense ? {} : readLast(group.id)));
+  const remembered = last.participants?.filter(isMember);
   const [id] = useState(() => expense?.id || crypto.randomUUID());
   const [description, setDescription] = useState(expense?.description ?? initial.description ?? '');
   const [amount, setAmount] = useState(expense ? decimal(expense.amount_minor) : initial.amount ?? '');
-  const [paidBy, setPaidBy] = useState(expense?.paid_by || (isMember(initial.paid_by) && initial.paid_by) || me?.id || group.members[0].id);
+  const [paidBy, setPaidBy] = useState(expense?.paid_by || (isMember(initial.paid_by) && initial.paid_by) || (isMember(last.paid_by) && last.paid_by) || me?.id || group.members[0].id);
   const [date, setDate] = useState(expense?.date || today());
-  const [category, setCategory] = useState(expense?.category || initial.category || 'other');
+  const [category, setCategory] = useState(expense?.category || initial.category || last.category || 'other');
   const [notes, setNotes] = useState(expense?.notes || '');
   const [mode, setMode] = useState(expense?.split_mode || 'equal');
   const [participants, setParticipants] = useState(() => expense ? Object.keys(expense.shares)
-    : initial.participants?.filter(isMember).length ? initial.participants.filter(isMember) : group.members.map((m) => m.id));
+    : initial.participants?.filter(isMember).length ? initial.participants.filter(isMember)
+      : remembered?.length ? remembered : group.members.map((m) => m.id));
   const [exact, setExact] = useState(() => Object.fromEntries(group.members.map((m) => [m.id, expense?.shares[m.id] === undefined ? '' : decimal(expense.shares[m.id])])));
   const [weights, setWeights] = useState(() => Object.fromEntries(group.members.map((m) => [m.id, String(expense?.weights?.[m.id] || 1)])));
 
@@ -45,7 +56,7 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
 
   return <Form name="expense" submit={expense ? 'Save changes' : 'Save expense'} onCancel={onCancel}
     aside={expense && onDelete && <button type="button" className="trips-text-button trips-danger" onClick={onDelete}><Trash2 size={14} aria-hidden="true" />Delete</button>}
-    onSubmit={() => {
+    onSubmit={async () => {
       const amountMinor = toMinor(amount, false, group.currency);
       if (!selected.length) throw new Error('Choose at least one person to split with.');
       let shares = {};
@@ -57,15 +68,16 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
         shares = Object.fromEntries(selected.map((m) => [m.id, weightOf(m.id)]));
         if (Object.values(shares).some((value) => !value)) throw new Error('Give each selected person a whole number of shares from 1 to 1000.');
       }
-      return onSave({ id, description: description.trim(), amount_minor: amountMinor, paid_by: paidBy, date, category, notes,
+      await onSave({ id, description: description.trim(), amount_minor: amountMinor, paid_by: paidBy, date, category, notes,
         split_mode: mode, participants: selected.map((m) => m.id), shares, revision: group.revision });
+      if (!expense) writeLast(group.id, { paid_by: paidBy, participants: selected.map((m) => m.id), category });
     }}>
     {conflict && expense && <p className="trips-note" role="status">{conflict.latest
       ? `Now saved as ${conflict.latest.description} · ${money(conflict.latest.amount_minor, group.currency)} · paid by ${memberName(group.members.find((m) => m.id === conflict.latest.paid_by))}. Save to replace it with yours, or cancel to keep it.`
       : 'Someone deleted this expense. Cancel to accept that.'}</p>}
     <div className="trips-form-grid trips-form-grid--lead">
-      <Field label="Description"><input name="description" autoFocus required maxLength={80} autoComplete="off" placeholder="Dinner, gas, cabin…" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-      <Field label={`Amount (${group.currency})`}><input name="amount" className="trips-amount-input" inputMode="decimal" required autoComplete="off" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+      <Field label={`Amount (${group.currency})`}><input name="amount" className="trips-amount-input" autoFocus inputMode="decimal" enterKeyHint="next" required autoComplete="off" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+      <Field label="Description"><input name="description" required maxLength={80} enterKeyHint="next" autoComplete="off" placeholder="Dinner, gas, cabin…" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
     </div>
 
     <fieldset className="trips-chips-field"><legend>Paid by</legend><div className="trips-chips">
@@ -99,7 +111,7 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
       })}
       <p className="trips-split-note" aria-live="polite">{mode === 'exact'
         ? total === assigned ? 'Adds up.' : `${money(Math.abs(total - assigned), group.currency)} ${assigned < total ? 'left to assign' : 'over'}`
-        : selected.length ? `${selected.length} ${selected.length === 1 ? 'person' : 'people'}${mode === 'equal' ? ' · extra pennies go to the first listed' : ''}` : 'Choose who shared this.'}</p>
+        : selected.length ? `${selected.length} ${selected.length === 1 ? 'person' : 'people'}` : 'Choose who shared this.'}</p>
     </fieldset>
 
     <fieldset className="trips-chips-field"><legend>Category</legend><div className="trips-chips">

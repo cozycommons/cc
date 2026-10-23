@@ -73,6 +73,11 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     if (prefillKeys.some((key) => params.has(key))) setParams((next) => { prefillKeys.forEach((key) => next.delete(key)); return next; }, { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(null), notice.undo ? 10000 : 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const me = myMember(group, user.id);
   const setTab = (key) => setParams((next) => { next.set('tab', key); return next; }, { replace: true });
   const close = () => setModal(null);

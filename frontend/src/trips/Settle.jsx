@@ -44,7 +44,7 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onEditH
       <strong>{role === 'pay' ? `Pay ${memberName(other)}` : `Request from ${memberName(other)}`}</strong>
       {username ? <span>@{username}</span> : <span className="trips-muted">No Venmo username yet</span>}
     </div><strong className="trips-venmo-amount">{money(transfer.amount_minor, group.currency)}</strong></div>
-    {username && !other.venmo_confirmed && <p className="trips-note">{other.venmo_source === 'trip' ? 'Added by the trip creator' : 'Added for them'}, not by {firstName(other)}. Check the profile in Venmo before sending.</p>}
+    {username && !other.venmo_confirmed && <p className="trips-note">{other.venmo_source === 'trip' ? 'Added by the trip creator' : 'Added for them'}, not by {firstName(other)}. Check the name in Venmo.</p>}
     <dl className="trips-venmo-details">
       {username && <div><dt>To</dt><dd>@{username}</dd><CopyButton value={username} label="Venmo username" /></div>}
       <div><dt>Amount</dt><dd>{amount}</dd><CopyButton value={amount} label="amount" /></div>
@@ -56,7 +56,7 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onEditH
         : <p className="trips-muted">{firstName(other)} hasn’t added a Venmo username. {onEditHandles && <button type="button" className="trips-text-button trips-inline" onClick={onEditHandles}>Add it</button>}</p>}
     {usd && username && <p className="trips-muted" role="status">{opened
       ? `After ${role === 'pay' ? 'you pay' : `${firstName(other)} pays`} in Venmo, record it here.`
-      : 'Venmo opens with these details filled in where supported. You confirm there. Nothing changes here until you record it.'}</p>}
+      : 'Venmo opens with these details filled in. Confirm there, then record it here.'}</p>}
   </Form>;
 }
 
@@ -88,11 +88,11 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
     {me && <section className={`trips-hero trips-hero--${myBalance < 0 ? 'owe' : myBalance > 0 ? 'owed' : 'even'}`} aria-label="Your balance">
       <span>{myBalance < 0 ? 'You owe' : myBalance > 0 ? 'You’re owed' : 'You’re settled up'}</span>
       {myBalance !== 0 && <strong>{money(Math.abs(myBalance), group.currency)}</strong>}
-      {owedWithoutHandle && <button type="button" className="trips-text-button" onClick={onEditProfile}><VenmoMark />Add your Venmo so people can pay you</button>}
+      {owedWithoutHandle && <button type="button" className="trips-text-button" onClick={onEditProfile}><VenmoMark />Add your Venmo to get paid</button>}
     </section>}
 
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2>
-      <Button onClick={() => onRecord(null)} disabled={group.members.length < 2}><Plus size={15} aria-hidden="true" />Record a payment</Button></div>
+      <Button onClick={() => onRecord(null)} disabled={group.members.length < 2}><Plus size={15} aria-hidden="true" />Record payment</Button></div>
     {!group.transfers.length ? <p className="trips-muted">Everyone is settled up.</p> : <>
       {!!mine.length && <ul className="trips-transfers">{mine.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul>}
       {!!others.length && <>{!!mine.length && <h3 className="trips-subheading">Between others</h3>}

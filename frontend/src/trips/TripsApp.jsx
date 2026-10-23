@@ -84,13 +84,13 @@ function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
   if (joinId) return <section className="trips-join"><h1>Join trip</h1><Form name="join" submit="Join trip" onCancel={() => navigate('/trips')} onSubmit={async () => {
     if (!invitation) throw new Error('This invite link is missing its code. Open the original link again.');
     const result = await request(`/groups/${joinId}/join`, 'POST', { invite_token: invitation });
-    clearInvitation(joinId); go(`/trips/${result.id}`);
+    clearInvitation(joinId); go(`/trips/${result.id}?tab=balances`);
   }}><p className="trips-muted">Joining as {displayName}. Your past shares on the trip stay as they are.</p></Form></section>;
   if (loading) return <p className="trips-loading" role="status">Loading…</p>;
   if (error) return <div className="trips-empty"><p role="alert">{error}</p><Button onClick={async () => { setError(''); setLoading(true); try { await load(); } catch (e) { setError(e.message); } finally { setLoading(false); } }}>Try again</Button> <Link to="/trips">All trips</Link></div>;
   if (tripId && group) return <TripView key={group.id} group={group} user={auth.user} profile={auth.profile} request={request} onUpdated={accept} onRefresh={load} onEditProfile={onEditProfile} />;
   return <>
-    <section className="trips-heading trips-heading--home"><h1 tabIndex={-1}>Your trips</h1><div className="trips-home-actions">
+    <section className="trips-heading trips-heading--home"><div><p className="trips-greeting">Hi, {displayName.split(/\s+/)[0]}</p><h1 tabIndex={-1}>Your trips</h1></div><div className="trips-home-actions">
       <Button onClick={() => setImporting(true)}><Download size={15} aria-hidden="true" />Import from Splitwise</Button>
       <Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} aria-hidden="true" />New trip</Button></div></section>
     <TripList groups={groups} userId={auth.user.id} />

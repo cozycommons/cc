@@ -7,7 +7,9 @@ export function toMinor(value, allowZero = false, currency = 'USD') {
   let text = String(value).trim();
   const symbol = text.match(/^[$€£]/)?.[0];
   if (symbol && symbol !== symbols[currency]) throw new Error(`This trip uses ${currency}. Enter the amount in ${currency}.`);
-  text = text.replace(/^[$€£]\s*/, '').replace(/,(?=\d{3}(?:\D|$))/g, '');
+  text = text.replace(/^[$€£]\s*/, '');
+  // "45,50" is a decimal comma; "1,250" groups thousands.
+  text = /^\d+,\d{1,2}$/.test(text) ? text.replace(',', '.') : text.replace(/,(?=\d{3}(?:\D|$))/g, '');
   if (!/^(?=[\d.]*\d)\d{0,8}(\.\d{1,2})?$/.test(text)) throw new Error('Enter an amount with up to two decimal places.');
   const [whole, fraction = ''] = text.split('.');
   const amount = Number(whole || 0) * 100 + Number(fraction.padEnd(2, '0'));

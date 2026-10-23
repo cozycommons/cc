@@ -31,7 +31,7 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | EXP-01 | Add/edit/delete expense | Description, amount, payer, date, category, note; draft retained on error | passed desktop/phone browser, reload, validation and real API |
 | SPLIT-01 | Equal split with selected people | Integer cents, deterministic rounding, subset selection | passed local browser: two-person odd-cent split and single-person subset |
 | SPLIT-02 | Unequal amounts | Exact shares sum to cost; preserve source penny allocation | passed local browser validation/correction and exact source reconciliation |
-| SPLIT-03 | Percentages and share weights | Assess as follow-up after equal/exact source trip works | deferred from first core release |
+| SPLIT-03 | Percentages and share weights | Integer share weights with exact penny allocation; percentages deferred | shares implemented: backend/frontend allocation parity tests, local browser 2:1:1 split |
 | BAL-01 | Group balances | Exact per-person net balances and simplified transfer suggestions | passed source reconciliation, browser edits/repayments and conservation tests |
 | PAY-01 | Settle up | Record outside payment and undo; never initiate money transfers | passed local browser and real API; both balances clear, then restore on undo |
 | ACT-01 | Expense provenance / updates | Who changed what and when, readable expense details | passed local activity inspection; import activity plus retained source IDs/digest/original balances in API; notes persist after phone edit |
@@ -41,7 +41,8 @@ Status terms: `pending`, `implemented` (needs current verification), `passed`
 | AGENT-01 | Form controls and actions | Stable native labels, predictable errors, same authenticated HTTP API | passed native hosted forms, Google flow, import/repeat and synthetic mutations; API scenarios pass locally/CI |
 | UI-01 | Commons project conventions | Reuse Commons navigation/design components; desktop and phone | passed built app desktop and 390x844, shared account identity and native dialogs; page 375/375 and dialog 335/335 widths |
 | UI-02 | Compact working interface | Keep the palette, remove decorative copy, show expenses sooner | passed local desktop/phone and hosted account/list/ledger after PR #87 deployment |
-| PAY-02 | Venmo request composition | Optional own profile username; prepare person/amount/note and review | workflow agreed; six supplied usernames seeded in Auth metadata and read back; profile editing/display and composition pending |
+| PAY-02 | Venmo request composition | Optional own profile username; prepare person/amount/note and review | implemented: own save/clear/reload and outsider/validation API tests on real local Supabase; Pay/Request direction, encoding, USD gating, missing-handle fallback, zero writes on open and single record on retry covered in tests and local browser; link lands on Venmo's payment-link page with the same details |
+| UI-03 | Mobile navigation and entry | Bottom tabs, reachable add/save, chips for payer/people/category | local 390px run: tab bar pinned, add button clear of it, sheet actions in view, no horizontal overflow |
 | IMPORT-04 | Broader Splitwise content | Import the intended real sources without synthetic filler | pending account/scope clarification; connected account's dashboard/All expenses shows one group and 14 entries |
 | DB-01 | Durable ledger | Forward migrations, fresh/upgrade/retry, receipts, schema attestation | passed locally and hosted: receipts 1/2 and readiness; `test_trips_migrations.py`, `test_migration_runner.py` |
 | SEC-01 | Trip privacy | RLS member reads; API authorization; no browser writes/service keys | passed real local API/RLS/drift tests and hosted catalog/owner/outsider/anonymous checks |
@@ -319,9 +320,8 @@ agent use plus easier Venmo request composition.
 - The connected Splitwise account's dashboard/All expenses screen shows only
   the existing group and its 14 entries. Another account/source and the desired
   import scope need clarification before broader import.
-- Venmo profile sharing/request composition is awaiting the user's workflow
-  choice before schema work. Plain-language agent behavior is documented in
-  `cozy-trips.md`; this UI uses the existing account/form/API contract.
+- (Superseded 2026-10-23: the Venmo workflow was agreed and is implemented; see
+  "UI rework and Venmo" below.)
 
 ### Delivered core release
 

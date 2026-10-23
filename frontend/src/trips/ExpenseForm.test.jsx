@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { ExpenseForm } from './ExpenseForm.jsx';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
 
 const members = [{ id: 'matt', user_id: 'user-matt', name: 'Matt' }, { id: 'alex', name: 'Alex' }, { id: 'jamie', name: 'Jamie' }];
 const group = { revision: 7, currency: 'USD', members };
@@ -85,4 +85,23 @@ it('accepts an unsaved prefill from a link but ignores unknown people', () => {
   expect(screen.getByRole('radio', { name: 'Jamie' })).toBeChecked();
   expect(screen.getByRole('radio', { name: 'Transport' })).toBeChecked();
   expect(screen.getByText('1 of 3')).toBeInTheDocument();
+});
+
+it('starts the next new expense from the last payer, people and category on this trip', async () => {
+  const save = form({ group: { ...group, id: 'trip-1' } });
+  fill('Tacos', '30');
+  fireEvent.click(screen.getByRole('radio', { name: 'Alex' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Jamie' }));
+  fireEvent.click(screen.getByRole('radio', { name: 'Food' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  cleanup();
+  form({ group: { ...group, id: 'trip-1' } });
+  expect(screen.getByRole('radio', { name: 'Alex' })).toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'Jamie' })).not.toBeChecked();
+  expect(screen.getByRole('radio', { name: 'Food' })).toBeChecked();
+  cleanup();
+  form({ group: { ...group, id: 'trip-2' } });
+  expect(screen.getByRole('radio', { name: 'You' })).toBeChecked();
+  expect(screen.getByText('3 of 3')).toBeInTheDocument();
 });
