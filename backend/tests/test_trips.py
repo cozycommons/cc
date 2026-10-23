@@ -7,13 +7,11 @@ from pathlib import Path
 import subprocess
 from uuid import uuid4
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 from supabase import create_client
 
 from trips.ledger import LedgerError, apply_command, balances, claim_invite, new_group, public_group, transfers
-from trips.routes import router
 
 
 def trip():
@@ -105,7 +103,7 @@ def test_invites_are_single_use_and_cannot_claim_another_place():
 
 
 @pytest.fixture
-def local_api():
+def local_api(monkeypatch):
     if os.environ.get('TRIPS_INTEGRATION') != '1':
         pytest.skip('Enable TRIPS_INTEGRATION=1 for the dedicated local Trips Supabase project.')
     root = Path(__file__).resolve().parents[2]
@@ -114,9 +112,12 @@ def local_api():
                                                  text=True, stderr=subprocess.DEVNULL))
     assert settings['API_URL'] == 'http://127.0.0.1:55321'
     admin = create_client(settings['API_URL'], settings['SERVICE_ROLE_KEY'])
-    app = FastAPI()
-    app.state.trips_supabase = admin
-    app.include_router(router, prefix='/trips')
+    monkeypatch.setenv('COZY_TRIPS_LOCAL', '1')
+    monkeypatch.setenv('SUPABASE_URL', settings['API_URL'])
+    monkeypatch.setenv('SUPABASE_SERVICE_KEY', settings['SERVICE_ROLE_KEY'])
+    from trips.local import app
+    assert app.state.runtime_policy.is_trips_sandbox
+    assert not app.state.runtime_policy.allow_external_side_effects
     tokens = {}
     for name in ['Matt', 'Alex', 'Jamie']:
         sb = create_client(settings['API_URL'], settings['ANON_KEY'])

@@ -53,6 +53,8 @@ body.trips-body { margin: 0; min-width: 320px; background: var(--paper); color: 
 .trips-avatar-stack { display: flex; height: 38px; overflow: hidden; }
 .trips-avatar-stack .trips-avatar { margin-right: -5px; border: 2px solid var(--paper); }
 .trips-avatar { display: inline-grid; flex: 0 0 auto; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; color: var(--paper-light); background: var(--moss); font: 15px var(--serif); }
+.trips img.trips-avatar { display: block; object-fit: cover; }
+.trips-account-identity { display: inline-flex; align-items: center; gap: 8px; }
 .trips-avatar--1 { background: var(--clay); }
 .trips-avatar--2 { background: var(--blue-dusk); }
 .trips-avatar--3 { background: var(--walnut); }

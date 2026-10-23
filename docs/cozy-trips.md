@@ -8,9 +8,10 @@ Status: active goal, authorized 2026-10-23. Deliver the core functionality,
 complete end-to-end verification, database migrations, and a PR with passing CI
 for the existing release path. Track live feature/test status in
 [`cozy-trips-tests.md`](cozy-trips-tests.md). The existing implementation is a
-synthetic local prototype. Shared Google login, reuse of existing profiles, and
-import of Matt's Splitwise data have not been verified. This plan supersedes the
-prototype's completion claim below.
+locally verified Commons integration. A captured Splitwise trip reconciles exactly
+in local Supabase, and shared account/profile reuse passes real local Auth/API and
+browser checks. Actual Commons Google OAuth and the hosted rollout remain pending.
+This plan supersedes the prototype's completion claim below.
 
 ### Outcome and stopping point
 
@@ -145,13 +146,12 @@ and release acceptance work is completed. It does not add receipt OCR or a new
 agent credential platform to the current implementation slice.
 
 Current state: branch `feat/cozy-trips`, draft PR
-[#85](https://github.com/cozycommons/cc/pull/85). The published migration/release
-foundation (`7b9de73`) passed all five GitHub CI jobs. No merge or production
-rollout has occurred. A fresh source snapshot and visible expense IDs are in
-ignored local storage. Import UI/API, source conversion, the CI batching
-instructions, and the later draft-purchase direction are in the next local
-batch. Continue with shared profile/session integration and the full acceptance
-run before the next verified PR push; keep the verification ledger current.
+[#85](https://github.com/cozycommons/cc/pull/85). Import, shared identity/profile
+reuse, migrations, local browser acceptance, and repository regressions pass.
+See the verification ledger and PR checks for the current candidate's evidence.
+No merge or hosted rollout has occurred. Raw source data stays ignored. The next
+external checkpoint is authorization for the hosted Supabase/Google validation
+and release; the later draft-purchase workflow remains parked.
 
 ## Prototype scope (historical)
 
@@ -180,6 +180,10 @@ the same authenticated HTTP API is documented by FastAPI OpenAPI.
 - Use a dedicated local Supabase project and ports; never reset the shared stack.
 - Local synthetic sign-ins use real Supabase sessions and exist only in the local
   development entry point. Production continues to use shared Google sign-in.
+- Trips and Dice use the same Supabase singleton, canonical user UUID, and normal
+  shared backend. Existing Dice names/avatars are resolved only for linked trip
+  members. Source names remain in the ledger; opening Trips never creates a Dice
+  profile or links accounts by matching names/emails.
 
 ## Run locally
 
@@ -193,9 +197,11 @@ backend/.venv/bin/python scripts/trips-dev.py setup
 backend/.venv/bin/python scripts/trips-dev.py run
 ```
 
-`setup` starts the dedicated `cozy-trips-local` Supabase project, applies only
-the Trips migration family, and creates missing synthetic Matt/Alex/Jamie users.
-It preserves existing ledger data. It never resets the Dice project. Keys are
+`setup` starts the dedicated `cozy-trips-local` Supabase project, applies all
+normal release migration families, and creates missing synthetic Matt/Alex/Jamie
+users plus Matt's explicit sandbox Dice profile. The preview runs `main.app`,
+including the normal Commons, Dice and Trips APIs. It preserves existing ledger
+data and never resets another project's stack. Keys are
 read from CLI status into process memory, not committed or written to dotenv.
 The Docker network publishes only to 127.0.0.1, and the runner verifies that.
 
@@ -209,6 +215,20 @@ continues to use the existing shared client in the normal app; it is deliberatel
 not offered by the isolated local demo, whose OAuth provider is not configured.
 The local config cannot build in production mode. The normal production build
 does not contain synthetic account credentials or demo controls.
+
+For production-bundle acceptance against the same local database, first sign in
+using the development controls, stop only this runner, then run:
+
+```bash
+backend/.venv/bin/python scripts/trips-dev.py run --built
+```
+
+This builds the normal production app and serves it through the same local
+proxies. The existing session persists, but synthetic sign-in controls are absent;
+the local Google provider remains unconfigured. Restart without `--built` to
+restore development controls. A browser filter blocks the raw `/src/dice/App.jsx`
+development module on the verification machine; the built Dice route loads and
+was used to verify canonical identity and cross-project sign-out.
 
 The phone preview uses Windows Tailscale Serve on the existing tailnet, port
 8451, proxying the WSL frontend at port 8815. Other Serve routes were compared

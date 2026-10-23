@@ -9,8 +9,9 @@ from gotrue.errors import AuthApiError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from postgrest.exceptions import APIError
 
-from .ledger import LedgerError, apply_command, claim_invite, new_group, public_group, require_member
+from .ledger import LedgerError, apply_command, claim_invite, new_group, require_member
 from .imports import ImportTrip, prepare_import, require_same_import
+from .profiles import current_profile, render_group, render_groups
 
 router = APIRouter(tags=['Cozy Trips'])
 bearer = HTTPBearer(auto_error=False)
@@ -28,7 +29,7 @@ class CreateTrip(Input):
     id: UUID
     name: Name
     currency: Currency = 'USD'
-    display_name: Name
+    display_name: Name | None = None
 
 
 class Revision(Input):
@@ -94,7 +95,7 @@ def save_revision(request, before, after):
             .eq('id', before['id']).eq('revision', before['revision']).execute().data)
     if not rows:
         raise LedgerError('Someone changed this trip. Refresh, review the changes, and try again.', 409)
-    return public_group(rows[0])
+    return render_group(client(request), rows[0])
 
 
 def command(request, trip_id, user, kind, payload):
@@ -113,9 +114,9 @@ def imported_trip(request, payload, user, save=False):
         existing = client(request).table('trips_groups').select('*').eq('id', row['id']).execute().data
         if existing:
             require_same_import(existing[0], row)
-            return {'group': public_group(existing[0]), 'report': report, 'status': 'existing'}
+            return {'group': render_group(client(request), existing[0]), 'report': report, 'status': 'existing'}
         if not save:
-            return {'group': public_group(row), 'report': report, 'status': 'preview'}
+            return {'group': render_group(client(request), row), 'report': report, 'status': 'preview'}
         try:
             saved = client(request).table('trips_groups').insert(row).execute().data[0]
         except APIError as error:
@@ -124,8 +125,8 @@ def imported_trip(request, payload, user, save=False):
             # A concurrent identical import or a lost response must not duplicate the trip.
             saved = read_row(request, row['id'])
             require_same_import(saved, row)
-            return {'group': public_group(saved), 'report': report, 'status': 'existing'}
-        return {'group': public_group(saved), 'report': report, 'status': 'created'}
+            return {'group': render_group(client(request), saved), 'report': report, 'status': 'existing'}
+        return {'group': render_group(client(request), saved), 'report': report, 'status': 'created'}
     except LedgerError as error:
         raise HTTPException(error.status, str(error))
 
@@ -144,7 +145,12 @@ def save_import(payload: ImportTrip, request: Request, user=Depends(current_user
 def list_trips(request: Request, user=Depends(current_user)):
     rows = (client(request).table('trips_groups').select('*')
             .contains('member_user_ids', [user.id]).order('updated_at', desc=True).execute().data)
-    return [public_group(row) for row in rows]
+    return render_groups(client(request), rows)
+
+
+@router.get('/me')
+def get_my_profile(request: Request, user=Depends(current_user)):
+    return current_profile(client(request), user)
 
 
 @router.post('/groups', status_code=201)
@@ -154,10 +160,11 @@ def create_trip(payload: CreateTrip, request: Request, user=Depends(current_user
         row = existing[0]
         if row['owner_id'] != user.id:
             raise HTTPException(409, 'Choose a new trip ID.')
-        return public_group(row)
-    row = new_group(str(payload.id), user.id, payload.name, payload.currency, payload.display_name)
+        return render_group(client(request), row)
+    display_name = payload.display_name or current_profile(client(request), user)['display_name']
+    row = new_group(str(payload.id), user.id, payload.name, payload.currency, display_name)
     rows = client(request).table('trips_groups').insert(row).execute().data
-    return public_group(rows[0])
+    return render_group(client(request), rows[0])
 
 
 @router.get('/groups/{trip_id}')
@@ -165,7 +172,7 @@ def get_trip(trip_id: UUID, request: Request, user=Depends(current_user)):
     try:
         row = read_row(request, trip_id)
         require_member(row, user.id)
-        return public_group(row)
+        return render_group(client(request), row)
     except LedgerError as error:
         raise HTTPException(error.status, str(error))
 
@@ -184,6 +191,9 @@ def invite_member(trip_id: UUID, member_id: UUID, payload: Revision, request: Re
 def join_trip(trip_id: UUID, payload: JoinTrip, request: Request, user=Depends(current_user)):
     try:
         before = read_row(request, trip_id)
+        if user.id in before['member_user_ids']:
+            # Reopening/retrying an invitation must not claim a second place.
+            return render_group(client(request), before)
         after = claim_invite(before, user.id, payload.invite_token)
         return save_revision(request, before, after)
     except LedgerError as error:

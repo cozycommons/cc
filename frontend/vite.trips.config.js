@@ -13,11 +13,15 @@ export default defineConfig((environment) => {
       allowedHosts: ['localhost', '127.0.0.1', 'desktop-r5cm15p.tail9170c8.ts.net'],
       headers: { 'Referrer-Policy': 'no-referrer' },
       proxy: {
-        '^/api/trips(?:/|$)': {
+        '^/api/(trips|dice|commons)(?:/|$)': {
           target: 'http://127.0.0.1:8011',
           rewrite: (url) => url.replace(/^\/api/, ''),
         },
-        '^/auth/v1': { target: 'http://127.0.0.1:55321', changeOrigin: true },
+        '^/api/(health|ready)$': {
+          target: 'http://127.0.0.1:8011',
+          rewrite: (url) => url.replace(/^\/api/, ''),
+        },
+        '^/(auth|rest|storage)/v1': { target: 'http://127.0.0.1:55321', changeOrigin: true },
       },
     },
   });

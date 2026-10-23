@@ -70,8 +70,8 @@ Keep automatic deployments disabled until the first manual deployment and
 smoke test succeed. When enabled, use Coolify watch paths so frontend-only
 changes do not rebuild the backend and vice versa:
 
-- Backend: `/backend/**`, `/shared/commons/scene-contract-v1.json`
-- Frontend: `/frontend/**`, `/shared/commons/scene-contract-v1.json`
+- Backend: `backend/**`, `shared/commons/scene-contract-v1.json`, `.dockerignore`
+- Frontend: `frontend/**`, `shared/commons/scene-contract-v1.json`, `design/**`
 
 ## GitHub Actions
 
@@ -107,6 +107,15 @@ the existing Dice/Commons attestation and the Trips attestation.
 CI does not itself trigger Coolify. Verify the actual auto-deploy trigger
 and required-check gating in Coolify before enabling it; a push webhook alone
 does not establish that tests passed.
+
+Read-only inspection on 2026-10-23 confirmed both existing applications use
+`cozycommons/cc`, branch `main`, commit `HEAD`, source `coolify-cc`, and **Deploy on
+push (webhooks)**. Their saved watch paths match the lists above and cover the
+Trips frontend/backend changes. The backend retains an empty pre-deploy command
+and `python -m dice_maintenance --rebuild` after deployment. No hosting setting
+was changed. The gate is GitHub's required PR checks before updating `main`;
+Coolify itself is configured to react to the resulting push, not wait on a CI
+workflow. A post-merge deployment and real Google/Trips smoke test remain pending.
 
 GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
 is active on `main`. It requires the GitHub Actions `frontend` and `backend`
