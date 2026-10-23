@@ -146,6 +146,17 @@ above; its code/schema did not change. Hosted HEAD 200 and ETag 304 responses
 send `Cache-Control: no-cache` on all six checked document routes. Health,
 readiness, anonymous denial and normal Commons/Dice/Trips navigation passed.
 
+The compact Trips UI in PR #87 merged as
+`2494643121fddb3f2c9974539158c2d4b0eb1051` after all five PR checks passed. Existing
+frontend webhook deployment `nzvxici8a1daozoeh1hymgxt` succeeded. Its running image
+identity is
+`sha256:eed90d2c861b493f11af3974838d894e9be9f096e1384396bfe7ece02a29c793`.
+The frontend and unchanged `efbaf35` backend were inspected healthy; cache,
+health/readiness, account/list and expense-view checks passed. This release has
+no database schema change. The user separately requested synthetic-data cleanup;
+only the privately backed-up empty hosted QA ledger was removed, with strict
+whole-row matching and a before/after fingerprint check of the real source trip.
+
 GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
 is active on `main`. It requires the GitHub Actions `frontend` and `backend`
 checks against an up-to-date branch, with no bypass actors. The older disabled
