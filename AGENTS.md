@@ -7,7 +7,7 @@ define a separate repository or make a feature WSL-specific.
 ## Layout
 
 - `frontend/`: Vite + React Cozy Commons home, Dice at `/dice`, and Cozy Trips at `/trips`.
-- `backend/`: FastAPI shared API with Commons routes under `/commons`, Dice under `/dice`, and Trips under `/trips`.
+- `backend/`: FastAPI shared API with Dice routes under `/dice`, Trips under `/trips`, and other project integrations.
 - `backend/ig_logger/`: generic Instagram-source → sink platform; routes under `/ig-logger`. `backend/ig_logger/sinks/beli/`: multi-tenant Beli restaurant app (the first sink); routes under `/beli`, MCP server at `/beli/mcp`.
 - `supabase/`: isolated local Supabase configuration and project seed data.
 - `scripts/`: shared development plus project-specific migration and verification tooling.
@@ -25,8 +25,7 @@ Run from the repository root unless noted otherwise.
 - Frontend tests: `cd frontend && npm test -- --run`
 - Frontend build: `cd frontend && npm run build`
 - Backend tests: `cd backend && source .venv/bin/activate && python -m pytest tests -v`
-- Commons migration check: `scripts/commons-dev.sh check`
-- Commons local migration: `scripts/commons-dev.sh local-migrate`
+- Historical Commons migration check: `scripts/check-commons-migration-contract.sh`
 
 ## Developer-platform compatibility
 
@@ -66,8 +65,8 @@ Windows-path syntax to repository scripts or documented developer commands.
 - Preserve `/dice` frontend and API paths until an explicit product change.
 - Never edit or renumber historical migrations. Existing Dice migrations retain
   the `NNNN_dice_description.sql` form; Commons migrations use
-  `backend/commons/migrations/NNNN_commons_description.sql` and the Commons
-  migration scripts.
+  `backend/commons/migrations/NNNN_commons_description.sql`. The Commons room
+  project is retired; retain its migration history for Dice release compatibility.
 - Run database work only against the loopback Supabase stack unless the user
   explicitly requests a production-connected operation.
 - Preserve the sandbox's loopback, hostname, dotenv-scrubbing, and port-privacy
@@ -78,3 +77,8 @@ Windows-path syntax to repository scripts or documented developer commands.
 
 See `docs/dice-sandbox.md`, `docs/dice-data-model-testing.md`, and
 `docs/deployment.md` for the authoritative workflows.
+
+## UI design
+
+Follow Jason's design preferences in `docs/crowdset/DESIGN.md`. That document also
+records the current Crowdset feature scope.

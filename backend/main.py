@@ -13,7 +13,6 @@ from analytics import router as analytics_router
 from ig_logger.routes import router as ig_logger_router
 from ig_logger.sinks.beli.mcp_server import mcp as beli_mcp
 from ig_logger.sinks.beli.routes import router as beli_router
-from commons.routes import router as commons_router
 from dice.routes import router as dice_router
 from partiful.mcp_server import mcp as partiful_mcp
 from partiful.routes import router as partiful_router
@@ -81,9 +80,6 @@ app.state.supabase_admin: Client = CachedSupabaseClient(
 app.state.analytics_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.readiness_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.trips_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-# Commons scene reads must not use the generic 120-second cache. Every command
-# is fenced by the database version and the next GET must observe it promptly.
-app.state.commons_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 @app.middleware("http")
@@ -111,7 +107,6 @@ def root():
 
 app.include_router(health_router)
 app.include_router(trips_router, prefix="/trips")
-app.include_router(commons_router, prefix="/commons")
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")
 app.include_router(ig_logger_router, prefix="/ig-logger")

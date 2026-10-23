@@ -102,7 +102,7 @@ Runtime settings:
 - `CROWDSET_AUTH_KEY`: existing public publishable/anon key, never a service-role key.
 - `CROWDSET_DATA_DIR=/data` and `CROWDSET_STATIC_DIR=/static` are image defaults.
 
-Build settings: existing frontend `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public values only). Route `Host(cozycommons.dev) && (Path(/crowdset) || PathPrefix(/crowdset/))` to this app at higher priority than the existing frontend, without stripping the prefix. Preserve existing Commons/Dice routers. Use HTTPS only. The Supabase OAuth redirect allowlist must permit `https://cozycommons.dev/crowdset`.
+Build settings: existing frontend `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public values only). Route `Host(cozycommons.dev) && (Path(/crowdset) || PathPrefix(/crowdset/))` to this app at higher priority than the existing frontend, without stripping the prefix. Preserve the existing homepage and Dice routers. Use HTTPS only. The Supabase OAuth redirect allowlist must permit `https://cozycommons.dev/crowdset`.
 
 Mount a persistent named volume at `/data`, cap the container at 2 CPUs and 2 GiB memory, and keep one replica. Use Coolify's consistent container name (no rolling updates): the old instance must release the data-directory lock before its replacement starts. Disable deploy-on-push for the test service; deploy reviewed commits manually. Global limits apply across users: one active chunk, one worker, 20 sets, separate original/work quotas and a physical free floor. Ordinary restarts preserve completed work and resumable offsets; interrupted jobs have bounded automatic retries. Back up the volume independently; atomic metadata is not a power-loss-safe database.
 

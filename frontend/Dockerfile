@@ -2,8 +2,7 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
-# The build context is the repository root so the Commons scene contract can
-# remain shared between the frontend and backend.
+# The build context is the repository root so shared design styles are available.
 COPY frontend/package.json frontend/package-lock.json ./
 
 # Install with the lockfile. The BuildKit cache mount persists npm's
@@ -17,7 +16,6 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --include=optional
 
 COPY frontend/ ./
-COPY shared/commons/ /shared/commons/
 # The app imports hosted design systems from the repository-level design/ tree.
 # Keep that path available in the build image as new systems are added.
 COPY design/ /design/
