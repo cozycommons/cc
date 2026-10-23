@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Undo2 } from 'lucide-react';
 import { decimal, money, shortDate, today, toMinor } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
@@ -82,12 +82,23 @@ function TransferRow({ group, transfer, meId, onVenmo, onRecord }) {
 
 export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveRepayment, onEditProfile }) {
   const myBalance = group.balances[me?.id] || 0;
+  // Celebrate only the moment a balance becomes square, never on load.
+  const previous = useRef(myBalance);
+  const [celebrate, setCelebrate] = useState(false);
+  useEffect(() => {
+    const becameSquare = previous.current !== 0 && myBalance === 0;
+    previous.current = myBalance;
+    if (!becameSquare) return undefined;
+    setCelebrate(true);
+    const timer = setTimeout(() => setCelebrate(false), 1400);
+    return () => clearTimeout(timer);
+  }, [myBalance]);
   const breakdown = me ? balanceBreakdown(group, me.id) : null;
   const mine = group.transfers.filter((t) => settlementRole(t, me?.id));
   const others = group.transfers.filter((t) => !settlementRole(t, me?.id));
   const owedWithoutHandle = myBalance > 0 && group.currency === 'USD' && profile && !profile.venmo_username;
   return <>
-    {me && <section className={`trips-hero trips-hero--${myBalance < 0 ? 'owe' : myBalance > 0 ? 'owed' : 'even'}`} aria-label="Your balance">
+    {me && <section className={`trips-hero trips-hero--${myBalance < 0 ? 'owe' : myBalance > 0 ? 'owed' : 'even'}${celebrate ? ' trips-hero--celebrate' : ''}`} aria-label="Your balance">
       <span>{myBalance < 0 ? 'You owe' : myBalance > 0 ? 'You’re owed' : 'You’re all square'}</span>
       {myBalance !== 0 ? <strong>{money(Math.abs(myBalance), group.currency)}</strong> : <SquareStamp />}
       {owedWithoutHandle && <button type="button" className="trips-text-button" onClick={onEditProfile}><VenmoMark />Add your Venmo to get paid</button>}
@@ -95,7 +106,7 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
 
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2>
       <Button onClick={() => onRecord(null)} disabled={group.members.length < 2}><Plus size={15} aria-hidden="true" />Record payment</Button></div>
-    {!group.transfers.length ? <div className="trips-empty trips-empty--square"><SquareStamp /><p>All square. Nobody owes anybody.</p></div> : <>
+    {!group.transfers.length ? <div className="trips-empty trips-empty--square">{!me && <SquareStamp />}<p>All square. Nobody owes anybody.</p></div> : <>
       {!!mine.length && <ul className="trips-transfers">{mine.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul>}
       {!!others.length && <>{!!mine.length && <h3 className="trips-subheading">Between others</h3>}
         <ul className="trips-transfers">{others.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul></>}

@@ -377,3 +377,32 @@ span.trips-avatar { box-shadow: 0 0 0 2px var(--paper-light), 0 0 0 3.5px var(--
   .trips-tabs button[aria-selected="true"]::after { top: 4px; height: 27px; }
 }
 @media (prefers-reduced-motion: reduce) { .trips-wordmark:hover .trips-logo, .trips-trip-row:hover .trips-stamp { transform: none; } }
+
+/* Phase 2 motion: short, one-shot, never looping. The reduced-motion rule above removes all of it,
+   and static end states still show (stamp tilted, new row tinted). */
+.trips { --ease-pop: cubic-bezier(.34, 1.56, .64, 1); --ease-soft: cubic-bezier(.2, .7, .3, 1); }
+.trips-chip:has(input:checked) > svg { animation: trips-pop 260ms var(--ease-pop, ease-out); }
+.trips-split-row input[type="checkbox"]:checked { animation: trips-pop 220ms var(--ease-pop, ease-out); }
+.trips-row--new { background: color-mix(in srgb, var(--butter) 22%, transparent); transition: background-color 1.2s ease 400ms; }
+.trips-row--new > .trips-expense { animation: trips-slide-in 220ms var(--ease-soft, ease-out); }
+.trips-row--new .trips-category { animation: trips-slap 300ms var(--ease-pop, ease-out); }
+.trips-hero--celebrate { animation: trips-nudge 140ms ease 2; }
+.trips-hero--celebrate .trips-square-stamp { animation: trips-stamp-in 340ms var(--ease-pop, ease-out); }
+.trips-hero--celebrate::after { content: ''; position: absolute; top: 18px; left: 50%; width: 7px; height: 7px; border-radius: 2px; background: var(--butter);
+  box-shadow: -60px 0 var(--clay), -30px -8px var(--moss), 30px -4px var(--clay-light), 62px 2px var(--butter), -90px 6px var(--blue-dusk), 92px -6px var(--moss);
+  animation: trips-confetti 800ms ease-out forwards; }
+.trips-tabs button[aria-selected="true"]::after { animation: trips-blob 220ms var(--ease-pop, ease-out); }
+.trips-trip-row:active { transform: scale(.985); transition-duration: 90ms; }
+.trips-trip-row .trips-stamp { transition: transform 180ms var(--ease-pop, ease-out); }
+.trips-wordmark:hover .trips-logo { animation: trips-wiggle 420ms ease; }
+.trips-modal[open] .trips-form-actions .cc-button--primary:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+
+@keyframes trips-pop { 0% { transform: scale(1) rotate(0); } 45% { transform: scale(1.2) rotate(-8deg); } 100% { transform: scale(1) rotate(0); } }
+@keyframes trips-slide-in { from { opacity: .2; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes trips-slap { 0% { transform: scale(1.35) rotate(12deg); } 100% { transform: scale(1) rotate(-3deg); } }
+@keyframes trips-stamp-in { 0% { opacity: 0; transform: scale(1.7) rotate(-14deg); } 100% { opacity: .85; transform: scale(1) rotate(-6deg); } }
+@keyframes trips-nudge { 50% { transform: translateY(2px); } }
+@keyframes trips-confetti { 0% { opacity: 1; transform: translateY(-6px) rotate(0); } 100% { opacity: 0; transform: translateY(30px) rotate(160deg); } }
+@keyframes trips-blob { from { transform: scale(.55); } to { transform: scale(1); } }
+@keyframes trips-wiggle { 0%, 100% { transform: rotate(-4deg); } 30% { transform: rotate(6deg); } 60% { transform: rotate(-8deg); } }
+@media (prefers-reduced-motion: reduce) { .trips-row--new { transition: none; } .trips-trip-row:active { transform: none; } }

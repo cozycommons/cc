@@ -26,7 +26,7 @@ function myEffect(expense, meId) {
   return share ? { text: 'you borrowed', amount: share, tone: 'owe' } : { text: 'not involved' };
 }
 
-function ExpenseList({ group, me, query, onEdit }) {
+function ExpenseList({ group, me, query, fresh, onEdit }) {
   const needle = query.trim().toLowerCase();
   const expenses = group.expenses
     .filter((e) => !needle || `${e.description} ${e.notes} ${memberName(findMember(group, e.paid_by))} ${categoryOf(e.category).label}`.toLowerCase().includes(needle))
@@ -43,7 +43,7 @@ function ExpenseList({ group, me, query, onEdit }) {
       const { icon: Icon, color } = categoryOf(expense.category);
       const payer = findMember(group, expense.paid_by);
       const effect = me ? myEffect(expense, me.id) : null;
-      return <li key={expense.id}><button className="trips-expense" aria-label={`Edit ${expenseContext(group, expense)}`} onClick={() => onEdit(expense)}>
+      return <li key={expense.id} className={expense.id === fresh ? 'trips-row--new' : undefined}><button className="trips-expense" aria-label={`Edit ${expenseContext(group, expense)}`} onClick={() => onEdit(expense)}>
         <span className="trips-category" style={{ '--chip': color }} aria-hidden="true"><Icon size={22} /></span>
         <span className="trips-expense-detail"><strong>{expense.description}</strong>
           <small><Avatar member={payer} size={16} />{payer?.id === me?.id ? 'You' : firstName(payer)} paid · {Object.keys(expense.shares).length} {Object.keys(expense.shares).length === 1 ? 'person' : 'people'}</small></span>
@@ -74,6 +74,13 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     if (prefillKeys.some((key) => params.has(key))) setParams((next) => { prefillKeys.forEach((key) => next.delete(key)); return next; }, { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The just-added expense gets a brief "sticker slapped on" highlight.
+  const [fresh, setFresh] = useState(null);
+  useEffect(() => {
+    if (!fresh) return undefined;
+    const timer = setTimeout(() => setFresh(null), 1600);
+    return () => clearTimeout(timer);
+  }, [fresh]);
   useEffect(() => {
     if (!notice) return undefined;
     const timer = setTimeout(() => setNotice(null), notice.undo ? 10000 : 5000);
@@ -166,7 +173,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
         {tab === 'expenses' && <>
           <div className="trips-panel-heading"><h2 className="trips-section-heading"><ReceiptText size={16} aria-hidden="true" />Expenses</h2>
             <label className="trips-search"><Search size={15} aria-hidden="true" /><input type="search" name="search" aria-label="Search expenses" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} /></label></div>
-          <ExpenseList group={group} me={me} query={query} onEdit={(expense) => setModal({ type: 'expense', expense })} />
+          <ExpenseList group={group} me={me} query={query} fresh={fresh} onEdit={(expense) => setModal({ type: 'expense', expense })} />
         </>}
         {tab === 'balances' && <BalancesPanel group={group} me={me} profile={profile} onEditProfile={onEditProfile}
           onVenmo={(transfer, role) => setModal({ type: 'venmo', transfer, role })}
@@ -192,7 +199,10 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     {modal && <Modal title={titles[modal.type]} onClose={close}>
       {modal.type === 'expense' && <ExpenseForm group={formGroup} user={user} expense={modal.expense} initial={modal.initial} conflict={modal.conflict && modal.expense ? { latest: group.expenses.find((e) => e.id === modal.expense.id) || null } : null} onCancel={close}
         onDelete={() => setModalState({ type: 'delete_expense', item: modal.expense, revision: modal.revision })}
-        onSave={(payload) => update(`/expenses${modal.expense ? `/${modal.expense.id}` : ''}`, modal.expense ? 'PUT' : 'POST', payload, modal.expense ? 'Expense updated.' : `Added ${payload.description}.`)} />}
+        onSave={async (payload) => {
+          await update(`/expenses${modal.expense ? `/${modal.expense.id}` : ''}`, modal.expense ? 'PUT' : 'POST', payload, modal.expense ? 'Expense updated.' : `Added ${payload.description}.`);
+          if (!modal.expense && alive.current) setFresh(payload.id);
+        }} />}
       {modal.type === 'repayment' && <RepaymentForm group={formGroup} suggestion={modal.suggestion} onCancel={close} onSave={recordPayment} />}
       {modal.type === 'venmo' && <VenmoReview group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
         onEditHandles={group.owner_id === user.id ? () => { close(); setTab('people'); } : findMember(group, modal.role === 'pay' ? modal.transfer.to_member : modal.transfer.from_member)?.user_id === user.id ? onEditProfile : null} />}
