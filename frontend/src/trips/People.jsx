@@ -60,7 +60,7 @@ export function PeoplePanel({ group, user, onAdd, onInvite, onEditVenmo, onEditP
           <small>{m.user_id === group.owner_id ? 'Created the trip' : m.user_id ? 'Joined' : 'Hasn’t joined'}
             {m.venmo_username && <> · <span className="trips-handle">@{m.venmo_username}</span></>}</small>
         </div>
-        <span className={`trips-person-balance ${balance < 0 ? 'trips-owe' : balance > 0 ? 'trips-positive' : ''}`}>{balance ? `${balance < 0 ? 'owes' : 'gets'} ${money(Math.abs(balance), group.currency)}` : 'settled'}</span>
+        <span className={`trips-person-balance ${balance < 0 ? 'trips-owe' : balance > 0 ? 'trips-positive' : ''}`}>{balance ? `${balance < 0 ? 'owes' : 'gets'} ${money(Math.abs(balance), group.currency)}` : 'square'}</span>
         <span className="trips-person-actions">
           {you && <Button variant="ghost" onClick={onEditProfile} aria-label="Edit your Venmo username"><Pencil size={14} aria-hidden="true" />Venmo</Button>}
           {owner && !m.user_id && <Button variant="ghost" onClick={() => onEditVenmo(m)} aria-label={`Set Venmo for ${memberName(m)}`}><Pencil size={14} aria-hidden="true" />Venmo</Button>}

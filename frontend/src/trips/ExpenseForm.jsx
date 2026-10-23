@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { BedDouble, Car, Minus, Plus, ReceiptText, Ticket, Trash2, Utensils } from 'lucide-react';
+import { Minus, Plus, Trash2 } from 'lucide-react';
+import { Bag, Bowl, Cabin, Camper, Ticket } from './doodles.jsx';
 import { decimal, equalShares, money, shortDate, today, toMinor, weightedShares } from './money.js';
 import { Avatar, Field, Form } from './ui.jsx';
 import { memberName, myMember } from './people.js';
 
 export const categories = [
-  { key: 'food', label: 'Food', icon: Utensils, color: '#b76845' },
-  { key: 'stay', label: 'Stay', icon: BedDouble, color: '#6e7b7e' },
-  { key: 'transport', label: 'Transport', icon: Car, color: '#694b36' },
-  { key: 'activities', label: 'Activities', icon: Ticket, color: '#c27c3d' },
-  { key: 'other', label: 'Other', icon: ReceiptText, color: '#69755a' },
+  { key: 'food', label: 'Food', icon: Bowl, color: '#b76845' },
+  { key: 'stay', label: 'Stay', icon: Cabin, color: '#6e7b7e' },
+  { key: 'transport', label: 'Transport', icon: Camper, color: '#69755a' },
+  { key: 'activities', label: 'Activities', icon: Ticket, color: '#d39155' },
+  { key: 'other', label: 'Other', icon: Bag, color: '#a08a66' },
 ];
 export const categoryOf = (key) => categories.find((category) => category.key === key) || categories[4];
 
@@ -129,7 +130,7 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
 
     <fieldset className="trips-chips-field"><legend>Category</legend><div className="trips-chips">
       {categories.map(({ key, label, icon: Icon, color }) => <label className="trips-chip" key={key} style={{ '--chip': color }}>
-        <input type="radio" name="category" value={key} checked={category === key} onChange={() => setCategory(key)} /><Icon size={15} aria-hidden="true" /><span>{label}</span>
+        <input type="radio" name="category" value={key} checked={category === key} onChange={() => setCategory(key)} /><Icon size={20} /><span>{label}</span>
       </label>)}
     </div></fieldset>
 
