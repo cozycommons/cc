@@ -52,7 +52,7 @@ Orientation offsets are authored per supported orientation. For this release ret
 
 ## 3. Versioned asset manifest
 
-Add `shared/commons/scene-contract-v1.json` for projection, semantic geometry, allowed appearance IDs, and supported orientation footprints. Backend and frontend consume this same artifact using paths resolved relative to their modules. Ensure backend deployment packaging includes it; test installation/build resolution. Avoid separate handwritten Python and JavaScript defaults for new-schema state.
+Add `backend/commons/scene-contract-v1.json` for projection, semantic geometry, allowed appearance IDs, and supported orientation footprints. Backend and frontend consume this same artifact using paths resolved relative to their modules. Ensure backend deployment packaging includes it; test installation/build resolution. Avoid separate handwritten Python and JavaScript defaults for new-schema state.
 
 Keep texture/atlas details in `frontend/public/commons/v2/manifest.json`, keyed by versioned asset ID. Hash/version references join it to the shared semantic catalog. A deploy must serve old referenced assets until clients on old snapshots expire. No user-supplied asset URL is fetched from state; resolve allowlisted IDs only.
 

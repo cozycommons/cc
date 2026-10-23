@@ -1,4 +1,4 @@
-import contract from '../../../shared/commons/scene-contract-v1.json';
+import contract from '../../../backend/commons/scene-contract-v1.json';
 
 export const COMMONS_GRID = Object.freeze({
   columns: contract.world.columns,

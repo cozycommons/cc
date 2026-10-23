@@ -23,7 +23,7 @@ with no real users.
   passed; public `/health` and `/ready` returned 200.
 - Frontend `rrmtxvricbf8ifbldflw2brb`: deployment `rtcnre5jrtfapjfhnnmo8ext`
   succeeded at the same commit. Root context, `/frontend/Dockerfile`, port 80.
-  Watch paths include `frontend/**`, `shared/commons/scene-contract-v1.json`
+  Watch paths include `frontend/**`, `backend/commons/scene-contract-v1.json`
   and `design/**` (the latter became a build dependency in upstream PR #6).
 - Both resources were restored to **Deploy on push (webhooks)** after the controlled
   rollout; each setting was reloaded and verified. GitHub App `coolify-cc` targets main.

@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --include=optional
 
 COPY frontend/ ./
-COPY shared/commons/ /shared/commons/
+COPY backend/commons/scene-contract-v1.json /backend/commons/scene-contract-v1.json
 # The app imports hosted design systems from the repository-level design/ tree.
 # Keep that path available in the build image as new systems are added.
 COPY design/ /design/

@@ -70,8 +70,8 @@ Keep automatic deployments disabled until the first manual deployment and
 smoke test succeed. When enabled, use Coolify watch paths so frontend-only
 changes do not rebuild the backend and vice versa:
 
-- Backend: `backend/**`, `shared/commons/scene-contract-v1.json`, `.dockerignore`
-- Frontend: `frontend/**`, `shared/commons/scene-contract-v1.json`, `design/**`
+- Backend: `backend/**`, `.dockerignore`
+- Frontend: `frontend/**`, `backend/commons/scene-contract-v1.json`, `design/**`
 
 ## GitHub Actions
 

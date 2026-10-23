@@ -1,19 +1,33 @@
 # Cozy Commons
 
-Monorepo for Cozy Commons projects
+Cozy Commons is a monorepo for community projects amongst our friends.
 
-https://cozycommons.dev
+[cozycommons.dev](https://cozycommons.dev)
+
+## Projects
+
+- **Commons** — our shared home at `/`, with an ambient room scene at `/scene`. See the [ambient scene docs](docs/commons-ambient-scene/README.md).
+- **Dice** — our Dice game app at `/dice`, with live scoring, tournaments, player ratings, and predictions. See the [feature map](docs/dice-feature-map.md).
+- **Crowdset** — a shared set catalog at `/crowdset` that combines friends' concert recordings into synchronized video and audio mixes. See the [Crowdset README](docs/crowdset/README.md).
+- **Beli** — personal restaurant recommendations and Want to Try bookmarks, with Instagram restaurant-post ingestion. API at `/beli`; MCP at `/beli/mcp`. See the [Beli docs](docs/beli.md).
+- **Partiful** — access to each friend's hosted, RSVP'd, and invited events. API at `/partiful`; MCP at `/partiful/mcp`. See the [Partiful docs](docs/partiful.md).
+- **Resy** — restaurant search, reservation availability, booking, and cancellation. API at `/resy`; MCP at `/resy/mcp`. Code lives in [`backend/resy/`](backend/resy/).
+- **ESPN Fantasy** — league standings, rosters, trends, draft history, and opt-in lineup automation. API at `/espn`; MCP at `/espn/mcp`. Code lives in [`backend/espn/`](backend/espn/).
 
 ## Layout
 
-- `frontend/` — Vite + React Dice web app
-- `backend/` — FastAPI Dice API
-- `backend/ig_logger/` — generic Instagram-source → sink platform; the Beli app lives at `backend/ig_logger/sinks/beli/` — see `docs/beli/`
+- `frontend/` — shared Vite + React frontend for Commons, Dice, and Crowdset
+- `backend/` — FastAPI services for the projects above; Crowdset runs as a separate service
+- `backend/ig_logger/` — shared Instagram-source → sink platform, with Beli as its first sink
 - `supabase/` — local Supabase configuration and synthetic seed data
-- `scripts/` — isolated Dice development and migration tooling
-- `docs/` — behavior and operations documentation
+- `scripts/` — shared and project-specific development, migration, and verification tooling
+- `docs/` — project guides, behavior contracts, design decisions, and operations documentation
+- `design/` — shared design system, visual explorations, and component previews
+- `art/` — Commons room artwork and blockouts
 
 ## Local development
+
+For the isolated Dice sandbox and shared frontend:
 
 ```bash
 scripts/dice-dev.sh doctor
@@ -32,9 +46,14 @@ dependencies without starting services or resetting data. Before opening a PR,
 run `scripts/dice-dev.sh verify` for the frontend, backend, shell, and migration
 contract checks.
 
+Crowdset has its own setup and service commands in the [Crowdset README](docs/crowdset/README.md).
+For Commons database changes, run `scripts/commons-dev.sh check`. Integration setup and onboarding are
+documented in the project guides linked above, where available.
+
 ## Deployment
 
-Production uses two Coolify applications sourced from this repository: the
-FastAPI backend under `backend/` and the static Vite frontend under `frontend/`.
+The shared production stack uses Coolify applications sourced from this repository:
+the FastAPI backend under `backend/` and the static Vite frontend under `frontend/`.
 See [docs/deployment.md](docs/deployment.md) for the exact resource settings,
 environment-variable boundaries, and first-deployment checklist.
+Crowdset has a separate hosted service; see its [hosted configuration](docs/crowdset/README.md#hosted-test-configuration).

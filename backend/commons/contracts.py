@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 
-_CONTRACT_RELATIVE_PATH = Path("shared/commons/scene-contract-v1.json")
 _FALLBACK_CONTRACT: dict[str, Any] = {
     "contract_version": 1,
     "catalog_version": "commons-room-v1",
@@ -81,11 +80,7 @@ _FALLBACK_CONTRACT: dict[str, Any] = {
 
 
 def _contract_paths() -> tuple[Path, ...]:
-    module_path = Path(__file__).resolve()
-    return (
-        module_path.parents[2] / _CONTRACT_RELATIVE_PATH,
-        module_path.parents[1] / _CONTRACT_RELATIVE_PATH,
-    )
+    return (Path(__file__).resolve().with_name("scene-contract-v1.json"),)
 
 
 def _load_contract() -> dict[str, Any]:

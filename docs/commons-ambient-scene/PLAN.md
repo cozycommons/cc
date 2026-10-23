@@ -45,7 +45,7 @@ Every handoff includes: baseline commit; output commit/diff; a concise implement
 
 **Inputs:** TECH §§2–5 and current `commons-grid.js`, backend geometry/defaults, and migrations.
 
-**Owned outputs:** `shared/commons/scene-contract-v1.json`, new `world/geometry.js`, contract documentation/fixtures. Coordinate edits to existing grid import sites with integration; do not change their behavior independently.
+**Owned outputs:** `backend/commons/scene-contract-v1.json`, new `world/geometry.js`, contract documentation/fixtures. Coordinate edits to existing grid import sites with integration; do not change their behavior independently.
 
 **Work:** Define strict discrete bounds and continuous projection; encode the selected source scale/rig registration; name stable asset IDs; represent per-orientation coverage/blocking cells and support metadata. Create fixture snapshots for rug, three-cell sofa, tall plant, one actor and a diagnostic continuous path around each. Provide expected projection points, unsupported-orientation rejection and catalog hash behavior.
 

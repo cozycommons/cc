@@ -73,3 +73,8 @@ Windows-path syntax to repository scripts or documented developer commands.
 
 See `docs/dice-sandbox.md`, `docs/dice-data-model-testing.md`, and
 `docs/deployment.md` for the authoritative workflows.
+
+## UI design
+
+Follow Jason's design preferences in `docs/crowdset/DESIGN.md`. That document also
+records the current Crowdset feature scope.
