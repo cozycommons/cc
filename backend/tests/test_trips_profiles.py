@@ -127,7 +127,7 @@ def test_real_shared_identity_profile_reuse_and_no_dice_creation(local_api):
     assert joined['members'][1]['avatar_url'] == jamie['avatar_url']
     assert admin.table('dice_profiles').select('user_id').eq('user_id', jamie_id).execute().data == []
     admin.table('dice_profiles').insert({'user_id': jamie_id, 'display_name': 'Shared profile display',
-                                       'avatar_url': '/commons/assets/cozy-plant.svg'}).execute()
+                                       'avatar_url': '/dice/demo-avatars/alpha.webp'}).execute()
     try:
         joined = api.get(base, headers=tokens['Jamie']).json()
         repeated = api.post(f'{base}/join', headers=tokens['Jamie'], json={'invite_token': invite})
@@ -136,7 +136,7 @@ def test_real_shared_identity_profile_reuse_and_no_dice_creation(local_api):
         assert person['id'] == guest['id'] and person['user_id'] == jamie_id
         assert person['name'] == 'Source guest name'
         assert person['display_name'] == 'Shared profile display'
-        assert person['avatar_url'] == '/commons/assets/cozy-plant.svg'
+        assert person['avatar_url'] == '/dice/demo-avatars/alpha.webp'
         assert api.get('/dice/me', headers=tokens['Jamie']).json()['user_id'] == person['user_id']
         admin.table('dice_profiles').update({'display_name': 'Updated shared name'}).eq('user_id', jamie_id).execute()
         updated = api.get(base, headers=tokens['Matt']).json()

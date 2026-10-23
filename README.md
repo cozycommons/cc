@@ -6,7 +6,6 @@ Cozy Commons is a monorepo for community projects amongst our friends.
 
 ## Projects
 
-- **Commons** — our shared home at `/`, with an ambient room scene at `/scene`. See the [ambient scene docs](docs/commons-ambient-scene/README.md).
 - **Dice** — our Dice game app at `/dice`, with live scoring, tournaments, player ratings, and predictions. See the [feature map](docs/dice-feature-map.md).
 - **Crowdset** — a shared set catalog at `/crowdset` that combines friends' concert recordings into synchronized video and audio mixes. See the [Crowdset README](docs/crowdset/README.md).
 - **Beli** — personal restaurant recommendations and Want to Try bookmarks, with Instagram restaurant-post ingestion. API at `/beli`; MCP at `/beli/mcp`. See the [Beli docs](docs/beli.md).
@@ -16,14 +15,13 @@ Cozy Commons is a monorepo for community projects amongst our friends.
 
 ## Layout
 
-- `frontend/` — shared Vite + React frontend for Commons, Dice, and Crowdset
+- `frontend/` — shared Vite + React homepage and project apps
 - `backend/` — FastAPI services for the projects above; Crowdset runs as a separate service
 - `backend/ig_logger/` — shared Instagram-source → sink platform, with Beli as its first sink
 - `supabase/` — local Supabase configuration and synthetic seed data
 - `scripts/` — shared and project-specific development, migration, and verification tooling
 - `docs/` — project guides, behavior contracts, design decisions, and operations documentation
 - `design/` — shared design system, visual explorations, and component previews
-- `art/` — Commons room artwork and blockouts
 
 ## Local development
 
@@ -47,8 +45,7 @@ run `scripts/dice-dev.sh verify` for the frontend, backend, shell, and migration
 contract checks.
 
 Crowdset has its own setup and service commands in the [Crowdset README](docs/crowdset/README.md).
-For Commons database changes, run `scripts/commons-dev.sh check`. Integration setup and onboarding are
-documented in the project guides linked above, where available.
+Integration setup and onboarding are documented in the project guides linked above, where available.
 
 ## Deployment
 

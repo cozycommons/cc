@@ -162,11 +162,11 @@ jobs:
           curl --fail --silent --show-error --max-time 2 --location \
             http://127.0.0.1:8080/design >/dev/null
           curl --fail --silent --show-error --max-time 2 \
-            http://127.0.0.1:8080/design/cozy-clay/components.html >/dev/null
-          curl --fail --silent --show-error --max-time 2 \
             http://127.0.0.1:8080/design/dice >/dev/null
+          # Compare a shipped asset so SPA fallback HTML cannot pass.
           curl --fail --silent --show-error --max-time 2 \
-            http://127.0.0.1:8080/commons/cozy-commons-room-tile-base.png >/dev/null
+            http://127.0.0.1:8080/dice/demo-avatars/alpha.webp --output /tmp/dice-avatar.webp
+          cmp public/dice/demo-avatars/alpha.webp /tmp/dice-avatar.webp
 
   backend:
     # main requires this existing check name. Its success must also require
@@ -288,6 +288,5 @@ jobs:
           docker run --rm cozy-commons-backend-ci sh -c
           'test -f /app/release.py && test -f /app/migration_runner.py &&
           test -x /app/apply-shared-migrations.sh &&
-          test -x /app/apply-commons-migrations.sh &&
           test -f /app/trips/migrations/0002_trips_release_readiness.sql &&
-          test -f /app/commons/scene-contract-v1.json && command -v psql'
+          command -v psql'

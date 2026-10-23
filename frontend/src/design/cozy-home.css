@@ -20,14 +20,6 @@ body.commons-home-body {
   padding-top: clamp(48px, 8vw, 96px);
 }
 
-.cc-home-shelf h1 {
-  margin: 0 0 32px;
-  font-family: var(--serif);
-  font-size: 32px;
-  font-weight: 400;
-  letter-spacing: -0.04em;
-}
-
 .cc-home-shelf__projects {
   position: relative;
   isolation: isolate;

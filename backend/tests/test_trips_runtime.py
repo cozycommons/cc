@@ -31,6 +31,6 @@ def test_shared_local_app_ignores_dotenv_and_includes_normal_routes(tmp_path):
     result = subprocess.run([sys.executable, '-c',
         "import main; from trips.local import app; assert app is main.app; "
         "assert main.SUPABASE_URL == 'http://127.0.0.1:55321'; "
-        "paths={r.path for r in app.routes}; assert {'/trips/me','/dice/me','/commons/scene','/ready'} <= paths, paths"],
+        "paths={r.path for r in app.routes}; assert {'/trips/me','/dice/me','/ready'} <= paths, paths; assert not any(p.startswith('/commons') for p in paths), paths"],
         cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

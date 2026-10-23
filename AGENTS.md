@@ -5,7 +5,7 @@ This is the Cozy Commons monorepo. Dice is the first project.
 ## Layout
 
 - `frontend/`: Vite + React Cozy Commons home plus the Dice project at `/dice`.
-- `backend/`: FastAPI shared API with Commons routes under `/commons` and Dice routes under `/dice`.
+- `backend/`: FastAPI shared API with Dice routes under `/dice` and other project integrations.
 - `backend/ig_logger/`: generic Instagram-source → sink platform; routes under `/ig-logger`. `backend/ig_logger/sinks/beli/`: multi-tenant Beli restaurant app (the first sink); routes under `/beli`, MCP server at `/beli/mcp`.
 - `supabase/`: isolated local Supabase configuration and project seed data.
 - `scripts/`: shared development plus project-specific migration and verification tooling.
@@ -23,8 +23,7 @@ Run from the repository root unless noted otherwise.
 - Frontend tests: `cd frontend && npm test -- --run`
 - Frontend build: `cd frontend && npm run build`
 - Backend tests: `cd backend && source .venv/bin/activate && python -m pytest tests -v`
-- Commons migration check: `scripts/commons-dev.sh check`
-- Commons local migration: `scripts/commons-dev.sh local-migrate`
+- Historical Commons migration check: `scripts/check-commons-migration-contract.sh`
 
 ## Developer-platform compatibility
 
@@ -61,8 +60,8 @@ Windows-path syntax to repository scripts or documented developer commands.
 - Preserve `/dice` frontend and API paths until an explicit product change.
 - Never edit or renumber historical migrations. Existing Dice migrations retain
   the `NNNN_dice_description.sql` form; Commons migrations use
-  `backend/commons/migrations/NNNN_commons_description.sql` and the Commons
-  migration scripts.
+  `backend/commons/migrations/NNNN_commons_description.sql`. The Commons room
+  project is retired; retain its migration history for Dice release compatibility.
 - Run database work only against the loopback Supabase stack unless the user
   explicitly requests a production-connected operation.
 - Preserve the sandbox's loopback, hostname, dotenv-scrubbing, and port-privacy

@@ -4,7 +4,6 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --include=optional
 COPY frontend/ ./
-COPY backend/commons/scene-contract-v1.json /backend/commons/scene-contract-v1.json
 COPY design/ /design/
 ARG VITE_API_URL
 ARG VITE_SUPABASE_URL

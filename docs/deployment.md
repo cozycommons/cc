@@ -71,7 +71,7 @@ smoke test succeed. When enabled, use Coolify watch paths so frontend-only
 changes do not rebuild the backend and vice versa:
 
 - Backend: `backend/**`, `.dockerignore`
-- Frontend: `frontend/**`, `backend/commons/scene-contract-v1.json`, `design/**`
+- Frontend: `frontend/**`, `design/**`
 
 ## GitHub Actions
 
@@ -81,7 +81,9 @@ container builds, migration family ownership, duplicate migration versions, and
 the migration runners' fresh and existing-database behavior.
 
 The incoming backend image runs the Dice, Commons, Beli, and Trips migration
-families before starting HTTP:
+families before starting HTTP. The retired Commons room migration family remains
+for compatibility with historical Dice readiness checks; the room API and assets
+are no longer shipped:
 
 ```bash
 python -m release
