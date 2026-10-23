@@ -3,9 +3,10 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { SupabaseProvider } from './contexts/SupabaseContext.jsx';
 import CommonsHome from './commons/CommonsHome.jsx';
 import CommonsScenePage from './commons/CommonsScenePage.jsx';
-import DiceApp from './dice/App.jsx';
+const DiceApp = React.lazy(() => import('./dice/App.jsx'));
 
 const Crowdset = React.lazy(() => import('./crowdset/Crowdset.jsx'));
+const TripsApp = React.lazy(() => import('./trips/TripsApp.jsx'));
 
 const DesignIndex = React.lazy(() => import('./design/DesignIndex.jsx'));
 const DiceDesignApp = React.lazy(() => import('../../design/dice/App.jsx'));
@@ -20,6 +21,7 @@ export default function App() {
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <Routes>
         <Route path="/" element={<CommonsHome />} />
+        <Route path="/trips/*" element={<SupabaseProvider><React.Suspense fallback={<p>Opening Cozy Trips…</p>}><TripsApp /></React.Suspense></SupabaseProvider>} />
         <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
         <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
         <Route path="/scene" element={<CommonsScenePage />} />
@@ -29,7 +31,7 @@ export default function App() {
           path="/dice/*"
           element={(
             <SupabaseProvider>
-              <DiceApp />
+              <React.Suspense fallback={<p>Opening Dice…</p>}><DiceApp /></React.Suspense>
             </SupabaseProvider>
           )}
         />

@@ -29,12 +29,14 @@ def render(families):
     chunks = ["SET lock_timeout = '60s';", "SELECT pg_advisory_lock(hashtextextended('cozycommons:migrations', 0));"]
     application_chunks = []
     for family in families:
-        directory = ROOT / ("commons/migrations" if family == "commons" else "migrations")
+        directory = ROOT / ("commons/migrations" if family == "commons" else "trips/migrations" if family == "trips" else "migrations")
         patterns = (
             ["[0-9][0-9][0-9][0-9]_commons_*.sql"]
             if family == "commons"
             else ["[0-9][0-9][0-9][0-9]_beli_*.sql"]
             if family == "beli"
+            else ["[0-9][0-9][0-9][0-9]_trips_*.sql"]
+            if family == "trips"
             else ["[0-9][0-9][0-9][0-9]_dice_*.sql", "[0-9][0-9][0-9][0-9]_analytics_*.sql"]
         )
         files = sorted(p for pattern in patterns for p in directory.glob(pattern))
@@ -46,14 +48,16 @@ def render(families):
             {
                 "commons": "COMMONS_SCHEMA_CONTRACT_VERSION",
                 "beli": "BELI_SCHEMA_CONTRACT_VERSION",
+                "trips": "TRIPS_SCHEMA_CONTRACT_VERSION",
             }.get(family, "DICE_SCHEMA_CONTRACT_VERSION")
         )
         contract = int(marker.read_text().strip())
         if contract != max(versions):
             raise ValueError("Schema contract must equal latest migration")
-        anchor = {"commons": "commons_scenes", "beli": "beli_accounts"}.get(
+        anchor = {"commons": "commons_scenes", "beli": "beli_accounts", "trips": "trips_groups"}.get(
             family, "dice_profiles"
         )
+        contract_file = directory / f"{family}_schema_contract.sql"
         chunks += [f"""DO $$ BEGIN
 IF to_regclass('public.{ledger}') IS NULL AND to_regclass('public.{anchor}') IS NOT NULL THEN
  RAISE EXCEPTION 'Existing {family} schema has no migration history; explicit schema reconciliation is required';
@@ -102,7 +106,7 @@ END IF; END $$;"""]
         chunks += [f"""DO $$ BEGIN
 IF NOT EXISTS (SELECT 1 FROM public.{ledger} WHERE version={contract}) THEN
  RAISE EXCEPTION '{family} schema contract receipt missing';
-END IF; END $$;""", (directory / f"{family}_schema_contract.sql").read_text()]
+END IF; END $$;""", contract_file.read_text()]
         application_chunks.extend(chunks[application_start:])
         del chunks[application_start:]
     chunks += application_chunks
@@ -112,7 +116,7 @@ END IF; END $$;""", (directory / f"{family}_schema_contract.sql").read_text()]
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--family", choices=["dice", "commons", "beli", "all"], default="all")
+    parser.add_argument("--family", choices=["dice", "commons", "beli", "trips", "all"], default="all")
     args = parser.parse_args()
     try:
         url = normalize_url(os.environ.get("SUPABASE_DB_URL", ""), os.environ.get("SUPABASE_DB_POOLER_HOST", ""))
@@ -124,7 +128,7 @@ def main():
             actual = (parsed.username or "").removeprefix("postgres.") if ".pooler.supabase.com" in parsed.hostname else parsed.hostname.removeprefix("db.").removesuffix(".supabase.co")
             if not expected or expected != actual:
                 raise ValueError("EXPECTED_SUPABASE_PROJECT must match the hosted database")
-        script = render(["dice", "commons", "beli"] if args.family == "all" else [args.family])
+        script = render(["dice", "commons", "beli", "trips"] if args.family == "all" else [args.family])
     except ValueError as error:
         parser.error(str(error))
     # Keep passwords out of process arguments. psql inherits only the connection env.

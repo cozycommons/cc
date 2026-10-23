@@ -20,6 +20,7 @@ vi.mock('../../design/dice/App.jsx', () => ({
 }));
 
 vi.mock('./crowdset/Crowdset.jsx', () => ({ default: () => <div>Crowdset application</div> }));
+vi.mock('./trips/TripsApp.jsx', () => ({ default: () => <div>Cozy Trips application</div> }));
 
 describe('top-level routes', () => {
   beforeEach(() => {
@@ -37,6 +38,15 @@ describe('top-level routes', () => {
     expect(screen.getByRole('link', { name: 'Open Dice beer die records and stats' })).toHaveAttribute('href', '/dice');
     expect(screen.queryByText('Commons scene page')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Crowdset concert videos' })).toHaveAttribute('href', '/crowdset');
+    expect(screen.getByRole('link', { name: 'Open Cozy Trips shared trip expenses' })).toHaveAttribute('href', '/trips');
+  });
+
+  it('shares Supabase with Cozy Trips and preserves direct trip links', async () => {
+    window.history.replaceState({}, '', '/trips/trip-id');
+    render(<App />);
+    expect(await screen.findByText('Cozy Trips application')).toBeInTheDocument();
+    expect(screen.getByTestId('supabase-provider')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/trips/trip-id');
   });
 
   it('serves Crowdset at its canonical URL', async () => {
@@ -67,12 +77,12 @@ describe('top-level routes', () => {
     expect(screen.getByText('Commons scene page')).toBeInTheDocument();
   });
 
-  it('serves Dice and initializes Supabase under /dice', () => {
+  it('serves Dice and initializes Supabase under /dice', async () => {
     window.history.replaceState({}, '', '/dice/profile/player-id');
 
     render(<App />);
 
-    expect(screen.getByText('Dice application')).toBeInTheDocument();
+    expect(await screen.findByText('Dice application')).toBeInTheDocument();
     expect(screen.getByTestId('supabase-provider')).toBeInTheDocument();
   });
 

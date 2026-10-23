@@ -15,10 +15,11 @@ _READINESS_TIMEOUT_SECONDS = float(os.getenv("READINESS_TIMEOUT_SECONDS", "2"))
 
 
 def _check_required_schema(supabase) -> None:
-    """Attest actual Dice and Commons schema, not a copied version ledger."""
-    result = supabase.rpc("dice_release_readiness").execute()
-    if result.data is not True:
-        raise RuntimeError("Release schema attestation failed")
+    """Attest the actual schemas required by the shared application."""
+    for name in ("dice_release_readiness", "trips_release_readiness"):
+        result = supabase.rpc(name).execute()
+        if result.data is not True:
+            raise RuntimeError(f"Release schema attestation failed: {name}")
 
 
 @router.get("/health")

@@ -7,6 +7,31 @@ on:
     branches: [main]
 
 jobs:
+  trips:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: npm ci
+      - run: python -m venv backend/.venv
+      - run: backend/.venv/bin/python -m pip install -r backend/requirements.txt
+      - name: Start isolated Supabase Auth and Trips database
+        run: backend/.venv/bin/python scripts/trips-dev.py setup
+      - name: Require real Supabase Trips integration tests
+        run: backend/.venv/bin/python -m pytest backend/tests/test_trips.py backend/tests/test_trips_import.py backend/tests/test_trips_profiles.py -q
+        env:
+          PYTHONPATH: backend
+          TRIPS_INTEGRATION: "1"
+
   crowdset:
     strategy:
       matrix:
@@ -121,6 +146,11 @@ jobs:
 
           curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/ >/dev/null
           curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/dice >/dev/null
+          curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8080/trips >/dev/null
+          curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:8080/trips/10000000-0000-0000-0000-000000000001 >/dev/null
+          curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:8080/trips/join/10000000-0000-0000-0000-000000000001 >/dev/null
           curl --fail --silent --show-error --max-time 2 --location \
             http://127.0.0.1:8080/design >/dev/null
           curl --fail --silent --show-error --max-time 2 \
@@ -131,6 +161,10 @@ jobs:
             http://127.0.0.1:8080/commons/cozy-commons-room-tile-base.png >/dev/null
 
   backend:
+    # main requires this existing check name. Its success must also require
+    # the real Supabase Trips integration job, rather than merely an optional job.
+    needs: trips
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     env:
       DB_URL: postgresql://postgres:postgres@localhost:5432/dummi_test
@@ -147,6 +181,8 @@ jobs:
           --health-cmd "pg_isready -U postgres -d dummi_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
+      - name: Require successful Trips integration
+        run: test '${{ needs.trips.result }}' = success
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -186,7 +222,7 @@ jobs:
           docker stop dice-ci-rest
           dropdb -h localhost -U postgres --force dummi_test
           createdb -h localhost -U postgres dummi_test
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -c 'create schema auth; create table auth.users(id uuid primary key); alter default privileges in schema public grant all on tables to service_role; alter default privileges in schema public grant all on sequences to service_role;'
+          psql "$DB_URL" -v ON_ERROR_STOP=1 --file scripts/supabase-test-scaffold.sql
           docker start dice-ci-rest
           container=cozy-commons-backend-ci
           cleanup() {
@@ -209,6 +245,10 @@ jobs:
           curl --fail --silent --show-error --retry 30 --retry-delay 1 --retry-connrefused --retry-all-errors --max-time 5 http://127.0.0.1:8000/ready
           test "$(psql "$DB_URL" -Atc 'select max(version) from dice_schema_migrations')" = 80
           test "$(psql "$DB_URL" -Atc 'select max(version) from commons_schema_migrations')" = 12
+          test "$(psql "$DB_URL" -Atc 'select max(version) from trips_schema_migrations')" = 2
+          test "$(psql "$DB_URL" -Atc 'select trips_release_readiness()')" = t
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:8000/trips/groups)" = 401
           docker exec "$container" python -m dice_maintenance --rebuild
 
           for attempt in $(seq 1 30); do
@@ -241,4 +281,5 @@ jobs:
           'test -f /app/release.py && test -f /app/migration_runner.py &&
           test -x /app/apply-shared-migrations.sh &&
           test -x /app/apply-commons-migrations.sh &&
+          test -f /app/trips/migrations/0002_trips_release_readiness.sql &&
           test -f /app/shared/commons/scene-contract-v1.json && command -v psql'

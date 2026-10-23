@@ -70,8 +70,8 @@ Keep automatic deployments disabled until the first manual deployment and
 smoke test succeed. When enabled, use Coolify watch paths so frontend-only
 changes do not rebuild the backend and vice versa:
 
-- Backend: `/backend/**`, `/shared/commons/scene-contract-v1.json`
-- Frontend: `/frontend/**`, `/shared/commons/scene-contract-v1.json`
+- Backend: `backend/**`, `shared/commons/scene-contract-v1.json`, `.dockerignore`
+- Frontend: `frontend/**`, `shared/commons/scene-contract-v1.json`, `design/**`
 
 ## GitHub Actions
 
@@ -80,7 +80,8 @@ does not require production credentials. It also checks frontend lint, both
 container builds, migration family ownership, duplicate migration versions, and
 the migration runners' fresh and existing-database behavior.
 
-The incoming backend image runs both migration families before starting HTTP:
+The incoming backend image runs the Dice, Commons, Beli, and Trips migration
+families before starting HTTP:
 
 ```bash
 python -m release
@@ -89,7 +90,7 @@ python -m release
 Keep this Docker command in Coolify. Remove any old Commons-only migration hook:
 it cannot replace running the incoming image's SQL. The runner uses a database
 advisory lock, verifies recorded checksums and schema contracts, and exits before
-HTTP starts on failure. Both Dice and Commons migrations now belong to this
+HTTP starts on failure. All four migration families belong to this
 release. The backend needs the database URL at runtime; keep it in Coolify's
 secret configuration. `EXPECTED_SUPABASE_PROJECT` must match the intended hosted
 database, preventing an accidental deployment against another project.
@@ -97,9 +98,24 @@ database, preventing an accidental deployment against another project.
 CI exercises fresh PostgreSQL and PostgREST, requires the database tests to run,
 starts the built release image, runs maintenance, checks readiness failure when
 the database API is unavailable, and rejects a release with a corrupted migration
-receipt. CI does not itself trigger Coolify. Verify the actual auto-deploy trigger
+receipt. A separate `trips` job requires real Supabase Auth/API integration tests,
+and the frontend container checks `/trips` and its deep links. Trips migrations
+live under `backend/trips/migrations/`; its schema marker and readiness function
+must advance together when the schema contract changes. `/ready` checks both
+the existing Dice/Commons attestation and the Trips attestation.
+
+CI does not itself trigger Coolify. Verify the actual auto-deploy trigger
 and required-check gating in Coolify before enabling it; a push webhook alone
 does not establish that tests passed.
+
+Read-only inspection on 2026-10-23 confirmed both existing applications use
+`cozycommons/cc`, branch `main`, commit `HEAD`, source `coolify-cc`, and **Deploy on
+push (webhooks)**. Their saved watch paths match the lists above and cover the
+Trips frontend/backend changes. The backend retains an empty pre-deploy command
+and `python -m dice_maintenance --rebuild` after deployment. No hosting setting
+was changed. The gate is GitHub's required PR checks before updating `main`;
+Coolify itself is configured to react to the resulting push, not wait on a CI
+workflow. A post-merge deployment and real Google/Trips smoke test remain pending.
 
 GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
 is active on `main`. It requires the GitHub Actions `frontend` and `backend`
@@ -111,7 +127,7 @@ the workflow when changing CI.
 
 Before smoke testing the deployment:
 
-1. Let the incoming backend apply both checked-in migration families. For an
+1. Let the incoming backend apply all checked-in migration families. For an
    existing database, reconcile its real schema and migration ledger first;
    never fabricate baseline receipts or replay historical SQL blindly.
 2. Create the `dice-profile-photos` and `dice-comment-photos` storage buckets
@@ -145,9 +161,9 @@ until deployment access is available.
 
 1. Open the backend `/health` endpoint and verify it returns `{"status":"ok"}`.
 2. Open `/ready` and verify it returns `{"status":"ready"}`. Treat a `503` as
-   a failed rollout: the process is alive, but Supabase or the required Dice
+   a failed rollout: the process is alive, but Supabase or a required application
    schema is unavailable.
-3. Open the frontend `/healthz` endpoint and `/dice` route.
+3. Open the frontend `/healthz` endpoint, `/dice`, `/trips`, and a Trips deep link.
 4. Verify authentication and logout.
 5. Upload and display one synthetic profile or comment image.
 6. Complete one synthetic game flow and confirm the leaderboard updates.
