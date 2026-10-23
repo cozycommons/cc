@@ -134,8 +134,17 @@ The initial Trips release used commit
 
 Both running containers were inspected as healthy. The preceding `e3c511d`
 images were retained for rollback before the merge. Backend post-deploy
-maintenance ran through the existing hook. Only the frontend needs another
-rollout for the document-cache fix; backend code/schema are unchanged.
+maintenance ran through the existing hook.
+
+PR #86's document-cache fix merged as
+`05854ed78b4da1378589c9f10e4e332afe03cb27` after all five PR checks passed. The
+existing frontend webhook completed deployment `muw2mnu9zagssclfhq04n5z2`;
+running image identity
+`sha256:d9c2cfbb699b8ea8a9777738fb82cc8b407d47cc5f5ff98a213a95a9fad5ff14`
+was inspected as healthy. The backend remains on the healthy `efbaf35` image
+above; its code/schema did not change. Hosted HEAD 200 and ETag 304 responses
+send `Cache-Control: no-cache` on all six checked document routes. Health,
+readiness, anonymous denial and normal Commons/Dice/Trips navigation passed.
 
 GitHub's [Required Commons CI ruleset](https://github.com/cozycommons/cc/rules/23201531)
 is active on `main`. It requires the GitHub Actions `frontend` and `backend`

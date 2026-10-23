@@ -2,17 +2,17 @@
 
 Cozy Commons project at `/trips`, with its authenticated API under `/trips`.
 
-## Proposed integration plan — 2026-10-23
+## Integration plan and delivery — 2026-10-23
 
-Status: core shipped and hosted acceptance passed, 2026-10-23; a demonstrated
-document-cache follow-up is in verification. Deliver the core functionality,
+Status: core shipped and hosted acceptance passed, 2026-10-23; the demonstrated
+document-cache follow-up is also deployed and verified. Deliver the core functionality,
 complete end-to-end verification, database migrations, and a PR with passing CI
 for the existing release path. Track live feature/test status in
-[`cozy-trips-tests.md`](cozy-trips-tests.md). The existing implementation is a
-locally verified Commons integration. A captured Splitwise trip reconciles exactly
-in local Supabase, and shared account/profile reuse passes real local Auth/API and
-browser checks. Actual Commons Google OAuth, canonical Dice identity, hosted
-source reconciliation and core mutation checks now pass; see the hosted record.
+[`cozy-trips-tests.md`](cozy-trips-tests.md). The implementation uses the normal
+Commons frontend/backend and hosted Supabase. A captured Splitwise trip reconciles
+exactly in both local and hosted Supabase. Shared account/profile reuse passes
+real local Auth/API and browser checks. Actual Commons Google OAuth, canonical
+Dice identity, hosted source reconciliation and core mutations pass; see the hosted record.
 This plan supersedes the prototype's completion claim below.
 
 ### Outcome and stopping point
@@ -140,15 +140,19 @@ Preserve the original notes while matching. Draft estimates do not affect
 balances; confirming the expense posts its validated amounts. Repeating a receipt
 match or confirmation must not create a duplicate bill.
 
-This direction is parked while the current import, shared identity, migration,
-and release acceptance work is completed. It does not add receipt OCR or a new
-agent credential platform to the current implementation slice.
+This direction remains parked for a separate increment after the completed core
+release. It does not add receipt OCR or a new agent credential platform to the
+current implementation slice.
 
 Current state: [PR #85](https://github.com/cozycommons/cc/pull/85) merged and
 deployed as `efbaf35`; all five PR and main CI jobs passed. Real Google/profile,
 hosted import/repeat/field reconciliation, privacy and synthetic mutation checks
-pass. Branch `fix/trips-document-cache` addresses stale home HTML discovered in
-that run and batches the release evidence with its functional fix. Raw account
+pass. [PR #86](https://github.com/cozycommons/cc/pull/86) merged as `05854ed` after
+all five PR checks passed. Its frontend webhook rollout and hosted cache/navigation
+checks passed, and all five merged-main CI jobs passed in run `39934493875`.
+Backend remains on `efbaf35`; both containers are healthy. This goal's core
+delivery and acceptance work is complete.
+Branch `fix/trips-document-cache` records the final verification. Raw account
 data stays ignored. The later draft-purchase workflow remains parked.
 
 ## Prototype scope (historical)
