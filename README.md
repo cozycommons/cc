@@ -1,40 +1,37 @@
 # Cozy Commons
 
-Monorepo for Cozy Commons projects
+A monorepo for community projects amongst our friends.
 
-https://cozycommons.dev
+[cozycommons.dev](https://cozycommons.dev)
+
+## Projects
+
+- **[Commons](docs/commons-ambient-scene/README.md)** — our shared homepage and ambient room.
+- **[Dice](docs/dice-feature-map.md)** — live scoring, tournaments, player ratings, and predictions.
+- **[Crowdset](docs/crowdset/README.md)** — combine friends’ concert recordings into synchronized video and audio mixes.
+- **[Cozy Trips](docs/cozy-trips.md)** — shared trip expenses, balances, and repayments.
+- **[Beli](docs/beli.md)** — restaurant recommendations and bookmarks, including finds from Instagram.
+- **[Partiful](docs/partiful.md)** — access to friends’ hosted, RSVP’d, and invited events.
+- **[Resy](backend/resy/)** — restaurant search, availability, and reservations.
+- **[ESPN Fantasy](backend/espn/)** — league stats, rosters, and opt-in lineup automation.
 
 ## Layout
 
-- `frontend/` — Vite + React Dice web app
-- `backend/` — FastAPI Dice API
-- `backend/ig_logger/` — generic Instagram-source → sink platform; the Beli app lives at `backend/ig_logger/sinks/beli/` — see `docs/beli/`
-- `supabase/` — local Supabase configuration and synthetic seed data
-- `scripts/` — isolated Dice development and migration tooling
-- `docs/` — behavior and operations documentation
-
-## Local development
-
-```bash
-scripts/dice-dev.sh doctor
-scripts/dice-dev.sh setup
-scripts/dice-dev.sh local
-```
-
-The Dice app runs at <http://localhost:8080/dice>.
-
-Copy the `.env.example` files only for normal direct service runs. The isolated
-Dice harness injects verified loopback credentials and intentionally ignores
-dotenv files.
-
-`doctor` is a non-destructive prerequisite check. `install` installs locked
-dependencies without starting services or resetting data. Before opening a PR,
-run `scripts/dice-dev.sh verify` for the frontend, backend, shell, and migration
-contract checks.
+- `frontend/` — shared Vite + React web app
+- `backend/` — FastAPI services and integrations
+- `supabase/` — local database configuration and seed data
+- `scripts/` — development, migration, and verification tooling
+- `docs/` — project guides, specs, and operations
+- `design/` and `art/` — design system, visual explorations, and artwork
 
 ## Deployment
 
-Production uses two Coolify applications sourced from this repository: the
-FastAPI backend under `backend/` and the static Vite frontend under `frontend/`.
-See [docs/deployment.md](docs/deployment.md) for the exact resource settings,
-environment-variable boundaries, and first-deployment checklist.
+Coolify builds from `cozycommons/cc` on `main`, with separate Dockerfile applications
+for the shared frontend (`frontend/Dockerfile`, port 80) and backend
+(`backend/Dockerfile`, port 8000). Push webhooks trigger deployments; watch paths
+limit rebuilds to relevant changes. GitHub required PR checks gate changes to `main`.
+
+Environment variables are configured per application in Coolify. The backend runs
+database migrations before starting. Crowdset has a separate hosted service.
+See the [deployment guide](docs/deployment.md) and
+[Crowdset hosting setup](docs/crowdset/README.md#hosted-test-configuration) for details.
