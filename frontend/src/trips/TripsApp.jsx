@@ -104,7 +104,8 @@ export default function TripsApp() {
   const auth = useTripsAuth();
   const tripId = useMatch('/trips/:tripId')?.params.tripId;
   const joinId = useMatch('/trips/join/:tripId')?.params.tripId;
-  const workspaceKey = `${auth.user?.id}:${joinId || tripId || 'home'}`;
+  // Join and trip routes for the same id must not share a workspace, or the joined trip never loads.
+  const workspaceKey = `${auth.user?.id}:${joinId ? `join:${joinId}` : tripId || 'home'}`;
   const headerProfile = auth.profile || { user_id: auth.user?.id,
     display_name: auth.user?.user_metadata?.full_name || auth.user?.user_metadata?.name || auth.user?.email || 'Me',
     avatar_url: auth.user?.user_metadata?.avatar_url || auth.user?.user_metadata?.picture };
