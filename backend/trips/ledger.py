@@ -32,7 +32,11 @@ def balances(data):
     return result
 
 
-def transfers(amounts):
+# Bound the O(n * 2**n) exact search by nonzero balances, not trip size.
+FEWEST_PAYMENTS_LIMIT = 16
+
+
+def _greedy_transfers(amounts):
     debtors = [[key, -value] for key, value in amounts.items() if value < 0]
     creditors = [[key, value] for key, value in amounts.items() if value > 0]
     result = []
@@ -43,6 +47,60 @@ def transfers(amounts):
                 result.append({'from_member': debtor[0], 'to_member': creditor[0], 'amount_minor': amount})
                 debtor[1] -= amount
                 creditor[1] -= amount
+    return result
+
+
+def _settlement_mode(amounts):
+    return 'fewest' if sum(value != 0 for value in amounts.values()) <= FEWEST_PAYMENTS_LIMIT else 'greedy'
+
+
+def transfers(amounts):
+    """Settle zero-sum integer nets, minimizing payments within the exact limit.
+
+    A settlement's connected components are zero-sum groups. Maximizing their
+    count gives the minimum n - groups payments. Each optimal group is
+    indecomposable, so debtor-to-creditor greedy takes exactly k - 1 payments.
+    """
+    if _settlement_mode(amounts) == 'greedy':
+        return _greedy_transfers(amounts)
+    members = [(key, value) for key, value in amounts.items() if value]
+    size = 1 << len(members)
+    sums = [0] * size
+    groups = [0] * size
+    last = [0] * size
+    values = {1 << index: value for index, (_, value) in enumerate(members)}
+    for mask in range(1, size):
+        bit = mask & -mask
+        sums[mask] = sums[mask ^ bit] + values[bit]
+        # Best ordering of this subset: earn a group whenever a prefix sums to
+        # zero. Trying each final member is O(n * 2**n), not O(3**n) submasks.
+        remaining = mask
+        best = -1
+        while remaining:
+            bit = remaining & -remaining
+            score = groups[mask ^ bit]
+            if score > best:  # Ties choose the earliest member in input order.
+                best = score
+                last[mask] = bit
+            remaining ^= bit
+        groups[mask] = best + (sums[mask] == 0)
+
+    result = []
+    mask = size - 1
+    group = 0
+    while mask:
+        bit = last[mask]
+        group |= bit
+        mask ^= bit
+        if sums[mask] == 0:
+            result.extend(_greedy_transfers({
+                key: value for index, (key, value) in enumerate(members)
+                if group & (1 << index)
+            }))
+            group = 0
+    # Display debtor first, then creditor, in the ledger's member order.
+    order = {key: index for index, key in enumerate(amounts)}
+    result.sort(key=lambda item: (order[item['from_member']], order[item['to_member']]))
     return result
 
 
@@ -63,7 +121,7 @@ def public_group(row):
     amounts = balances(data)
     return {**data, 'id': row['id'], 'owner_id': row['owner_id'],
             'revision': row['revision'], 'created_at': row['created_at'],
-            'balances': amounts, 'transfers': transfers(amounts),
+            'balances': amounts, 'transfers': transfers(amounts), 'settlement': _settlement_mode(amounts),
             'total_minor': sum(item['amount_minor'] for item in data['expenses'])}
 
 

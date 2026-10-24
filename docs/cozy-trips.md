@@ -290,6 +290,29 @@ member order. Equal splits distribute remainder pennies in member order.
 Repayment input: id, revision, from_member, to_member, amount_minor, date, notes.
 Positive balances mean owed; negative balances mean owing.
 
+### Settlement contract
+
+Every public trip includes `transfers` and `settlement: 'fewest' | 'greedy'`.
+Transfers keep the shape `{from_member, to_member, amount_minor}`. All amounts
+are integer minor units; every suggested payment goes from a net debtor to a
+net creditor. Applying the suggestions clears all balances, and the total paid
+equals the sum of positive balances (the least money that can change hands).
+
+With at most **16 nonzero balances**, `settlement` is `fewest`: an exact
+O(n · 2^n) subset DP maximizes the number of disjoint zero-sum groups. The minimum
+payment count is n minus that group count. Each group is settled directly from
+debtors to creditors, without intermediary hops. Zero balances do not count
+toward the limit; an already square trip returns no transfers and `fewest`.
+
+Above 16 nonzero balances, `settlement` is `greedy`: the existing member-order
+matching still minimizes money moved, with no fewest-payments guarantee.
+Suggestions are deterministic in trip member order (the balance map's insertion
+order). DP ties select the earliest member as the final element of a subset;
+within each recovered group greedy matching follows member order, and displayed
+transfers are ordered by debtor, then creditor. The UI claims fewest payments
+only when `settlement === 'fewest'`; missing mode fields retain the previous
+wording for compatibility.
+
 Prefilled, unsaved expense (UI): `/trips/{id}?add=expense&description=Dinner&amount=42.50&paid_by={member}&participants={member},{member}&category=food`
 opens the form for review. Sections are addressable with `?tab=expenses|balances|people|activity`.
 

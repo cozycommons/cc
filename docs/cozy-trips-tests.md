@@ -151,6 +151,38 @@ and migration evidence before requesting either.
 
 ## Current handoff
 
+### Fewest-payments settlement — 2026-10-23
+
+Implemented on `feat/trips-fewest-payments` in an isolated worktree, ready for a
+PR against main. Exact subset DP now minimizes payment count for up to 16
+nonzero balances; larger groups retain the original greedy matching. Both modes
+send only integer minor units directly from net debtors to net creditors and
+minimize total money moved. Public trips expose `settlement: fewest | greedy`;
+the UI uses the fewest-payments wording only for `fewest`.
+
+Local evidence (CPython 3.12, Node 22):
+
+- New `backend/tests/test_trips_settlement.py`: **208 passed**. An independent
+  brute-force debtor/creditor payment-search oracle agrees on **700 random
+  cases** (100 seeds, each size 2–8) and **100 shuffled zero-sum subgroup cases**.
+  Checks cover conservation, minimum money moved, debtor/creditor direction,
+  deterministic ties/member order, zero balances, API mode and greedy fallback.
+- At the 16-person limit, three full-state-search shapes (no proper zero-sum
+  subset, many tied partitions, powers of two) took **at most 41.2 ms across nine
+  samples**. The timing guard requires the fastest of three samples per shape
+  below 200 ms to tolerate unrelated CI scheduling pauses.
+- `cd backend && PYTHONPATH=. /path/to/existing/backend/.venv/bin/python -m pytest tests -q`:
+  **956 passed, 47 skipped**. Existing database/Auth integration cases remain
+  gated by their opt-in isolated-test configuration; no services were started.
+- `cd frontend && mise exec node@22 -- npx vitest run src/trips`: **94 passed**
+  across 14 files, including exact, greedy and missing-field settlement copy.
+- `cd frontend && mise exec node@22 -- npm run lint`: **passed**, zero errors
+  or warnings. `git diff --check` passed.
+
+The shared preview checkout/services, hosted data and production were untouched.
+This handoff covers local automated verification; merge and deployment are not
+part of this increment.
+
 ### Exploratory QA round — 2026-10-24
 
 GPT-6.1 Sol (phones: 390×844, 360×740, 375×667, 844×390 landscape) and GPT-6 Luna
@@ -184,7 +216,8 @@ stamp and confetti only when the signed-in balance becomes zero, tab blob pop, c
 press, logo wiggle. A headless browser confirmed animations run normally and are
 `none` under reduced motion with static end states kept; no horizontal overflow at
 390px or 1280px. Screenshots: `artifacts/cozy-trips/v3/`. Deferred: a chooser for
-trip stickers (needs an optional trip field) and a fewest-payments solver.
+trip stickers (needs an optional trip field). The fewest-payments solver is
+covered by the newer handoff above.
 
 ### UI rework and Venmo — 2026-10-23
 
@@ -239,8 +272,9 @@ request was sent. Screenshots are outside Git in
 
 Remaining limits: friends' accounts still aren't linked to the imported trip,
 so only Matt's username shows there until they join or the creator enters
-theirs. Settlement stays greedy (minimum dollars moved, not guaranteed fewest
-payments). Native-browser focus trapping is not separately verified.
+theirs. The earlier greedy-only settlement limitation is superseded by the
+fewest-payments handoff above. Native-browser focus trapping is not separately
+verified.
 
 ### Mobile profile, form and calculation clarity
 
