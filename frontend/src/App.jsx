@@ -22,7 +22,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<CozyWabiLanding />} />
         <Route path="/trips/*" element={<SupabaseProvider><React.Suspense fallback={<p>Opening Cozy Trips…</p>}><TripsApp /></React.Suspense></SupabaseProvider>} />
-        <Route path="/fantasy" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
+        <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
         <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
         <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
         <Route path="/design" element={<React.Suspense fallback={null}><DesignIndex /></React.Suspense>} />
