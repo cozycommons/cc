@@ -111,7 +111,30 @@ export const tripStickers = [
   { key: 'wave', icon: Wave, cover: '#3f7c8a' },
   { key: 'plane', icon: Plane, cover: '#a8606f' },
 ];
+// NITEHARTS gets its own mark: a cute bat-winged heart. The face and rib are cut out so the stamp shows through.
+const nitehartsHeart = 'M50 37.2 46.4 29.8C45.8 33.5 44.9 36 43.4 38 41 33.5 38.2 27.6 34.8 24.4 33 22.9 31 21.8 29 21.3L21.2 11.8 24.6 21.6C16.8 23.4 11.6 30.4 11.4 38.4L3 41.6 11.8 45.2C12.6 51.6 15.4 56.8 19.2 61.2L12.8 66.4 23 65.2C31 73.4 42 80.6 50 90.5 58 80.6 69 73.4 77 65.2L87.2 66.4 80.8 61.2C84.6 56.8 87.4 51.6 88.2 45.2L97 41.6 88.6 38.4C88.4 30.4 83.2 23.4 75.4 21.6L78.8 11.8 71 21.3C69 21.8 67 22.9 65.2 24.4 61.8 27.6 59 33.5 56.6 38 55.1 36 54.2 33.5 53.6 29.8Z';
+
+export function Niteharts({ size = 24, className }) {
+  const mask = `niteharts-${React.useId().replace(/[^\w-]/g, '')}`;
+  return <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" focusable="false" className={className}>
+    <mask id={mask} maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect width="100" height="100" fill="#fff" />
+      <path d="M24.4 54.2C29 62.2 35.6 69.6 44 76.6M75.6 54.2C71 62.2 64.4 69.6 56 76.6" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round" />
+      <ellipse cx="37.5" cy="44" rx="3.9" ry="4.7" /><ellipse cx="62.5" cy="44" rx="3.9" ry="4.7" />
+      <circle cx="38.8" cy="42.2" r="1.35" fill="#fff" /><circle cx="63.8" cy="42.2" r="1.35" fill="#fff" />
+      <path d="M44.2 53.4C47 56.2 53 56.2 55.8 53.4" fill="none" stroke="#000" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="m46.9 55.2 1.4 3.6 1.4-3.2Z" stroke="#000" strokeWidth=".8" strokeLinejoin="round" />
+      <ellipse cx="29" cy="52.4" rx="3.6" ry="2" opacity=".35" /><ellipse cx="71" cy="52.4" rx="3.6" ry="2" opacity=".35" />
+    </mask>
+    <path d={nitehartsHeart} fill="currentColor" stroke="currentColor" strokeWidth="3.4" strokeLinejoin="round" mask={`url(#${mask})`} />
+  </svg>;
+}
+
+export const nitehartsSticker = { key: 'niteharts', icon: Niteharts, cover: '#2b2230' };
+export const isNiteharts = (trip) => /nite\s*harts/i.test(trip?.name || '');
+
 export function tripSticker(trip) {
+  if (isNiteharts(trip)) return nitehartsSticker;
   let hash = 11;
   for (const character of String(trip?.id || trip?.name || '')) hash = (Math.imul(hash, 33) + character.charCodeAt(0)) >>> 0;
   return tripStickers[hash % tripStickers.length];
