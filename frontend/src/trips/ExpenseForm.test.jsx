@@ -49,7 +49,8 @@ it('defaults the payer to me and selects people quickly', async () => {
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   // Participants are sent in member order regardless of click order.
   expect(save.mock.calls[0][0]).toMatchObject({ amount_minor: 1200, paid_by: 'matt', participants: ['matt', 'jamie'], split_mode: 'equal', shares: {} });
-  fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Matt (you)' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Jamie' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Choose at least one person');
 });
