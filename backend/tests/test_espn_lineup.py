@@ -1462,21 +1462,29 @@ def test_locked_players_moves_excluded_others_applied():
     assert run["status"] == "ok"
     # a lock is not a conflict and must not look like one
     assert run["conflicts"] == []
-    # exactly one transaction, carrying only the unlocked moves
+    # exactly one transaction, carrying only the submittable moves:
+    # the two locked players' own moves AND 116's move into the C
+    # slot locked 104 is staying in (see the collateral test below)
     (post,) = client.posts
     posted = {m["playerId"] for m in post["items"]}
-    assert posted == {101, 102, 106, 108, 109, 116}
+    assert posted == {101, 102, 106, 108, 109}
     assert posted == {m["playerId"] for m in run["moves"]}
-    # both locked players' moves were excluded and reported as skips
-    skips = run["plan"]["locked_skips"]
-    assert {s["player_id"] for s in skips} == {103, 104}
-    for s in skips:
+    # the locked players' moves were excluded and reported as skips
+    skips = {s["player_id"]: s for s in run["plan"]["locked_skips"]}
+    assert set(skips) == {103, 104, 116}
+    for pid in (103, 104):
+        s = skips[pid]
         assert s["kind"] == "player_locked"
         assert "player_locked" in s["reason"]
         assert s["detail"]["source"] == "schedule"
         assert s["detail"]["tipoff"] == (
             datetime(2026, 10, 24, 23, 0, tzinfo=timezone.utc).isoformat()
         )
+    collateral = skips[116]
+    assert collateral["kind"] == "player_locked"
+    assert collateral["detail"]["source"] == "blocked_by_lock"
+    assert collateral["detail"]["blocked_by_player_id"] == 104
+    assert "Player 104 is locked" in collateral["reason"]
     # the fake roster shows the applied moves and the locked players
     # exactly where they were (verify did not flag them)
     plan = _plan_players(run)
@@ -1488,8 +1496,77 @@ def test_locked_players_moves_excluded_others_applied():
     }
     assert entries[103] == BE
     assert entries[104] == C
-    assert entries[116] == C
+    assert entries[116] == BE
     assert entries[101] in STARTING
+
+
+def test_move_into_locked_players_slot_is_collateral_skip():
+    # The dependent-move case from the live run that followed PR
+    # #111 (2026-10-24, period 5): Reid was correctly skipped at C,
+    # but Jokic's move INTO C was still submitted and ESPN rejected
+    # the whole batch — "Too many players in the C slot (maximum
+    # 1)". A move whose target slot only overflows because a locked
+    # player is staying in it must be excluded too, as a
+    # blocked_by_lock skip naming the blocker — not submitted, not a
+    # conflict, not an error.
+    entries = [
+        # team 2 already tipped: locked at C; the plan wants him at
+        # PF, but he is not going anywhere
+        _entry(501, C, _player(501, 2, [C, PF, F, UTIL, BE], 20)),
+        # team 1 (future tip): the best player on the roster is
+        # C-only, so the plan starts him at C — straight into the
+        # slot 501 is locked into
+        _entry(503, BE, _player(503, 1, [C, BE], 30)),
+        _entry(502, PF, _player(502, 1, [PF, F, UTIL, BE], 15)),
+        _entry(509, PG, _player(509, 1, [PG, G, UTIL, BE], 19)),
+        _entry(504, SG, _player(504, 1, [SG, G, UTIL, BE], 18)),
+        _entry(505, SF, _player(505, 3, [SF, F, UTIL, BE], 17)),
+        _entry(506, G, _player(506, 1, [PG, SG, G, UTIL, BE], 16)),
+        _entry(507, F, _player(507, 3, [SF, PF, F, UTIL, BE], 14)),
+        _entry(508, UTIL, _player(508, 3, [UTIL, BE], 13)),
+        _entry(510, BE, _player(510, 1, [SG, G, UTIL, BE], 12)),
+        _entry(511, BE, _player(511, 9, [UTIL, BE])),
+        _entry(512, BE, _player(512, 9, [UTIL, BE])),
+        _entry(513, BE, _player(513, 9, [UTIL, BE])),
+        _entry(514, IR, _player(514, 9, [C, UTIL, BE, IR], None,
+                                status="OUT")),
+    ]
+    games = [
+        _dated_game(1, 3, FUTURE_TIP_MS),
+        _dated_game(2, 4, PAST_TIP_MS),
+    ]
+    payload = _payload(entries, {PERIOD: games})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, now=LOCK_NOW)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    plan = _plan_players(run)
+    # the plan really did want 501 out of C and 503 into it
+    assert plan[501]["to_slot"] != C
+    assert plan[503]["to_slot"] == C
+    # neither move was submitted; the rest of the plan applied (the
+    # matching rotates the flexible players through G/F/UTIL/SG —
+    # the exact set of movers is pinned, 501/503 are not among them)
+    (post,) = client.posts
+    posted = {m["playerId"] for m in post["items"]}
+    assert posted == {502, 504, 505, 506, 507, 510}
+    assert posted == {m["playerId"] for m in run["moves"]}
+    skips = {s["player_id"]: s for s in run["plan"]["locked_skips"]}
+    assert set(skips) == {501, 503}
+    assert skips[501]["kind"] == "player_locked"
+    assert skips[501]["detail"]["source"] == "schedule"
+    assert skips[503]["kind"] == "player_locked"
+    assert skips[503]["detail"]["source"] == "blocked_by_lock"
+    assert skips[503]["detail"]["blocked_by_player_id"] == 501
+    assert "Player 501 is locked" in skips[503]["reason"]
+    # verify passed with both players exactly where they started
+    entries_now = {
+        e["playerId"]: e["lineupSlotId"]
+        for e in client.payload["teams"][0]["roster"]["entries"]
+    }
+    assert entries_now[501] == C
+    assert entries_now[503] == BE
 
 
 def test_brooks_regression_bench_player_starts_despite_locked_teammates():
