@@ -56,9 +56,11 @@ class Expense(Revision):
     description: Name
     amount_minor: Money
     paid_by: UUID
-    split_mode: Literal['equal', 'exact', 'shares'] = 'equal'
+    split_mode: Literal['equal', 'exact', 'shares', 'percent'] = 'equal'
     participants: Annotated[list[UUID], Field(min_length=1, max_length=30)]
     shares: dict[UUID, Share] = Field(default_factory=dict)
+    # Several people paying: amount each paid, adding up to the expense. Empty means paid_by paid it all.
+    payers: dict[UUID, Share] = Field(default_factory=dict)
     date: date
     category: Literal['food', 'stay', 'transport', 'activities', 'other'] = 'other'
     notes: Annotated[str, StringConstraints(max_length=1000)] = ''

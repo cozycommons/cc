@@ -3,7 +3,8 @@ import { Minus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Bag, Bowl, Cabin, Camper, Ticket } from './doodles.jsx';
 import { decimal, equalShares, money, shortDate, today, toMinor, weightedShares } from './money.js';
 import { Avatar, Button, Field, Form } from './ui.jsx';
-import { findMember, memberName, myMember } from './people.js';
+import { findMember, firstName, memberName, myMember } from './people.js';
+import { paidAmounts, payersOf } from './balances.js';
 
 export const categories = [
   { key: 'food', label: 'Food', icon: Bowl, color: '#b76845' },
@@ -26,15 +27,27 @@ export function guessCategory(description) {
   return keywords.find(([, pattern]) => pattern.test(text))?.[0] || null;
 }
 
-const modes = [['equal', 'Equally'], ['shares', 'By shares'], ['exact', 'Exact amounts']];
+// Percentages travel as basis points (12.5% = 1250) so they stay whole numbers.
+const modes = [['equal', 'Equally'], ['shares', 'By shares'], ['exact', 'Exact amounts'], ['percent', 'By percent']];
+const modeLabel = (key) => modes.find(([mode]) => mode === key)?.[1] || key;
+const weightLabel = (expense, memberId) => (expense.split_mode === 'percent' ? `${expense.weights[memberId] / 100}%` : `${expense.weights[memberId]} sh`);
+const toBasisPoints = (text) => { const value = Number(text); return /^\d{1,3}(\.\d{1,2})?$/.test(text.trim()) && value > 0 && value <= 100 ? Math.round(value * 100) : 0; };
+
+// "You", "Alex", or "Alex +1" when several people paid. The biggest payer is paid_by.
+export function payerLabel(group, expense, meId) {
+  const payer = findMember(group, expense.paid_by);
+  const others = Object.keys(paidAmounts(expense)).length - 1;
+  return `${payer?.id === meId ? 'You' : firstName(payer)}${others ? ` +${others}` : ''}`;
+}
 // Every field that changes who owes what, so a conflict can be reviewed before overwriting it.
 export function savedSummary(saved, group) {
   const name = (id) => memberName(group.members.find((m) => m.id === id));
   const split = group.members.filter((m) => saved.shares[m.id] !== undefined)
-    .map((m) => `${name(m.id)} ${money(saved.shares[m.id], group.currency)}${saved.weights ? ` (${saved.weights[m.id]} sh)` : ''}`);
+    .map((m) => `${name(m.id)} ${money(saved.shares[m.id], group.currency)}${saved.weights ? ` (${weightLabel(saved, m.id)})` : ''}`);
+  const paid = payersOf(group, saved).map(([m, amount]) => (saved.payers ? `${name(m.id)} ${money(amount, group.currency)}` : name(m.id)));
   return [
-    `${saved.description} · ${money(saved.amount_minor, group.currency)} · ${name(saved.paid_by)} paid`,
-    `${modes.find(([key]) => key === saved.split_mode)?.[1] || saved.split_mode}: ${split.join(', ')}`,
+    `${saved.description} · ${money(saved.amount_minor, group.currency)} · ${paid.join(', ')} paid`,
+    `${modeLabel(saved.split_mode)}: ${split.join(', ')}`,
     `${shortDate(saved.date)} · ${categoryOf(saved.category).label}${saved.notes ? ` · “${saved.notes}”` : ''}`,
   ];
 }
@@ -46,16 +59,18 @@ const when = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', da
 // Tapping an expense shows it first; editing is a deliberate second step.
 export function ExpenseDetail({ group, expense, meId, onEdit, onDelete, onClose }) {
   const { icon: Icon, color, label } = categoryOf(expense.category);
-  const payer = findMember(group, expense.paid_by);
+  const payers = payersOf(group, expense);
   const byUser = (userId) => group.members.find((m) => m.user_id === userId);
   const name = (m) => (m?.id === meId ? 'You' : memberName(m));
   const edited = expense.updated_at && expense.updated_at !== expense.created_at;
   return <div className="trips-detail">
     <div className="trips-detail-head"><span className="trips-category" style={{ '--chip': color }} aria-hidden="true"><Icon size={26} /></span>
       <div><strong>{money(expense.amount_minor, group.currency)}</strong><small>{label} · {shortDate(expense.date)}</small></div></div>
-    <p className="trips-detail-paid"><Avatar member={payer} size={22} />{name(payer)} paid · split {modes.find(([key]) => key === expense.split_mode)?.[1].toLowerCase()}</p>
+    <p className="trips-detail-paid">{expense.payers
+      ? payers.map(([member, amount]) => `${name(member)} ${money(amount, group.currency)}`).join(' and ')
+      : <><Avatar member={payers[0]?.[0]} size={22} />{name(payers[0]?.[0])}</>} paid · split {modeLabel(expense.split_mode).toLowerCase()}</p>
     <ul className="trips-detail-shares" aria-label="Who owes what">{group.members.filter((m) => expense.shares[m.id] !== undefined).map((m) =>
-      <li key={m.id} className={m.id === meId ? 'trips-detail-me' : undefined}><span><Avatar member={m} size={26} />{name(m)}{expense.weights && <small>{expense.weights[m.id]} sh</small>}</span>
+      <li key={m.id} className={m.id === meId ? 'trips-detail-me' : undefined}><span><Avatar member={m} size={26} />{name(m)}{expense.weights && <small>{weightLabel(expense, m.id)}</small>}</span>
         <strong>{money(expense.shares[m.id], group.currency)}</strong></li>)}</ul>
     {expense.notes && <p className="trips-note">{expense.notes}</p>}
     {expense.created_at && <p className="trips-muted trips-small">Added by {byUser(expense.created_by) ? memberName(byUser(expense.created_by)) : 'someone'}, {when(expense.created_at)}
@@ -82,16 +97,27 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
   const [participants, setParticipants] = useState(() => expense ? Object.keys(expense.shares)
     : initial.participants?.filter(isMember).length ? initial.participants.filter(isMember)
       : group.members.map((m) => m.id));
-  const [exact, setExact] = useState(() => Object.fromEntries(group.members.map((m) => [m.id, expense?.shares[m.id] === undefined ? '' : decimal(expense.shares[m.id])])));
-  const [weights, setWeights] = useState(() => Object.fromEntries(group.members.map((m) => [m.id, String(expense?.weights?.[m.id] || 1)])));
+  const perMember = (value) => Object.fromEntries(group.members.map((m) => [m.id, value(m.id)]));
+  const [exact, setExact] = useState(() => perMember((id) => (expense?.shares[id] === undefined ? '' : decimal(expense.shares[id]))));
+  const [weights, setWeights] = useState(() => perMember((id) => String(expense?.split_mode === 'shares' && expense.weights?.[id] || 1)));
+  const [percents, setPercents] = useState(() => perMember((id) => (expense?.split_mode === 'percent' && expense.weights?.[id] ? String(expense.weights[id] / 100) : '')));
+  const [several, setSeveral] = useState(Boolean(expense?.payers));
+  const [paidAmountsInput, setPaidAmountsInput] = useState(() => perMember((id) => (expense?.payers?.[id] ? decimal(expense.payers[id]) : '')));
 
   const total = parse(amount, false, group.currency) || 0;
   const selected = group.members.filter((m) => participants.includes(m.id));
   const weightOf = (memberId) => { const value = Number(weights[memberId]); return Number.isInteger(value) && value >= 1 && value <= 1000 ? value : 0; };
+  const basisPoints = Object.fromEntries(selected.map((m) => [m.id, toBasisPoints(percents[m.id] || '')]));
+  const percentLeft = 10000 - Object.values(basisPoints).reduce((a, b) => a + b, 0);
   const preview = mode === 'equal' ? equalShares(total, selected)
     : mode === 'shares' ? weightedShares(total, Object.fromEntries(selected.map((m) => [m.id, weightOf(m.id)])))
-      : Object.fromEntries(selected.map((m) => [m.id, parse(exact[m.id] || '0', true, group.currency) ?? 0]));
+      : mode === 'percent' ? weightedShares(total, basisPoints)
+        : Object.fromEntries(selected.map((m) => [m.id, parse(exact[m.id] || '0', true, group.currency) ?? 0]));
   const assigned = Object.values(preview).reduce((a, b) => a + b, 0);
+  const payerParsed = group.members.map((m) => [m, (paidAmountsInput[m.id] || '').trim() ? parse(paidAmountsInput[m.id], true, group.currency) : 0]);
+  const payerEntries = payerParsed.filter(([, value]) => value > 0).map(([m, value]) => [m.id, value]);
+  const paidLeft = total - payerEntries.reduce((sum, [, value]) => sum + value, 0);
+  const left = (value, unit) => (value ? `${unit(Math.abs(value))} ${value > 0 ? 'left to assign' : 'over'}` : 'Adds up.');
   const toggle = (memberId, on) => setParticipants(on ? group.members.map((m) => m.id).filter((x) => x === memberId || participants.includes(x)) : participants.filter((x) => x !== memberId));
   const step = (memberId, delta) => setWeights({ ...weights, [memberId]: String(Math.min(1000, Math.max(1, (weightOf(memberId) || 1) + delta))) });
 
@@ -108,8 +134,19 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
       } else if (mode === 'shares') {
         shares = Object.fromEntries(selected.map((m) => [m.id, weightOf(m.id)]));
         if (Object.values(shares).some((value) => !value)) throw new Error('Give each selected person a whole number of shares from 1 to 1000.');
+      } else if (mode === 'percent') {
+        shares = basisPoints;
+        if (Object.values(shares).some((value) => !value) || percentLeft) throw new Error('Give each selected person a percentage; together they must add up to 100%.');
       }
-      await onSave({ id, description: description.trim(), amount_minor: amountMinor, paid_by: paidBy, date, category, notes,
+      let payers = {};
+      if (several) {
+        const unreadable = payerParsed.find(([, value]) => value === null);
+        if (unreadable) throw new Error(`Check the amount ${memberName(unreadable[0])} paid.`);
+        if (payerEntries.length < 2 || paidLeft) throw new Error(`Enter what at least two people paid, adding up to ${money(amountMinor, group.currency)}.`);
+        payers = Object.fromEntries(payerEntries);
+      }
+      // With several payers the server names the biggest one as paid_by.
+      await onSave({ id, description: description.trim(), amount_minor: amountMinor, paid_by: several ? payerEntries[0][0] : paidBy, payers, date, category, notes,
         split_mode: mode, participants: selected.map((m) => m.id), shares, revision: group.revision });
     }}>
     {conflict && expense && <div className="trips-note" role="status">{conflict.latest ? <>
@@ -126,10 +163,17 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
 
     <fieldset className="trips-chips-field"><legend>Paid by</legend><div className="trips-chips">
       {group.members.map((m) => <label className="trips-chip" key={m.id}>
-        <input type="radio" name="paid_by" value={m.id} checked={paidBy === m.id} onChange={() => setPaidBy(m.id)} />
+        <input type="radio" name="paid_by" value={m.id} checked={!several && paidBy === m.id} onChange={() => { setPaidBy(m.id); setSeveral(false); }} />
         <Avatar member={m} size={22} /><span>{m.id === me?.id ? 'You' : memberName(m)}</span>
       </label>)}
-    </div></fieldset>
+      <label className="trips-chip"><input type="radio" name="paid_by" value="several" checked={several} onChange={() => setSeveral(true)} /><span>Several people</span></label>
+    </div>
+    {several && <>{group.members.map((m) => <div className="trips-split-row" key={m.id}>
+      <label htmlFor={`paid_${m.id}`}><Avatar member={m} size={26} /><span>{m.id === me?.id ? `${memberName(m)} (you)` : memberName(m)}</span></label>
+      <input id={`paid_${m.id}`} name={`paid_${m.id}`} aria-label={`${memberName(m)} paid (${group.currency})`} inputMode="decimal" placeholder="0.00" value={paidAmountsInput[m.id]} onChange={(e) => setPaidAmountsInput({ ...paidAmountsInput, [m.id]: e.target.value })} />
+    </div>)}
+    <p className="trips-split-note" aria-live="polite">{left(paidLeft, (v) => money(v, group.currency))}</p></>}
+    </fieldset>
 
     <fieldset className="trips-split"><legend>Split</legend>
       <div className="trips-segment" role="radiogroup" aria-label="Split method">{modes.map(([key, label]) => <label key={key}>
@@ -144,6 +188,7 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
         const on = participants.includes(m.id);
         return <div className={`trips-split-row${on ? '' : ' trips-split-row--off'}`} key={m.id}>
           <label><input type="checkbox" name="participants" value={m.id} checked={on} onChange={(e) => toggle(m.id, e.target.checked)} /><Avatar member={m} size={26} /><span>{m.id === me?.id ? `${memberName(m)} (you)` : memberName(m)}</span></label>
+          {mode === 'percent' && <span className="trips-percent"><input name={`percent_${m.id}`} aria-label={`Percent for ${memberName(m)}`} inputMode="decimal" placeholder={selected.length ? String(Math.floor(10000 / selected.length) / 100) : '0'} disabled={!on} value={percents[m.id]} onChange={(e) => setPercents({ ...percents, [m.id]: e.target.value })} />%</span>}
           {mode === 'exact' && <input name={`share_${m.id}`} aria-label={`Amount for ${memberName(m)} (${group.currency})`} inputMode="decimal" placeholder="0.00" disabled={!on} value={exact[m.id]} onChange={(e) => setExact({ ...exact, [m.id]: e.target.value })} />}
           {mode === 'shares' && <span className="trips-stepper">
             <button type="button" aria-label={`Fewer shares for ${memberName(m)}`} disabled={!on || weightOf(m.id) <= 1} onClick={() => step(m.id, -1)}><Minus size={14} /></button>
@@ -153,8 +198,8 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
           {mode !== 'exact' && <span className="trips-split-amount">{on ? money(preview[m.id] || 0, group.currency) : '—'}</span>}
         </div>;
       })}
-      <p className="trips-split-note" aria-live="polite">{mode === 'exact'
-        ? total === assigned ? 'Adds up.' : `${money(Math.abs(total - assigned), group.currency)} ${assigned < total ? 'left to assign' : 'over'}`
+      <p className="trips-split-note" aria-live="polite">{mode === 'exact' ? left(total - assigned, (v) => money(v, group.currency))
+        : mode === 'percent' ? left(percentLeft, (v) => `${v / 100}%`)
         : selected.length ? `${selected.length} ${selected.length === 1 ? 'person' : 'people'}` : 'Choose who shared this.'}</p>
     </fieldset>
 

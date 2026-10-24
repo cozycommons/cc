@@ -120,3 +120,34 @@ it('does not pop the keyboard when editing an existing expense', () => {
   form({ expense });
   expect(screen.getByLabelText('Amount (USD)')).not.toHaveFocus();
 });
+
+it('records several payers and a percentage split, sending percentages as basis points', async () => {
+  const save = form();
+  fill('Cabin', '300');
+  fireEvent.click(screen.getByRole('radio', { name: 'Several people' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Matt paid (USD)' }), { target: { value: '200' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Alex paid (USD)' }), { target: { value: '50' } });
+  expect(screen.getByText('$50.00 left to assign')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Alex paid (USD)' }), { target: { value: '100' } });
+  fireEvent.click(screen.getByRole('radio', { name: 'By percent' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Matt' }), { target: { value: '50' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Alex' }), { target: { value: '25' } });
+  expect(screen.getByText('25% left to assign')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Jamie' }), { target: { value: '25' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0][0]).toMatchObject({ amount_minor: 30000, paid_by: 'matt', payers: { matt: 20000, alex: 10000 },
+    split_mode: 'percent', shares: { matt: 5000, alex: 2500, jamie: 2500 } });
+});
+
+it('refuses to drop a payer amount it cannot read', async () => {
+  const save = form();
+  fill('Cabin', '100');
+  fireEvent.click(screen.getByRole('radio', { name: 'Several people' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Matt paid (USD)' }), { target: { value: '10.001' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Alex paid (USD)' }), { target: { value: '70' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Jamie paid (USD)' }), { target: { value: '30' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Check the amount Matt paid.');
+  expect(save).not.toHaveBeenCalled();
+});
