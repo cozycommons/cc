@@ -1280,11 +1280,12 @@ def _reconcile_lock_exclusions(plan, locked_ids, tipoffs, counts):
     the plan's own final state respected the count — overflows only
     because a locked player is staying in it, so the lowest-value
     inbound move to that slot is excluded as a collateral skip
-    (source ``blocked_by_lock``, naming the locked player whose
-    staying put blocks it) and the scan repeats: one exclusion can
-    cascade (a reverted mover can itself overfill the slot it stays
-    in). The loop is bounded by the number of plan moves — each pass
-    excludes one. A slot with no inbound mover left is left as-is:
+    (source ``blocked_by_lock``, naming who is staying in the slot:
+    the locked player, or — in a cascade — an earlier collateral
+    victim whose own exclusion keeps the slot full) and the scan
+    repeats: one exclusion can cascade (a reverted mover can itself
+    overfill the slot it stays in). The loop is bounded by the
+    number of plan moves — each pass excludes one. A slot with no inbound mover left is left as-is:
     ESPN will 409 and the run records an error, today's residual
     behaviour for shapes the planner itself produced.
 
@@ -1348,21 +1349,42 @@ def _reconcile_lock_exclusions(plan, locked_ids, tipoffs, counts):
             blockers = [
                 p
                 for p in plan["players"]
-                if p["player_id"] in locked_ids
-                and p["from_slot"] == target_slot
+                if p["from_slot"] == target_slot
+                and (
+                    p["player_id"] in locked_ids
+                    or p["player_id"] in excluded
+                )
             ]
             skip = _locked_skip(
                 victim, "blocked_by_lock", tipoffs.get(victim["player_id"])
             )
             if blockers:
-                blocker = min(blockers, key=lambda p: p["player_id"])
-                skip["reason"] = (
-                    f"player_locked: {blocker.get('name')} is locked in "
-                    "the slot this move targets, so the move cannot "
-                    "be submitted"
+                # Name who is staying in the slot: a locked player
+                # when one is there; otherwise an earlier collateral
+                # victim whose own exclusion is what keeps the slot
+                # full (the cascade case — his game has NOT started,
+                # so the reason must not claim it has).
+                locked_blockers = [
+                    p for p in blockers if p["player_id"] in locked_ids
+                ]
+                blocker = min(
+                    locked_blockers or blockers,
+                    key=lambda p: p["player_id"],
                 )
                 skip["detail"]["blocked_by_player_id"] = blocker["player_id"]
                 skip["detail"]["blocked_by_name"] = blocker.get("name")
+                if blocker["player_id"] in locked_ids:
+                    skip["reason"] = (
+                        f"player_locked: {blocker.get('name')} is locked in "
+                        "the slot this move targets, so the move cannot "
+                        "be submitted"
+                    )
+                else:
+                    skip["reason"] = (
+                        f"player_locked: {blocker.get('name')} is staying "
+                        "in the slot this move targets (his own move was "
+                        "lock-excluded), so the move cannot be submitted"
+                    )
             excluded[victim["player_id"]] = skip
 
     order = {m["playerId"]: i for i, m in enumerate(plan["moves"])}

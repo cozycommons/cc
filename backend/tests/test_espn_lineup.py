@@ -1569,6 +1569,52 @@ def test_move_into_locked_players_slot_is_collateral_skip():
     assert entries_now[503] == BE
 
 
+def test_reconcile_lock_exclusions_cascade_names_staying_blocker():
+    # Pure-function view of the cascade the live 2026-10-24 run hit:
+    # A (locked at C) stays -> B's move into C is collateral -> B
+    # staying at UTIL overfills UTIL -> R's move into UTIL is
+    # collateral too, blocked by B — who is NOT locked, so his skip
+    # must name B as staying, not claim R's game has started.
+    plan = {
+        "players": [
+            {"player_id": 1, "name": "A", "from_slot": C, "to_slot": F,
+             "value": 20.0},
+            {"player_id": 2, "name": "B", "from_slot": UTIL, "to_slot": C,
+             "value": 30.0},
+            {"player_id": 3, "name": "R", "from_slot": F, "to_slot": UTIL,
+             "value": 15.0},
+            {"player_id": 4, "name": "X", "from_slot": UTIL,
+             "to_slot": UTIL, "value": 10.0},
+            {"player_id": 5, "name": "Y", "from_slot": UTIL,
+             "to_slot": UTIL, "value": 9.0},
+            {"player_id": 6, "name": "Z", "from_slot": BE, "to_slot": PG,
+             "value": 8.0},
+        ],
+        "moves": [
+            {"playerId": 1, "fromLineupSlotId": C, "toLineupSlotId": F},
+            {"playerId": 2, "fromLineupSlotId": UTIL, "toLineupSlotId": C},
+            {"playerId": 3, "fromLineupSlotId": F, "toLineupSlotId": UTIL},
+            {"playerId": 6, "fromLineupSlotId": BE, "toLineupSlotId": PG},
+        ],
+    }
+    counts = {PG: 1, C: 1, F: 1, UTIL: 3, BE: 3}
+    tipoff = datetime(2026, 10, 24, 22, 0, tzinfo=timezone.utc)
+    to_submit, skips = lineup._reconcile_lock_exclusions(
+        plan, {1}, {1: tipoff}, counts
+    )
+    assert [m["playerId"] for m in to_submit] == [6]
+    assert [s["player_id"] for s in skips] == [1, 2, 3]
+    by_id = {s["player_id"]: s for s in skips}
+    assert by_id[1]["detail"]["source"] == "schedule"
+    assert by_id[2]["detail"]["source"] == "blocked_by_lock"
+    assert by_id[2]["detail"]["blocked_by_player_id"] == 1
+    assert "A is locked in the slot" in by_id[2]["reason"]
+    assert by_id[3]["detail"]["source"] == "blocked_by_lock"
+    assert by_id[3]["detail"]["blocked_by_player_id"] == 2
+    assert "B is staying in the slot" in by_id[3]["reason"]
+    assert "already started" not in by_id[3]["reason"]
+
+
 def test_brooks_regression_bench_player_starts_despite_locked_teammates():
     # The exact 2026-10-24 evening shape: a scheduled bench player
     # (Brooks) whose game has NOT started must be started even though
