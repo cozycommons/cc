@@ -47,9 +47,11 @@ from . import logic
 from . import snapshots
 from .accounts import AccountError
 from .espn_client import EspnAuthError, EspnError
+from .public_predictions import router as public_predictions_router
 from .scoreboard import ScoreboardClient
 
 router = APIRouter()
+router.include_router(public_predictions_router)
 _bearer = HTTPBearer(auto_error=False)
 
 # --- onboarding rate limit: 10 attempts per IP per hour ----------------------
