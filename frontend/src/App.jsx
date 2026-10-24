@@ -6,6 +6,7 @@ const DiceApp = React.lazy(() => import('./dice/App.jsx'));
 
 const Crowdset = React.lazy(() => import('./crowdset/Crowdset.jsx'));
 const TripsApp = React.lazy(() => import('./trips/TripsApp.jsx'));
+const Fantasy = React.lazy(() => import('./fantasy/Fantasy.jsx'));
 
 const DesignIndex = React.lazy(() => import('./design/DesignIndex.jsx'));
 const DiceDesignApp = React.lazy(() => import('../../design/dice/App.jsx'));
@@ -21,6 +22,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<CozyWabiLanding />} />
         <Route path="/trips/*" element={<SupabaseProvider><React.Suspense fallback={<p>Opening Cozy Trips…</p>}><TripsApp /></React.Suspense></SupabaseProvider>} />
+        <Route path="/fantasy" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
         <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
         <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
         <Route path="/design" element={<React.Suspense fallback={null}><DesignIndex /></React.Suspense>} />
