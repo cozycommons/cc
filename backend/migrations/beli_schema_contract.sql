@@ -13,7 +13,8 @@ begin
     'resy_accounts',
     'espn_accounts',
     'espn_snapshots',
-    'espn_public_predictions'
+    'espn_public_predictions',
+    'espn_team_claims'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -40,6 +41,11 @@ begin
     'espn_public_predictions.generated_at',
     'espn_public_predictions.received_at',
     'espn_public_predictions.payload',
+    'espn_team_claims.id',
+    'espn_team_claims.season',
+    'espn_team_claims.team_id',
+    'espn_team_claims.user_id',
+    'espn_team_claims.created_at',
     'ig_sources.handle',
     'ig_sources.last_seen_ts',
     'ig_scan_jobs.source_handle',
@@ -58,5 +64,8 @@ begin
       raise exception 'Beli schema contract: missing column %', column_spec;
     end if;
   end loop;
+  if to_regprocedure('public.espn_claim_team(integer,integer,uuid)') is null then
+    raise exception 'Beli schema contract: missing function public.espn_claim_team';
+  end if;
 end
 $$;

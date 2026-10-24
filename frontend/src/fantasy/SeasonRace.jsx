@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { TeamLogo, pct } from './parts.jsx';
+import { Manager, TeamLogo, pct } from './parts.jsx';
+import { seasonStory } from './analysis.js';
 
 const MODES = [['projections', 'Projections only'], ['balanced', 'Balanced'], ['hot', 'Hot hand']];
 const ordinal = n => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
@@ -22,13 +23,13 @@ export default function SeasonRace({ season, narrow }) {
         <h2>Race to the playoffs</h2>
         <span>{season.trials?.toLocaleString()} simulated seasons · {season.weeksRemaining} weeks left</span>
       </div>
-      <p className="fx-headline">{leader.team.name} is the title favorite at {pct(leader.title_pct)}.</p>
+      <p className="fx-headline">{seasonStory(rows)}</p>
       {available.length > 1 && (
         <div className="fx-modes" role="group" aria-label="Form weighting">
           {available.map(([key, label]) => <button key={key} type="button" aria-pressed={mode === key} onClick={() => setMode(key)}>{label}</button>)}
         </div>
       )}
-      {!season.formActive && available.length > 1 && <p className="fx-small">Form kicks in after the first completed week; all three settings match until then.</p>}
+      {!season.formActive && available.length > 1 && <p className="fx-small">Form starts counting after week 1.</p>}
       <div className="fx-key" aria-hidden="true"><span><i className="fx-key-title" />Win title</span><span><i className="fx-key-playoffs" />Make playoffs</span></div>
       <ol className="fx-race-list" aria-label="Playoff and title chances by team">
         {shown.map(row => {
@@ -38,7 +39,7 @@ export default function SeasonRace({ season, narrow }) {
               <button type="button" className="fx-race-row" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : row.team.id)}
                 aria-label={`${row.team.name}: ${pct(row.playoff_pct)} playoffs, ${pct(row.title_pct)} title`}>
                 <span className="fx-race-team"><TeamLogo team={row.team} side={0} size={26} />
-                  <span>{row.team.name}<small>{row.record?.slice(0, 2).join('–')} · {row.expected_wins} exp. wins</small></span></span>
+                  <span>{row.team.name}<small><Manager team={row.team} />{row.record?.slice(0, 2).join('–')} · {row.expected_wins} exp. wins</small></span></span>
                 <span className="fx-odds-bar" aria-hidden="true">
                   <i className="fx-odds-playoffs" style={{ width: `${row.playoff_pct}%` }} />
                   <i className="fx-odds-title" style={{ width: `${row.title_pct}%` }} />
@@ -52,7 +53,7 @@ export default function SeasonRace({ season, narrow }) {
         })}
       </ol>
       {shown.length < rows.length && <button type="button" className="fx-more" onClick={() => setAll(true)}>Show all {rows.length} teams</button>}
-      <p className="fx-small">Rosters held as they are today.</p>
+      <p className="fx-small">Assumes today’s rosters.</p>
     </section>
   );
 }

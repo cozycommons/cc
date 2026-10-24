@@ -36,6 +36,8 @@ describe('cleanSnapshot', () => {
     const data = cleanSnapshot(v1);
     expect(data.matchups[0].home.name).toBe('A');
     expect(data.season).toBeNull();
+    expect(data.linkable).toBe(false);  // synthetic ids must never match Dice links
+    expect(cleanSnapshot(structuredClone(SNAPSHOT_V2)).linkable).toBe(true);
   });
 
   it('drops a season whose modes do not cover every team', () => {

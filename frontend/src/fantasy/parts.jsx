@@ -24,6 +24,21 @@ export function useNarrow() {
 
 export const tooltipStyle = { background: '#fffaf2', border: '1px solid #d6c5a7', borderRadius: 8, fontSize: 12 };
 
+export const OwnersContext = React.createContext(new Map());
+
+// ESPN manager first name, or the linked Dice name and avatar once the owner confirms.
+export function Manager({ team }) {
+  const owner = React.useContext(OwnersContext).get(team.id);
+  if (owner) {
+    return (
+      <span className="fx-manager fx-manager--linked">
+        {owner.avatar && <img src={owner.avatar} alt="" referrerPolicy="no-referrer" />}{owner.name}
+      </span>
+    );
+  }
+  return team.manager ? <span className="fx-manager">{team.manager}</span> : null;
+}
+
 const initials = name => name.split(/\s+/).map(word => word[0]).join('').slice(0, 2).toUpperCase();
 
 export function TeamLogo({ team, side, size = 28 }) {

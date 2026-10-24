@@ -130,3 +130,21 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
   .fx-finish{height:110px;gap:2px}
   .fx-finish-col small,.fx-finish-col b{font-size:9px}
 }
+.fx-manager{display:inline-flex;align-items:center;gap:4px;margin-right:6px;color:#5c4a3d;font-weight:500}
+.fx-manager::after{content:'·';margin-left:6px;color:#b9a68d;font-weight:400}
+.fx-hero-team .fx-manager{font-size:13px;margin:0}
+.fx-hero-team .fx-manager::after{content:none}
+.fx-manager img{width:16px;height:16px;border-radius:50%;object-fit:cover}
+.fx-hero-team .fx-manager img{width:20px;height:20px}
+.fx-claim{background:#fffaf2;border:1px solid #e4d6bd;border-radius:14px;padding:12px 18px;margin-top:16px}
+.fx-claim h3{font-size:15px;margin:0 0 8px;color:#201711}
+.fx-claim-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 0;font-size:14px;color:#3d2f29}
+.fx-claim-row select{min-height:40px;padding:0 10px;border:1px solid #d6c5a7;border-radius:8px;background:#fff;font:inherit;max-width:100%}
+.fx-claim button{min-height:40px;padding:0 14px;border:1px solid #d6c5a7;border-radius:8px;background:transparent;color:#3d2f29;font:inherit;cursor:pointer}
+.fx-claim button:disabled{opacity:.5;cursor:default}
+.fx-claim .fx-claim-primary{background:#b75f41;border-color:#b75f41;color:#fff}
+@media(max-width:600px){.fx-claim{padding:10px 12px}.fx-claim button{min-height:44px}}
+.fx-story{font-size:14.5px;line-height:1.5;color:#3d2f29;margin:0 0 14px;max-width:70ch}
+.fx-swings{list-style:none;margin:-4px 0 16px;padding:0;display:grid;gap:6px}
+.fx-swings li{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;line-height:1.45;color:#3d2f29}
+.fx-swings .fx-logo{margin-top:1px}

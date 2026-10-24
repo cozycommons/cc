@@ -3,6 +3,7 @@ export const FALLBACK_URL = 'https://gist.githubusercontent.com/homatthew/a417a8
 
 const TIMEOUT_MS = 8000;
 const MODES = ['projections', 'balanced', 'hot'];
+const MANAGER = /^[A-Za-z][A-Za-z '\-.]{0,39}$/;
 const finite = value => Number.isFinite(value);
 const numbers = (value, allowNull = false) => Array.isArray(value) && value.length === 2
   && value.every(v => finite(v) || (allowNull && v === null));
@@ -55,7 +56,8 @@ export function cleanSnapshot(data) {
   if (data.version === 'public-v2') {
     if (!Array.isArray(data.teams)) return null;
     teams = new Map(data.teams.filter(t => Number.isInteger(t?.id) && text(t.name))
-      .map(t => [t.id, { id: t.id, name: t.name, abbrev: typeof t.abbrev === 'string' ? t.abbrev : '', logo: logo(t.logo) }]));
+      .map(t => [t.id, { id: t.id, name: t.name, abbrev: typeof t.abbrev === 'string' ? t.abbrev : '', logo: logo(t.logo),
+        manager: typeof t.manager === 'string' && MANAGER.test(t.manager) ? t.manager : null }]));
   } else {
     // v1 named teams inline; give them synthetic ids so both versions render the same way.
     teams = new Map();
@@ -63,14 +65,16 @@ export function cleanSnapshot(data) {
       const ids = [m?.home, m?.away].map(t => {
         if (!text(t?.name)) return null;
         const id = teams.size + 1;
-        teams.set(id, { id, name: t.name, abbrev: '', logo: null });
+        teams.set(id, { id, name: t.name, abbrev: '', logo: null, manager: null });
         return id;
       });
       return { ...m, home: ids[0], away: ids[1] };
     });
   }
   return {
-    generatedAt: data.generated_at, matchup: data.matchup, label: typeof data.label === 'string' ? data.label : '',
+    // Only v2 carries real ESPN team ids, which is what Dice links are keyed by.
+    linkable: data.version === 'public-v2',
+    generatedAt: data.generated_at, matchup: data.matchup, year: Number.isInteger(data.season_year) ? data.season_year : null, label: typeof data.label === 'string' ? data.label : '',
     teams, matchups: raw.map(m => matchup(m, teams)).filter(Boolean), season: season(data.season, teams),
   };
 }

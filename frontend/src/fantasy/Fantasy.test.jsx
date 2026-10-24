@@ -17,7 +17,7 @@ describe('Fantasy pages', () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy');
     expect(await screen.findByText('Race to the playoffs')).toBeTruthy();
-    expect(screen.getByText(/is the title favorite at \d+%/)).toBeTruthy();
+    expect(screen.getByText(/leads because/)).toBeTruthy();
     const link = screen.getByRole('link', { name: /Glass Cleaners vs Lob City/ });
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });

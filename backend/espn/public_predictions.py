@@ -20,6 +20,7 @@ Chance = Annotated[Number, Field(ge=0, le=100)]
 MatchupId = Annotated[int, Field(ge=-(2**63), le=2**63 - 1)]
 Games = Annotated[int, Field(ge=0, le=20)]
 NonnegativeInt = Annotated[int, Field(ge=0)]
+SeasonYear = Annotated[int, Field(ge=2000, le=2100)]
 SeasonMode = Literal["projections", "balanced", "hot"]
 MAX_LOGO_BYTES = 24 * 1024
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -124,6 +125,7 @@ class PublicTeamV2(PublicModel):
     name: str = Field(max_length=60)
     abbrev: str = Field(max_length=12)
     logo: str | None
+    manager: str | None = Field(default=None, max_length=40, pattern=r"^[A-Za-z][A-Za-z '\-.]*$")
 
     @field_validator("logo")
     @classmethod
@@ -154,6 +156,7 @@ class PublicPlayer(PublicModel):
     id: NonnegativeInt
     name: str = Field(max_length=60)
     points: Number | None
+    expected: Number | None = None
 
 
 PlayerSide = Annotated[list[PublicPlayer], Field(max_length=15)]
@@ -224,6 +227,7 @@ class PublicSnapshotV2(PublicSnapshot):
     teams: list[PublicTeamV2] = Field(max_length=20)
     matchups: list[PublicPredictionV2 | UnavailablePredictionV2] = Field(max_length=20)
     season: PublicSeason | None = None
+    season_year: SeasonYear | None = None
 
     @model_validator(mode="after")
     def known_teams(self):

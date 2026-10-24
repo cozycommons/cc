@@ -1,6 +1,7 @@
 // Synthetic public-v2 snapshot for tests and local previews (no real league data).
 export const SNAPSHOT_V2 = {
  "version": "public-v2",
+ "season_year": 2027,
  "generated_at": "2026-10-23T23:05:00+00:00",
  "captured_at": "2026-10-23T23:04:00+00:00",
  "names": "real",
@@ -13,24 +14,28 @@ export const SNAPSHOT_V2 = {
   {
    "id": 1,
    "name": "Glass Cleaners",
+   "manager": "Matthew",
    "abbrev": "GC",
    "logo": "https://g.espncdn.com/lm-static/fba/images/default_logos/16.svg"
   },
   {
    "id": 2,
    "name": "Lob City",
+   "manager": "Paulo",
    "abbrev": "LOB",
    "logo": null
   },
   {
    "id": 3,
    "name": "Hot Hands",
+   "manager": "Andre",
    "abbrev": "HOT",
    "logo": "data:image/png;base64,iVBORw0KGgo="
   },
   {
    "id": 4,
    "name": "Iso Kings",
+   "manager": "Aaron",
    "abbrev": "ISO",
    "logo": "https://g.espncdn.com/lm-static/fba/images/default_logos/7.svg"
   }
@@ -77,94 +82,94 @@ export const SNAPSHOT_V2 = {
        {
         "id": 4066261,
         "name": "Bam Adebayo",
-        "points": 15
+        "points": 15, "expected": 28
        },
        {
         "id": 3907497,
         "name": "Dejounte Murray",
-        "points": 33
+        "points": 33, "expected": 48
        },
        {
         "id": 4278049,
         "name": "Daniel Gafford",
-        "points": 50
+        "points": 50, "expected": 48
        },
        {
         "id": 4701230,
         "name": "Jalen Johnson",
-        "points": 38
+        "points": 38, "expected": 28
        },
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 36
+        "points": 36, "expected": 35
        },
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 27
+        "points": 27, "expected": 48
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 29
+        "points": 29, "expected": 40
        },
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 43
+        "points": 43, "expected": 48
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 39
+        "points": 39, "expected": 22
        }
       ],
       [
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 45
+        "points": 45, "expected": 48
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 23
+        "points": 23, "expected": 22
        },
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 36
+        "points": 36, "expected": 40
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 17
+        "points": 17, "expected": 35
        },
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 19
+        "points": 19, "expected": 48
        },
        {
         "id": 4278049,
         "name": "Daniel Gafford",
-        "points": 22
+        "points": 22, "expected": 28
        },
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 8
+        "points": 8, "expected": 28
        },
        {
         "id": 3907497,
         "name": "Dejounte Murray",
-        "points": 12
+        "points": 12, "expected": 40
        },
        {
         "id": 4701230,
         "name": "Jalen Johnson",
-        "points": 39
+        "points": 39, "expected": 48
        }
       ]
      ]
@@ -189,59 +194,59 @@ export const SNAPSHOT_V2 = {
        {
         "id": 4066261,
         "name": "Bam Adebayo",
-        "points": 13
+        "points": 13, "expected": 48
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 22
+        "points": 22, "expected": 40
        },
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 11
+        "points": 11, "expected": 40
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 9
+        "points": 9, "expected": 28
        },
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 40
+        "points": 40, "expected": 28
        },
        {
         "id": 4278049,
         "name": "Daniel Gafford",
-        "points": 18
+        "points": 18, "expected": 28
        },
        {
         "id": 4701230,
         "name": "Jalen Johnson",
-        "points": 52
+        "points": 52, "expected": 48
        },
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 10
+        "points": 10, "expected": 40
        }
       ],
       [
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 11
+        "points": 11, "expected": 22
        },
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 38
+        "points": 38, "expected": 22
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 45
+        "points": 45, "expected": 28
        }
       ]
      ]
@@ -266,69 +271,69 @@ export const SNAPSHOT_V2 = {
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 9
+        "points": 9, "expected": 48
        },
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 30
+        "points": 30, "expected": 22
        },
        {
         "id": 3907497,
         "name": "Dejounte Murray",
-        "points": 31
+        "points": 31, "expected": 35
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 40
+        "points": 40, "expected": 22
        },
        {
         "id": 4701230,
         "name": "Jalen Johnson",
-        "points": 17
+        "points": 17, "expected": 35
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 32
+        "points": 32, "expected": 40
        }
       ],
       [
        {
         "id": 3907497,
         "name": "Dejounte Murray",
-        "points": 8
+        "points": 8, "expected": 48
        },
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 49
+        "points": 49, "expected": 40
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 54
+        "points": 54, "expected": 40
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 36
+        "points": 36, "expected": 40
        },
        {
         "id": 4066261,
         "name": "Bam Adebayo",
-        "points": 55
+        "points": 55, "expected": 48
        },
        {
         "id": 4701230,
         "name": "Jalen Johnson",
-        "points": 9
+        "points": 9, "expected": 40
        },
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 17
+        "points": 17, "expected": 28
        }
       ]
      ]
@@ -353,14 +358,14 @@ export const SNAPSHOT_V2 = {
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 47
+        "points": 47, "expected": 35
        }
       ],
       [
        {
         "id": 4066261,
         "name": "Bam Adebayo",
-        "points": 9
+        "points": 9, "expected": 22
        }
       ]
      ]
@@ -446,54 +451,54 @@ export const SNAPSHOT_V2 = {
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 12
+        "points": 12, "expected": 22
        },
        {
         "id": 4066261,
         "name": "Bam Adebayo",
-        "points": 10
+        "points": 10, "expected": 28
        },
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 13
+        "points": 13, "expected": 40
        },
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 32
+        "points": 32, "expected": 28
        },
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 20
+        "points": 20, "expected": 35
        }
       ],
       [
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 31
+        "points": 31, "expected": 40
        },
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 32
+        "points": 32, "expected": 35
        },
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 52
+        "points": 52, "expected": 40
        },
        {
         "id": 4278049,
         "name": "Daniel Gafford",
-        "points": 54
+        "points": 54, "expected": 48
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 14
+        "points": 14, "expected": 40
        }
       ]
      ]
@@ -518,64 +523,64 @@ export const SNAPSHOT_V2 = {
        {
         "id": 4066261,
         "name": "Bam Adebayo",
-        "points": 16
+        "points": 16, "expected": 48
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 25
+        "points": 25, "expected": 35
        },
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 35
+        "points": 35, "expected": 48
        },
        {
         "id": 3907497,
         "name": "Dejounte Murray",
-        "points": 14
+        "points": 14, "expected": 48
        },
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 25
+        "points": 25, "expected": 40
        },
        {
         "id": 4701230,
         "name": "Jalen Johnson",
-        "points": 50
+        "points": 50, "expected": 48
        },
        {
         "id": 4278049,
         "name": "Daniel Gafford",
-        "points": 54
+        "points": 54, "expected": 28
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 39
+        "points": 39, "expected": 35
        },
        {
         "id": 3934719,
         "name": "OG Anunoby",
-        "points": 40
+        "points": 40, "expected": 22
        }
       ],
       [
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 51
+        "points": 51, "expected": 35
        },
        {
         "id": 3907497,
         "name": "Dejounte Murray",
-        "points": 30
+        "points": 30, "expected": 48
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 25
+        "points": 25, "expected": 28
        }
       ]
      ]
@@ -600,44 +605,44 @@ export const SNAPSHOT_V2 = {
        {
         "id": 4278049,
         "name": "Daniel Gafford",
-        "points": 12
+        "points": 12, "expected": 35
        },
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 34
+        "points": 34, "expected": 48
        },
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 43
+        "points": 43, "expected": 48
        },
        {
         "id": 3907497,
         "name": "Dejounte Murray",
-        "points": 50
+        "points": 50, "expected": 48
        },
        {
         "id": 4594327,
         "name": "Keegan Murray",
-        "points": 43
+        "points": 43, "expected": 22
        },
        {
         "id": 3202,
         "name": "Kevin Durant",
-        "points": 41
+        "points": 41, "expected": 28
        }
       ],
       [
        {
         "id": 4701230,
         "name": "Jalen Johnson",
-        "points": 12
+        "points": 12, "expected": 48
        },
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 30
+        "points": 30, "expected": 35
        }
       ]
      ]
@@ -662,29 +667,29 @@ export const SNAPSHOT_V2 = {
        {
         "id": 4278049,
         "name": "Daniel Gafford",
-        "points": 26
+        "points": 26, "expected": 35
        }
       ],
       [
        {
         "id": 6606,
         "name": "Damian Lillard",
-        "points": 41
+        "points": 41, "expected": 22
        },
        {
         "id": 5041955,
         "name": "Darryn Peterson",
-        "points": 30
+        "points": 30, "expected": 22
        },
        {
         "id": 4395628,
         "name": "Zion Williamson",
-        "points": 30
+        "points": 30, "expected": 40
        },
        {
         "id": 4066261,
         "name": "Bam Adebayo",
-        "points": 33
+        "points": 33, "expected": 40
        }
       ]
      ]
