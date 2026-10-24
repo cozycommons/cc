@@ -150,3 +150,20 @@ it('ignores an old trip save after navigating to a different trip', async () => 
   expect(screen.getByRole('heading', { name: 'Second trip' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'First trip' })).not.toBeInTheDocument();
 });
+
+it('opens the joined trip itself after accepting an invite, not the trip list', async () => {
+  signedIn();
+  sessionStorage.setItem('cozy-trips-invite:trip-id', 'retained-secret');
+  const trip = { id: 'trip-id', owner_id: 'owner', name: 'Joined trip', currency: 'USD', revision: 2, created_at: '2026-10-01',
+    members: [{ id: 'm1', user_id: 'owner', name: 'Owner' }, { id: 'm2', user_id: 'user-a', name: 'Me' }],
+    balances: { m1: 0, m2: 0 }, transfers: [], expenses: [], repayments: [], activity: [], total_minor: 0 };
+  mocked.request.mockImplementation((_client, path) => Promise.resolve(path.endsWith('/join') ? trip : path === '/groups' ? [] : trip));
+  render(<MemoryRouter initialEntries={['/trips/join/trip-id']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes>
+    <Route path="/trips/join/:tripId" element={<TripsApp />} />
+    <Route path="/trips/:tripId" element={<TripsApp />} />
+  </Routes></MemoryRouter>);
+  fireEvent.click(screen.getByRole('button', { name: 'Join trip', exact: true }));
+  expect(await screen.findByRole('heading', { name: 'Joined trip' })).toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Balances', selected: true })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Your trips' })).not.toBeInTheDocument();
+});
