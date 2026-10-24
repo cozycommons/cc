@@ -141,8 +141,7 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
       {owedWithoutHandle && <button type="button" className="trips-text-button" onClick={onEditProfile}><VenmoMark />Add your Venmo to get paid</button>}
     </section>}
 
-    <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2>
-      <Button onClick={() => onRecord(null)} disabled={group.members.length < 2}><Plus size={15} aria-hidden="true" />Record payment</Button></div>
+    <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2></div>
     {!!group.transfers.length && <p className="trips-muted trips-small trips-settle-note">{group.settlement === 'fewest'
       ? 'The fewest payments to square everyone. You might pay someone other than who covered you.'
       : 'These square everyone with the least money changing hands. You might pay someone other than who covered you.'}</p>}
@@ -167,6 +166,7 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
     </details>}
 
     <h3 className="trips-subheading">Recorded payments</h3>
+    {group.members.length > 1 && <Button variant="ghost" className="trips-record-other" onClick={() => onRecord(null)}><Plus size={15} aria-hidden="true" />Record a payment</Button>}
     {!group.repayments.length ? <p className="trips-muted">No payments yet.</p> : <ul className="trips-repayments">{group.repayments.slice().reverse().map((p) => {
       const from = findMember(group, p.from_member);
       const to = findMember(group, p.to_member);

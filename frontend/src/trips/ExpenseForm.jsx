@@ -28,7 +28,8 @@ export function guessCategory(description) {
 }
 
 // Percentages travel as basis points (12.5% = 1250) so they stay whole numbers.
-const modes = [['equal', 'Equally'], ['shares', 'By shares'], ['exact', 'Exact amounts'], ['percent', 'By percent']];
+// [key, label, short label for phones]
+const modes = [['equal', 'Equally', 'Equal'], ['shares', 'By shares', 'Shares'], ['exact', 'Exact amounts', 'Amounts'], ['percent', 'By percent', 'Percent']];
 const modeLabel = (key) => modes.find(([mode]) => mode === key)?.[1] || key;
 const weightLabel = (expense, memberId) => (expense.split_mode === 'percent' ? `${expense.weights[memberId] / 100}%` : `${expense.weights[memberId]} sh`);
 const toBasisPoints = (text) => { const value = Number(text); return /^\d{1,3}(\.\d{1,2})?$/.test(text.trim()) && value > 0 && value <= 100 ? Math.round(value * 100) : 0; };
@@ -176,12 +177,11 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
     </fieldset>
 
     <fieldset className="trips-split"><legend>Split</legend>
-      <div className="trips-segment" role="radiogroup" aria-label="Split method">{modes.map(([key, label]) => <label key={key}>
-        <input type="radio" name="split_mode" value={key} checked={mode === key} onChange={() => setMode(key)} /><span>{label}</span></label>)}</div>
+      <div className="trips-segment" role="radiogroup" aria-label="Split method">{modes.map(([key, label, short]) => <label key={key}>
+        <input type="radio" name="split_mode" value={key} aria-label={label} checked={mode === key} onChange={() => setMode(key)} /><span><small className="trips-long">{label}</small><small className="trips-short">{short}</small></span></label>)}</div>
       <div className="trips-split-quick" role="group" aria-label="Quick select">
         <button type="button" onClick={() => setParticipants(group.members.map((m) => m.id))}>Everyone</button>
         {me && <button type="button" onClick={() => setParticipants([me.id])}>Just me</button>}
-        <button type="button" onClick={() => setParticipants([])}>Clear</button>
         <span>{selected.length} of {group.members.length}</span>
       </div>
       {group.members.map((m) => {

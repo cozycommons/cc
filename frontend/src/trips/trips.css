@@ -474,3 +474,14 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
 .trips-join-card p { margin: 4px 0; }
 .trips-overall { margin: 6px 0 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .trips-invites li > span { flex-wrap: wrap; }
+
+/* Phones: every control reachable with a thumb, and the split options on one line. */
+.trips-segment small { font-size: inherit; }
+.trips-short { display: none; }
+.trips-record-other { margin-bottom: 8px; }
+@media (max-width: 640px) {
+  .trips-segment .trips-long { display: none; }
+  .trips-segment .trips-short { display: inline; }
+  .trips .cc-button, .trips-modal .cc-button, .trips-breadcrumb :is(a, button), .trips-balance-pill, .trips-chip, .trips-split-quick button, .trips-more summary, .trips-segment span, .trips-search input { min-height: 44px; }
+  .trips-calculation summary, .trips-hero .trips-text-button { display: flex; align-items: center; min-height: 44px; }
+}
