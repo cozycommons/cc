@@ -74,6 +74,24 @@ sits. Each sit is recorded as a **conflict**, visible in
   new account and a new token — update wherever the old token was saved.
 - Runs are idempotent per day: calling `/espn/lineup/run` twice is safe.
 
+## Public predictions
+
+Courtside can upload a daily `public-v1` JSON snapshot with
+`POST /espn/public/predictions`, using `Authorization: Bearer <token>` matching
+the backend's `ESPN_PUBLIC_PREDICTIONS_TOKEN`. Without that environment variable,
+uploads return 503. The upload limit is 256 KiB; unsupported fields and invalid
+values return 422. Only team display names and aggregate estimates are accepted:
+no player data, team/league IDs, ESPN cookies, or account data are accepted.
+The optional `names` field accepts `real`, `abbrev`, or `initials`.
+
+`GET /espn/public/predictions/latest` is public and returns the most recently
+received snapshot, with a five-minute public cache header (404 before the first
+upload). Snapshots dated in the future are rejected. Rows are append-only;
+retrying the same `(matchup.id, generated_at)` returns `stored: false`. Removing a
+bad row needs a database administrator. These routes never contact ESPN.
+Migration `0009_beli_espn_public_predictions.sql` is applied by the normal
+`python -m release` step on deploy; do not apply it from a branch beforehand.
+
 ## Routes
 
 | Route | What it does |
