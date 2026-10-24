@@ -7,7 +7,37 @@ export const round = value => (Number.isFinite(value) ? Math.round(value) : '—
 export const pct = value => (Number.isFinite(value) ? `${value > 0 && value < 1 ? '<1' : Math.round(value)}%` : '—');
 export const weekday = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short' });
 export const longDay = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+const NARROW = '(max-width: 600px)';
+
+// Phones get summaries; charts and long lists wait until the reader asks for them.
+export function useNarrow() {
+  const [narrow, setNarrow] = React.useState(() => window.matchMedia?.(NARROW).matches ?? false);
+  React.useEffect(() => {
+    const query = window.matchMedia?.(NARROW);
+    if (!query) return undefined;
+    const update = () => setNarrow(query.matches);
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  return narrow;
+}
+
 export const tooltipStyle = { background: '#fffaf2', border: '1px solid #d6c5a7', borderRadius: 8, fontSize: 12 };
+
+export const OwnersContext = React.createContext(new Map());
+
+// ESPN manager first name, or the linked Dice name and avatar once the owner confirms.
+export function Manager({ team }) {
+  const owner = React.useContext(OwnersContext).get(team.id);
+  if (owner) {
+    return (
+      <span className="fx-manager fx-manager--linked">
+        {owner.avatar && <img src={owner.avatar} alt="" referrerPolicy="no-referrer" />}{owner.name}
+      </span>
+    );
+  }
+  return team.manager ? <span className="fx-manager">{team.manager}</span> : null;
+}
 
 const initials = name => name.split(/\s+/).map(word => word[0]).join('').slice(0, 2).toUpperCase();
 
@@ -45,7 +75,7 @@ export function ScorePath({ matchup, height = 150 }) {
   );
 }
 
-export function OddsTrend({ history }) {
+export function OddsTrend({ history, name }) {
   if (!history || history.length < 2) return null;
   const points = history.map((point, i) => `${(i / (history.length - 1) * 100).toFixed(1)},${(30 - point.chance * 0.3).toFixed(1)}`).join(' ');
   const change = history.at(-1).chance - history[0].chance;
@@ -54,7 +84,7 @@ export function OddsTrend({ history }) {
       <svg viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`Home win chance from ${pct(history[0].chance)} to ${pct(history.at(-1).chance)}`}>
         <line x1="0" x2="100" y1="15" y2="15" /><polyline points={points} />
       </svg>
-      {change > 0 ? '+' : ''}{Math.round(change)} since {weekday(history[0].date)}
+      <span>{name ? `${name} odds ` : ''}{change > 0 ? '+' : ''}{Math.round(change)} since {weekday(history[0].date)}</span>
     </span>
   );
 }

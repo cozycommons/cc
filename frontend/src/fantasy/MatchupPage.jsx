@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { favorite } from './paths.js';
-import { COLORS, OddsTrend, ScorePath, TeamLogo, longDay, pct, round, weekday } from './parts.jsx';
+import { matchupReason, swingLines } from './analysis.js';
+import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, pct, round, weekday } from './parts.jsx';
 
 const observed = day => day.state !== 'projected' && Array.isArray(day.actual) && day.actual.some(Number.isFinite);
 
@@ -75,6 +76,7 @@ export default function MatchupPage({ data }) {
           <div key={side} className={`fx-hero-team${fav === side ? ' fx-team--fav' : ''}`}>
             <TeamLogo team={team} side={side} size={64} />
             <h2>{team.name}</h2>
+            <Manager team={team} />
             <strong style={{ color: COLORS[side] }}>{round(matchup.scores[side])}</strong>
             <span>{pct(odds[side])} to win · proj. {round(matchup.projected_totals[side])}</span>
           </div>
@@ -83,15 +85,23 @@ export default function MatchupPage({ data }) {
       <div className="fx-bar fx-bar--big" aria-hidden="true">
         {odds.map((value, side) => <i key={side} style={{ flex: `${value} 0 0`, background: COLORS[side], opacity: fav === side ? 1 : 0.35 }} />)}
       </div>
+      <p className="fx-story">{matchupReason(matchup)}</p>
+      {swingLines(matchup).some(Boolean) && (
+        <ul className="fx-swings" aria-label="Biggest swings this week">
+          {swingLines(matchup).map((line, side) => line && (
+            <li key={side}><TeamLogo team={teams[side]} side={side} size={20} /><span><b>{teams[side].name}.</b> {line}.</span></li>
+          ))}
+        </ul>
+      )}
 
       <div className="fx-panel">
         <div className="fx-panel-head"><h3>Score so far and projected</h3><OddsTrend history={matchup.odds_history} /></div>
         <ScorePath matchup={matchup} height={230} />
-        <p className="fx-small">Solid lines are actual points; dashed lines project the rest of the week. Likely final margin: {round(matchup.margin_80[0])} to {round(matchup.margin_80[1])}.</p>
+        <p className="fx-small">Likely final margin: {round(matchup.margin_80[0])} to {round(matchup.margin_80[1])}.</p>
       </div>
 
       <div className="fx-panel">
-        <div className="fx-panel-head"><h3>Points by day</h3><span className="fx-small">Tap a day for who scored</span></div>
+        <div className="fx-panel-head"><h3>Points by day</h3></div>
         <DayBars matchup={matchup} selected={selected} onSelect={setSelected} />
         {selected && <>
           <h3 className="fx-day-title">Who scored · {longDay(selected)}</h3>

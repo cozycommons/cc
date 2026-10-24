@@ -89,6 +89,10 @@ include standings and dated playoff odds for `projections`, `balanced`, and `hot
 modes, with place probabilities covering all teams and summing to 100 ± 0.5.
 League IDs, ESPN cookies, account data, and private player fields are forbidden.
 The optional `names` field accepts `real`, `abbrev`, or `initials`.
+V2 also accepts `season_year` (an integer from 2000–2100) and an optional nullable
+`teams[].manager` (up to 40 characters, starting with an ASCII letter and
+containing only ASCII letters, spaces, apostrophes, hyphens, and periods).
+The existing `season` forecast object is unchanged.
 
 `GET /espn/public/predictions/latest` is public and returns the most recently
 received snapshot of either version, with a five-minute public cache header (404 before the first
@@ -97,6 +101,35 @@ retrying the same `(matchup.id, generated_at)` returns `stored: false`. Removing
 bad row needs a database administrator. These routes never contact ESPN.
 Migration `0009_beli_espn_public_predictions.sql` is applied by the normal
 `python -m release` step on deploy; do not apply it from a branch beforehand.
+
+## Team claims
+
+Signed-in Cozy users can link their Dice profile to a public fantasy team.
+`GET /espn/claims/suggestions` uses the Dice display name and Google profile
+names to rank teams by manager name, with weaker matches against team names.
+Suggestions never claim a team automatically. Confirm with
+`POST /espn/claims` and `{"season":2027,"team_id":1}`. These endpoints use the
+same Supabase bearer authentication as Dice, and confirmation requires an
+existing Dice profile. Each user and team can hold one claim per season;
+confirming another available team moves the user's link atomically. Conflicts
+return 409 with `profile_required` or `team_claimed`. Self-service links need a
+name match (score ≥ 0.5, shown as `can_claim` in suggestions); other teams
+return 403 `name_mismatch`. Dice admins can link any team. The owner or a Dice
+admin can remove a link with `DELETE /espn/claims/{season}/{team_id}`.
+
+`GET /espn/public/claims?season=2027` exposes only confirmed team IDs, Dice
+display names, and HTTPS avatars, cached publicly for 60 seconds. An absent or
+unknown season uses the latest stored snapshot's season; no snapshot returns
+an empty list. Claims use `season_year`; older snapshots derive the NBA ending
+year from `captured_at`, rolling over on July 1. Snapshot lookups prefer the
+latest stored snapshot with a team list (v1 rows are skipped). Until uploads
+exist, they fall back to the published interim snapshot at
+`ESPN_PUBLIC_PREDICTIONS_FALLBACK_URL` (default: the public gist), fetched
+without redirects, capped at 256 KB, validated as `public-v2`, and cached for
+five minutes; any failure means no snapshot. Set the variable empty to disable
+it. Migration `0010_beli_espn_team_claims.sql` advances the Beli schema
+contract to 10 and installs the service-only table and atomic claim function
+through the normal release step.
 
 ## Routes
 

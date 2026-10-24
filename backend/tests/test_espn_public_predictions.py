@@ -338,6 +338,47 @@ def test_v2_optional_fields_and_unavailable(client, snapshot_v2):
     assert client.get(PATH + "/latest").json() == snapshot_v2
 
 
+@pytest.mark.parametrize("manager", [None, "Matthew", "Anne-Marie O'Neil Jr.", "A" * 40])
+@pytest.mark.parametrize("season", [2000, 2027, 2100])
+def test_v2_accepts_season_year_and_public_manager(client, snapshot_v2, manager, season):
+    snapshot_v2["season_year"] = season
+    snapshot_v2["teams"][0]["manager"] = manager
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
+    assert client.get(PATH + "/latest").json() == snapshot_v2
+
+
+@pytest.mark.parametrize("manager", [
+    "", " Matthew", "1Matthew", "Matthew42", "Matt@example.com", "Matt/Ho",
+    "Mätthew", "Matt\nHo", "Matt\n", "A" * 41, 123, True,
+])
+def test_v2_rejects_private_or_invalid_manager(client, snapshot_v2, manager):
+    snapshot_v2["teams"][0]["manager"] = manager
+    response = client.post(PATH, json=snapshot_v2, headers=AUTH)
+    assert response.status_code == 422
+    assert not client.app.state.supabase.rows
+
+
+@pytest.mark.parametrize("season", [1999, 2101, True, "2027", 2027.0])
+def test_v2_rejects_invalid_season_year(client, snapshot_v2, season):
+    snapshot_v2["season_year"] = season
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 422
+
+
+def test_v2_season_is_still_a_forecast_object(client, snapshot_v2):
+    snapshot_v2["season"] = 2027
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 422
+
+
+@pytest.mark.parametrize("field", ["season", "season_year"])
+def test_v1_still_rejects_season_and_manager(client, field):
+    body = copy.deepcopy(SNAPSHOT)
+    body[field] = 2027
+    assert client.post(PATH, json=body, headers=AUTH).status_code == 422
+    del body[field]
+    body["matchups"][0]["home"]["manager"] = "Matthew"
+    assert client.post(PATH, json=body, headers=AUTH).status_code == 422
+
+
 @pytest.mark.parametrize("path,key", [
     ([], "league_id"), (["teams", 0], "league_id"), (["matchup"], "private"),
     (["matchups", 0], "private"), (["matchups", 0, "days", 0], "private"),
