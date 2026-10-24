@@ -1,5 +1,6 @@
 """Public uploads/reads with an in-memory Supabase boundary; no ESPN calls."""
 
+import base64
 import copy
 import json
 from datetime import datetime, timezone
@@ -10,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from espn import routes
-from espn.public_predictions import MAX_BODY_BYTES
+from espn.public_predictions import MAX_BODY_BYTES, MAX_LOGO_BYTES, PNG_SIGNATURE
 
 PATH = "/espn/public/predictions"
 AUTH = {"Authorization": "Bearer upload-secret"}
@@ -30,6 +31,42 @@ SNAPSHOT = {
         "odds_history": [{"date": "2026-10-22", "chance": 55}],
     }],
 }
+PNG_LOGO = ("data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=")
+
+
+@pytest.fixture
+def snapshot_v2():
+    body = copy.deepcopy(SNAPSHOT)
+    body["version"] = "public-v2"
+    body["teams"] = [
+        {"id": 1, "name": "Home", "abbrev": "H", "logo": PNG_LOGO},
+        {"id": 2, "name": "Away", "abbrev": "A", "logo": "https://g.espncdn.com/team.svg"},
+        {"id": 3, "name": "Other", "abbrev": "O", "logo": None},
+    ]
+    matchup = body["matchups"][0]
+    matchup.update(home=1, away=2)
+    day = matchup["days"][0]
+    day["players"] = [[{"id": 3202, "name": "Kevin Durant", "points": 10}],
+                      [{"id": 0, "name": "Other Player", "points": None}]]
+    final = dict(copy.deepcopy(day), date="2026-10-22", state="final",
+                 expected=[None, None], games=[None, None])
+    projected = dict(copy.deepcopy(day), date="2026-10-24", state="projected", players=None)
+    matchup["days"] = [final, day, projected]
+    body["season"] = {
+        "weeks_remaining": 19, "playoff_teams": 2, "trials": 10000,
+        "modes": {mode: [
+            {"team": team, "record": [1, 0, 0], "expected_wins": 10.2,
+             "playoff_pct": 75, "title_pct": 33.3, "place_pct": [50, 30, 20]}
+            for team in (1, 2, 3)
+        ] for mode in ("projections", "balanced", "hot")},
+        "history": {"balanced": {"1": [
+            {"date": "2026-10-22", "playoff_pct": 70},
+            {"date": "2026-10-23", "playoff_pct": 75},
+        ]}},
+        "form_active": False,
+    }
+    return body
 
 
 class FakeTable:
@@ -280,3 +317,125 @@ def test_body_limit_accepts_exactly_256_kib(client):
     content = json.dumps(SNAPSHOT).encode()
     content += b" " * (MAX_BODY_BYTES - len(content))
     assert client.post(PATH, content=content, headers=AUTH).status_code == 200
+
+
+def test_v2_upload_stores_and_returns_complete_snapshot(client, snapshot_v2):
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).json()["stored"] is True
+    assert client.app.state.supabase.rows[0]["payload"] == snapshot_v2
+    assert client.get(PATH + "/latest").json() == snapshot_v2
+    duplicate = copy.deepcopy(snapshot_v2)
+    duplicate["label"] = "Do not overwrite v2"
+    assert client.post(PATH, json=duplicate, headers=AUTH).json()["stored"] is False
+    assert client.get(PATH + "/latest").json() == snapshot_v2
+
+
+def test_v2_optional_fields_and_unavailable(client, snapshot_v2):
+    del snapshot_v2["season"]
+    del snapshot_v2["matchups"][0]["days"][0]["players"]
+    snapshot_v2["teams"].append({"id": 4, "name": "Fourth", "abbrev": "F", "logo": None})
+    snapshot_v2["matchups"].append({"home": 3, "away": 4, "unavailable": True})
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
+    assert client.get(PATH + "/latest").json() == snapshot_v2
+
+
+@pytest.mark.parametrize("path,key", [
+    ([], "league_id"), (["teams", 0], "league_id"), (["matchup"], "private"),
+    (["matchups", 0], "private"), (["matchups", 0, "days", 0], "private"),
+    (["matchups", 0, "days", 0, "players", 0, 0], "slot"),
+    (["matchups", 0, "days", 1, "players", 1, 0], "injury"),
+    (["matchups", 0, "odds_history", 0], "private"), (["season"], "private"),
+    (["season", "modes", "hot", 0], "private"),
+    (["season", "history", "balanced", "1", 0], "private"),
+    (["season", "modes"], "unknown"), (["season", "history"], "unknown"),
+])
+def test_v2_extra_fields_forbidden(client, snapshot_v2, path, key):
+    target = snapshot_v2
+    for part in path:
+        target = target[part]
+    target[key] = "private-value"
+    response = client.post(PATH, json=snapshot_v2, headers=AUTH)
+    assert response.status_code == 422
+    assert "private-value" not in response.text
+    assert not client.app.state.supabase.rows
+
+
+@pytest.mark.parametrize("path,value", [
+    (["teams"], []), (["teams", 1, "id"], 1), (["teams", 0, "id"], True),
+    (["teams", 0, "name"], "x" * 61), (["teams", 0, "abbrev"], "x" * 13),
+    (["teams", 0, "logo"], "https://other.example/logo.png"),
+    (["teams", 0, "logo"], "https://g.espncdn.com.evil.example/logo.png"),
+    (["teams", 0, "logo"], "http://g.espncdn.com/logo.png"),
+    (["teams", 0, "logo"], "https://g.espncdn.com/" + "x" * 300),
+    (["teams", 0, "logo"], "data:image/png;base64,bm90IGEgcG5n"),
+    (["teams", 0, "logo"], "data:image/png;base64,%%%"),
+    (["teams", 0, "logo"], "data:image/jpeg;base64,aGVsbG8="),
+    (["teams", 0, "logo"], "data:image/png;base64," + base64.b64encode(
+        PNG_SIGNATURE + b"x" * (MAX_LOGO_BYTES + 1 - len(PNG_SIGNATURE))).decode()),
+    (["matchups", 0, "home"], 99), (["matchups", 0, "home"], "1"),
+    (["matchups", 0, "away"], 1),
+    (["matchups", 0, "days", 2, "players"], [[], []]),
+    (["matchups", 0, "days", 0, "players"], [[]]),
+    (["matchups", 0, "days", 0, "players"], [[], [], []]),
+    (["matchups", 0, "days", 0, "players"], [[{"id": 1, "name": "P", "points": 0}] * 16, []]),
+    (["matchups", 0, "days", 0, "players", 0, 0, "id"], -1),
+    (["matchups", 0, "days", 0, "players", 0, 0, "id"], True),
+    (["matchups", 0, "days", 0, "players", 0, 0, "name"], "x" * 61),
+    (["matchups", 0, "days", 0, "players", 0, 0, "points"], "10"),
+    (["season", "weeks_remaining"], -1), (["season", "weeks_remaining"], True),
+    (["season", "playoff_teams"], 0), (["season", "playoff_teams"], 4),
+    (["season", "trials"], 0), (["season", "trials"], 100001),
+    (["season", "form_active"], 0),
+    (["season", "modes"], {"unknown": []}),
+    (["season", "modes", "hot", 0, "team"], 99),
+    (["season", "modes", "hot", 0, "record"], [1, -1, 0]),
+    (["season", "modes", "hot", 0, "record"], [1, 0]),
+    (["season", "modes", "hot", 0, "record"], [True, 0, 0]),
+    (["season", "modes", "hot", 0, "expected_wins"], -1),
+    (["season", "modes", "hot", 0, "playoff_pct"], 101),
+    (["season", "modes", "hot", 0, "title_pct"], -1),
+    (["season", "modes", "hot", 0, "place_pct"], [40, 30, 20]),
+    (["season", "modes", "hot", 0, "place_pct"], [100]),
+    (["season", "modes", "hot", 0, "place_pct"], [101, 0, -1]),
+    (["season", "history", "balanced"], {"99": []}),
+    (["season", "history", "balanced"], {"01": []}),
+    (["season", "history", "balanced", "1", 1, "date"], "2026-10-22"),
+    (["season", "history", "balanced", "1", 1, "date"], "2026-10-21"),
+    (["season", "history", "balanced", "1", 0, "playoff_pct"], 101),
+    (["season", "history", "balanced", "1"], [{"date": "2026-10-22", "playoff_pct": 70}] * 61),
+])
+def test_v2_invalid_values(client, snapshot_v2, path, value):
+    target = snapshot_v2
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = value
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 422
+    assert not client.app.state.supabase.rows
+
+
+@pytest.mark.parametrize("home,away", [(99, 3), (3, 99), (1, 3), (3, 3)])
+def test_v2_unavailable_rejects_unknown_or_duplicate_teams(client, snapshot_v2, home, away):
+    snapshot_v2["matchups"].append({"home": home, "away": away, "unavailable": True})
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 422
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), True])
+@pytest.mark.parametrize("path", [
+    ["matchups", 0, "days", 0, "players", 0, 0, "points"],
+    ["season", "modes", "hot", 0, "expected_wins"],
+    ["season", "modes", "hot", 0, "place_pct", 0],
+    ["season", "history", "balanced", "1", 0, "playoff_pct"],
+])
+def test_v2_strict_finite_numbers(client, snapshot_v2, path, value):
+    target = snapshot_v2
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = value
+    assert client.post(PATH, content=json.dumps(snapshot_v2), headers=AUTH).status_code == 422
+
+
+@pytest.mark.parametrize("total", [99.5, 100.5])
+def test_v2_logo_size_and_probability_boundaries(client, snapshot_v2, total):
+    snapshot_v2["teams"][0]["logo"] = "data:image/png;base64," + base64.b64encode(
+        PNG_SIGNATURE + b"x" * (MAX_LOGO_BYTES - len(PNG_SIGNATURE))).decode()
+    snapshot_v2["season"]["modes"]["hot"][0]["place_pct"] = [50, 30, total - 80]
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
