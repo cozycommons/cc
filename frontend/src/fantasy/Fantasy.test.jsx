@@ -17,7 +17,7 @@ describe('Fantasy pages', () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy');
     expect(await screen.findByText('Race to the playoffs')).toBeTruthy();
-    expect(screen.getByText(/leads because/)).toBeTruthy();
+    expect(screen.getByText(/Most projected wins|Best playoff odds/)).toBeTruthy();
     const link = screen.getByRole('link', { name: /Glass Cleaners vs Lob City/ });
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
@@ -54,6 +54,9 @@ describe('Fantasy pages', () => {
     expect(await screen.findByText('Points by day')).toBeTruthy();
     expect(screen.getByRole('heading', { level: 2, name: 'Glass Cleaners' })).toBeTruthy();
     expect(screen.getByText(/Who scored ·/)).toBeTruthy();
+    const swings = screen.getByText('Who’s swinging it').closest('.fx-panel');
+    expect(swings.querySelectorAll('.fx-swing--cold b').length).toBeGreaterThan(0);
+    expect(swings.querySelector('.fx-swing--cold b').textContent).toMatch(/^−\d+$/);
     const firstDay = screen.getAllByRole('button', { pressed: false }).find(b => b.getAttribute('aria-label')?.includes('Oct 20'));
     fireEvent.click(firstDay);
     expect(screen.getByText(/Who scored · Tue, Oct 20/)).toBeTruthy();

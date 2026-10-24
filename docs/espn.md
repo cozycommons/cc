@@ -131,6 +131,11 @@ it. Migration `0010_beli_espn_team_claims.sql` advances the Beli schema
 contract to 10 and installs the service-only table and atomic claim function
 through the normal release step.
 
+Migration `0011_beli_espn_seed_team_claims.sql` pre-links the 2026-27 managers
+who already had Dice profiles (10 of 12, matched on the ESPN owner's full name).
+It only inserts for users that exist and never replaces an existing link; those
+users can unlink like any other claim.
+
 ## Routes
 
 | Route | What it does |
