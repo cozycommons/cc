@@ -76,16 +76,22 @@ sits. Each sit is recorded as a **conflict**, visible in
 
 ## Public predictions
 
-Courtside can upload a daily `public-v1` JSON snapshot with
+Courtside can upload a daily `public-v2` JSON snapshot (`public-v1` remains accepted) with
 `POST /espn/public/predictions`, using `Authorization: Bearer <token>` matching
 the backend's `ESPN_PUBLIC_PREDICTIONS_TOKEN`. Without that environment variable,
 uploads return 503. The upload limit is 256 KiB; unsupported fields and invalid
-values return 422. Only team display names and aggregate estimates are accepted:
-no player data, team/league IDs, ESPN cookies, or account data are accepted.
+values return 422 without echoing the input. V2 includes a team directory (up to
+20 public team IDs, names, abbreviations, and logos), matchups referencing those
+IDs, and up to 15 players per side on final/live days; projected days cannot
+include players. Logos must be HTTPS URLs on `g.espncdn.com` (up to 300 chars),
+embedded base64 PNGs of at most 24 KiB decoded, or null. Optional season forecasts
+include standings and dated playoff odds for `projections`, `balanced`, and `hot`
+modes, with place probabilities covering all teams and summing to 100 ± 0.5.
+League IDs, ESPN cookies, account data, and private player fields are forbidden.
 The optional `names` field accepts `real`, `abbrev`, or `initials`.
 
 `GET /espn/public/predictions/latest` is public and returns the most recently
-received snapshot, with a five-minute public cache header (404 before the first
+received snapshot of either version, with a five-minute public cache header (404 before the first
 upload). Snapshots dated in the future are rejected. Rows are append-only;
 retrying the same `(matchup.id, generated_at)` returns `stored: false`. Removing a
 bad row needs a database administrator. These routes never contact ESPN.
