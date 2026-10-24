@@ -378,6 +378,8 @@ span.trips-avatar { box-shadow: 0 0 0 2px var(--paper-light), 0 0 0 3.5px var(--
     border-radius: 60% 40% 55% 45% / 50% 60% 40% 50%; background: color-mix(in srgb, var(--butter) 70%, transparent); }
   .trips-tabs button[aria-selected="true"] svg { color: var(--espresso); }
   .trips-add { border-radius: var(--radius-card) !important; box-shadow: var(--key-shadow), 0 10px 22px rgba(70, 47, 32, .24) !important; }
+  /* The heading is a column here, so the title's 340px row basis would become its height. */
+  .trips-trip-title { flex: 0 0 auto; }
   .trips-trip-title .trips-stamp { width: 44px !important; height: 44px !important; }
   .trips-trip-row { flex-wrap: wrap; row-gap: 10px; }
   .trips-trip-row-main { flex: 1 1 calc(100% - 64px); }
