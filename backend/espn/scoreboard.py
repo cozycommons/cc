@@ -83,10 +83,27 @@ def _competitor_team_id(competitor: dict) -> int | None:
         return None
 
 
+def _event_tipoff(event: dict):
+    """The event's tip-off as an aware datetime, or None."""
+    raw = event.get("date")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
 def parse_scoreboard(payload) -> dict:
     """Parse a scoreboard payload into per-date schedule buckets.
 
-    Returns ``{date: {"teams": set[int], "season_types": set[int]}}``.
+    Returns ``{date: {"teams": set[int], "season_types": set[int],
+    "tipoffs": {team_id: datetime}}}`` — tipoffs are the earliest
+    tip-off per team that day (the lineup runner's per-player lock
+    source when the fantasy payload has no pro-games block).
     Malformed events are skipped rather than guessed at.
     """
     days: dict[_date, dict] = {}
@@ -98,12 +115,15 @@ def parse_scoreboard(payload) -> dict:
         day = _event_date(event)
         if day is None:
             continue
-        bucket = days.setdefault(day, {"teams": set(), "season_types": set()})
+        bucket = days.setdefault(
+            day, {"teams": set(), "season_types": set(), "tipoffs": {}}
+        )
         season = event.get("season")
         if isinstance(season, dict):
             stype = season.get("type")
             if isinstance(stype, int):
                 bucket["season_types"].add(stype)
+        tipoff = _event_tipoff(event)
         for competition in event.get("competitions") or []:
             if not isinstance(competition, dict):
                 continue
@@ -113,6 +133,11 @@ def parse_scoreboard(payload) -> dict:
                 team_id = _competitor_team_id(competitor)
                 if team_id is not None:
                     bucket["teams"].add(team_id)
+                    if tipoff is not None and (
+                        team_id not in bucket["tipoffs"]
+                        or tipoff < bucket["tipoffs"][team_id]
+                    ):
+                        bucket["tipoffs"][team_id] = tipoff
     return days
 
 
@@ -161,7 +186,7 @@ class ScoreboardClient:
         for d, bucket in parsed.items():
             self._days.setdefault(d, bucket)
         self._days.setdefault(
-            day, {"teams": set(), "season_types": set()}
+            day, {"teams": set(), "season_types": set(), "tipoffs": {}}
         )
 
     def _fetch_month(self, year: int, month: int) -> None:
@@ -174,19 +199,24 @@ class ScoreboardClient:
 
     # -- public API -----------------------------------------------------------
     def get_day(self, day: _date) -> dict:
-        """{"teams": set[int], "season_types": set[int]} for one date."""
+        """{"teams": set[int], "season_types": set[int],
+        "tipoffs": {team_id: datetime}} for one date."""
         if day in self._days:
             return self._days[day]
         if (day.year, day.month) in self._fetched_months or day in self._fetched_days:
             # Covered by an earlier fetch and absent from it: a real
             # no-games day, not a missing fetch.
-            return {"teams": set(), "season_types": set()}
+            return {"teams": set(), "season_types": set(), "tipoffs": {}}
         self._fetch_day(day)
         return self._days[day]
 
     def teams_on(self, day: _date) -> set:
         """Pro team ids with a game on the date (any season type)."""
         return set(self.get_day(day)["teams"])
+
+    def team_tipoffs_on(self, day: _date) -> dict:
+        """{pro team id: earliest tip-off datetime} for the date."""
+        return dict(self.get_day(day).get("tipoffs") or {})
 
     def first_regular_season_date(self, start: _date, end: _date):
         """Earliest date in the span with a regular-season game, or None.
