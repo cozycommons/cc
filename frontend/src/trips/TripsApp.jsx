@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useMatch, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { ArrowRight, Download, LogOut, Plus } from 'lucide-react';
 import { Suitcase, TripStamp, tripSticker } from './doodles.jsx';
 import { useTripsAuth, localDemo } from './useTripsAuth.js';
@@ -38,6 +38,44 @@ function ProfileDialog({ auth, profile, onClose, onSignOut }) {
   </Modal>;
 }
 
+// One line for every trip together, per currency, like Splitwise's overall balance.
+function overall(groups, userId) {
+  const totals = {};
+  for (const g of groups) {
+    const mine = g.balances[g.members.find((m) => m.user_id === userId)?.id] || 0;
+    if (mine) totals[g.currency] = (totals[g.currency] || 0) + mine;
+  }
+  const parts = Object.entries(totals).filter(([, amount]) => amount)
+    .map(([currency, amount]) => ({ amount, text: `${amount > 0 ? 'You’re owed' : 'You owe'} ${money(Math.abs(amount), currency)}` }));
+  if (!groups.length) return null;
+  return parts.length ? parts : [{ amount: 0, text: 'All square across your trips' }];
+}
+
+function JoinTrip({ joinId, invitation, request, displayName, onJoined, onCancel, onOpen }) {
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState(invitation ? '' : 'This invite link is missing its code. Open the original link again.');
+  useEffect(() => {
+    if (!invitation) return undefined;
+    let current = true;
+    request(`/groups/${joinId}/invite-preview`, 'POST', { invite_token: invitation })
+      .then((result) => current && setPreview(result), (e) => current && setError(e.message));
+    return () => { current = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (error) return <section className="trips-join"><h1>Join trip</h1><p className="trips-error" role="alert">{error}</p><Link to="/trips">All trips</Link></section>;
+  if (!preview) return <p className="trips-loading" role="status">Opening your invite…</p>;
+  if (preview.already_member) return <section className="trips-join"><h1>{preview.trip_name}</h1>
+    <p className="trips-muted">You’re already on this trip.</p><Button variant="primary" onClick={onOpen}>Open trip <ArrowRight size={16} aria-hidden="true" /></Button></section>;
+  const balance = preview.balance_minor;
+  return <section className="trips-join"><p className="trips-greeting">{preview.inviter ? `${preview.inviter} invited you` : 'You’re invited'}</p><h1>{preview.trip_name}</h1>
+    <div className="trips-join-card">
+      <p>You’ll take <strong>{preview.member_name}</strong>’s place on this trip of {preview.member_count} people.</p>
+      <p>{balance === 0 ? `${preview.member_name} is all square so far.` : `${preview.member_name} ${balance < 0 ? 'owes' : 'is owed'} ${money(Math.abs(balance), preview.currency)} so far.`}</p>
+    </div>
+    <Form name="join" submit={`Join as ${preview.member_name}`} onCancel={onCancel} onSubmit={onJoined}>
+      <p className="trips-muted">Signed in as {displayName}. Not {preview.member_name}? Ask {preview.inviter || 'the trip creator'} for your own link. Each link is for one person.</p>
+    </Form></section>;
+}
+
 function TripList({ groups, userId }) {
   if (!groups.length) return <div className="trips-empty"><Suitcase size={64} className="trips-empty-doodle" /><p>No trips yet. Pack one, or bring yours over from Splitwise.</p></div>;
   return <ul className="trips-trip-list">{groups.map((g) => {
@@ -54,6 +92,10 @@ function TripList({ groups, userId }) {
 
 function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
   const navigate = useNavigate();
+  // Shown once after deleting a trip; cleared from history so a reload doesn't repeat it.
+  const location = useLocation();
+  const [deletedNotice] = useState(() => location.state?.notice);
+  useEffect(() => { if (deletedNotice) navigate(location.pathname, { replace: true, state: null }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [groups, setGroups] = useState([]);
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -82,16 +124,19 @@ function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
   useEffect(() => { if (venmo !== firstVenmo.current) { firstVenmo.current = venmo; load().catch(() => {}); } }, [venmo]); // eslint-disable-line react-hooks/exhaustive-deps
   const displayName = auth.profile?.display_name || auth.user.user_metadata?.full_name || auth.user.email || 'Me';
 
-  if (joinId) return <section className="trips-join"><h1>Join trip</h1><Form name="join" submit="Join trip" onCancel={() => navigate('/trips')} onSubmit={async () => {
-    if (!invitation) throw new Error('This invite link is missing its code. Open the original link again.');
-    const result = await request(`/groups/${joinId}/join`, 'POST', { invite_token: invitation });
-    clearInvitation(joinId); go(`/trips/${result.id}?tab=balances`);
-  }}><p className="trips-muted">Joining as {displayName}. Your past shares on the trip stay as they are.</p></Form></section>;
+  if (joinId) return <JoinTrip joinId={joinId} invitation={invitation} request={request} displayName={displayName}
+    onCancel={() => navigate('/trips')} onOpen={() => { clearInvitation(joinId); go(`/trips/${joinId}`); }}
+    onJoined={async () => {
+      const result = await request(`/groups/${joinId}/join`, 'POST', { invite_token: invitation });
+      clearInvitation(joinId); go(`/trips/${result.id}?tab=balances`);
+    }} />;
   if (loading) return <p className="trips-loading" role="status">Loading…</p>;
   if (error) return <div className="trips-empty"><p role="alert">{error}</p><Button onClick={async () => { setError(''); setLoading(true); try { await load(); } catch (e) { setError(e.message); } finally { setLoading(false); } }}>Try again</Button> <Link to="/trips">All trips</Link></div>;
   if (tripId && group) return <TripView key={group.id} group={group} user={auth.user} profile={auth.profile} request={request} onUpdated={accept} onRefresh={load} onEditProfile={onEditProfile} />;
   return <>
-    <section className="trips-heading trips-heading--home"><div><p className="trips-greeting">Hi {displayName.split(/\s+/)[0]}, where to next?</p><h1 tabIndex={-1}>Your trips</h1></div><div className="trips-home-actions">
+    {deletedNotice && <p role="status" className="trips-notice">{deletedNotice}</p>}
+    <section className="trips-heading trips-heading--home"><div><p className="trips-greeting">Hi {displayName.split(/\s+/)[0]}, where to next?</p><h1 tabIndex={-1}>Your trips</h1>
+      {overall(groups, auth.user.id)?.map(({ amount, text }) => <p key={text} className={`trips-overall ${amount > 0 ? 'trips-positive' : amount < 0 ? 'trips-owe' : ''}`}>{text}</p>)}</div><div className="trips-home-actions">
       <Button onClick={() => setImporting(true)}><Download size={15} aria-hidden="true" />Import from Splitwise</Button>
       <Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} aria-hidden="true" />New trip</Button></div></section>
     <TripList groups={groups} userId={auth.user.id} />

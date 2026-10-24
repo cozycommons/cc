@@ -1,19 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Undo2 } from 'lucide-react';
+import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Trash2 } from 'lucide-react';
 import { decimal, money, shortDate, today, toMinor } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
 import { findMember, firstName, memberName } from './people.js';
-import { settlementRole, tripNote, venmoLink, venmoProfile } from './venmo.js';
+import { normalizeUsername, settlementRole, tripNote, venmoLink, venmoProfile } from './venmo.js';
 import { balanceBreakdown } from './balances.js';
 
 const SquareStamp = () => <span className="trips-square-stamp" aria-hidden="true">All square</span>;
 
 const VenmoMark = () => <span className="trips-venmo-mark" aria-hidden="true">V</span>;
 
-export function RepaymentForm({ group, suggestion, onSave, onCancel }) {
+export function RepaymentForm({ group, meId, suggestion, onSave, onCancel }) {
   const [id] = useState(() => crypto.randomUUID());
-  const [from, setFrom] = useState(suggestion?.from_member || group.members[0].id);
-  const [to, setTo] = useState(suggestion?.to_member || group.members[1]?.id || group.members[0].id);
+  // Without a suggestion, start from your own suggested payment, else from you to the next person.
+  const start = suggestion || group.transfers.find((t) => settlementRole(t, meId))
+    || { from_member: meId || group.members[0].id, to_member: group.members.find((m) => m.id !== (meId || group.members[0].id))?.id };
+  const [from, setFrom] = useState(start.from_member);
+  const [to, setTo] = useState(start.to_member || group.members[0].id);
   const [amount, setAmount] = useState(suggestion ? decimal(suggestion.amount_minor) : '');
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState(suggestion?.notes || '');
@@ -31,7 +34,8 @@ export function RepaymentForm({ group, suggestion, onSave, onCancel }) {
 }
 
 // Review before leaving: Venmo shows the same details again, and nothing is recorded until the person says so.
-export function VenmoReview({ group, transfer, role, onRecord, onCancel, onEditHandles }) {
+// `onSaveHandle` lets the trip creator add a missing username right here, for someone who hasn't joined.
+export function VenmoReview({ group, transfer, role, onRecord, onCancel, onSaveHandle }) {
   const [id] = useState(() => crypto.randomUUID());
   const [opened, setOpened] = useState(false);
   const other = findMember(group, role === 'pay' ? transfer.to_member : transfer.from_member);
@@ -39,27 +43,55 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onEditH
   const note = tripNote(group.name);
   const amount = decimal(transfer.amount_minor);
   const usd = group.currency === 'USD';
-  return <Form name="venmo" submit={role === 'pay' ? 'Mark as paid' : 'Mark as received'} onCancel={onCancel} onSubmit={() => onRecord({
-    id, from_member: transfer.from_member, to_member: transfer.to_member, amount_minor: transfer.amount_minor,
-    date: today(), notes: 'Venmo', revision: group.revision })}>
+  const canAddHandle = usd && !username && onSaveHandle && !other?.user_id;
+  return <Form name="venmo" submit={role === 'pay' ? 'Mark as paid' : 'Mark as received'} submitVariant={opened ? 'primary' : usd && username ? 'ghost' : 'secondary'}
+    onCancel={onCancel} onSubmit={() => onRecord({
+      id, from_member: transfer.from_member, to_member: transfer.to_member, amount_minor: transfer.amount_minor,
+      date: today(), notes: 'Venmo', revision: group.revision })}>
     <div className="trips-venmo-who"><Avatar member={other} size={44} /><div>
       <strong>{role === 'pay' ? `Pay ${memberName(other)}` : `Request from ${memberName(other)}`}</strong>
       {username ? <a className="trips-handle" href={venmoProfile(username)} target="_blank" rel="noopener noreferrer">@{username}</a> : <span className="trips-muted">No Venmo username yet</span>}
     </div><strong className="trips-venmo-amount">{money(transfer.amount_minor, group.currency)}</strong></div>
     {username && !other.venmo_confirmed && <p className="trips-note">{other.venmo_source === 'trip' ? 'Added by the trip creator' : 'Added for them'}, not by {firstName(other)}. Check the name in Venmo.</p>}
-    <CopyButton value={amount} label="amount" big>Copy amount · {money(transfer.amount_minor, group.currency)}</CopyButton>
+    {usd && username && <a className="cc-button cc-button--primary trips-venmo-open" href={venmoLink({ username, role, amountMinor: transfer.amount_minor, note })}
+      target="_blank" rel="noopener noreferrer" onClick={() => setOpened(true)}><VenmoMark />{role === 'pay' ? 'Open Venmo to pay' : 'Open Venmo to request'}<ExternalLink size={14} aria-hidden="true" /></a>}
+    {canAddHandle && <InlineHandle name={firstName(other)} onSave={onSaveHandle} />}
+    {usd && !username && !canAddHandle && <p className="trips-muted">{firstName(other)} hasn’t added a Venmo username. {other?.user_id ? `Ask ${firstName(other)} to add it in their profile, or` : 'Ask the trip creator to add it, or'} pay with the details below.</p>}
+    {!usd && <p className="trips-muted">Venmo only sends US dollars. Use the details below with another app.</p>}
     <dl className="trips-venmo-details">
       {username && <div><dt>To</dt><dd>@{username}</dd><CopyButton value={username} label="Venmo username" /></div>}
+      <div><dt>Amount</dt><dd>{money(transfer.amount_minor, group.currency)}</dd><CopyButton value={amount} label="amount" /></div>
       <div><dt>Note</dt><dd>{note}</dd><CopyButton value={note} label="note" /></div>
     </dl>
-    {!usd ? <p className="trips-muted">Venmo only sends US dollars. Use the details above with another app.</p>
-      : username ? <a className="cc-button cc-button--primary trips-venmo-open" href={venmoLink({ username, role, amountMinor: transfer.amount_minor, note })}
-        target="_blank" rel="noopener noreferrer" onClick={() => setOpened(true)}><VenmoMark />{role === 'pay' ? 'Open Venmo to pay' : 'Open Venmo to request'}<ExternalLink size={14} aria-hidden="true" /></a>
-        : <p className="trips-muted">{firstName(other)} hasn’t added a Venmo username. {onEditHandles && <button type="button" className="trips-text-button trips-inline" onClick={onEditHandles}>Add it</button>}</p>}
-    {usd && username && <p className="trips-muted" role="status">{opened
-      ? `After ${role === 'pay' ? 'you pay' : `${firstName(other)} pays`} in Venmo, record it here.`
-      : 'Venmo opens with these details filled in. Confirm there, then record it here.'}</p>}
+    <p className="trips-muted" role="status">{opened
+      ? `After ${role === 'pay' ? 'you pay' : `${firstName(other)} pays`} in Venmo, mark it here.`
+      : usd && username ? 'Venmo opens with these details filled in. Confirm there, then come back and mark it.'
+        : `Mark it here once the money has ${role === 'pay' ? 'gone out' : 'arrived'}.`}</p>
   </Form>;
+}
+
+// Not a nested form: the dialog's own form owns submit, so this saves on its own button.
+function InlineHandle({ name, onSave }) {
+  const [value, setValue] = useState('');
+  const [state, setState] = useState({ busy: false, error: '' });
+  const save = async () => {
+    setState({ busy: true, error: '' });
+    try {
+      const username = normalizeUsername(value);
+      if (!username) throw new Error(`Enter ${name}’s Venmo username.`);
+      await onSave(username);
+    } catch (error) { setState({ busy: false, error: error.message }); return; }
+    setState({ busy: false, error: '' });
+  };
+  return <div className="trips-inline-handle">
+    <label htmlFor="trips-inline-handle">{name}’s Venmo username</label>
+    <div><input id="trips-inline-handle" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" placeholder="@username"
+      value={value} disabled={state.busy} onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }} />
+      <Button type="button" disabled={state.busy} onClick={save}>{state.busy ? 'Saving…' : 'Add'}</Button></div>
+    <small>Only for this trip, until {name} joins and adds their own.</small>
+    {state.error && <p className="trips-error" role="alert">{state.error}</p>}
+  </div>;
 }
 
 function TransferRow({ group, transfer, meId, onVenmo, onRecord }) {
@@ -94,6 +126,11 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
     return () => clearTimeout(timer);
   }, [myBalance]);
   const breakdown = me ? balanceBreakdown(group, me.id) : null;
+  // Pairwise debts differ from the plan once payments are simplified; say so instead of contradicting it.
+  const planned = Object.fromEntries(group.transfers.filter((t) => settlementRole(t, me?.id))
+    .map((t) => (t.from_member === me.id ? [t.to_member, t.amount_minor] : [t.from_member, -t.amount_minor])));
+  const simplified = Boolean(breakdown) && (breakdown.direct.length !== Object.keys(planned).length
+    || breakdown.direct.some((row) => planned[row.member_id] !== row.amount_minor));
   const mine = group.transfers.filter((t) => settlementRole(t, me?.id));
   const others = group.transfers.filter((t) => !settlementRole(t, me?.id));
   const owedWithoutHandle = myBalance > 0 && group.currency === 'USD' && profile && !profile.venmo_username;
@@ -106,20 +143,23 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
 
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2>
       <Button onClick={() => onRecord(null)} disabled={group.members.length < 2}><Plus size={15} aria-hidden="true" />Record payment</Button></div>
+    {!!group.transfers.length && <p className="trips-muted trips-small trips-settle-note">{group.settlement === 'fewest'
+      ? 'The fewest payments to square everyone. You might pay someone other than who covered you.'
+      : 'These square everyone with the least money changing hands. You might pay someone other than who covered you.'}</p>}
     {!group.transfers.length ? <div className="trips-empty trips-empty--square">{!me && <SquareStamp />}<p>All square. Nobody owes anybody.</p></div> : <>
       {!!mine.length && <ul className="trips-transfers">{mine.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul>}
       {!!others.length && <>{!!mine.length && <h3 className="trips-subheading">Between others</h3>}
         <ul className="trips-transfers">{others.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul></>}
-      <p className="trips-muted trips-small">{group.settlement === 'fewest'
-        ? 'The fewest payments that square everyone up, with the least money changing hands, so you might pay someone other than who covered you.'
-        : 'These square everyone up with the least money changing hands, so you might pay someone other than who covered you.'}</p>
     </>}
 
     {breakdown && <details className="trips-calculation"><summary>How your balance adds up</summary>
       <dl className="trips-calculation-totals"><div><dt>You paid</dt><dd>{money(breakdown.paid, group.currency)}</dd></div><div><dt>Your share</dt><dd>−{money(breakdown.share, group.currency)}</dd></div>
         {!!breakdown.sent && <div><dt>Payments you sent</dt><dd>{money(breakdown.sent, group.currency)}</dd></div>}{!!breakdown.received && <div><dt>Payments you received</dt><dd>−{money(breakdown.received, group.currency)}</dd></div>}
         <div><dt>{breakdown.net < 0 ? 'You owe' : breakdown.net > 0 ? 'You’re owed' : 'Balance'}</dt><dd>{money(Math.abs(breakdown.net), group.currency)}</dd></div></dl>
-      <h3>Person by person</h3>
+      <h3>{simplified ? 'Before simplifying' : 'Person by person'}</h3>
+      {simplified && <p className="trips-muted trips-small" role="note">{myBalance === 0
+        ? 'You’re square: the payments above already cover all of these, so don’t pay any of them.'
+        : 'Who covered whom, one person at a time. The payments above replace these, so don’t pay both.'}</p>}
       {!breakdown.direct.length ? <p className="trips-muted">You’re square with everyone.</p> : <ul className="trips-direct-balances">{breakdown.direct.map((row) => {
         const other = findMember(group, row.member_id);
         return <li key={row.member_id}><span><Avatar member={other} size={22} />{memberName(other)}</span><strong className={row.amount_minor > 0 ? 'trips-owe' : 'trips-positive'}>{row.amount_minor > 0 ? 'You owe' : 'Owes you'} {money(Math.abs(row.amount_minor), group.currency)}</strong></li>;
@@ -132,7 +172,7 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
       const to = findMember(group, p.to_member);
       return <li key={p.id}><Avatar member={from} size={26} /><div><strong>{memberName(from)} → {memberName(to)}</strong><small>{shortDate(p.date)}{p.notes && ` · ${p.notes}`}</small></div>
         <strong>{money(p.amount_minor, group.currency)}</strong>
-        <button className="trips-text-button" aria-label={`Undo payment from ${memberName(from)} to ${memberName(to)}, ${money(p.amount_minor, group.currency)} on ${p.date}`} onClick={() => onRemoveRepayment(p)}><Undo2 size={14} aria-hidden="true" />Undo</button></li>;
+        <button className="trips-text-button" aria-label={`Remove payment from ${memberName(from)} to ${memberName(to)}, ${money(p.amount_minor, group.currency)} on ${p.date}`} onClick={() => onRemoveRepayment(p)}><Trash2 size={14} aria-hidden="true" />Remove</button></li>;
     })}</ul>}
   </>;
 }
