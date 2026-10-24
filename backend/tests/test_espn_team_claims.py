@@ -413,13 +413,13 @@ def test_fallback_fetch_validates_caches_and_fails_closed(monkeypatch):
 
     monkeypatch.setattr(team_claims, "_fallback_snapshot", REAL_FALLBACK)
     monkeypatch.setattr(team_claims._NO_REDIRECTS, "open", urlopen)
-    monkeypatch.setitem(team_claims._fallback_cache, "at", 0.0)
+    monkeypatch.setitem(team_claims._fallback_cache, "at", None)
     body = json.dumps({"version": "public-v2", "generated_at": "2026-10-23T12:00:00Z", "captured_at": "2026-10-23T11:00:00Z",
                        "label": "x", "matchup": {"id": 1, "ends": "2026-10-25"},
                        "teams": [{"id": 1, "name": "Home", "abbrev": "H", "logo": None}, {"id": 2, "name": "Away", "abbrev": "A", "logo": None}], "matchups": []}).encode()
     first = team_claims._fallback_snapshot()
     assert first["teams"][0]["id"] == 1
     assert team_claims._fallback_snapshot() is first and len(calls) == 1
-    monkeypatch.setitem(team_claims._fallback_cache, "at", 0.0)
+    monkeypatch.setitem(team_claims._fallback_cache, "at", None)
     body = b'{"version": "public-v2", "player_name": "x"}'
     assert team_claims._fallback_snapshot() is None

@@ -29,7 +29,7 @@ FALLBACK_URL = os.getenv(
     "ESPN_PUBLIC_PREDICTIONS_FALLBACK_URL",
     "https://gist.githubusercontent.com/homatthew/a417a860db31c1a9e5c13b08338b7a65/raw/fantasy-latest.json",
 )
-_fallback_cache = {"at": 0.0, "payload": None}
+_fallback_cache = {"at": None, "payload": None}  # None: never fetched
 
 
 class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
@@ -41,7 +41,7 @@ _NO_REDIRECTS = urllib.request.build_opener(_RefuseRedirect())
 
 
 def _fallback_snapshot():
-    if time.monotonic() - _fallback_cache["at"] < 300:
+    if _fallback_cache["at"] is not None and time.monotonic() - _fallback_cache["at"] < 300:
         return _fallback_cache["payload"]
     payload = None
     if FALLBACK_URL:
