@@ -80,9 +80,9 @@ describe('trip state', () => {
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Dinner' } });
     fireEvent.change(screen.getByLabelText('Amount (USD)'), { target: { value: '20' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
-    expect(await screen.findByRole('button', { name: /Edit Dinner/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Open Dinner/ })).toBeInTheDocument();
     await act(async () => finishRefresh(group(1)));
-    expect(screen.getByRole('button', { name: /Edit Dinner/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Open Dinner/ })).toBeInTheDocument();
   });
 
   it('saves a draft against the version it was opened from and shows what changed on conflict', async () => {
@@ -91,7 +91,8 @@ describe('trip state', () => {
     open();
     mocked.request.mockImplementationOnce(() => new Promise((resolve) => { finishRefresh = resolve; }));
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh trip' }));
-    fireEvent.click(screen.getByRole('button', { name: /Edit Dinner/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Open Dinner/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await act(async () => finishRefresh(group(2, [dinner('Sam changed this')])));
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Dinner out' } });
     mocked.request.mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 409 })).mockResolvedValueOnce(group(2, [dinner('Sam changed this')]));
@@ -137,7 +138,8 @@ describe('trip state, round 2', () => {
     open();
     mocked.request.mockImplementationOnce(() => new Promise((resolve) => { finishRefresh = resolve; }));
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh trip' }));
-    fireEvent.click(screen.getByRole('button', { name: /Edit Dinner/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Open Dinner/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     await act(async () => finishRefresh(group(2, [{ ...dinner, description: 'Hotel', amount_minor: 20000 }])));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     mocked.request.mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 409 })).mockResolvedValueOnce(group(2, [{ ...dinner, description: 'Hotel', amount_minor: 20000 }]));

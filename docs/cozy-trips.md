@@ -263,19 +263,28 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 | POST /imports | Atomically save that snapshot, or reopen the identical existing import |
 | POST /groups | Create: UUID id, name, currency, display_name |
 | GET /groups/{id} | Full trip, integer balances, suggested transfers, revision |
+| PUT /groups/{id} | Creator renames the trip: name, revision |
+| DELETE /groups/{id} | Creator deletes the trip and its ledger for everyone: revision |
 | POST /groups/{id}/members | Creator adds a named person; returns a one-use invite |
+| PUT /groups/{id}/members/{member} | Creator renames someone who hasn't joined: name, revision |
+| DELETE /groups/{id}/members/{member} | Creator removes someone on no expense or payment: revision |
 | POST /groups/{id}/members/{member}/invite | Creator rotates that person's invite |
 | PUT /groups/{id}/members/{member}/venmo | Creator sets/clears a username for someone who hasn't joined |
+| POST /groups/{id}/invite-preview | Before joining: trip name, inviter, the invited place's name and balance, or `already_member` |
 | POST /groups/{id}/join | Claim an invitation with invite_token |
 | POST /groups/{id}/expenses | Create an expense |
 | PUT /groups/{id}/expenses/{expense} | Edit an expense |
 | DELETE /groups/{id}/expenses/{expense} | Remove an expense |
+| POST /groups/{id}/expenses/{expense}/restore | Bring back the most recently deleted version of an expense |
 | POST /groups/{id}/repayments | Record an outside repayment |
 | DELETE /groups/{id}/repayments/{repayment} | Undo a repayment record |
 
 Every mutation to an existing trip except joining includes the `revision` the
-caller last reviewed. 409 means reload and review; never blindly retry or
-overwrite another edit. Expense/repayment IDs are client-generated UUIDs. Resending
+caller last reviewed. Edits, deletes and trip/people changes require the current
+revision: 409 means reload and review; never blindly retry or overwrite another
+edit. Adding an expense or repayment, or restoring a deleted expense, doesn't
+depend on the rest of the ledger, so the server accepts it against an older
+revision and adds it on top of whatever was saved since. Expense/repayment IDs are client-generated UUIDs. Resending
 an identical create (same ID and the same resulting record) returns the trip
 without saving twice; the same ID with different details returns 409. Date fields
 use YYYY-MM-DD.
@@ -312,6 +321,10 @@ within each recovered group greedy matching follows member order, and displayed
 transfers are ordered by debtor, then creditor. The UI claims fewest payments
 only when `settlement === 'fewest'`; missing mode fields retain the previous
 wording for compatibility.
+
+Activity entries carry `kind`, `item_id` and `amount_minor` when they refer to an
+expense or repayment. A `delete_expense` entry also keeps the deleted expense so it
+can be restored; the restored expense keeps its original ID, creator and splits.
 
 Prefilled, unsaved expense (UI): `/trips/{id}?add=expense&description=Dinner&amount=42.50&paid_by={member}&participants={member},{member}&category=food`
 opens the form for review. Sections are addressable with `?tab=expenses|balances|people|activity`.

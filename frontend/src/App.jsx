@@ -16,12 +16,16 @@ function LegacyCrowdsetRedirect() {
   return <Navigate replace to={`/crowdset${search}${hash}`} />;
 }
 
+// Shown before the Trips bundle (and its stylesheet) arrives, so it carries its own paper colours.
+const TripsSplash = () => <p role="status" style={{ boxSizing: 'border-box', minHeight: '100svh', margin: 0, padding: '28px 24px',
+  background: '#e7dcc5', color: '#6f6256', font: '15px/1.5 system-ui, -apple-system, sans-serif' }}>Opening Cozy Trips…</p>;
+
 export default function App() {
   return (
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <Routes>
         <Route path="/" element={<CozyWabiLanding />} />
-        <Route path="/trips/*" element={<SupabaseProvider><React.Suspense fallback={<p>Opening Cozy Trips…</p>}><TripsApp /></React.Suspense></SupabaseProvider>} />
+        <Route path="/trips/*" element={<SupabaseProvider><React.Suspense fallback={<TripsSplash />}><TripsApp /></React.Suspense></SupabaseProvider>} />
         <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
         <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
         <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />

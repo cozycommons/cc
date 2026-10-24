@@ -31,6 +31,10 @@ function open(path = '/trips') {
     <Route path="/trips/:tripId" element={<p>Trip opened</p>} />
   </Routes></MemoryRouter>);
 }
+const invitePreview = { already_member: false, trip_name: 'Tahoe weekend', currency: 'USD', inviter: 'Matt',
+  member_name: 'Alex', member_count: 3, balance_minor: -2500 };
+const answer = (joined) => (_client, path) => Promise.resolve(
+  path.endsWith('/invite-preview') ? invitePreview : path.endsWith('/join') ? joined : path === '/groups' ? [] : joined);
 function signedIn() {
   mocked.auth.user = { id: 'user-a', user_metadata: { full_name: 'Account name' } };
   mocked.auth.profile = { user_id: 'user-a', display_name: 'Existing Dice name', avatar_url: '/avatar.png' };
@@ -69,9 +73,14 @@ it('keeps the account name and photo while the shared profile is loading', async
 it('uses the retained invitation after OAuth and navigates after joining', async () => {
   signedIn();
   sessionStorage.setItem('cozy-trips-invite:trip-id', 'retained-secret');
-  mocked.request.mockImplementation((_client, path) => Promise.resolve(path.endsWith('/join') ? { id: 'trip-id' } : []));
+  mocked.request.mockImplementation(answer({ id: 'trip-id' }));
   open('/trips/join/trip-id#access_token=oauth-callback');
-  fireEvent.click(screen.getByRole('button', { name: 'Join trip', exact: true }));
+  expect(await screen.findByRole('heading', { name: 'Tahoe weekend' })).toBeInTheDocument();
+  expect(screen.getByText('Matt invited you')).toBeInTheDocument();
+  expect(screen.getByText(/Alex owes \$25\.00 so far/)).toBeInTheDocument();
+  expect(screen.getByText(/Not Alex\? Ask Matt for your own link/)).toBeInTheDocument();
+  expect(mocked.request).toHaveBeenCalledWith(mocked.auth.supabase, '/groups/trip-id/invite-preview', 'POST', { invite_token: 'retained-secret' });
+  fireEvent.click(screen.getByRole('button', { name: 'Join as Alex' }));
   expect(await screen.findByText('Trip opened')).toBeInTheDocument();
   expect(mocked.request).toHaveBeenCalledWith(mocked.auth.supabase, '/groups/trip-id/join', 'POST', { invite_token: 'retained-secret' });
   expect(sessionStorage.getItem('cozy-trips-invite:trip-id')).toBeNull();
@@ -81,8 +90,8 @@ it('shows a missing invitation error without submitting a join', async () => {
   signedIn();
   mocked.request.mockResolvedValue([]);
   open('/trips/join/trip-id');
-  fireEvent.click(screen.getByRole('button', { name: 'Join trip', exact: true }));
   expect(await screen.findByRole('alert')).toHaveTextContent('missing its code');
+  expect(screen.queryByRole('button', { name: /Join/ })).not.toBeInTheDocument();
   expect(mocked.request.mock.calls.some(call => call[2] === 'POST')).toBe(false);
 });
 
@@ -90,10 +99,29 @@ it('survives blocked invitation storage and a successful join cleanup', async ()
   signedIn();
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Blocked'); });
   vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('Blocked'); });
-  mocked.request.mockImplementation((_client, path) => Promise.resolve(path.endsWith('/join') ? { id: 'trip-id' } : []));
+  mocked.request.mockImplementation(answer({ id: 'trip-id' }));
   open('/trips/join/trip-id#invite=link-secret');
-  fireEvent.click(screen.getByRole('button', { name: 'Join trip', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Join as Alex' }));
   expect(await screen.findByText('Trip opened')).toBeInTheDocument();
+});
+
+it('tells a member who opens an invite that they are already on the trip, without joining', async () => {
+  signedIn();
+  mocked.request.mockImplementation((_client, path) => Promise.resolve(path.endsWith('/invite-preview') ? { already_member: true, trip_name: 'Tahoe weekend' } : []));
+  open('/trips/join/trip-id#invite=someone-elses-link');
+  expect(await screen.findByText('You’re already on this trip.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Open trip/ }));
+  expect(await screen.findByText('Trip opened')).toBeInTheDocument();
+  expect(mocked.request.mock.calls.some(call => call[1].endsWith('/join'))).toBe(false);
+});
+
+it('explains a used or invalid invite instead of offering to join', async () => {
+  signedIn();
+  mocked.request.mockImplementation((_client, path) => path.endsWith('/invite-preview')
+    ? Promise.reject(new Error('This invitation is invalid or has already been used.')) : Promise.resolve([]));
+  open('/trips/join/trip-id#invite=used');
+  expect(await screen.findByRole('alert')).toHaveTextContent('already been used');
+  expect(screen.queryByRole('button', { name: /Join/ })).not.toBeInTheDocument();
 });
 
 it('offers a retry after a trip list network failure', async () => {
@@ -105,7 +133,7 @@ it('offers a retry after a trip list network failure', async () => {
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Your trips' })).toBeInTheDocument());
 });
 
-it('distinguishes repeated descriptions by payer, amount and date for edit and delete actions', async () => {
+it('opens repeated descriptions by payer, amount and date, then edits or deletes from the detail', async () => {
   signedIn();
   const group = { id: 'trip-id', owner_id: 'user-a', name: 'Trip', currency: 'USD', revision: 1,
     members: [{ id: 'member-a', user_id: 'user-a', name: 'Owner' }, { id: 'member-b', user_id: 'user-b', name: 'Guest' }],
@@ -118,9 +146,14 @@ it('distinguishes repeated descriptions by payer, amount and date for edit and d
   render(<MemoryRouter initialEntries={['/trips/trip-id']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes>
     <Route path="/trips/:tripId" element={<TripsApp />} />
   </Routes></MemoryRouter>);
-  const edit = await screen.findByRole('button', { name: 'Edit Dinner, $25.00 paid by Guest on 2026-10-23', exact: true });
-  expect(screen.getByRole('button', { name: 'Edit Dinner, $10.00 paid by Owner on 2026-10-22', exact: true })).toBeInTheDocument();
-  fireEvent.click(edit);
+  const row = await screen.findByRole('button', { name: 'Open Dinner, $25.00 paid by Guest on 2026-10-23', exact: true });
+  expect(screen.getByRole('button', { name: 'Open Dinner, $10.00 paid by Owner on 2026-10-22', exact: true })).toBeInTheDocument();
+  fireEvent.click(row);
+  const detail = screen.getByRole('dialog', { name: 'Dinner' });
+  expect(detail).toHaveTextContent('$25.00');
+  expect(detail).toHaveTextContent('Guest paid · split equally');
+  expect(screen.queryByLabelText('Description')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   expect(screen.getByLabelText('Description')).toHaveValue('Dinner');
   expect(screen.getByLabelText('Amount (USD)')).toHaveValue('25.00');
   fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -157,12 +190,12 @@ it('opens the joined trip itself after accepting an invite, not the trip list', 
   const trip = { id: 'trip-id', owner_id: 'owner', name: 'Joined trip', currency: 'USD', revision: 2, created_at: '2026-10-01',
     members: [{ id: 'm1', user_id: 'owner', name: 'Owner' }, { id: 'm2', user_id: 'user-a', name: 'Me' }],
     balances: { m1: 0, m2: 0 }, transfers: [], expenses: [], repayments: [], activity: [], total_minor: 0 };
-  mocked.request.mockImplementation((_client, path) => Promise.resolve(path.endsWith('/join') ? trip : path === '/groups' ? [] : trip));
+  mocked.request.mockImplementation(answer(trip));
   render(<MemoryRouter initialEntries={['/trips/join/trip-id']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes>
     <Route path="/trips/join/:tripId" element={<TripsApp />} />
     <Route path="/trips/:tripId" element={<TripsApp />} />
   </Routes></MemoryRouter>);
-  fireEvent.click(screen.getByRole('button', { name: 'Join trip', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Join as Alex' }));
   expect(await screen.findByRole('heading', { name: 'Joined trip' })).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'Balances', selected: true })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Your trips' })).not.toBeInTheDocument();

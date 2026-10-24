@@ -87,21 +87,36 @@ it('accepts an unsaved prefill from a link but ignores unknown people', () => {
   expect(screen.getByText('1 of 3')).toBeInTheDocument();
 });
 
-it('starts the next new expense from the last payer, people and category on this trip', async () => {
+it('always starts a new expense as you paid, split with everyone, whatever was saved before', async () => {
   const save = form({ group: { ...group, id: 'trip-1' } });
   fill('Tacos', '30');
   fireEvent.click(screen.getByRole('radio', { name: 'Alex' }));
   fireEvent.click(screen.getByRole('checkbox', { name: 'Jamie' }));
-  fireEvent.click(screen.getByRole('radio', { name: 'Food' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   cleanup();
   form({ group: { ...group, id: 'trip-1' } });
-  expect(screen.getByRole('radio', { name: 'Alex' })).toBeChecked();
-  expect(screen.getByRole('checkbox', { name: 'Jamie' })).not.toBeChecked();
-  expect(screen.getByRole('radio', { name: 'Food' })).toBeChecked();
-  cleanup();
-  form({ group: { ...group, id: 'trip-2' } });
   expect(screen.getByRole('radio', { name: 'You' })).toBeChecked();
   expect(screen.getByText('3 of 3')).toBeInTheDocument();
+  expect(screen.getByRole('radio', { name: 'Other' })).toBeChecked();
+});
+
+it('guesses the category from the description until you choose one', () => {
+  form();
+  fill('Cabin, 2 nights', '400');
+  expect(screen.getByRole('radio', { name: 'Stay' })).toBeChecked();
+  fill('Groceries for the cabin', '400');
+  expect(screen.getByRole('radio', { name: 'Food' })).toBeChecked();
+  fill('Souvenirs', '400');
+  expect(screen.getByRole('radio', { name: 'Other' })).toBeChecked();
+  fireEvent.click(screen.getByRole('radio', { name: 'Activities' }));
+  fill('Gas', '40');
+  expect(screen.getByRole('radio', { name: 'Activities' })).toBeChecked();
+});
+
+it('does not pop the keyboard when editing an existing expense', () => {
+  const expense = { id: 'e1', description: 'Gas', amount_minor: 4000, paid_by: 'matt', split_mode: 'equal', date: '2026-10-20',
+    category: 'transport', notes: '', shares: { matt: 2000, alex: 2000 } };
+  form({ expense });
+  expect(screen.getByLabelText('Amount (USD)')).not.toHaveFocus();
 });
