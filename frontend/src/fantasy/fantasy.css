@@ -15,14 +15,17 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-team i{width:10px;height:10px;border-radius:3px;align-self:center}
 .fx-team--fav{color:#201711}
 .fx-name{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fx-name small{display:block;font-size:12px;color:#75695b;font-variant-numeric:tabular-nums}
 .fx-team b{font-size:20px;font-variant-numeric:tabular-nums}
 .fx-odds{text-align:right;font-size:14px;font-variant-numeric:tabular-nums}
 .fx-bar{display:flex;gap:2px;height:6px;margin:10px 0 6px}
 .fx-bar i{border-radius:3px}
 .fx-chart{height:150px;margin:6px -4px 4px}
-.fx-meta{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;color:#75695b}
-.fx-trend{display:flex;align-items:center;gap:7px}
-.fx-trend svg{width:70px;height:20px;overflow:visible}
+.fx-meta{display:flex;align-items:center;gap:10px;font-size:12px;color:#75695b}
+.fx-meta:empty{display:none}
+.fx-trend{display:flex;align-items:center;gap:7px;min-width:0}
+.fx-trend span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fx-trend svg{flex:none;width:70px;height:20px;overflow:visible}
 .fx-trend line{stroke:#3d2f2933;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
 .fx-trend polyline{fill:none;stroke:#b75f41;stroke-width:1.5;vector-effect:non-scaling-stroke}
 .fx-toggle{margin-top:8px;min-height:36px;padding:0 12px;border:1px solid #d6c5a7;border-radius:8px;background:transparent;color:#3d2f29;font:inherit;font-size:13px;cursor:pointer}
@@ -34,4 +37,4 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-day--projected td{color:#75695b;font-style:italic}
 .fx-status{color:#75695b}
 .fx-note{margin-top:20px;font-size:12px;color:#75695b}
-@media(max-width:600px){.fx-grid{grid-template-columns:1fr}}
+@media(max-width:600px){.fx-grid{grid-template-columns:1fr;gap:12px}.fx-home{display:inline-flex;align-items:center;min-height:44px}.fx-header h1{margin-top:0}.fx-toggle{min-height:44px}}

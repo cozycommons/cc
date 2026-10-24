@@ -38,11 +38,24 @@ describe('Fantasy predictions page', () => {
     expect(names.slice(0, 2)).toEqual(['Close Home', 'Close Away']);
     expect(screen.getByText('96%')).toBeTruthy();
     expect(screen.getByText('Not available')).toBeTruthy();
-    expect(screen.getByText('+5 since Fri')).toBeTruthy();
-    fireEvent.click(screen.getAllByRole('button', { name: /^By day: Close Home vs Close Away/ })[0]);
+    expect(screen.getByText('Close Home odds +5 since Fri')).toBeTruthy();
+    expect(screen.getByText('proj. 990')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: /^Details: Close Home vs Close Away/ })[0]);
     expect(screen.getByRole('table')).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith('https://api.example.test/espn/public/predictions/latest', expect.anything());
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps phone cards compact until details are opened', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal('fetch', respond(200, snapshot));
+    view();
+    const toggle = await screen.findByRole('button', { name: /^Details: Close Home vs Close Away/ });
+    const charts = () => screen.queryAllByRole('img', { name: /^Cumulative score/ });
+    expect(charts()).toHaveLength(0);
+    fireEvent.click(toggle);
+    expect(charts()).toHaveLength(1);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('falls back to the interim snapshot when the API has none', async () => {

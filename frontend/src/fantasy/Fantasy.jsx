@@ -11,6 +11,20 @@ const round = value => (Number.isFinite(value) ? Math.round(value) : '—');
 const pct = value => (Number.isFinite(value) ? `${Math.round(value)}%` : '—');
 const weekday = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short' });
 const longDay = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+const NARROW = '(max-width: 600px)';
+
+// Phones get a compact card; the chart mounts only when the reader asks for details.
+function useNarrow() {
+  const [narrow, setNarrow] = useState(() => window.matchMedia?.(NARROW).matches ?? false);
+  useEffect(() => {
+    const query = window.matchMedia?.(NARROW);
+    if (!query) return undefined;
+    const update = () => setNarrow(query.matches);
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  return narrow;
+}
 
 function ScorePath({ matchup }) {
   const rows = scorePath(matchup).map(row => ({
@@ -39,7 +53,7 @@ function ScorePath({ matchup }) {
   );
 }
 
-function OddsTrend({ history }) {
+function OddsTrend({ history, name }) {
   if (!history || history.length < 2) return null;
   const points = history.map((point, i) => `${(i / (history.length - 1) * 100).toFixed(1)},${(30 - point.chance * 0.3).toFixed(1)}`).join(' ');
   const change = history.at(-1).chance - history[0].chance;
@@ -48,12 +62,12 @@ function OddsTrend({ history }) {
       <svg viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`Home win chance from ${pct(history[0].chance)} to ${pct(history.at(-1).chance)}`}>
         <line x1="0" x2="100" y1="15" y2="15" /><polyline points={points} />
       </svg>
-      {change > 0 ? '+' : ''}{Math.round(change)} since {weekday(history[0].date)}
+      <span>{name} odds {change > 0 ? '+' : ''}{Math.round(change)} since {weekday(history[0].date)}</span>
     </span>
   );
 }
 
-function MatchupCard({ matchup }) {
+function MatchupCard({ matchup, narrow }) {
   const [open, setOpen] = useState(false);
   const teams = [matchup.home, matchup.away];
   if (matchup.unavailable) {
@@ -71,7 +85,7 @@ function MatchupCard({ matchup }) {
       {teams.map((team, side) => (
         <div className={`fx-team${fav === side ? ' fx-team--fav' : ''}`} key={side}>
           <i style={{ background: COLORS[side] }} aria-hidden="true" />
-          <span className="fx-name">{team.name}</span>
+          <span className="fx-name"><span>{team.name}</span><small>proj. {round(matchup.projected_totals[side])}</small></span>
           <b>{round(matchup.scores[side])}</b>
           <span className="fx-odds">{pct(odds[side])}</span>
         </div>
@@ -79,12 +93,9 @@ function MatchupCard({ matchup }) {
       <div className="fx-bar" aria-hidden="true">
         {odds.map((value, side) => <i key={side} style={{ flex: `${value} 0 0`, background: COLORS[side], opacity: fav === side ? 1 : 0.35 }} />)}
       </div>
-      <ScorePath matchup={matchup} />
-      <div className="fx-meta">
-        <span>Projected {round(matchup.projected_totals[0])}–{round(matchup.projected_totals[1])}</span>
-        <OddsTrend history={matchup.odds_history} />
-      </div>
-      <button type="button" className="fx-toggle" aria-expanded={open} aria-label={`${open ? 'Hide days' : 'By day'}: ${teams[0].name} vs ${teams[1].name}`} onClick={() => setOpen(!open)}>{open ? 'Hide days' : 'By day'}</button>
+      {(open || !narrow) && <ScorePath matchup={matchup} />}
+      <div className="fx-meta"><OddsTrend history={matchup.odds_history} name={teams[0].name} /></div>
+      <button type="button" className="fx-toggle" aria-expanded={open} aria-label={`${open ? 'Hide details' : 'Details'}: ${teams[0].name} vs ${teams[1].name}`} onClick={() => setOpen(!open)}>{open ? 'Hide details' : 'Details'}</button>
       {open && (
         <table className="fx-days">
           <thead><tr><th scope="col">Day</th><th scope="col">{teams[0].name}</th><th scope="col">{teams[1].name}</th><th scope="col">Games</th></tr></thead>
@@ -114,6 +125,7 @@ class Boundary extends React.Component {
 }
 
 function Fantasy() {
+  const narrow = useNarrow();
   const [state, setState] = useState({ status: 'loading' });
   useEffect(() => {
     const controller = new AbortController();
@@ -138,7 +150,7 @@ function Fantasy() {
       {data && (
         <>
           <div className="fx-legend"><span><i className="fx-solid" aria-hidden="true" />Actual</span><span><i className="fx-dash" aria-hidden="true" />Projected</span><span>% = win chance</span></div>
-          <div className="fx-grid">{orderMatchups(data.matchups).map((matchup, i) => <MatchupCard key={`${matchup.home.name}-${i}`} matchup={matchup} />)}</div>
+          <div className="fx-grid">{orderMatchups(data.matchups).map((matchup, i) => <MatchupCard key={`${matchup.home.name}-${i}`} matchup={matchup} narrow={narrow} />)}</div>
           <p className="fx-note">{data.label}</p>
         </>
       )}
