@@ -67,12 +67,78 @@ def test_invalid_splits_are_rejected(overrides):
 
 def test_stale_edits_and_nonmembers_are_rejected():
     row, _ = trip()
+    item = expense(row)
+    row, _ = apply_command(row, 'matt', 'add_expense', item)
     with pytest.raises(LedgerError) as stale:
-        apply_command(row, 'matt', 'add_expense', expense(row, revision=1))
+        apply_command(row, 'matt', 'edit_expense', item | {'revision': 1})
     assert stale.value.status == 409
+    with pytest.raises(LedgerError) as stale_delete:
+        apply_command(row, 'matt', 'delete_expense', {'revision': 1, 'id': item['id']})
+    assert stale_delete.value.status == 409
     with pytest.raises(LedgerError) as outsider:
         apply_command(row, 'outsider', 'add_expense', expense(row))
     assert outsider.value.status == 404
+
+
+def test_adding_records_does_not_need_the_latest_revision():
+    row, _ = trip()
+    row, _ = apply_command(row, 'matt', 'add_expense', expense(row))
+    row, _ = apply_command(row, 'matt', 'add_expense', expense(row, revision=1))
+    people = [m['id'] for m in row['data']['members']]
+    row, _ = apply_command(row, 'matt', 'add_repayment', {'id': str(uuid4()), 'revision': 1, 'from_member': people[1],
+                                                          'to_member': people[0], 'amount_minor': 100, 'date': '2026-10-22', 'notes': ''})
+    assert len(row['data']['expenses']) == 2 and len(row['data']['repayments']) == 1
+
+
+def test_deleted_expense_restores_exactly_once_with_its_history():
+    row, _ = trip()
+    ids = [m['id'] for m in row['data']['members']]
+    item = expense(row, 9000, split_mode='shares', shares={ids[0]: 2, ids[1]: 1, ids[2]: 1})
+    row, _ = apply_command(row, 'matt', 'add_expense', item)
+    saved = row['data']['expenses'][0]
+    row, _ = apply_command(row, 'matt', 'delete_expense', {'revision': row['revision'], 'id': item['id']})
+    assert row['data']['activity'][0]['kind'] == 'delete_expense' and row['data']['activity'][0]['amount_minor'] == 9000
+    row, _ = apply_command(row, 'matt', 'restore_expense', {'revision': 1, 'id': item['id']})
+    restored = row['data']['expenses'][0]
+    assert {k: v for k, v in restored.items() if k not in {'updated_at'}} == {k: v for k, v in saved.items() if k not in {'updated_at'}}
+    assert row['data']['activity'][0]['summary'] == 'Restored Dinner'
+    with pytest.raises(LedgerError) as again:
+        apply_command(row, 'matt', 'restore_expense', {'revision': row['revision'], 'id': item['id']})
+    assert again.value.status == 409
+    with pytest.raises(LedgerError) as missing:
+        apply_command(row, 'matt', 'restore_expense', {'revision': row['revision'], 'id': str(uuid4())})
+    assert missing.value.status == 404
+    # Once a person on the expense has left, restoring it would break the ledger: a rule, not a stale edit.
+    row, _ = apply_command(row, 'matt', 'delete_expense', {'revision': row['revision'], 'id': item['id']})
+    row, _ = apply_command(row, 'matt', 'remove_member', {'revision': row['revision'], 'member_id': ids[2]})
+    with pytest.raises(LedgerError) as gone:
+        apply_command(row, 'matt', 'restore_expense', {'revision': row['revision'], 'id': item['id']})
+    assert gone.value.status == 422
+
+
+def test_creator_renames_trip_and_people_and_removes_only_uninvolved_people():
+    row, _ = trip()
+    matt, alex, jamie = [m['id'] for m in row['data']['members']]
+    row, _ = apply_command(row, 'matt', 'rename_trip', {'revision': row['revision'], 'name': 'Tahoe'})
+    assert row['data']['name'] == 'Tahoe'
+    row, _ = apply_command(row, 'matt', 'rename_member', {'revision': row['revision'], 'member_id': alex, 'name': 'Alexis'})
+    assert row['data']['members'][1]['name'] == 'Alexis'
+    with pytest.raises(LedgerError):
+        apply_command(row, 'matt', 'rename_member', {'revision': row['revision'], 'member_id': jamie, 'name': 'alexis'})
+    joined = row | {'member_user_ids': row['member_user_ids'] + ['alex']}
+    for kind, extra in [('rename_trip', {'name': 'Mine'}), ('remove_member', {'member_id': jamie})]:
+        with pytest.raises(LedgerError) as forbidden:
+            apply_command(joined, 'alex', kind, {'revision': row['revision'], **extra})
+        assert forbidden.value.status == 403
+    row, _ = apply_command(row, 'matt', 'add_expense', expense(row, participants=[matt, alex]))
+    with pytest.raises(LedgerError) as busy:
+        apply_command(row, 'matt', 'remove_member', {'revision': row['revision'], 'member_id': alex})
+    assert busy.value.status == 422
+    with pytest.raises(LedgerError) as creator:
+        apply_command(row, 'matt', 'remove_member', {'revision': row['revision'], 'member_id': matt})
+    assert creator.value.status == 422
+    row, _ = apply_command(row, 'matt', 'remove_member', {'revision': row['revision'], 'member_id': jamie})
+    assert [m['name'] for m in row['data']['members']] == ['Matt', 'Alexis']
 
 
 def test_repayments_settle_and_undo_without_creating_money():
@@ -170,15 +236,26 @@ def test_real_api_persistence_invites_rls_validation_and_concurrency(local_api):
     assert api.post(f'{base}/expenses', headers=matt, json=payload | {'split_mode': 'exact', 'shares': {people[0]: 10001}}).status_code == 400
     assert api.post(f'{base}/expenses', headers=jamie, json=payload).status_code == 404
     assert api.post(f'{base}/expenses', headers=matt, json=payload | {'paid_by': str(uuid4())}).status_code == 400
-    # Two valid writes from the same revision: exactly one may commit.
+    # Two new expenses from the same revision don't conflict: both land, one on top of the other.
     def write(index):
         return api.post(f'{base}/expenses', headers=alex, json=payload | {'id': str(uuid4()), 'description': f'Race {index}'})
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(write, [1, 2]))
-    assert sorted(r.status_code for r in responses) == [201, 409]
+    assert sorted(r.status_code for r in responses) == [201, 201]
     group = api.get(base, headers=matt).json()
-    assert len(group['expenses']) == 1 and group['total_minor'] == 10001
+    assert len(group['expenses']) == 2 and group['total_minor'] == 20002
     assert sum(group['balances'].values()) == 0
+    # Two edits from the same revision: exactly one may commit.
+    def edit(index):
+        item = group['expenses'][index]
+        return api.put(f"{base}/expenses/{item['id']}", headers=alex,
+                       json=payload | {'id': item['id'], 'revision': group['revision'], 'description': f'Edit {index}'})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(edit, [0, 1]))
+    assert sorted(r.status_code for r in responses) == [200, 409]
+    group = api.get(base, headers=matt).json()
+    group = api.request('DELETE', f"{base}/expenses/{group['expenses'][1]['id']}", headers=matt, json={'revision': group['revision']}).json()
+    assert group['total_minor'] == 10001
     item = group['expenses'][0]
     edit = payload | {'id': item['id'], 'revision': group['revision'], 'amount_minor': 12000, 'description': 'Dinner'}
     group = api.put(f"{base}/expenses/{item['id']}", headers=alex, json=edit).json()
@@ -193,6 +270,48 @@ def test_real_api_persistence_invites_rls_validation_and_concurrency(local_api):
     group = api.request('DELETE', f"{base}/expenses/{item['id']}", headers=alex, json={'revision': group['revision']}).json()
     assert group['total_minor'] == 0 and set(group['balances'].values()) == {0}
     assert admin.table('trips_groups').select('revision').eq('id', group_id).execute().data[0]['revision'] == group['revision']
+
+
+def test_real_api_invite_preview_trip_settings_restore_and_delete(local_api):
+    api, admin, _, tokens, cleanup_ids = local_api
+    group_id = str(uuid4())
+    cleanup_ids.append(group_id)
+    matt, alex, jamie = tokens['Matt'], tokens['Alex'], tokens['Jamie']
+    base = f'/trips/groups/{group_id}'
+    group = api.post('/trips/groups', headers=matt, json={'id': group_id, 'name': 'Settings QA', 'currency': 'USD'}).json()
+    result = api.post(f'{base}/members', headers=matt, json={'revision': group['revision'], 'name': 'Alex'}).json()
+    group, invite = result['group'], result['invite_token']
+    me = group['members'][0]['id']
+    alex_slot = group['members'][1]['id']
+    item = dict(id=str(uuid4()), revision=group['revision'], description='Gas', amount_minor=4000, paid_by=me,
+                split_mode='equal', participants=[me, alex_slot], date='2026-10-22', category='transport')
+    group = api.post(f'{base}/expenses', headers=matt, json=item).json()
+    preview = api.post(f'{base}/invite-preview', headers=alex, json={'invite_token': invite})
+    assert preview.status_code == 200, preview.text
+    assert preview.json() | {'inviter': None} == {'already_member': False, 'trip_name': 'Settings QA', 'currency': 'USD',
+                                                  'inviter': None, 'member_name': 'Alex', 'member_count': 2, 'balance_minor': -2000}
+    assert api.post(f'{base}/invite-preview', headers=matt, json={'invite_token': invite}).json()['already_member'] is True
+    assert api.post(f'{base}/invite-preview', headers=jamie, json={'invite_token': 'x' * 43}).status_code == 404
+    assert api.put(base, headers=alex, json={'revision': group['revision'], 'name': 'Nope'}).status_code == 404
+    group = api.put(base, headers=matt, json={'revision': group['revision'], 'name': 'Renamed QA'}).json()
+    assert group['name'] == 'Renamed QA'
+    group = api.put(f'{base}/members/{alex_slot}', headers=matt, json={'revision': group['revision'], 'name': 'Alexis'}).json()
+    assert group['members'][1]['name'] == 'Alexis'
+    assert api.request('DELETE', f'{base}/members/{alex_slot}', headers=matt, json={'revision': group['revision']}).status_code == 422
+    group = api.request('DELETE', f"{base}/expenses/{item['id']}", headers=matt, json={'revision': group['revision']}).json()
+    restored = api.post(f"{base}/expenses/{item['id']}/restore", headers=matt, json={'revision': group['revision']})
+    assert restored.status_code == 201 and restored.json()['total_minor'] == 4000
+    again = api.post(f"{base}/expenses/{item['id']}/restore", headers=matt, json={'revision': group['revision']})
+    assert again.status_code == 201 and len(again.json()['expenses']) == 1
+    group = again.json()
+    # The same ID re-added with other details is not "already restored".
+    group = api.request('DELETE', f"{base}/expenses/{item['id']}", headers=matt, json={'revision': group['revision']}).json()
+    group = api.post(f'{base}/expenses', headers=matt, json=item | {'revision': group['revision'], 'amount_minor': 9999}).json()
+    clash = api.post(f"{base}/expenses/{item['id']}/restore", headers=matt, json={'revision': group['revision']})
+    assert clash.status_code == 409 and api.get(base, headers=matt).json()['total_minor'] == 9999
+    assert api.request('DELETE', base, headers=matt, json={'revision': group['revision'] - 1}).status_code == 409
+    assert api.request('DELETE', base, headers=matt, json={'revision': group['revision']}).json() == {'deleted': group_id}
+    assert api.get(base, headers=matt).status_code == 404
 
 
 def test_trips_migrations_are_included_in_shared_release(monkeypatch):

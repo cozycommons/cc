@@ -133,6 +133,27 @@ def new_group(group_id, user_id, name, currency, display_name):
                      'expenses': [], 'repayments': [], 'activity': []}}
 
 
+# Adding a record doesn't depend on what else is in the ledger, so it may land on a newer revision.
+# 409 means "reload and review"; rules that a fresh revision can't satisfy answer 422 instead.
+CREATES = {'add_expense', 'add_repayment', 'restore_expense'}
+
+
+def involved(data, member_id):
+    return (any(e['paid_by'] == member_id or member_id in e['shares'] for e in data['expenses'])
+            or any(member_id in (p['from_member'], p['to_member']) for p in data['repayments']))
+
+
+def deleted_expense(data, expense_id):
+    """The most recent deleted snapshot of an expense, kept in its activity entry so it can be restored."""
+    return next((a['expense'] for a in data['activity'] if a.get('kind') == 'delete_expense'
+                 and a.get('item_id') == expense_id and a.get('expense')), None)
+
+
+def invite_slot(row, token):
+    digest = sha256(token.encode()).hexdigest()
+    return next((m for m in row['data']['members'] if secrets.compare_digest(m.get('invite_hash', ''), digest)), None)
+
+
 def require_member(row, user_id):
     if not is_member(row, user_id):
         raise LedgerError('Trip not found or you are not a member.', 404)
@@ -141,17 +162,19 @@ def require_member(row, user_id):
 def apply_command(row, user_id, command, payload):
     """Return a complete revision to save with compare-and-swap. Never mutate input."""
     require_member(row, user_id)
-    if payload['revision'] != row['revision']:
+    if command not in CREATES and payload['revision'] != row['revision']:
         raise LedgerError('Someone changed this trip. Refresh, review the changes, and try again.', 409)
     result = deepcopy(row)
     data = result['data']
     members = {member['id']: member for member in data['members']}
     timestamp = now()
     invite_token = None
+    entry = {}  # What the activity row points at, so it can show amounts and link back.
+    owner_only = {'add_member', 'invite_member', 'rename_trip', 'rename_member', 'remove_member'}
+    if command in owner_only and row['owner_id'] != user_id:
+        raise LedgerError('Only the trip creator can manage the trip and its people.', 403)
 
     if command in {'add_member', 'invite_member'}:
-        if row['owner_id'] != user_id:
-            raise LedgerError('Only the trip creator can manage invitations.', 403)
         if command == 'add_member':
             if len(members) >= 30:
                 raise LedgerError('A trip can have up to 30 people.')
@@ -208,6 +231,7 @@ def apply_command(row, user_id, command, payload):
         else:
             data['expenses'].append(expense)
         summary = f"{'Updated' if existing else 'Added'} {expense['description']}"
+        entry = {'kind': command, 'item_id': expense['id'], 'amount_minor': amount}
     elif command == 'set_member_venmo':
         if row['owner_id'] != user_id:
             raise LedgerError('Only the trip creator can set Venmo for people who have not joined.', 403)
@@ -228,6 +252,19 @@ def apply_command(row, user_id, command, payload):
             raise LedgerError('Expense not found.', 404)
         data['expenses'].remove(expense)
         summary = f"Deleted {expense['description']}"
+        entry = {'kind': command, 'item_id': expense['id'], 'amount_minor': expense['amount_minor'], 'expense': expense}
+    elif command == 'restore_expense':
+        if any(e['id'] == payload['id'] for e in data['expenses']):
+            raise LedgerError('This expense is already back on the trip.', 409)
+        snapshot = deleted_expense(data, payload['id'])
+        if not snapshot:
+            raise LedgerError('This expense can no longer be restored.', 404)
+        if snapshot['paid_by'] not in members or not set(snapshot['shares']) <= members.keys():
+            raise LedgerError('Someone on this expense has left the trip, so it can’t be restored.', 422)
+        expense = {**snapshot, 'updated_by': user_id, 'updated_at': timestamp}
+        data['expenses'].append(expense)
+        summary = f"Restored {expense['description']}"
+        entry = {'kind': command, 'item_id': expense['id'], 'amount_minor': expense['amount_minor']}
     elif command == 'add_repayment':
         sender, recipient = payload['from_member'], payload['to_member']
         if sender == recipient or sender not in members or recipient not in members:
@@ -240,16 +277,42 @@ def apply_command(row, user_id, command, payload):
                                   ['id', 'from_member', 'to_member', 'amount_minor', 'date', 'notes']} |
                                  {'created_at': timestamp, 'created_by': user_id})
         summary = f"Recorded repayment from {members[sender]['name']} to {members[recipient]['name']}"
+        entry = {'kind': command, 'item_id': payload['id'], 'amount_minor': payload['amount_minor']}
     elif command == 'delete_repayment':
         repayment = next((p for p in data['repayments'] if p['id'] == payload['id']), None)
         if not repayment:
             raise LedgerError('Repayment not found.', 404)
         data['repayments'].remove(repayment)
-        summary = 'Removed a repayment'
+        summary = (f"Removed repayment from {members[repayment['from_member']]['name']} "
+                   f"to {members[repayment['to_member']]['name']}")
+        entry = {'kind': command, 'item_id': repayment['id'], 'amount_minor': repayment['amount_minor']}
+    elif command == 'rename_trip':
+        summary = f"Renamed the trip to {payload['name']}"
+        data['name'] = payload['name']
+    elif command in {'rename_member', 'remove_member'}:
+        member = members.get(payload['member_id'])
+        if not member:
+            raise LedgerError('That person is not on this trip.', 404)
+        if command == 'rename_member':
+            if member.get('user_id'):
+                raise LedgerError('People who joined use the name on their own profile.', 422)
+            if any(m['name'].casefold() == payload['name'].casefold() for m in members.values() if m is not member):
+                raise LedgerError('Someone on this trip already has that name.')
+            summary = f"Renamed {member['name']} to {payload['name']}"
+            member['name'] = payload['name']
+        else:
+            if member.get('user_id') == row['owner_id']:
+                raise LedgerError('The trip creator can’t be removed.', 422)
+            if involved(data, member['id']):
+                raise LedgerError(f"{member['name']} is on expenses or payments. Remove them from those first.", 422)
+            data['members'].remove(member)
+            if member.get('user_id'):
+                result['member_user_ids'].remove(member['user_id'])
+            summary = f"Removed {member['name']} from the trip"
     else:
         raise LedgerError('Unknown trip command.')
 
-    data['activity'] = ([{'id': str(uuid4()), 'user_id': user_id, 'summary': summary, 'at': timestamp}]
+    data['activity'] = ([{'id': str(uuid4()), 'user_id': user_id, 'summary': summary, 'at': timestamp, **entry}]
                         + data['activity'])[:100]
     result['revision'] += 1
     result['updated_at'] = timestamp
@@ -257,9 +320,7 @@ def apply_command(row, user_id, command, payload):
 
 
 def claim_invite(row, user_id, token):
-    digest = sha256(token.encode()).hexdigest()
-    member = next((m for m in row['data']['members']
-                   if secrets.compare_digest(m.get('invite_hash', ''), digest)), None)
+    member = invite_slot(row, token)
     if not member or member.get('user_id'):
         raise LedgerError('This invitation is invalid or has already been used.', 404)
     if is_member(row, user_id):
