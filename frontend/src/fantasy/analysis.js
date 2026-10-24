@@ -1,7 +1,7 @@
-// Plain-English reads of the snapshot. Everything here is derived from published numbers.
+// Short reads of the snapshot. Everything here is derived from published numbers.
 const r = value => Math.round(value);
-const list = names => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 const isLeft = day => day.state === 'projected' || (day.state === 'live' && !(Array.isArray(day.actual) && day.actual.some(Number.isFinite)));
+const finished = matchup => (matchup.days || []).length > 0 && matchup.days.every(day => day.state === 'final');
 
 // Games each side still has this week (projected days plus live days with no points yet).
 export function gamesLeft(matchup) {
@@ -9,55 +9,23 @@ export function gamesLeft(matchup) {
     .reduce((sum, day) => sum.map((value, side) => value + (Number.isFinite(day.games?.[side]) ? day.games[side] : 0)), [0, 0]);
 }
 
-// Why one side is favored this week, in one clause.
-export function matchupReason(matchup) {
-  const fav = matchup.chance >= 50 ? 0 : 1, other = 1 - fav;
+// Who is favored, and the two facts behind it: the current lead and games left.
+export function matchupRead(matchup) {
   const names = [matchup.home.name, matchup.away.name];
-  const lead = matchup.scores[fav] - matchup.scores[other];
-  const left = gamesLeft(matchup), favLeft = left[fav], otherLeft = left[other];
-  const odds = r(Math.max(matchup.chance, 100 - matchup.chance));
-  const days = matchup.days || [];
-  if (days.length && days.every(day => day.state === 'final')) {
+  if (finished(matchup)) {
     const [h, a] = matchup.scores.map(r);
-    if (h === a) return `${names[0]} and ${names[1]} tie ${h}–${a}.`;
-    return h > a ? `${names[0]} wins ${h}–${a}.` : `${names[1]} wins ${a}–${h}.`;
+    if (h === a) return { side: null, headline: `Tied ${h}–${a}`, facts: ['Final'] };
+    const side = h > a ? 0 : 1;
+    return { side, headline: `${names[side]} wins`, facts: ['Final', `${Math.max(h, a)}–${Math.min(h, a)}`] };
   }
-  const volume = !favLeft && !otherLeft ? 'the last games still going' : favLeft > otherLeft ? `${favLeft} games left to ${otherLeft}` : favLeft < otherLeft ? `fewer games left (${favLeft} to ${otherLeft})` : `${favLeft} games left each`;
-  if (lead > 0) return `${names[fav]} is ${odds}%: up ${r(lead)} with ${volume}.`;
-  if (lead < 0) return `${names[fav]} is ${odds}% despite trailing by ${r(-lead)}: ${volume}.`;
-  return `${names[fav]} is ${odds}%: tied, with ${volume}.`;
-}
-
-// Two or three sentences on the week: what's settled, what's close and why.
-export function weekStory(matchups) {
-  const live = matchups.filter(m => !m.unavailable);
-  if (!live.length) return '';
-  const favoriteName = m => (m.chance >= 50 ? m.home.name : m.away.name);
-  const locks = live.filter(m => m.chance >= 90 || m.chance <= 10);
-  const closest = [...live].sort((a, b) => Math.abs(a.chance - 50) - Math.abs(b.chance - 50))[0];
-  const parts = [];
-  if (locks.length) parts.push(`${list(locks.map(favoriteName))} ${locks.length === 1 ? 'is' : 'are'} all but done.`);
-  if (Math.abs(closest.chance - 50) < 30) {
-    parts.push(`Closest race: ${closest.home.name} vs ${closest.away.name}. ${matchupReason(closest)}`);
-    const worst = playerSwings(closest).flat().sort((a, b) => a.diff - b.diff)[0];
-    if (worst && worst.diff <= -20) parts.push(`${worst.name} is ${r(-worst.diff)} under expectation so far.`);
-  }
-  return parts.join(' ');
-}
-
-// Why the season favorite is the favorite, and how much the standings matter yet.
-export function seasonStory(rows) {
-  if (!rows.length) return '';
-  const leader = rows[0];
-  const byWins = [...rows].sort((a, b) => b.expected_wins - a.expected_wins);
-  const played = rows.some(row => (row.record?.[0] || 0) + (row.record?.[1] || 0) + (row.record?.[2] || 0) > 0);
-  const best = Math.max(...rows.map(row => row.playoff_pct));
-  const why = byWins[0].team.id === leader.team.id
-    ? `its roster projects for the most wins (${leader.expected_wins})`
-    : `it is the likeliest to win a short playoff bracket, though ${byWins[0].team.name} projects for more wins`;
-  const stage = played ? '' : ' Nobody has a result yet, so this is all roster strength.';
-  const spread = best < 60 ? ` No team is better than ${r(best)}% to make the playoffs.` : '';
-  return `${leader.team.name} leads because ${why}.${stage}${spread}`;
+  const side = matchup.chance >= 50 ? 0 : 1, other = 1 - side;
+  const lead = r(matchup.scores[side] - matchup.scores[other]);
+  const left = gamesLeft(matchup);
+  const facts = [lead > 0 ? `Up ${lead}` : lead < 0 ? `Down ${-lead}` : 'Tied'];
+  if (!left[side] && !left[other]) facts.push('Last games in progress');
+  else if (left[side] === left[other]) facts.push(`${left[side]} games left each`);
+  else facts.push(`${left[side]} games left vs ${left[other]}`);
+  return { side, headline: `${names[side]} ${r(Math.max(matchup.chance, 100 - matchup.chance))}%`, facts };
 }
 
 // Players' actual vs expected points over finished days, per side (live games are partial).
@@ -76,16 +44,48 @@ export function playerSwings(matchup) {
     .sort((a, b) => a.diff - b.diff));
 }
 
-const swingText = row => `${row.name} ${r(row.actual)} vs ${r(row.expected)} expected`;
+// The few swings worth naming for one team: up to two big misses and the biggest carry.
+export function notableSwings(rows, threshold = 15) {
+  return {
+    cold: rows.filter(row => row.diff <= -threshold).slice(0, 2),
+    hot: rows.filter(row => row.diff >= threshold).slice(-1),
+  };
+}
 
-// One line per team: who dragged it down and who carried it, when the gap is meaningful.
-export function swingLines(matchup, threshold = 15) {
-  return playerSwings(matchup).map(rows => {
-    const down = rows.filter(row => row.diff <= -threshold).slice(0, 2);
-    const up = rows.filter(row => row.diff >= threshold).slice(-1);
-    const parts = [];
-    if (down.length) parts.push(`Below: ${down.map(swingText).join('; ')}`);
-    if (up.length) parts.push(`Above: ${up.map(swingText).join('; ')}`);
-    return parts.join('. ');
-  });
+// The week in a few tagged lines: what's settled, what's close, who's cold and hot.
+export function weekNotes(matchups) {
+  const live = matchups.filter(m => !m.unavailable);
+  if (!live.length) return [];
+  const notes = [];
+  const settled = live.filter(m => finished(m) || m.chance >= 90 || m.chance <= 10);
+  if (settled.length) notes.push({ tone: 'lock', tag: 'Locked', text: settled.map(m => matchupRead(m).headline.replace(/ \d+%$| wins$/, '')).join(' · ') });
+  const open = live.filter(m => !settled.includes(m));
+  const closest = [...open].sort((a, b) => Math.abs(a.chance - 50) - Math.abs(b.chance - 50))[0];
+  if (closest) {
+    const read = matchupRead(closest);
+    notes.push({ tone: 'close', tag: Math.abs(closest.chance - 50) <= 10 ? 'Coin flip' : 'Closest', key: closest.key,
+      text: `${closest.home.name} vs ${closest.away.name}`, detail: `${read.headline} · ${read.facts.join(' · ')}` });
+  }
+  const players = live.flatMap(m => playerSwings(m).flatMap((rows, side) => rows.map(row => ({ ...row, team: [m.home, m.away][side].name }))));
+  const cold = [...players].sort((a, b) => a.diff - b.diff)[0];
+  const hot = [...players].sort((a, b) => b.diff - a.diff)[0];
+  if (cold && cold.diff <= -20) notes.push({ tone: 'cold', tag: 'Cold', text: cold.name, detail: `${r(cold.actual)} of ${r(cold.expected)} expected · ${cold.team}` });
+  if (hot && hot.diff >= 20) notes.push({ tone: 'hot', tag: 'Hot', text: hot.name, detail: `${r(hot.actual)} vs ${r(hot.expected)} expected · ${hot.team}` });
+  return notes;
+}
+
+// Why the season favorite leads, plus short tags on how settled the race is.
+export function seasonRead(rows) {
+  if (!rows.length) return null;
+  const leader = rows[0];
+  const byWins = [...rows].sort((a, b) => b.expected_wins - a.expected_wins);
+  const played = rows.some(row => (row.record?.[0] || 0) + (row.record?.[1] || 0) + (row.record?.[2] || 0) > 0);
+  const best = Math.max(...rows.map(row => row.playoff_pct));
+  const why = byWins[0].team.id === leader.team.id
+    ? `Most projected wins (${leader.expected_wins})`
+    : `Best playoff odds; ${byWins[0].team.name} projects more wins`;
+  const tags = [];
+  if (!played) tags.push('No games yet: roster strength only');
+  if (best < 60) tags.push(`Wide open: nobody above ${r(best)}%`);
+  return { leader: leader.team.name, why, tags };
 }

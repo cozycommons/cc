@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { favorite } from './paths.js';
-import { matchupReason, swingLines } from './analysis.js';
+import { matchupRead, notableSwings, playerSwings } from './analysis.js';
 import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, pct, round, weekday } from './parts.jsx';
 
 const observed = day => day.state !== 'projected' && Array.isArray(day.actual) && day.actual.some(Number.isFinite);
@@ -46,8 +46,7 @@ function Players({ matchup, date }) {
             <h4><TeamLogo team={team} side={side} size={22} />{team.name}<span>{round(day.actual?.[side])}</span></h4>
             {rows.length ? <ol>{rows.map(player => (
               <li key={player.id}>
-                <img src={`https://a.espncdn.com/i/headshots/nba/players/full/${player.id}.png`} alt="" loading="lazy"
-                  referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.visibility = 'hidden'; }} />
+                <img src={headshot(player.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
                 <span>{player.name}</span>
                 <b style={{ color: player.points < 0 ? '#a1442b' : undefined }}>{round(player.points)}</b>
               </li>
@@ -55,6 +54,59 @@ function Players({ matchup, date }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const headshot = id => `https://a.espncdn.com/i/headshots/nba/players/full/${id}.png`;
+const hideBroken = event => { event.currentTarget.style.visibility = 'hidden'; };
+
+function Read({ read }) {
+  return (
+    <p className="fx-read fx-chips" style={{ '--fx-side': read.side == null ? '#5c4a3d' : COLORS[read.side] }}>
+      <b>{read.headline}</b>{read.facts.map(fact => <span key={fact} className="fx-chip">{fact}</span>)}
+    </p>
+  );
+}
+
+function SwingRow({ row }) {
+  const tone = row.diff >= 0 ? 'hot' : 'cold';
+  return (
+    <li className={`fx-swing fx-swing--${tone}`}>
+      <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
+      <span>{row.name}<small>{round(row.actual)} of {round(row.expected)} expected{row.games > 1 ? ` · ${row.games} games` : ''}</small></span>
+      <b>{row.diff >= 0 ? '+' : '−'}{Math.abs(round(row.diff))}</b>
+    </li>
+  );
+}
+
+// Who is beating or missing their expected points, on finished days only.
+function Swings({ matchup, teams }) {
+  const sides = playerSwings(matchup);
+  if (!sides.some(rows => rows.length)) return null;
+  return (
+    <div className="fx-panel">
+      <div className="fx-panel-head"><h3>Who’s swinging it</h3><span className="fx-small">Finished games vs expected</span></div>
+      <div className="fx-swing-teams">
+        {sides.map((rows, side) => {
+          const { cold, hot } = notableSwings(rows);
+          const named = [...cold, ...hot];
+          const rest = [...rows].sort((a, b) => a.diff - b.diff).filter(row => !named.includes(row));
+          return (
+            <div key={side}>
+              <h4><TeamLogo team={teams[side]} side={side} size={22} />{teams[side].name}</h4>
+              {named.length ? <ul>{named.map(row => <SwingRow key={row.id} row={row} />)}</ul>
+                : <p className="fx-small">Everyone close to expected.</p>}
+              {!!rest.length && (
+                <details className="fx-fold">
+                  <summary>{rest.length} more</summary>
+                  <ul>{rest.map(row => <SwingRow key={row.id} row={row} />)}</ul>
+                </details>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -85,14 +137,8 @@ export default function MatchupPage({ data }) {
       <div className="fx-bar fx-bar--big" aria-hidden="true">
         {odds.map((value, side) => <i key={side} style={{ flex: `${value} 0 0`, background: COLORS[side], opacity: fav === side ? 1 : 0.35 }} />)}
       </div>
-      <p className="fx-story">{matchupReason(matchup)}</p>
-      {swingLines(matchup).some(Boolean) && (
-        <ul className="fx-swings" aria-label="Biggest swings this week">
-          {swingLines(matchup).map((line, side) => line && (
-            <li key={side}><TeamLogo team={teams[side]} side={side} size={20} /><span><b>{teams[side].name}.</b> {line}.</span></li>
-          ))}
-        </ul>
-      )}
+      <Read read={matchupRead(matchup)} />
+      <Swings matchup={matchup} teams={teams} />
 
       <div className="fx-panel">
         <div className="fx-panel-head"><h3>Score so far and projected</h3><OddsTrend history={matchup.odds_history} /></div>
