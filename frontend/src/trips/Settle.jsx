@@ -110,7 +110,9 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
       {!!mine.length && <ul className="trips-transfers">{mine.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul>}
       {!!others.length && <>{!!mine.length && <h3 className="trips-subheading">Between others</h3>}
         <ul className="trips-transfers">{others.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul></>}
-      <p className="trips-muted trips-small">These square everyone up with the least money changing hands, so you might pay someone other than who covered you.</p>
+      <p className="trips-muted trips-small">{group.settlement === 'fewest'
+        ? 'The fewest payments that square everyone up, with the least money changing hands, so you might pay someone other than who covered you.'
+        : 'These square everyone up with the least money changing hands, so you might pay someone other than who covered you.'}</p>
     </>}
 
     {breakdown && <details className="trips-calculation"><summary>How your balance adds up</summary>
