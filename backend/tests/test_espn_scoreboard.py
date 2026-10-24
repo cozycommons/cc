@@ -23,7 +23,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -182,6 +182,21 @@ def test_scoreboard_month_fetch_and_et_bucketing(sb_server):
     # day, not a fetch failure — and also costs no request
     assert client.teams_on(date(2026, 10, 27)) == set()
     assert len(sb_server) == 1
+
+
+def test_scoreboard_team_tipoffs(sb_server):
+    client = ScoreboardClient()
+    tipoffs = client.team_tipoffs_on(date(2026, 10, 21))
+    # event 3 tips 2026-10-21T23:00Z (MIN 16 / CLE 5); event 4 tips
+    # 2026-10-22T00:30Z but buckets to Oct 21 in ET (CHI 4 / BOS 2)
+    assert tipoffs == {
+        16: datetime(2026, 10, 21, 23, 0, tzinfo=timezone.utc),
+        5: datetime(2026, 10, 21, 23, 0, tzinfo=timezone.utc),
+        4: datetime(2026, 10, 22, 0, 30, tzinfo=timezone.utc),
+        2: datetime(2026, 10, 22, 0, 30, tzinfo=timezone.utc),
+    }
+    # a no-games day has no tip-offs
+    assert client.team_tipoffs_on(date(2026, 10, 27)) == {}
 
 
 def test_first_regular_season_date_skips_preseason(sb_server):
