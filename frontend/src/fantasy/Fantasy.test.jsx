@@ -22,6 +22,18 @@ describe('Fantasy pages', () => {
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
 
+  it('race rows show playoff and title odds and expand into labelled finishes', async () => {
+    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+    view('/fantasy');
+    const row = await screen.findByRole('button', { name: /^Glass Cleaners: \d+% playoffs, \d+% title$/ });
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.fx-finish')).toBeNull();
+    fireEvent.click(row);
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('img', { name: /Glass Cleaners finish chances: 1st \d+%/ })).toBeTruthy();
+    expect(document.querySelectorAll('.fx-finish-col').length).toBe(4);
+  });
+
   it('phones get chart-free cards, labelled projections and a short playoff race', async () => {
     vi.stubGlobal('matchMedia', query => ({ matches: query === '(max-width: 600px)', addEventListener() {}, removeEventListener() {} }));
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
