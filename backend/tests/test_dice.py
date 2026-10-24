@@ -2912,3 +2912,19 @@ def test_photos_lists_only_comments_with_images_newest_first():
     assert photos[0]["game_id"] == game_b["id"]
     assert photos[0]["display_name"] == "Jason Keung"
     assert photos[1]["game_id"] == game_a["id"]
+
+
+def test_phone_numbers_are_visible_only_to_the_owner_and_admins():
+    profiles = deepcopy(ROSTER)
+    for profile in profiles:
+        if profile["user_id"] == "u1":
+            profile.update(phone_number="+14155551234", sms_notifications_enabled=True)
+    client, _ = _build_client(profiles=profiles, auth_users=AUTH_USERS)
+
+    searched = client.get("/dice/profiles/search?q=&limit=100").json()
+    assert all(p["phone_number"] is None for p in searched)
+    assert "+1415" not in client.get("/dice/profiles/u1").text
+    assert "+1415" not in client.get("/dice/profiles/u1", headers=_headers(OTHER_TOKEN)).text
+    for token in (HOST_TOKEN, ADMIN_TOKEN):
+        own = client.get("/dice/profiles/u1", headers=_headers(token)).json()
+        assert own["phone_number"] == "+14155551234" and own["sms_notifications_enabled"] is True
