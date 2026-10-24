@@ -256,11 +256,13 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
 .trips-split-row input[type="checkbox"] { flex: 0 0 20px; width: 20px; height: 20px; accent-color: var(--moss-dark); }
 .trips-split-row--off > label { color: var(--ink-soft); }
 .trips-split-row--off .trips-avatar { opacity: .45; filter: grayscale(.6); }
-.trips-split-row > input { width: 100px; flex: 0 0 100px; min-height: 42px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fbf6ec; text-align: right; font: 16px var(--sans); font-variant-numeric: tabular-nums; }
+.trips-split-row > input, .trips-percent input { width: 100px; flex: 0 0 100px; min-height: 42px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fbf6ec; text-align: right; font: 16px var(--sans); font-variant-numeric: tabular-nums; }
 .trips-split-amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .trips-stepper { display: inline-flex; align-items: center; gap: 2px; }
 .trips-stepper button { display: grid; place-items: center; width: 36px; height: 36px; border: var(--hairline); border-radius: 50%; background: #fbf6ec; color: var(--ink); cursor: pointer; }
 .trips-stepper button:disabled { opacity: .4; cursor: default; }
+.trips-percent { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; color: var(--ink-soft); }
+.trips-percent input { width: 64px; flex: none; }
 .trips-stepper input { width: 42px; min-height: 36px; border: 0; background: none; text-align: center; font: 600 16px var(--sans); color: var(--ink); }
 .trips-split-note { margin: 6px 0 0; font-size: 12px; color: var(--ink-soft); text-align: right; }
 .trips-more { margin-bottom: 4px; }

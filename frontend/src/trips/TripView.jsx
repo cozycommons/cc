@@ -5,7 +5,8 @@ import { money, shortDate } from './money.js';
 import { Avatar, AvatarStack, Button, Form, Modal } from './ui.jsx';
 import { Bowl, Tent, TripStamp } from './doodles.jsx';
 import { findMember, firstName, memberName, myMember } from './people.js';
-import { ExpenseDetail, ExpenseForm, categoryOf, savedSummary } from './ExpenseForm.jsx';
+import { ExpenseDetail, ExpenseForm, categoryOf, payerLabel, savedSummary } from './ExpenseForm.jsx';
+import { paidAmounts, payersOf } from './balances.js';
 import { BalancesPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
 import { AddPeopleForm, InviteLinks, PeoplePanel, PersonSheet, RenameForm, TripSettings, VenmoForm } from './People.jsx';
 
@@ -20,12 +21,14 @@ const CONFLICT = 'Someone changed this trip while you were editing. The latest v
 // Other people's changes show up without a manual refresh while the trip is open.
 const POLL_MS = 30000;
 
-const expenseContext = (group, expense) => `${expense.description}, ${money(expense.amount_minor, group.currency)} paid by ${memberName(findMember(group, expense.paid_by))} on ${expense.date}`;
+const expenseContext = (group, expense) => `${expense.description}, ${money(expense.amount_minor, group.currency)} paid by ${payersOf(group, expense).map(([m]) => memberName(m)).join(' and ')} on ${expense.date}`;
 
 function myEffect(expense, meId) {
   const share = expense.shares[meId] || 0;
-  if (expense.paid_by === meId) return expense.amount_minor - share ? { text: 'you lent', amount: expense.amount_minor - share, tone: 'positive' } : { text: 'just you' };
-  return share ? { text: 'you borrowed', amount: share, tone: 'owe' } : { text: 'not involved' };
+  const paid = paidAmounts(expense)[meId] || 0;
+  if (paid > share) return { text: 'you lent', amount: paid - share, tone: 'positive' };
+  if (share > paid) return { text: 'you borrowed', amount: share - paid, tone: 'owe' };
+  return { text: !paid ? 'not involved' : paid === expense.amount_minor ? 'just you' : 'you’re even' };
 }
 
 function ExpenseRow({ group, expense, me, fresh, onOpen }) {
@@ -36,7 +39,7 @@ function ExpenseRow({ group, expense, me, fresh, onOpen }) {
   return <li className={expense.id === fresh ? 'trips-row--new' : undefined}><button className="trips-expense" aria-label={`Open ${expenseContext(group, expense)}`} onClick={() => onOpen(expense)}>
     <span className="trips-category" style={{ '--chip': color }} aria-hidden="true"><Icon size={22} /></span>
     <span className="trips-expense-detail"><strong>{expense.description}</strong>
-      <small><Avatar member={payer} size={16} />{payer?.id === me?.id ? 'You' : firstName(payer)} paid · {people} {people === 1 ? 'person' : 'people'}</small></span>
+      <small><Avatar member={payer} size={16} />{payerLabel(group, expense, me?.id)} paid · {people} {people === 1 ? 'person' : 'people'}</small></span>
     <span className="trips-expense-amount"><strong>{money(expense.amount_minor, group.currency)}</strong>
       {effect && <small className={effect.tone ? `trips-${effect.tone}` : ''}>{effect.text}{effect.amount ? ` ${money(effect.amount, group.currency)}` : ''}</small>}</span>
   </button></li>;
@@ -60,7 +63,7 @@ function Feed({ group, me, query, fresh, onOpenExpense, onOpenPayment }) {
   const needle = query.trim().toLowerCase();
   const name = (id) => memberName(findMember(group, id));
   const items = [
-    ...group.expenses.filter((e) => !needle || `${e.description} ${e.notes} ${name(e.paid_by)} ${categoryOf(e.category).label}`.toLowerCase().includes(needle))
+    ...group.expenses.filter((e) => !needle || `${e.description} ${e.notes} ${Object.keys(paidAmounts(e)).map(name).join(' ')} ${categoryOf(e.category).label}`.toLowerCase().includes(needle))
       .map((e) => ({ kind: 'expense', item: e, at: e.created_at || '' })),
     ...group.repayments.filter((p) => !needle || `payment ${p.notes} ${name(p.from_member)} ${name(p.to_member)}`.toLowerCase().includes(needle))
       .map((p) => ({ kind: 'payment', item: p, at: p.created_at || '' })),
@@ -87,7 +90,7 @@ function ActivityList({ group, me, onOpenExpense, onRestore }) {
     // A deleted expense keeps its snapshot in the activity row, so it can come back.
     const onTrip = (id) => group.members.some((m) => m.id === id);
     const restorable = a.kind === 'delete_expense' && a.expense && !current
-      && onTrip(a.expense.paid_by) && Object.keys(a.expense.shares).every(onTrip)
+      && Object.keys(paidAmounts(a.expense)).every(onTrip) && Object.keys(a.expense.shares).every(onTrip)
       && !group.activity.some((later) => later.kind === 'delete_expense' && later.item_id === a.item_id && later.at > a.at);
     const shown = current || a.expense;
     const effect = me && shown?.shares && a.kind !== 'delete_expense' ? myEffect(shown, me.id) : null;
