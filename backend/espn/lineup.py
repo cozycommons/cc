@@ -97,6 +97,7 @@ this fallback is unreachable.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -454,6 +455,20 @@ def _scoreboard_tipoffs(scoreboard, target_date):
     support (older fakes) simply yields None, and the runner then has
     no pre-filter lock source in the fallback path — the 409 retry
     net still guards the write.
+
+Excluding a locked player's own move is not always enough: when he
+is STAYING in a slot the plan wanted to vacate, another player's move
+INTO that slot would overfill it in the final state — ESPN validates
+the batch atomically, so that is the same batch-killing 409 wearing
+a different message (live, 2026-10-24, minutes after the first fix
+deployed: Reid correctly skipped at C, but Jokic's move into C was
+still submitted and the run died on "Too many players in the C slot
+(maximum 1)"). The runner therefore reconciles occupancy after the
+own-move exclusions: any move whose target slot would end over its
+count ONLY because a locked player is staying put is excluded too,
+recorded as a ``player_locked`` skip with source ``blocked_by_lock``
+naming the blocker. Overflows the plan itself sanctions (bench/IR
+capacity fallbacks) are not lock-caused and are left alone.
     """
     getter = getattr(scoreboard, "team_tipoffs_on", None)
     if getter is None:
@@ -1256,6 +1271,108 @@ def _locked_skip(plan_entry: dict, source: str, tipoff) -> dict:
     }
 
 
+def _reconcile_lock_exclusions(plan, locked_ids, tipoffs, counts):
+    """(submittable moves, locked skips) for a plan under per-player locks.
+
+    Step 1 excludes every locked player's own move. Step 2 reconciles
+    slot occupancy: with the excluded players reverted to their
+    current slots, any slot that would end OVER its count — while
+    the plan's own final state respected the count — overflows only
+    because a locked player is staying in it, so the lowest-value
+    inbound move to that slot is excluded as a collateral skip
+    (source ``blocked_by_lock``, naming the locked player whose
+    staying put blocks it) and the scan repeats: one exclusion can
+    cascade (a reverted mover can itself overfill the slot it stays
+    in). The loop is bounded by the number of plan moves — each pass
+    excludes one. A slot with no inbound mover left is left as-is:
+    ESPN will 409 and the run records an error, today's residual
+    behaviour for shapes the planner itself produced.
+
+    Skips come back ordered by plan move order, so the run log reads
+    like the plan.
+    """
+    plan_by_id = {p["player_id"]: p for p in plan["players"]}
+    counts = counts or {}
+    excluded: dict = {}
+
+    for move in plan["moves"]:
+        pid = move["playerId"]
+        if pid in locked_ids:
+            excluded[pid] = _locked_skip(
+                plan_by_id[pid], "schedule", tipoffs.get(pid)
+            )
+
+    if excluded:
+        plan_occ = Counter(p["to_slot"] for p in plan["players"])
+
+        def occupancy():
+            return Counter(
+                p["from_slot"] if p["player_id"] in excluded else p["to_slot"]
+                for p in plan["players"]
+            )
+
+        stuck: set = set()
+        while True:
+            occ = occupancy()
+            target_slot = None
+            candidates: list = []
+            for slot in sorted(occ):
+                if slot in stuck or slot not in counts:
+                    continue
+                if occ[slot] <= counts[slot]:
+                    continue
+                if plan_occ.get(slot, 0) > counts[slot]:
+                    continue  # planner-sanctioned, not lock-caused
+                candidates = [
+                    plan_by_id[m["playerId"]]
+                    for m in plan["moves"]
+                    if m["playerId"] not in excluded
+                    and m["playerId"] not in locked_ids
+                    and m["toLineupSlotId"] == slot
+                    and m["fromLineupSlotId"] != slot
+                ]
+                if not candidates:
+                    # Nothing submittable feeds this overflow (e.g. a
+                    # locked bench player simply staying put): leave
+                    # it and keep scanning — another slot may still
+                    # be fixable.
+                    stuck.add(slot)
+                    continue
+                target_slot = slot
+                break
+            if target_slot is None:
+                break
+            victim = min(
+                candidates, key=lambda p: (p["value"], p["player_id"])
+            )
+            blockers = [
+                p
+                for p in plan["players"]
+                if p["player_id"] in locked_ids
+                and p["from_slot"] == target_slot
+            ]
+            skip = _locked_skip(
+                victim, "blocked_by_lock", tipoffs.get(victim["player_id"])
+            )
+            if blockers:
+                blocker = min(blockers, key=lambda p: p["player_id"])
+                skip["reason"] = (
+                    f"player_locked: {blocker.get('name')} is locked in "
+                    "the slot this move targets, so the move cannot "
+                    "be submitted"
+                )
+                skip["detail"]["blocked_by_player_id"] = blocker["player_id"]
+                skip["detail"]["blocked_by_name"] = blocker.get("name")
+            excluded[victim["player_id"]] = skip
+
+    order = {m["playerId"]: i for i, m in enumerate(plan["moves"])}
+    skips = sorted(
+        excluded.values(), key=lambda s: order.get(s["player_id"], 1 << 30)
+    )
+    to_submit = [m for m in plan["moves"] if m["playerId"] not in excluded]
+    return to_submit, skips
+
+
 def _submit_lineup(client, account, team_id, period, items, plan_by_id):
     """Submit LINEUP moves, shedding locked players on a 409.
 
@@ -1455,22 +1572,19 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
         run["conflicts"] = list(plan["conflicts"])
 
         # Per-player locks (see module docstring): moves for players
-        # whose game has already tipped are excluded from the
-        # submission and recorded in plan["locked_skips"] — never a
-        # conflict, never a run failure. Computed for dry runs too,
-        # as part of the preview; only a live run acts on it.
+        # whose game has already tipped — and moves that only a
+        # locked player's staying put makes illegal — are excluded
+        # from the submission and recorded in plan["locked_skips"]:
+        # never a conflict, never a run failure. Computed for dry
+        # runs too, as part of the preview; only a live run acts on it.
         moment = now if now is not None else datetime.now(timezone.utc)
         locked_ids, tipoffs = _locked_players(
             team, payload, base, period, schedule_info, moment
         )
         plan_by_id = {p["player_id"]: p for p in plan["players"]}
-        skips = [
-            _locked_skip(
-                plan_by_id[m["playerId"]], "schedule", tipoffs.get(m["playerId"])
-            )
-            for m in plan["moves"]
-            if m["playerId"] in locked_ids
-        ]
+        to_submit, skips = _reconcile_lock_exclusions(
+            plan, locked_ids, tipoffs, lineup_slot_counts(payload)
+        )
         plan["locked_skips"] = skips
 
         if dry_run:
@@ -1478,9 +1592,6 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
             return record_run(supabase, run)
 
         if plan["moves"]:
-            to_submit = [
-                m for m in plan["moves"] if m["playerId"] not in locked_ids
-            ]
             response = None
             submitted: list = []
             if to_submit:
