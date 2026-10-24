@@ -42,6 +42,14 @@ export default function CozyWabiLanding() {
               </div>
               <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
             </Link>
+            <Link className="cc-home-project" to="/fantasy" aria-label="Open fantasy basketball predictions">
+              <span className="cc-home-project__icon" aria-hidden="true">◎</span>
+              <div className="cc-home-project__body">
+                <h2>Fantasy</h2>
+                <p>League predictions, updated daily.</p>
+              </div>
+              <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
+            </Link>
             <Link className="cc-home-project" to="/trips" aria-label="Open Cozy Trips shared trip expenses">
               <span className="cc-home-project__icon" aria-hidden="true">↗</span>
               <div className="cc-home-project__body">
