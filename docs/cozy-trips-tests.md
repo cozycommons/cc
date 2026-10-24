@@ -183,6 +183,20 @@ The shared preview checkout/services, hosted data and production were untouched.
 This handoff covers local automated verification; merge and deployment are not
 part of this increment.
 
+### Exploratory QA round — 2026-10-24
+
+GPT-6.1 Sol (phones: 390×844, 360×740, 375×667, 844×390 landscape) and GPT-6 Luna
+(1440–1024, iPad 820/1180, 700px; 30 people, 53 expenses, $0.01–$9,999,999.99,
+long/emoji names, keyboard, deep links, conflicts) clicked through the private
+preview with synthetic data. Fixed: accepting an invite showed the trip list
+until reload (join and trip routes shared a workspace key); unbroken long names
+overflowed payer chips; a failed save's error could sit hidden under the sticky
+Save bar; reduced motion missed confetti/tab-blob pseudo-elements. A reported
+invite-link reuse was not reproducible: the API rejects a second account with 404
+(new `test_trips_invite_reuse.py`), and the QA trip's two joins claimed two
+different places through two different links. Screenshots: `artifacts/cozy-trips/qa-sol/`
+and `qa-luna/`. Native iOS Safari/keyboard behaviour remains unverified.
+
 ### Playful look and motion — 2026-10-23
 
 PR #94 (UI rework and Venmo) merged as `55fb517` after all five checks passed;

@@ -21,11 +21,12 @@ export function AvatarStack({ members, max = 5 }) {
   </span>;
 }
 
-export function CopyButton({ value, label }) {
+export function CopyButton({ value, label, big = false, children }) {
   const [state, setState] = useState('');
-  return <button type="button" className="trips-copy" aria-label={`Copy ${label}`} onClick={async () => {
+  return <button type="button" className={big ? 'cc-button cc-button--secondary trips-copy-big' : 'trips-copy'} aria-label={`Copy ${label}`} onClick={async () => {
     try { await navigator.clipboard.writeText(value); setState('copied'); } catch { setState('failed'); }
-  }}>{state === 'copied' ? <><Check size={14} aria-hidden="true" />Copied</> : state === 'failed' ? 'Select to copy' : <><Copy size={14} aria-hidden="true" />Copy</>}</button>;
+  }}>{state === 'copied' ? <><Check size={16} aria-hidden="true" />Copied {big ? value : ''}</>
+    : state === 'failed' ? `Couldn’t copy: ${value}` : <><Copy size={big ? 16 : 14} aria-hidden="true" />{children || 'Copy'}</>}</button>;
 }
 
 export function Modal({ title, onClose, children }) {
@@ -59,6 +60,9 @@ export function Form({ onSubmit, children, submit, onCancel, destructive = false
   const [error, setError] = useState('');
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  // A failed save must be visible: bring the message above the sticky Save/Cancel bar.
+  const errorRef = useRef(null);
+  useEffect(() => { if (error) errorRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); }, [error]);
   return <form className="trips-form" name={name} onSubmit={async (event) => {
     event.preventDefault();
     if (busy) return;
@@ -68,7 +72,7 @@ export function Form({ onSubmit, children, submit, onCancel, destructive = false
     }
   }}>
     <fieldset disabled={busy} className="trips-form-fields">{children}</fieldset>
-    {error && <p className="trips-error" role="alert">{error}</p>}
+    {error && <p ref={errorRef} className="trips-error" role="alert">{error}</p>}
     <div className="trips-form-actions">{aside && <fieldset className="trips-form-aside" disabled={busy}>{aside}</fieldset>}<Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button><Button type="submit" variant={destructive ? 'destructive' : 'primary'} disabled={busy}>{busy ? 'Saving…' : submit}</Button></div>
   </form>;
 }

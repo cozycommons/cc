@@ -19,7 +19,10 @@ export function settlementRole(transfer, myMemberId) {
   return null;
 }
 
-export const tripNote = (groupName) => `${groupName} · Cozy Trips`;
+// Public profile page: shows the person's Venmo name and photo so people can check before paying.
+export const venmoProfile = (username) => `https://venmo.com/u/${encodeURIComponent(username)}`;
+
+export const tripNote =(groupName) => `${groupName} · Cozy Trips`;
 
 // Venmo redirects these public links to its web app or mobile app. Prefill is best-effort; the person reviews it there.
 export function venmoLink({ username, role, amountMinor, note }) {

@@ -3,7 +3,7 @@ import { Link2, Pencil, Share2, UserPlus, UsersRound } from 'lucide-react';
 import { money } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
 import { memberName } from './people.js';
-import { normalizeUsername } from './venmo.js';
+import { normalizeUsername, venmoProfile } from './venmo.js';
 
 export const splitNames = (text) => [...new Map(text.split(/[\n,]+/).map((name) => name.trim()).filter(Boolean).map((name) => [name.toLowerCase(), name])).values()];
 
@@ -58,7 +58,8 @@ export function PeoplePanel({ group, user, onAdd, onInvite, onEditVenmo, onEditP
         <div>
           <strong>{memberName(m)}{you && <span className="trips-you">you</span>}</strong>
           <small>{m.user_id === group.owner_id ? 'Created the trip' : m.user_id ? 'Joined' : 'Hasn’t joined'}
-            {m.venmo_username && <> · <span className="trips-handle">@{m.venmo_username}</span></>}</small>
+            {m.venmo_username && <> · <a className="trips-handle" href={venmoProfile(m.venmo_username)} target="_blank" rel="noopener noreferrer"
+              aria-label={`${memberName(m)} on Venmo, @${m.venmo_username}`}>@{m.venmo_username}</a></>}</small>
         </div>
         <span className={`trips-person-balance ${balance < 0 ? 'trips-owe' : balance > 0 ? 'trips-positive' : ''}`}>{balance ? `${balance < 0 ? 'owes' : 'gets'} ${money(Math.abs(balance), group.currency)}` : 'square'}</span>
         <span className="trips-person-actions">
