@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, HandCoins, History, Plus, ReceiptText, RefreshCw, Search, UsersRound } from 'lucide-react';
 import { money, shortDate } from './money.js';
 import { Avatar, AvatarStack, Button, Form, Modal } from './ui.jsx';
-import { Bowl, Tent, TripStamp } from './doodles.jsx';
+import { Bowl, Tent, TripStamp, isNiteharts } from './doodles.jsx';
 import { findMember, firstName, memberName, myMember } from './people.js';
 import { ExpenseForm, categoryOf, savedSummary } from './ExpenseForm.jsx';
 import { BalancesPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
@@ -86,6 +86,17 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     const timer = setTimeout(() => setNotice(null), notice.undo ? 10000 : 5000);
     return () => clearTimeout(timer);
   }, [notice]);
+  // NITEHARTS trip pages wear its heart as the tab and home-screen icon.
+  const niteharts = isNiteharts(group);
+  useEffect(() => {
+    if (!niteharts) return undefined;
+    const links = [['icon', 'favicon.svg', 'image/svg+xml'], ['icon', 'favicon-32.png', 'image/png'], ['apple-touch-icon', 'apple-touch-icon.png']].map(([rel, file, type]) => {
+      const link = Object.assign(document.createElement('link'), { rel, href: `/trips/niteharts/${file}` });
+      if (type) link.type = type;
+      return document.head.appendChild(link);
+    });
+    return () => links.forEach((link) => link.remove());
+  }, [niteharts]);
   const me = myMember(group, user.id);
   const setTab = (key) => setParams((next) => { next.set('tab', key); return next; }, { replace: true });
   const close = () => setModal(null);
