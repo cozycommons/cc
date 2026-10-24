@@ -3,7 +3,7 @@ import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Undo2 } from 'lucide-
 import { decimal, money, shortDate, today, toMinor } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
 import { findMember, firstName, memberName } from './people.js';
-import { settlementRole, tripNote, venmoLink } from './venmo.js';
+import { settlementRole, tripNote, venmoLink, venmoProfile } from './venmo.js';
 import { balanceBreakdown } from './balances.js';
 
 const SquareStamp = () => <span className="trips-square-stamp" aria-hidden="true">All square</span>;
@@ -44,12 +44,12 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onEditH
     date: today(), notes: 'Venmo', revision: group.revision })}>
     <div className="trips-venmo-who"><Avatar member={other} size={44} /><div>
       <strong>{role === 'pay' ? `Pay ${memberName(other)}` : `Request from ${memberName(other)}`}</strong>
-      {username ? <span>@{username}</span> : <span className="trips-muted">No Venmo username yet</span>}
+      {username ? <a className="trips-handle" href={venmoProfile(username)} target="_blank" rel="noopener noreferrer">@{username}</a> : <span className="trips-muted">No Venmo username yet</span>}
     </div><strong className="trips-venmo-amount">{money(transfer.amount_minor, group.currency)}</strong></div>
     {username && !other.venmo_confirmed && <p className="trips-note">{other.venmo_source === 'trip' ? 'Added by the trip creator' : 'Added for them'}, not by {firstName(other)}. Check the name in Venmo.</p>}
+    <CopyButton value={amount} label="amount" big>Copy amount · {money(transfer.amount_minor, group.currency)}</CopyButton>
     <dl className="trips-venmo-details">
       {username && <div><dt>To</dt><dd>@{username}</dd><CopyButton value={username} label="Venmo username" /></div>}
-      <div><dt>Amount</dt><dd>{amount}</dd><CopyButton value={amount} label="amount" /></div>
       <div><dt>Note</dt><dd>{note}</dd><CopyButton value={note} label="note" /></div>
     </dl>
     {!usd ? <p className="trips-muted">Venmo only sends US dollars. Use the details above with another app.</p>

@@ -406,3 +406,15 @@ span.trips-avatar { box-shadow: 0 0 0 2px var(--paper-light), 0 0 0 3.5px var(--
 @keyframes trips-blob { from { transform: scale(.55); } to { transform: scale(1); } }
 @keyframes trips-wiggle { 0%, 100% { transform: rotate(-4deg); } 30% { transform: rotate(6deg); } 60% { transform: rotate(-8deg); } }
 @media (prefers-reduced-motion: reduce) { .trips-row--new { transition: none; } .trips-trip-row:active { transform: none; } }
+
+/* Mobile panning: the shared html/body/#root overflow-x:hidden turns <body> into its own scroll container,
+   which iOS rubber-bands sideways on diagonal swipes. Clip instead (no scroll container) and pan vertically only. */
+@supports (overflow: clip) {
+  html:has(body.trips-body), body.trips-body, body.trips-body #root { overflow-x: clip; }
+}
+html:has(body.trips-body), body.trips-body { overscroll-behavior-x: none; }
+body.trips-body .trips, .trips-modal { touch-action: pan-y pinch-zoom; }
+a.trips-handle { color: #2f73b8; text-decoration: none; }
+a.trips-handle:hover, a.trips-handle:focus-visible { text-decoration: underline; }
+.trips-copy-big { width: 100%; min-height: 48px !important; margin: 0 0 12px; font-size: 15px !important; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .trips-search input { font-size: 16px; } }

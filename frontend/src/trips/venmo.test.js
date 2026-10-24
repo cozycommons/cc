@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeUsername, settlementRole, tripNote, venmoLink } from './venmo.js';
+import { normalizeUsername, settlementRole, tripNote, venmoLink, venmoProfile } from './venmo.js';
 
 describe('Venmo usernames', () => {
   it.each([['@Jayce-e', 'Jayce-e'], [' keungjason ', 'keungjason'], ['https://venmo.com/u/bchen0702', 'bchen0702'],
@@ -35,5 +35,12 @@ describe('Venmo links', () => {
     const url = new URL(venmoLink({ username: 'mattsho', role: 'request', amountMinor: 500, note: 'x' }));
     expect(url.searchParams.get('txn')).toBe('charge');
     expect(url.searchParams.get('amount')).toBe('5.00');
+  });
+});
+
+describe('Venmo profiles', () => {
+  it('links to the public profile so people can check the name before paying', () => {
+    expect(venmoProfile('MattSHo')).toBe('https://venmo.com/u/MattSHo');
+    expect(venmoProfile('jayce-e')).toBe('https://venmo.com/u/jayce-e');
   });
 });
