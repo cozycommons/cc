@@ -558,3 +558,8 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
   .trips-form-actions:has(.trips-form-aside) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .trips-form-aside { grid-column: 1 / -1; grid-row: 2; }
 }
+
+.trips-return-prompt, .trips-nudge-banner { padding: 12px; background: var(--trips-paper, #fff9e9); border-radius: 12px; }
+.trips-return-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.trips-transfer-actions { flex-wrap: wrap; }
+.trips-transfer-actions > a { font-size: 12px; }
