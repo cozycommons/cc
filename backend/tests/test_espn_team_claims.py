@@ -40,6 +40,7 @@ class Query:
         self.ordering = None
         self.count = None
         self.deleting = False
+        self.writing = None
 
     def select(self, columns):
         self.columns = columns.split(",")
@@ -80,7 +81,16 @@ class Query:
         self.deleting = True
         return self
 
+    def upsert(self, value, on_conflict):
+        assert on_conflict == "season"
+        self.writing = value
+        return self
+
     def execute(self):
+        if self.writing is not None:
+            self.db.tables[self.table][:] = [row for row in self.db.tables[self.table]
+                                             if row["season"] != self.writing["season"]]
+            self.db.tables[self.table].append(deepcopy(self.writing))
         rows = [row for row in self.db.tables[self.table]
                 if all(predicate(row) for predicate in self.filters)]
         if self.deleting:
@@ -100,6 +110,7 @@ class FakeSupabase:
         self.tables = {
             "espn_public_predictions": [{"received_at": "2026-10-23", "payload": deepcopy(SNAPSHOT)}],
             "espn_team_claims": [],
+            "fantasy_leagues": [],
             "dice_profiles": [{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}],
         }
         self.users = {
@@ -436,14 +447,14 @@ def with_matchups(db):
 
 @pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer invalid"}])
 def test_league_links_require_cozy_auth(client, monkeypatch, headers):
-    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    client.app.state.supabase.tables["fantasy_leagues"] = [{"season": 2027, "espn_league_id": LEAGUE_ID}]
     client.app.state.supabase.add_claim(1)
     response = client.get("/espn/claims/links", headers=headers)
     assert response.status_code in (401, 403) and LEAGUE_ID not in response.text
 
 
 def test_league_links_require_a_confirmed_claim(client, monkeypatch):
-    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    client.app.state.supabase.tables["fantasy_leagues"] = [{"season": 2027, "espn_league_id": LEAGUE_ID}]
     db = client.app.state.supabase
     db.add_claim(2, "other-id")
     db.add_claim(1, season=2026)  # last season's claim doesn't count
@@ -453,7 +464,7 @@ def test_league_links_require_a_confirmed_claim(client, monkeypatch):
 
 
 def test_league_links_for_the_claimed_team(client, monkeypatch):
-    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    client.app.state.supabase.tables["fantasy_leagues"] = [{"season": 2027, "espn_league_id": LEAGUE_ID}]
     db = client.app.state.supabase
     with_matchups(db)
     db.add_claim(3)
@@ -474,22 +485,104 @@ def test_league_links_for_the_claimed_team(client, monkeypatch):
     }
 
 
-@pytest.mark.parametrize("value", [None, "", "abc", "12&teamId=9", "1" * 13])
-def test_league_links_hide_without_a_valid_league_id(client, monkeypatch, value):
-    if value is None:
-        monkeypatch.delenv(team_claims.LEAGUE_ID_ENV, raising=False)
-    else:
-        monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, value)
+def test_league_links_hide_without_a_setting(client):
     client.app.state.supabase.add_claim(1)
     response = client.get("/espn/claims/links", headers=AUTH)
     assert response.status_code == 404 and response.json()["detail"] == "league_links_unavailable"
 
 
 def test_league_id_stays_out_of_public_and_claim_responses(client, monkeypatch):
-    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    client.app.state.supabase.tables["fantasy_leagues"] = [{"season": 2027, "espn_league_id": LEAGUE_ID}]
     db = client.app.state.supabase
     with_matchups(db)
     db.add_claim(1)
-    for path in ("/espn/public/claims", "/espn/public/claims?season=2027", "/espn/claims/suggestions"):
-        response = client.get(path, headers=AUTH)
+    for path in ("/espn/public/claims", "/espn/public/claims?season=2027",
+                 "/espn/public/predictions/latest", "/espn/claims/suggestions"):
+        response = client.get(path, headers=AUTH if path.endswith("suggestions") else {})
         assert response.status_code == 200 and LEAGUE_ID not in response.text
+
+
+ADMIN = {"Authorization": "Bearer admin"}
+
+
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer invalid"}, AUTH])
+@pytest.mark.parametrize("method,path", [("get", "/espn/admin"),
+    ("get", "/espn/admin/leagues/2027"), ("put", "/espn/admin/leagues/2027")])
+def test_admin_access_denied_without_leaks(client, headers, method, path):
+    db = client.app.state.supabase
+    db.tables["fantasy_leagues"] = [{"season": 2027, "espn_league_id": LEAGUE_ID}]
+    response = client.request(method, path, headers=headers,
+                              json={"espn_league_id": LEAGUE_ID})
+    assert response.status_code == (403 if headers == AUTH or not headers else 401)
+    assert LEAGUE_ID not in response.text
+    assert db.tables["fantasy_leagues"][0].get("updated_by") is None
+
+
+def test_admin_save_read_links_cache_and_season_isolation(client, monkeypatch):
+    db = client.app.state.supabase
+    db.add_claim(1)
+    assert client.get("/espn/claims/links", headers=AUTH).status_code == 404
+    assert client.get("/espn/admin", headers=ADMIN).json() == {"is_admin": True}
+    assert client.get("/espn/admin/leagues/2027", headers=ADMIN).json()["espn_league_id"] is None
+    response = client.put("/espn/admin/leagues/2027", headers=ADMIN,
+                          json={"espn_league_id": LEAGUE_ID})
+    assert response.json() == {"season": 2027, "saved": True}
+    assert response.headers["cache-control"] == "private, no-store"
+    row = db.tables["fantasy_leagues"][0]
+    assert row["updated_by"] == "admin-id" and row["updated_at"]
+    response = client.get("/espn/admin/leagues/2027", headers=ADMIN)
+    assert response.json() == {"season": 2027, "espn_league_id": LEAGUE_ID}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert LEAGUE_ID in client.get("/espn/claims/links", headers=AUTH).text
+    assert client.get("/espn/admin/leagues/2026", headers=ADMIN).json()["espn_league_id"] is None
+    # Cache is brief, and keyed by season.
+    db.tables["fantasy_leagues"][0]["espn_league_id"] = "111"
+    assert LEAGUE_ID in client.get("/espn/claims/links", headers=AUTH).text
+    from espn import fantasy_admin
+    cached_at = client.app.state.fantasy_leagues_cache[2027][0]
+    monkeypatch.setattr(fantasy_admin.time, "monotonic", lambda: cached_at + 31)
+    assert "leagueId=111" in client.get("/espn/claims/links", headers=AUTH).text
+
+
+@pytest.mark.parametrize("value", [None, "", "abc", "12&teamId=9", "1" * 13,
+                                  "１２３", "123\n", 123, True, {}, " 123"])
+def test_admin_digit_validation_does_not_echo_input(client, value):
+    response = client.put("/espn/admin/leagues/2027", headers=ADMIN,
+                          json={"espn_league_id": value})
+    assert response.status_code == 422
+    assert response.json() == {"detail": "invalid_league_id"}
+    assert client.app.state.supabase.tables["fantasy_leagues"] == []
+
+
+def test_user_metadata_cannot_grant_admin(client):
+    db = client.app.state.supabase
+    db.users["owner"] = ("owner-id", "owner@example.test", {"is_admin": True})
+    assert client.get("/espn/admin", headers=AUTH).status_code == 403
+
+
+@pytest.mark.parametrize("season", [1999, 2101])
+def test_admin_rejects_invalid_season(client, season):
+    assert client.get(f"/espn/admin/leagues/{season}", headers=ADMIN).status_code == 422
+    assert client.put(f"/espn/admin/leagues/{season}", headers=ADMIN,
+                      json={"espn_league_id": LEAGUE_ID}).status_code == 422
+
+
+@pytest.mark.parametrize("raw,expected", [(b'{"espn_league_id":', 422), (b'x' * 1025, 413)])
+def test_admin_bad_body_is_sanitized_and_auth_runs_first(client, raw, expected):
+    assert client.put("/espn/admin/leagues/2027", headers=AUTH, content=raw).status_code == 403
+    response = client.put("/espn/admin/leagues/2027", headers=ADMIN, content=raw)
+    assert response.status_code == expected
+    assert "input" not in response.text
+
+
+def test_settings_storage_error_is_sanitized(client, monkeypatch, caplog):
+    def broken(*args, **kwargs):
+        raise APIError({"code": "23514", "message": LEAGUE_ID, "details": LEAGUE_ID, "hint": None})
+    monkeypatch.setattr(Query, "execute", broken)
+    for method in ("get", "put"):
+        response = client.request(method, "/espn/admin/leagues/2027", headers=ADMIN,
+                                  json={"espn_league_id": LEAGUE_ID})
+        assert response.status_code == 503
+        assert response.json() == {"detail": "league_settings_unavailable"}
+        assert LEAGUE_ID not in response.text
+    assert LEAGUE_ID not in caplog.text

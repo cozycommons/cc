@@ -11,6 +11,8 @@ import { fetchOwners, leagueLinks } from './claims.js';
 import { acquiredLabel, finished, highlights, matchupRead } from './analysis.js';
 import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, round, useNarrow, winPct } from './parts.jsx';
 import { LeagueLinksContext, MatchupLink, PlayerLink } from './EspnLink.jsx';
+import { checkAdmin } from './admin.js';
+import FantasyAdmin from './FantasyAdmin.jsx';
 import './fantasy.css';
 
 function MatchupCard({ matchup, narrow }) {
@@ -131,6 +133,8 @@ function Hub({ data, apiUrl, onOwnersChange }) {
 function Fantasy() {
   const [state, setState] = useState({ status: 'loading' });
   const [links, setLinks] = useState(null);
+  const [adminToken, setAdminToken] = useState(null);
+  const [viewer, setViewer] = useState(null);
   const [revision, setRevision] = useState(0);
   const [owners, setOwners] = useState(() => new Map());
   const [apiUrl] = useState(() => { try { return getUrl(); } catch { return null; } });
@@ -149,11 +153,13 @@ function Fantasy() {
     const refresh = async (session) => {
       const request = ++generation;
       setLinks(null);
+      setAdminToken(null);
       const token = session?.access_token;
-      const next = token && apiUrl ? await leagueLinks(apiUrl, token).catch(() => null) : null;
-      if (active && request === generation) setLinks(next);
+      setViewer(token ? { token } : null);
+      const admin = token && apiUrl ? await checkAdmin(apiUrl, token).catch(() => null) : null;
+      if (active && request === generation) setAdminToken(admin?.is_admin === true ? token : null);
     };
-    if (state.data?.linkable) {
+    if (apiUrl) {
       import('../supabase').then(async ({ auth }) => {
         const result = await auth.onAuthStateChange((_event, session) => { refresh(session); });
         subscription = result.data.subscription;
@@ -164,7 +170,15 @@ function Fantasy() {
       }).catch(() => {});
     }
     return () => { active = false; subscription?.unsubscribe(); };
-  }, [apiUrl, revision, state.data]);
+  }, [apiUrl]);
+  useEffect(() => {
+    let active = true;
+    setLinks(null);
+    if (viewer && apiUrl && state.data?.linkable) {
+      leagueLinks(apiUrl, viewer.token).then(next => { if (active) setLinks(next); }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [apiUrl, viewer, revision, state.data]);
   const { status, data } = state;
   const reloadOwners = () => {
     setLinks(null);
@@ -178,6 +192,7 @@ function Fantasy() {
         <h1><Link to="/fantasy">Fantasy basketball</Link></h1>
         {data && <p>Matchup {data.matchup.id} · updated {new Date(data.generatedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
       </header>
+      {adminToken && <FantasyAdmin key={adminToken} apiUrl={apiUrl} token={adminToken} initialSeason={data?.year} onSaved={() => setRevision(value => value + 1)} />}
       {status === 'loading' && <p className="fx-status" role="status">Loading…</p>}
       {status === 'empty' && <p className="fx-status">No predictions yet.</p>}
       {status === 'error' && <p className="fx-status" role="alert">Predictions unavailable.</p>}

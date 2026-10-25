@@ -14,7 +14,8 @@ begin
     'espn_accounts',
     'espn_snapshots',
     'espn_public_predictions',
-    'espn_team_claims'
+    'espn_team_claims',
+    'fantasy_leagues'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -41,6 +42,10 @@ begin
     'espn_public_predictions.generated_at',
     'espn_public_predictions.received_at',
     'espn_public_predictions.payload',
+    'fantasy_leagues.season',
+    'fantasy_leagues.espn_league_id',
+    'fantasy_leagues.updated_at',
+    'fantasy_leagues.updated_by',
     'espn_team_claims.id',
     'espn_team_claims.season',
     'espn_team_claims.team_id',

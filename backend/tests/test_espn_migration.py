@@ -36,7 +36,7 @@ def test_public_predictions_append_only_privileges_and_contract():
     assert "from public, anon, authenticated" in migration
     assert "grant select, insert on public.espn_public_predictions to service_role" in migration
     assert "revoke update, delete, truncate" in migration
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "11"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "12"
     contract = (directory / "beli_schema_contract.sql").read_text()
     for column in ("id", "matchup_id", "generated_at", "received_at", "payload"):
         assert f"espn_public_predictions.{column}" in contract
@@ -72,3 +72,21 @@ def test_seeded_claims_are_guarded_and_never_override_links():
     assert "where exists (select 1 from auth.users where id = seed.user_id)" in migration
     assert migration.rstrip().endswith("on conflict do nothing;")
     assert migration.count("::uuid)") == 10
+
+
+def test_fantasy_settings_service_only_schema_and_release_contract():
+    directory = migration_runner.ROOT / "migrations"
+    migration = (directory / "0012_beli_fantasy_leagues.sql").read_text()
+    for clause in (
+        "season int primary key check (season between 2000 and 2100)",
+        "espn_league_id text not null check (espn_league_id ~ '^[0-9]{1,12}$')",
+        "alter table public.fantasy_leagues enable row level security",
+        "revoke all on public.fantasy_leagues from public, anon, authenticated, service_role",
+        "grant select, insert, update on public.fantasy_leagues to service_role",
+    ):
+        assert clause in migration
+    assert "create policy" not in migration
+    assert "Applying 0012_beli_fantasy_leagues.sql" in migration_runner.render(["beli"])
+    contract = (directory / "beli_schema_contract.sql").read_text()
+    for column in ("season", "espn_league_id", "updated_at", "updated_by"):
+        assert f"fantasy_leagues.{column}" in contract
