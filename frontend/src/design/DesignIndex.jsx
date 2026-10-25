@@ -1,3 +1,4 @@
+import SiteHeader from '../components/SiteHeader.jsx';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import '../../../design/cozy-wabi/components.css';
@@ -183,12 +184,7 @@ export default function DesignIndex() {
 
   return (
     <div className="cc-page">
-      <header className="cc-navbar">
-        <Link className="cc-brand" to="/" aria-label="Return to Cozy Commons room">
-          <span className="cc-brand__cozy">cozy</span>
-          <span className="cc-brand__commons">commons / common UI</span>
-        </Link>
-
+      <SiteHeader>
         <p className="cc-navbar__note">living system / no live data</p>
         <button className="cc-menu-toggle" type="button" aria-expanded={menuOpen} aria-controls="cc-site-navigation" onClick={() => setMenuOpen((open) => !open)}>
           <span className="cc-menu-toggle__label">{menuOpen ? 'close menu' : 'open menu'}</span>
@@ -198,7 +194,7 @@ export default function DesignIndex() {
           <a href="#buttons">inventory</a>
           <Link to="/dice">Dice ↗</Link>
         </nav>
-      </header>
+      </SiteHeader>
 
       <main>
         <section className="cc-hero" aria-labelledby="library-title">

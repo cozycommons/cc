@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import '../../../design/cozy-wabi/components.css';
 import './cozy-home.css';
+import SiteHeader from '../components/SiteHeader.jsx';
 
 export default function CozyWabiLanding() {
   React.useEffect(() => {
@@ -11,12 +12,7 @@ export default function CozyWabiLanding() {
 
   return (
     <div className="cc-page commons-home">
-      <header className="cc-navbar">
-        <Link className="cc-brand" to="/" aria-label="Cozy Commons home">
-          <span className="cc-brand__cozy">cozy</span>
-          <span className="cc-brand__commons">commons</span>
-        </Link>
-      </header>
+      <SiteHeader />
 
       <main>
         <section className="cc-home-shelf" id="shelf" aria-label="Projects">
