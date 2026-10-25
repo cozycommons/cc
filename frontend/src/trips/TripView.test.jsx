@@ -245,11 +245,13 @@ it('renames and deletes the trip from trip settings', async () => {
 });
 
 it('picks up other people’s changes when the person comes back to the page', async () => {
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   open('/trips/trip-id');
   expect(await screen.findByText('Nothing spent yet. Add the first receipt.')).toBeInTheDocument();
   mocked.request.mockResolvedValueOnce(trip({ revision: 5, expenses: [dinner] }));
   await act(async () => document.dispatchEvent(new Event('visibilitychange')));
-  expect(await screen.findByRole('button', { name: /^Open Dinner/ })).toBeInTheDocument();
+  await waitFor(() => expect(mocked.request).toHaveBeenCalledTimes(2));
+  expect(await screen.findByRole('button', { name: /^Open Dinner/ }, { timeout: 3000 })).toBeInTheDocument();
 });
 
 it('keeps an open draft when Undo is tapped on a notice', async () => {
