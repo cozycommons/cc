@@ -134,7 +134,7 @@ describe('loadSnapshot', () => {
     const controller = new AbortController();
     controller.abort();
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('cancelled', 'AbortError')));
-    await expect(loadSnapshot(null, controller.signal)).rejects.toThrow('cancelled');
+    await expect(loadSnapshot(null, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

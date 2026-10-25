@@ -179,13 +179,16 @@ async function read(url, signal, apiUrl, onProgress) {
     const cancel = () => controller.abort(signal.reason);
     if (signal?.aborted) controller.abort(signal.reason);
     else signal?.addEventListener('abort', cancel, { once: true });
-    let rejectAbort;
-    const aborted = new Promise((_, reject) => { rejectAbort = reject; });
-    const onAbort = () => rejectAbort(controller.signal.reason);
-    controller.signal.addEventListener('abort', onAbort, { once: true });
-    // The first race must also observe a caller that cancelled before this attempt.
-    if (controller.signal.aborted) onAbort();
-    const wait = promise => Promise.race([promise, aborted]);
+    const wait = promise => new Promise((resolve, reject) => {
+      const onAbort = () => { controller.signal.removeEventListener('abort', onAbort); reject(controller.signal.reason); };
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      Promise.resolve(promise).then(value => {
+        controller.signal.removeEventListener('abort', onAbort); resolve(value);
+      }, error => {
+        controller.signal.removeEventListener('abort', onAbort); reject(error);
+      });
+      if (controller.signal.aborted) onAbort();
+    });
     const arm = milliseconds => {
       clearTimeout(timer);
       timer = setTimeout(() => controller.abort(new DOMException('Download stalled', 'TimeoutError')), milliseconds);
@@ -242,7 +245,6 @@ async function read(url, signal, apiUrl, onProgress) {
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', cancel);
-      controller.signal.removeEventListener('abort', onAbort);
       if (!complete) controller.abort();
       if (reader) {
         if (!complete) reader.cancel().catch(() => {});

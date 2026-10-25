@@ -123,6 +123,8 @@ def client(monkeypatch):
     monkeypatch.setenv("ESPN_PUBLIC_PREDICTIONS_TOKEN", "upload-secret")
     monkeypatch.setattr(team_claims, "_fallback_snapshot", lambda: None)
     app = FastAPI()
+    from espn.public_compression import PublicPredictionsCompression
+    app.add_middleware(PublicPredictionsCompression)
     app.include_router(routes.router, prefix="/espn")
     app.state.supabase = FakeSupabase()
     with TestClient(app) as client:
@@ -564,7 +566,7 @@ def test_ndjson_records_reconstruct_and_preserve_metadata(client, snapshot_v2):
                                      "home": r["matchup"]["home"], "away": r["matchup"]["away"]}
                                     for r in records[1:4]]
     assert records[0]["snapshot"]["teams"][0]["manager"] == "Jordan"
-    assert all("logo" not in t for t in records[0]["snapshot"]["teams"])
+    assert records[0]["snapshot"]["teams"] == body["teams"]
     assert records[0]["season_available"] is False
     client.post(PATH, json=body, headers=AUTH)
     response = client.get(PATH + "/latest", headers={"Accept": "application/x-ndjson", "Accept-Encoding": "identity"})
@@ -659,7 +661,7 @@ def test_middleware_delivers_each_stream_record_without_buffering(client, snapsh
         "headers": [(b"accept", b"application/x-ndjson"), (b"accept-encoding", encoding.encode())],
     }, receive, send))
     chunks = [message["body"] for message in messages if message["type"] == "http.response.body" and message["body"]]
-    records = list(_snapshot_records(snapshot_v2))
+    records = list(_snapshot_records(public_predictions._external_logos(snapshot_v2)))
     decompressor = zlib.decompressobj(wbits=31) if encoding == "gzip" else None
     assert len(chunks) == len(records) + (1 if decompressor else 0)
     for chunk, record in zip(chunks, records):
