@@ -46,7 +46,7 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   const dialog = screen.getByRole('dialog', { name: 'Pay with Venmo' });
   expect(dialog).toHaveTextContent('@andsohn');
   expect(dialog).toHaveTextContent('$198.18');
-  expect(within(dialog).getByRole('link', { name: '@andsohn' })).toHaveAttribute('href', 'https://venmo.com/u/andsohn');
+  expect(within(dialog).getByRole('link', { name: '@andsohn, opens Venmo profile' })).toHaveAttribute('href', 'https://venmo.com/u/andsohn');
   expect(within(dialog).getByRole('button', { name: 'Copy amount' })).toBeInTheDocument();
   expect(dialog).not.toHaveTextContent('Added for them');
   // Opening Venmo is the main step; marking it paid only takes the lead once Venmo was opened.

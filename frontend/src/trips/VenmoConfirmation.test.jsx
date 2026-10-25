@@ -8,7 +8,7 @@ afterEach(cleanup);
 it('links the public profile and confirms the displayed handle with a primary action', async () => {
   const confirm = vi.fn().mockResolvedValue({});
   render(<VenmoConfirmation username="Jayce-e" onConfirm={confirm} onCancel={vi.fn()} />);
-  const profile = screen.getByRole('link', { name: '@Jayce-e on Venmo' });
+  const profile = screen.getByRole('link', { name: '@Jayce-e, opens Venmo profile' });
   expect(profile).toHaveAttribute('href', 'https://venmo.com/u/Jayce-e');
   expect(profile).toHaveAttribute('target', '_blank');
   expect(profile).toHaveAttribute('rel', 'noopener noreferrer');
@@ -23,11 +23,11 @@ it('previews a corrected profile before saving and keeps the draft after a faile
   render(<VenmoConfirmation username="old-handle" onConfirm={confirm} onCancel={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'Change handle' }));
   fireEvent.change(screen.getByLabelText('Your Venmo username'), { target: { value: '@correct-handle' } });
-  expect(screen.getByRole('link', { name: '@correct-handle on Venmo' })).toHaveAttribute('href', 'https://venmo.com/u/correct-handle');
-  fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+  expect(screen.getByRole('link', { name: '@correct-handle, opens Venmo profile' })).toHaveAttribute('href', 'https://venmo.com/u/correct-handle');
+  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Connection lost');
   expect(screen.getByLabelText('Your Venmo username')).toHaveValue('@correct-handle');
-  fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
   await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
   expect(confirm).toHaveBeenLastCalledWith('correct-handle');
 });
@@ -36,10 +36,10 @@ it('asks for a missing handle and rejects blank or malformed usernames without s
   const confirm = vi.fn();
   render(<VenmoConfirmation username={null} onConfirm={confirm} onCancel={vi.fn()} />);
   expect(screen.getByLabelText('Your Venmo username')).toHaveValue('');
-  fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Enter your Venmo username.');
   fireEvent.change(screen.getByLabelText('Your Venmo username'), { target: { value: 'bad handle' } });
-  fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
   expect(await screen.findByRole('alert')).toHaveTextContent('5–30 letters');
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
   expect(confirm).not.toHaveBeenCalled();

@@ -29,7 +29,7 @@ it('debounces edits and saves the normalized handle', async () => {
   fireEvent.change(screen.getByLabelText('Your Venmo username'), { target: { value: '@jamie-rivera' } });
   expect(request).not.toHaveBeenCalled();
   await waitFor(() => expect(request).toHaveBeenCalledWith('/venmo/profile?handle=jamie-rivera'));
-  fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
+  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith('jamie-rivera'));
 });
 it('ignores stale responses after a handle change', async () => {
@@ -41,4 +41,12 @@ it('ignores stale responses after a handle change', async () => {
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Preview unavailable'));
   resolve(profile);
   await waitFor(() => expect(screen.queryByText('Alex Rivera')).not.toBeInTheDocument());
+});
+
+it('does not request a missing handle', async () => {
+  const request = vi.fn();
+  const { container } = render(<VenmoProfile handle={null} request={request} />);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(request).not.toHaveBeenCalled();
+  expect(container).toBeEmptyDOMElement();
 });

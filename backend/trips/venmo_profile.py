@@ -79,6 +79,9 @@ class ProfileLookup:
             key = handle.lower()
             now = time.monotonic()
             with self.lock:
+                cached = self.cache.get(key)
+                if cached and cached[0] > now:
+                    return cached[1]
                 visits = self.users.setdefault(str(user_id), deque())
                 while visits and visits[0] <= now - 60:
                     visits.popleft()
@@ -88,10 +91,8 @@ class ProfileLookup:
                 self.users.move_to_end(str(user_id))
                 while len(self.users) > 5000:
                     self.users.popitem(last=False)
-                cached = self.cache.get(key)
-                if cached and cached[0] > now:
-                    return cached[1]
             # Fresh client: no cookies, redirects disabled, bounded response body.
+            deadline = time.monotonic() + 3
             with httpx.Client(timeout=3, follow_redirects=False, headers={
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', 'Accept': 'text/html',
             }) as client:
@@ -99,6 +100,8 @@ class ProfileLookup:
                     response.raise_for_status()
                     body = bytearray()
                     for chunk in response.iter_bytes():
+                        if time.monotonic() > deadline:
+                            raise TimeoutError('Profile deadline exceeded')
                         body.extend(chunk)
                         if len(body) > 1_000_000:
                             raise ValueError('Profile too large')

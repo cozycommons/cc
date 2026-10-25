@@ -377,9 +377,11 @@ ownership or used for authorization. Joining a trip drops the creator-entered
 username in favour of the account's own.
 
 When a linked member opens a trip with an unconfirmed account handle (or no
-handle), they first see **Confirm your Venmo**. The tappable handle opens
-`https://venmo.com/u/{handle}` to check the public name and photo. **Fix handle**
-edits the username; **Yes, that's my Venmo** saves it through `PUT /me` and stores
+handle), they first see **Confirm your Venmo**. A tappable Venmo card shows the
+public display name, photo (or initials), and handle, and opens
+`https://venmo.com/u/{handle}`. **Change handle** opens a debounced live preview;
+**Save handle** saves edits, while **Yes, that's me** confirms the initial card.
+Both save through `PUT /me` and store
 the existing per-user `owner_confirmed` flag. Confirmation applies across trips
 and devices, including after signing in again. A previous self-save already
 counts as confirmation; creators never confirm someone else's handle. Cancel
@@ -538,3 +540,20 @@ the frontend and in `backend/tests/test_trips.py`.
 The synthetic Cabin weekend remains a regression fixture. The proposed
 integration plan above defines the next delivery; this historical prototype
 handoff does not establish that Cozy Trips is ready for actual Commons users.
+
+### Public Venmo previews
+
+`GET /trips/venmo/profile?handle=…` requires a signed-in Cozy user and returns a
+small public profile projection, or `{found:false}` on failure. It parses
+Venmo's unofficial public `__NEXT_DATA__` user first, then Open Graph tags.
+Only HTTPS images on `pics-v3.venmo.com` are accepted. Redirects and cookies
+are disabled; responses have a size limit and a short fetch budget.
+
+The bounded process-local cache lasts 24 hours for hits and five minutes for
+misses; uncached lookups are limited to 30 per user per minute per worker. No
+profile data is persisted. The same card appears in person and Pay/Request
+sheets. Missing/inactive profiles retain the public profile link.
+
+390px synthetic confirmation screenshots: [before](images/venmo/before-390.png),
+[after](images/venmo/after-390.png). Parser and endpoint tests use saved synthetic
+HTML and a mock transport; they never contact Venmo.

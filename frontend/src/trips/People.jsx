@@ -86,8 +86,8 @@ export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemo
   const busy = isInvolved(group, member.id);
   return <div className="trips-person-sheet">
     <VenmoProfile handle={member.venmo_username} request={request} />
-    <div className="trips-venmo-who"><Avatar member={member} size={44} />
-      <span className="trips-muted">{joined ? 'Joined' : 'Hasn’t joined'}{member.venmo_username ? ` · @${member.venmo_username}` : ''}</span></div>
+    <div className="trips-venmo-who">{!member.venmo_username && <Avatar member={member} size={44} />}
+      <span className="trips-muted">{joined ? 'Joined' : 'Hasn’t joined'}</span></div>
     <ul className="trips-menu">
       {!joined && <li><button type="button" onClick={onInvite}><Link2 size={16} aria-hidden="true" /><span>New invite link<small>Older links for {firstName(member)} stop working.</small></span></button></li>}
       {!joined && <li><button type="button" onClick={onVenmo}><Pencil size={16} aria-hidden="true" /><span>{member.venmo_username ? 'Change Venmo username' : 'Add Venmo username'}<small>Until {firstName(member)} joins and adds their own.</small></span></button></li>}

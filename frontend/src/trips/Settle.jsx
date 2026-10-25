@@ -4,7 +4,7 @@ import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Trash2 } from 'lucide
 import { decimal, money, shortDate, today, toMinor } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
 import { findMember, firstName, memberName } from './people.js';
-import { normalizeUsername, settlementRole, tripNote, venmoLink, venmoProfile } from './venmo.js';
+import { normalizeUsername, settlementRole, tripNote, venmoLink } from './venmo.js';
 import { balanceBreakdown } from './balances.js';
 
 const SquareStamp = () => <span className="trips-square-stamp" aria-hidden="true">All square</span>;
@@ -49,9 +49,9 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onSaveH
     onCancel={onCancel} onSubmit={() => onRecord({
       id, from_member: transfer.from_member, to_member: transfer.to_member, amount_minor: transfer.amount_minor,
       date: today(), notes: 'Venmo', revision: group.revision })}>
-    <div className="trips-venmo-who"><Avatar member={other} size={44} /><div>
+    <div className="trips-venmo-who">{!username && <Avatar member={other} size={44} />}<div>
       <strong>{role === 'pay' ? `Pay ${memberName(other)}` : `Request from ${memberName(other)}`}</strong>
-      {username ? <a className="trips-handle" href={venmoProfile(username)} target="_blank" rel="noopener noreferrer">@{username}</a> : <span className="trips-muted">No Venmo username yet</span>}
+      {!username && <span className="trips-muted">No Venmo username yet</span>}
     </div><strong className="trips-venmo-amount">{money(transfer.amount_minor, group.currency)}</strong></div>
     <VenmoProfile handle={username} request={request} />
     {usd && username && <a className="cc-button cc-button--primary trips-venmo-open" href={venmoLink({ username, role, amountMinor: transfer.amount_minor, note })}

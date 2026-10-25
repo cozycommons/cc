@@ -53,7 +53,33 @@ def test_authenticated_endpoint_cache_rate_limit_and_fail_soft(monkeypatch):
             assert api.get('/trips/venmo/profile?handle=broken-user', headers=headers).json() == {'found': False}
         assert len(calls) == 2
         assert api.get('/trips/venmo/profile?handle=bad!', headers=headers).json() == {'found': False}
-        for _ in range(26):
-            api.get('/trips/venmo/profile?handle=alex-rivera', headers=headers)
-        assert api.get('/trips/venmo/profile?handle=alex-rivera', headers=headers).json() == {'found': False}
-        assert len(calls) == 2
+        for i in range(28):
+            api.get(f'/trips/venmo/profile?handle=missing-{i}', headers=headers)
+        assert api.get('/trips/venmo/profile?handle=uncached-user', headers=headers).json() == {'found': False}
+        assert len(calls) == 30
+        assert api.get('/trips/venmo/profile?handle=alex-rivera', headers=headers).json()['found']
+        assert len(calls) == 30
+
+
+def test_cache_expiry_and_total_fetch_budget(monkeypatch):
+    clock = [0.0]
+    calls = []
+    monkeypatch.setattr(profiles.time, 'monotonic', lambda: clock[0])
+    def fetch(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith('slow-user'):
+            clock[0] += 4
+        return httpx.Response(200, text=(FIXTURES / 'next.html').read_text())
+    real_client = httpx.Client
+    monkeypatch.setattr(profiles.httpx, 'Client', lambda **kwargs: real_client(transport=httpx.MockTransport(fetch), **kwargs))
+    lookup = profiles.ProfileLookup()
+    assert lookup.lookup('alex-rivera', 'qa')['found']
+    assert not lookup.lookup('missing-user', 'qa')['found']
+    clock[0] = 301
+    assert lookup.lookup('alex-rivera', 'qa')['found']
+    assert not lookup.lookup('missing-user', 'qa')['found']
+    assert len(calls) == 3
+    clock[0] = 86401
+    assert lookup.lookup('alex-rivera', 'qa')['found']
+    assert len(calls) == 4
+    assert not lookup.lookup('slow-user', 'qa')['found']
