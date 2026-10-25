@@ -32,12 +32,13 @@ def test_derivation_settle_undo_and_both_party_idempotence():
     assert again == undone
 
 
-def test_stale_suggestion_never_settles_wrong_amount_and_third_party_cannot_settle():
+def test_replaced_suggestion_records_exact_opened_amount_and_rejects_third_party():
     row = owing_trip()
     item = obligations_for(row)[0]
     changed, _ = apply_command(row, 'matt', 'add_expense', expense(row, amount=6000))
-    with pytest.raises(LedgerError):
-        apply_command(changed, 'matt', 'obligation_settle', {'id': item['id'], 'amount_minor': item['amount_minor']})
+    settled, _ = apply_command(changed, 'matt', 'obligation_settle', {'id': item['id'], 'amount_minor': item['amount_minor']})
+    assert settled['data']['repayments'][0]['amount_minor'] == item['amount_minor']
+    assert any(o['status'] == 'open' for o in obligations_for(settled))
     other = next(o for o in obligations_for(row) if o['from_member'] != row['data']['members'][1]['id'])
     with pytest.raises(LedgerError):
         apply_command(row, 'alex', 'obligation_settle', {'id': other['id']})
@@ -95,3 +96,55 @@ def test_settle_rejects_missing_or_mismatched_amount(amount):
         apply_command(row, 'matt', 'obligation_settle', {'id': item['id'], 'cycle': 0, 'amount_minor': amount})
     assert error.value.status == 409
     assert row == before and not row['data']['repayments']
+
+
+def test_replaced_retains_identity_and_settle_retry_undo_cycle():
+    row = owing_trip()
+    item = obligations_for(row)[0]
+    payload = dict(id=item['id'], amount_minor=item['amount_minor'], cycle=0)
+    changed, _ = apply_command(row, 'matt', 'add_expense', expense(row, amount=6000))
+    old = next(o for o in obligations_for(changed) if o['id'] == item['id'])
+    assert old['status'] == 'replaced'
+    assert all(old[k] == item[k] for k in ['reference', 'amount_minor', 'created_at'])
+    for action in ['undo', 'nudge']:
+        with pytest.raises(LedgerError) as error:
+            apply_command(changed, 'matt', 'obligation_' + action, payload)
+        assert error.value.status == 409
+    settled, _ = apply_command(changed, 'matt', 'obligation_settle', payload)
+    assert apply_command(settled, 'matt', 'obligation_settle', payload)[0] == settled
+    undone, _ = apply_command(settled, 'matt', 'obligation_undo', payload)
+    assert next(o for o in obligations_for(undone) if o['id'] == item['id'])['status'] == 'replaced'
+    assert apply_command(undone, 'matt', 'obligation_undo', payload)[0] == undone
+    with pytest.raises(LedgerError):
+        apply_command(undone, 'matt', 'obligation_settle', payload)
+
+
+def test_replaced_cap_keeps_latest_and_never_prunes_settled():
+    from venmo.obligations import reconcile
+    records = [dict(id=str(i), status='replaced', replaced_at=f'{i:04d}') for i in range(101)]
+    records.append(dict(id='settled', status='settled'))
+    result = reconcile(records, [], {}, 1, 'now')
+    assert len(result) == 101
+    assert '0' not in [o['id'] for o in result]
+    assert 'settled' in [o['id'] for o in result]
+
+
+def test_settling_one_retains_other_ids_through_seeded_reshuffles():
+    import random
+    from trips.ledger import transfers
+    from venmo.obligations import reconcile
+    rng = random.Random(260)
+    for generation in range(399):
+        nets = {str(i): rng.randrange(-50, 50) for i in range(7)}
+        nets['last'] = -sum(nets.values())
+        items = reconcile([], transfers(nets), {'kind': 'test', 'id': 'synthetic'}, generation, '2026')
+        if not items:
+            continue
+        paid = items[0]
+        nets[paid['from_member']] += paid['amount_minor']
+        nets[paid['to_member']] -= paid['amount_minor']
+        after = reconcile([{**paid, 'status': 'settled'}, *items[1:]], transfers(nets), {'kind': 'test', 'id': 'synthetic'}, generation + 1, '2027')
+        assert {o['id'] for o in items[1:]} <= {o['id'] for o in after if o['status'] in ('open', 'replaced')}
+        for old in items[1:]:
+            saved = next(o for o in after if o['id'] == old['id'])
+            assert all(saved[k] == old[k] for k in ['from_member', 'to_member', 'amount_minor', 'reference'])
