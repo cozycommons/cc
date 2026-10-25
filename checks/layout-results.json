@@ -1,0 +1,1504 @@
+{
+  "results": [
+    {
+      "phase": "after",
+      "name": "confirm",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/confirm-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "list",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/list-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "expenses",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/expenses-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "balances",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/balances-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "people",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/people-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "activity",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/activity-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-expense",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-expense-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "person-menu",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/person-menu-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "link-accounts",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/link-accounts-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "settle-up",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/settle-up-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "record-payment",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/record-payment-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "profile",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/profile-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "trip-settings",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/trip-settings-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-people",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-people-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "import",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/import-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "new-trip",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/new-trip-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": {
+          "client": 318,
+          "scroll": 318
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "fantasy",
+      "width": 320,
+      "implementation_commit": "2c9abd3e6fd59a3273f16c6e5e1fa0a692c2c293",
+      "path": "after/fantasy-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "matchup",
+      "width": 320,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/matchup-320.png",
+      "audit": {
+        "width": 320,
+        "scroll": 320,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "confirm",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/confirm-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "list",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/list-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "expenses",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/expenses-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "balances",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/balances-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "people",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/people-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "activity",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/activity-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-expense",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-expense-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "person-menu",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/person-menu-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "link-accounts",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/link-accounts-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "settle-up",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/settle-up-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "record-payment",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/record-payment-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "profile",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/profile-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "trip-settings",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/trip-settings-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-people",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-people-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "import",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/import-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "new-trip",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/new-trip-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": {
+          "client": 358,
+          "scroll": 358
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "fantasy",
+      "width": 360,
+      "implementation_commit": "2c9abd3e6fd59a3273f16c6e5e1fa0a692c2c293",
+      "path": "after/fantasy-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "matchup",
+      "width": 360,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/matchup-360.png",
+      "audit": {
+        "width": 360,
+        "scroll": 360,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "confirm",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/confirm-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "list",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/list-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "expenses",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/expenses-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "balances",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/balances-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "people",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/people-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "activity",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/activity-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-expense",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-expense-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "person-menu",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/person-menu-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "link-accounts",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/link-accounts-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "settle-up",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/settle-up-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "record-payment",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/record-payment-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "profile",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/profile-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "trip-settings",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/trip-settings-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-people",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-people-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "import",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/import-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "new-trip",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/new-trip-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": {
+          "client": 388,
+          "scroll": 388
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "fantasy",
+      "width": 390,
+      "implementation_commit": "2c9abd3e6fd59a3273f16c6e5e1fa0a692c2c293",
+      "path": "after/fantasy-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "matchup",
+      "width": 390,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/matchup-390.png",
+      "audit": {
+        "width": 390,
+        "scroll": 390,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "confirm",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/confirm-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "list",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/list-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "expenses",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/expenses-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "balances",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/balances-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "people",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/people-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "activity",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/activity-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-expense",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-expense-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "person-menu",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/person-menu-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "link-accounts",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/link-accounts-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "settle-up",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/settle-up-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "record-payment",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/record-payment-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "profile",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/profile-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "trip-settings",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/trip-settings-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-people",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-people-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "import",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/import-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "new-trip",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/new-trip-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": {
+          "client": 428,
+          "scroll": 428
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "fantasy",
+      "width": 430,
+      "implementation_commit": "2c9abd3e6fd59a3273f16c6e5e1fa0a692c2c293",
+      "path": "after/fantasy-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "matchup",
+      "width": 430,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/matchup-430.png",
+      "audit": {
+        "width": 430,
+        "scroll": 430,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "confirm",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/confirm-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "list",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/list-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "expenses",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/expenses-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "balances",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/balances-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "people",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/people-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "activity",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/activity-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-expense",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-expense-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "person-menu",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/person-menu-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "link-accounts",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/link-accounts-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "settle-up",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/settle-up-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "record-payment",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/record-payment-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "profile",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/profile-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "trip-settings",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/trip-settings-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "add-people",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/add-people-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "import",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/import-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "new-trip",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/new-trip-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": {
+          "client": 558,
+          "scroll": 558
+        },
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "fantasy",
+      "width": 1280,
+      "implementation_commit": "2c9abd3e6fd59a3273f16c6e5e1fa0a692c2c293",
+      "path": "after/fantasy-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    },
+    {
+      "phase": "after",
+      "name": "matchup",
+      "width": 1280,
+      "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+      "path": "after/matchup-1280.png",
+      "audit": {
+        "width": 1280,
+        "scroll": 1280,
+        "dialog": null,
+        "small": [],
+        "tiny": [],
+        "overflow": []
+      }
+    }
+  ]
+}

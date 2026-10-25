@@ -1,0 +1,465 @@
+
+> reminder-frontend@0.1.0 test
+> vitest run --run --maxWorkers=1
+
+🔧 Vite config loading for mode: test
+
+ RUN  v4.0.17 /Users/matthew/.t3/worktrees/cozy-commons-fantasy/fix-mobile-padding-qol/frontend
+
+stderr | src/trips/TripView.test.jsx > renames and deletes the trip from trip settings
+No routes matched location "/trips" 
+
+stderr | src/trips/TripView.test.jsx > reloads before deleting a trip that changed, and treats a retried delete that finds nothing as done
+No routes matched location "/trips" 
+
+stderr | src/trips/TripView.test.jsx > leaves a trip that was deleted while it was open
+No routes matched location "/trips" 
+
+ ✓ src/trips/TripView.test.jsx (22 tests) 6608ms
+   ✓ prepares a Venmo payment for review without changing the ledger, then records it once  1000ms
+   ✓ offers request to the creditor, nothing to bystanders, and adds a missing username without leaving  301ms
+   ✓ keeps the draft and reloads the trip when someone else saved first  386ms
+   ✓ opens an unsaved prefilled expense from a link and keeps sections addressable  440ms
+   ✓ lets the trip creator set a username for someone who has not joined  535ms
+   ✓ shows payments in the expense feed next to expenses  309ms
+   ✓ deletes an expense with an undo that restores the same record  531ms
+   ✓ lets the creator rename or remove people and blocks removing someone on the ledger  809ms
+   ✓ renames and deletes the trip from trip settings  347ms
+ ✓ src/trips/Settle.test.jsx (5 tests) 157ms
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > ignores a stale opt-out and requests the released live game
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > switches locally between fast scoring and stats without losing the thrower
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > names the saver as the hero of a scoreless FIFA moment
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > celebrates a correction-safe settled pick with profit, balance, and current rank
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > explains a reopened result without presenting it as another scoring play
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > describes a correction as the changed call instead of an unexplained odds swing
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > removes a previously rendered win-chance story when a refresh returns an older story
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/dice/pages/LiveGame.test.jsx > LiveGame common scoring > removes a previously rendered win-chance story when a refresh returns an older story
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+ ✓ src/dice/pages/LiveGame.test.jsx (90 tests) 4905ms
+stderr | src/crowdset/Crowdset.test.jsx > browses sets before opening a simple set detail
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+Not implemented: HTMLMediaElement's pause() method
+Not implemented: HTMLMediaElement's load() method
+stderr | src/crowdset/Crowdset.test.jsx > shows the uploader on compact cards without a duration or timeline heading
+Received NaN for the `x` attribute. If this is expected, cast the value to a string.
+Received NaN for the `width` attribute. If this is expected, cast the value to a string.
+
+ ✓ src/crowdset/Crowdset.test.jsx (28 tests) 10239ms
+   ✓ publishes one new player and keeps unmatched originals available  1075ms
+   ✓ lets an interrupted YouTube import reuse its link without losing the cut  395ms
+   ✓ lets the owner select official audio and labels the base download separately  536ms
+   ✓ explains why a clip could not be matched without hiding the original  337ms
+   ✓ places downloads below the video and edit timeline  562ms
+   ✓ collapses unused clips with preview posters and omits file sizes  632ms
+   ✓ pauses other recordings while preserving the two synchronized cut videos  709ms
+   ✓ reports duplicate uploads without adding another card  301ms
+   ✓ shows the uploader on compact cards without a duration or timeline heading  473ms
+   ✓ hides set deletion from regular owners and permits removal only of their own clips  530ms
+   ✓ shows admin deletion controls even when the admin does not own the set or clips  733ms
+   ✓ lets an admin prepare missing previews without replacing the published player  1192ms
+ ✓ src/trips/regressions.test.jsx (11 tests) 8893ms
+     ✓ shows a failed save instead of staying locked  980ms
+     ✓ never lets a slow refresh hide a newer save  3971ms
+     ✓ saves a draft against the version it was opened from and shows what changed on conflict  1080ms
+     ✓ deletes from the editor against the version the editor showed  828ms
+     ✓ keeps earlier invite links when a multi-add is retried after a partial failure  1159ms
+     ✓ locks Remove while a Venmo save is pending and routes it through the form  537ms
+ ✓ src/App.test.jsx (9 tests) 2910ms
+     ✓ serves the Wabi project picker home page with a Dice project card  322ms
+     ✓ shares Supabase with Cozy Trips and preserves direct trip links  326ms
+     ✓ serves Crowdset at its canonical URL  309ms
+     ✓ serves Dice and initializes Supabase under /dice  337ms
+     ✓ serves the chosen Wabi component library at /design  1205ms
+     ✓ serves the Dice design system at /design/dice  313ms
+stderr | src/trips/TripsApp.test.jsx > keeps the account name and photo while the shared profile is loading
+An update to Workspace inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+stderr | src/trips/TripsApp.test.jsx > keeps the account name and photo while the shared profile is loading
+An update to Workspace inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+ ✓ src/trips/TripsApp.test.jsx (15 tests) 3988ms
+   ✓ asks a linked member once, then opens trips after the account confirmation is saved  1550ms
+   ✓ opens repeated descriptions by payer, amount and date, then edits or deletes from the detail  595ms
+   ✓ ignores an old trip save after navigating to a different trip  376ms
+ ✓ src/trips/ExpenseForm.test.jsx (11 tests) 1555ms
+   ✓ exposes native controls and preserves a mismatched exact-split draft  448ms
+stderr | src/dice/pages/LiveLobby.test.jsx > LiveLobby > ignores a stale unavailable opt-out and loads the released lobby
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/LiveLobby.test.jsx (14 tests) 1629ms
+     ✓ starts a live game from four registered players  464ms
+stderr | src/design/DesignIndex.test.jsx > Cozy Commons design system > switches between component views
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/design/DesignIndex.test.jsx (3 tests) 1036ms
+     ✓ keeps the demo form local and validates required fields  585ms
+stderr | src/fantasy/Fantasy.test.jsx > Fantasy pages > hub shows the season race and links each matchup to its page
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/fantasy/Fantasy.test.jsx > Fantasy pages > race rows show playoff and title odds and expand into labelled finishes
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/Fantasy.test.jsx > Fantasy pages > desktop has no section tabs
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/Fantasy.test.jsx > Fantasy pages > matchup page shows the hero, daily bars and players who scored
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+ ✓ src/fantasy/Fantasy.test.jsx (12 tests) 787ms
+stderr | src/crowdset/Crowdset.session.test.jsx > keeps the playing video mounted during SIGNED_IN for the same user
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/crowdset/Crowdset.session.test.jsx (7 tests) 702ms
+ ✓ src/trips/useTripsAuth.test.jsx (10 tests) 601ms
+stderr | src/fantasy/leagueLinks.test.jsx > clears league links on sign-out
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/fantasy/leagueLinks.test.jsx > clears league links on sign-out
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/leagueLinks.test.jsx > clears league links on sign-out
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/leagueLinks.test.jsx > clears the former account links while loading a new account
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/leagueLinks.test.jsx > clears the former account links while loading a new account
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/leagueLinks.test.jsx > ignores a links response that arrives after sign-out
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+ ✓ src/fantasy/leagueLinks.test.jsx (3 tests) 678ms
+   ✓ clears league links on sign-out  341ms
+ ✓ src/crowdset/uploads.test.js (4 tests) 512ms
+   ✓ resumes from the saved offset and recovers a lost chunk acknowledgment without duplicate bytes  508ms
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > shows ESPN manager first names, and the Dice name once a team is confirmed
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > shows ESPN manager first names, and the Dice name once a team is confirmed
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > suggests the matching team, links it on confirm, and can unlink
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > suggests the matching team, links it on confirm, and can unlink
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > suggests the matching team, links it on confirm, and can unlink
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > asks for a Dice profile before offering a link
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > only offers teams the server allows and explains a refusal
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > says linking is unavailable instead of vanishing
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+stderr | src/fantasy/ClaimPanel.test.jsx > team links > keeps the Your team section in place while sign-in is still loading
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+The width(0) and height(0) of chart should be greater than 0,
+       please check the style of container, or the props width(100%) and height(100%),
+       or add a minWidth(0) or minHeight(undefined) or use aspect(undefined) to control the
+       height and width.
+
+ ✓ src/fantasy/ClaimPanel.test.jsx (6 tests) 440ms
+ ✓ src/crowdset/CreateSet.test.jsx (4 tests) 368ms
+ ✓ src/crowdset/CompositionPlayer.test.jsx (17 tests) 343ms
+stderr | src/dice/pages/LogMatch.test.jsx > LogMatch editing > retains a stale edit and requires an explicit overwrite against the latest revision
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/LogMatch.test.jsx (3 tests) 248ms
+stderr | src/dice/pages/Home.test.jsx > Dice home dashboard > waits for authentication hydration before loading the homepage
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/Home.test.jsx (18 tests) 427ms
+ ✓ src/trips/ImportTrip.test.jsx (7 tests) 595ms
+   ✓ previews before saving, displays all balances, and explicitly maps the current person  352ms
+stderr | src/dice/components/PhotoGallery.test.jsx > PhotoGallery > navigates between photos with controls and wraps at the ends
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/components/PhotoGallery.test.jsx (4 tests) 267ms
+stderr | src/dice/pages/VirtualDice.test.jsx > VirtualDice > shows bankroll and locked server odds, then places one clear pick
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/VirtualDice.test.jsx (8 tests) 206ms
+ ✓ src/dice/useDiceAuth.session.test.jsx (5 tests) 243ms
+stderr | src/dice/pages/Stats.test.jsx > Dice Stats > shows rating, scoring, and recorded player attribution as one rich player view
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/Stats.test.jsx (11 tests) 220ms
+ ✓ src/trips/VenmoConfirmation.test.jsx (4 tests) 185ms
+stderr | src/dice/DiceHeader.test.jsx > DiceHeader match action > uses ELO as the single player directory
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/DiceHeader.test.jsx (5 tests) 150ms
+ ✓ src/fantasy/OnboardPanel.test.jsx (5 tests) 175ms
+ ✓ src/trips/ui.test.jsx (3 tests) 166ms
+stderr | src/dice/components/SinkLeadersChart.test.jsx > SinkLeadersChart > shows five leaders plus a compact current-player column
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/components/SinkLeadersChart.test.jsx (3 tests) 152ms
+stderr | src/dice/pages/StreakDetail.test.jsx > StreakDetail > shows exact ranked games with teammate, opponents, score, date, and links
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/StreakDetail.test.jsx (1 test) 173ms
+ ✓ src/crowdset/MixTimeline.test.jsx (5 tests) 216ms
+stderr | src/dice/pages/LeaderboardNavigation.test.jsx > stats leaderboard navigation > returns from the ELO leaderboard to player stats
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/LeaderboardNavigation.test.jsx (4 tests) 175ms
+ ✓ src/crowdset/ScrubPreview.test.jsx (3 tests) 145ms
+stderr | src/dice/pages/GameDetail.test.jsx > GameDetail > passes duo evidence query and auth token through to the game API
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/GameDetail.test.jsx (3 tests) 158ms
+stderr | src/dice/pages/PlayerProfile.test.jsx > PlayerProfile released experience > does not expose the retired experience preference
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/PlayerProfile.test.jsx (5 tests) 152ms
+stderr | src/dice/pages/DuoDetail.test.jsx > DuoDetail > renders rating history, head-to-head records, and source game links
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/DuoDetail.test.jsx (1 test) 120ms
+ ✓ src/dice/components/CommentsSection.test.jsx (1 test) 109ms
+ ✓ src/trips/motion.test.jsx (1 test) 109ms
+stderr | src/dice/components/LeaderboardRow.test.jsx > LeaderboardRow > announces ties while displaying the plain competition rank
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/components/LeaderboardRow.test.jsx (4 tests) 109ms
+ ✓ src/crowdset/ProcessingStatus.test.jsx (3 tests) 101ms
+ ✓ src/crowdset/ProcessingDetails.test.jsx (1 test) 96ms
+ ✓ src/dice/components/EloDistribution.test.jsx (3 tests) 85ms
+stderr | src/dice/components/PlayerAvatar.test.jsx > PlayerAvatar > uses a distinctive dice face instead of a letter-only fallback
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/components/PlayerAvatar.test.jsx (2 tests) 59ms
+stderr | src/dice/components/GameRow.test.jsx > GameRow rating movement > shows the audited gained rating from the viewer snapshot
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/components/GameRow.test.jsx (3 tests) 42ms
+stderr | src/dice/App.test.jsx > Dice private route auth hydration > waits for profile registration before mounting a direct live route
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/App.test.jsx (6 tests) 41ms
+ ✓ src/trips/doodles.test.jsx (3 tests) 26ms
+ ✓ src/dice/components/PlayerGameStats.test.jsx (2 tests) 32ms
+ ✓ src/dice/liveCommandHedge.test.js (8 tests) 8ms
+stderr | src/dice/pages/EloExplainer.test.jsx > EloExplainer > explains the canonical confidence-based rating in plain language
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/dice/pages/EloExplainer.test.jsx (1 test) 18ms
+ ✓ src/dice/timezone.test.js (8 tests) 14ms
+ ✓ src/dice/utils.test.js (8 tests) 10ms
+ ✓ src/fantasy/source.test.js (9 tests) 6ms
+ ✓ src/dice/imageUpload.test.js (4 tests) 6ms
+ ✓ src/trips/venmo.test.js (17 tests) 4ms
+ ✓ src/fantasy/analysis.test.js (10 tests) 5ms
+ ✓ src/dice/useDiceAuth.test.js (19 tests) 3ms
+ ✓ src/trips/money.test.js (15 tests) 4ms
+ ✓ src/dice/api.test.js (4 tests) 4ms
+ ✓ src/dice/liveCommandIntent.test.js (4 tests) 3ms
+ ✓ src/supabase.test.js (1 test) 3ms
+ ✓ src/dice/recordedStats.test.js (3 tests) 3ms
+ ✓ src/trips/balances.test.js (6 tests) 4ms
+ ✓ src/dice/liveTurnOrder.test.js (7 tests) 3ms
+ ✓ src/trips/invitation.test.js (4 tests) 4ms
+ ✓ src/fantasy/paths.test.js (5 tests) 3ms
+ ✓ sandboxConfig.test.js (5 tests) 3ms
+ ✓ src/crowdset/api.test.js (1 test) 6ms
+ ✓ src/dice/leaderboard.test.js (3 tests) 9ms
+ ✓ nginx.test.js (2 tests) 6ms
+ ✓ src/dice/pages/TournamentDetail.test.jsx (2 tests) 3ms
+ ✓ src/fantasy/espn.test.js (1 test) 3ms
+
+ Test Files  72 passed (72)
+      Tests  545 passed (545)
+   Start at  09:57:55
+   Duration  101.72s (transform 2.78s, setup 2.95s, import 10.46s, tests 51.46s, environment 28.89s)
+

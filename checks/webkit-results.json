@@ -1,0 +1,106 @@
+{
+  "engine": "Playwright WebKit 27.2",
+  "commit": "2c9abd3e6fd59a3273f16c6e5e1fa0a692c2c293",
+  "padding": [
+    {
+      "width": 320,
+      "expected": 16,
+      "actual": 16,
+      "dialog": 16
+    },
+    {
+      "width": 360,
+      "expected": 16,
+      "actual": 16,
+      "dialog": 16
+    },
+    {
+      "width": 390,
+      "expected": 16,
+      "actual": 16,
+      "dialog": 16
+    },
+    {
+      "width": 430,
+      "expected": 16,
+      "actual": 16,
+      "dialog": 16
+    },
+    {
+      "width": 640,
+      "expected": 16,
+      "actual": 16,
+      "dialog": 16
+    },
+    {
+      "width": 641,
+      "expected": 20,
+      "actual": 20,
+      "dialog": 24
+    },
+    {
+      "width": 860,
+      "expected": 20,
+      "actual": 20,
+      "dialog": 24
+    },
+    {
+      "width": 1280,
+      "expected": 24,
+      "actual": 24,
+      "dialog": 24
+    }
+  ],
+  "checks": [
+    {
+      "width": 320,
+      "disclosure": {
+        "marker": "none",
+        "chevron": "\"\""
+      }
+    },
+    {
+      "width": 320,
+      "onboarding": {
+        "label": 44,
+        "checkbox": 18
+      }
+    },
+    {
+      "width": 320,
+      "tabs": {
+        "client": 320,
+        "scroll": 320
+      }
+    },
+    {
+      "width": 320,
+      "safeAreaActionBottom": 794
+    },
+    {
+      "width": 390,
+      "disclosure": {
+        "marker": "none",
+        "chevron": "\"\""
+      }
+    },
+    {
+      "width": 390,
+      "onboarding": {
+        "label": 44,
+        "checkbox": 18
+      }
+    },
+    {
+      "width": 390,
+      "tabs": {
+        "client": 390,
+        "scroll": 390
+      }
+    },
+    {
+      "width": 390,
+      "safeAreaActionBottom": 794
+    }
+  ]
+}

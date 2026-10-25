@@ -1,0 +1,167 @@
+[
+  {
+    "name": "stress-list",
+    "width": 320,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 320,
+      "scroll": 320,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-people",
+    "width": 320,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 320,
+      "scroll": 320,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-expenses",
+    "width": 320,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 320,
+      "scroll": 320,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "safe-expense",
+    "width": 320,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 320,
+      "scroll": 320,
+      "dialog": {
+        "client": 318,
+        "scroll": 318
+      },
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-list",
+    "width": 390,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 390,
+      "scroll": 390,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-people",
+    "width": 390,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 390,
+      "scroll": 390,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-expenses",
+    "width": 390,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 390,
+      "scroll": 390,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "safe-expense",
+    "width": 390,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 390,
+      "scroll": 390,
+      "dialog": {
+        "client": 388,
+        "scroll": 388
+      },
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-list",
+    "width": 844,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 844,
+      "scroll": 844,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-people",
+    "width": 844,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 844,
+      "scroll": 844,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "stress-expenses",
+    "width": 844,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 844,
+      "scroll": 844,
+      "dialog": null,
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  },
+  {
+    "name": "safe-expense",
+    "width": 844,
+    "implementation_commit": "3bda67180f34231dd542ccb667cad6ed10f99ade",
+    "audit": {
+      "width": 844,
+      "scroll": 844,
+      "dialog": {
+        "client": 558,
+        "scroll": 558
+      },
+      "small": [],
+      "tiny": [],
+      "overflow": []
+    }
+  }
+]
