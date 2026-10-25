@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanSnapshot, FALLBACK_URL, laNoon, loadSnapshot } from './source.js';
+import { cachedSnapshot, cleanSnapshot, FALLBACK_URL, laNoon, loadSnapshot } from './source.js';
 import { SNAPSHOT_V2 } from './fixture.js';
 
 const copy = () => structuredClone(SNAPSHOT_V2);
@@ -72,7 +72,46 @@ describe('cleanSnapshot', () => {
 });
 
 describe('loadSnapshot', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
+
+  it('keeps the last good public payload across failed and empty loads', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => copy() }));
+    await loadSnapshot('https://cache.example.test');
+    expect(cachedSnapshot('https://cache.example.test').matchup.id).toBe(1);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    expect((await loadSnapshot('https://cache.example.test')).matchup.id).toBe(1);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 404, ok: false }));
+    expect((await loadSnapshot('https://cache.example.test')).matchup.id).toBe(1);
+    expect(await loadSnapshot('https://other.example.test')).toBeNull();
+  });
+
+  it('does not replace good data with malformed or wholly unavailable matchups', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => copy() });
+    vi.stubGlobal('fetch', fetcher);
+    await loadSnapshot(null);
+    const broken = copy();
+    broken.matchups.forEach(match => { match.unavailable = true; });
+    fetcher.mockResolvedValue({ status: 200, ok: true, json: async () => broken });
+    expect((await loadSnapshot(null)).matchups.some(match => !match.unavailable)).toBe(true);
+    fetcher.mockResolvedValue({ status: 200, ok: true, json: async () => ({ version: 'bad' }) });
+    expect((await loadSnapshot(null)).matchup.id).toBe(1);
+  });
+
+  it('works when storage is blocked and rejects corrupt saved data', async () => {
+    localStorage.setItem(`fantasy:last-good:v1:${FALLBACK_URL}`, '{');
+    expect(cachedSnapshot(null)).toBeNull();
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => copy() }));
+    expect((await loadSnapshot(null)).matchup.id).toBe(1);
+    storage.mockRestore();
+  });
+
+  it('does not recover a cancelled request from storage', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => copy() }));
+    await loadSnapshot(null);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('Aborted', 'AbortError')));
+    await expect(loadSnapshot(null, AbortSignal.abort())).rejects.toMatchObject({ name: 'AbortError' });
+  });
 
   it('falls back to the interim host when the API has nothing', async () => {
     vi.stubGlobal('fetch', vi.fn()

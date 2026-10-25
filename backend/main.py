@@ -20,6 +20,7 @@ from resy.mcp_server import mcp as resy_mcp
 from resy.routes import router as resy_router
 from espn.mcp_server import mcp as espn_mcp
 from espn.routes import router as espn_router
+from espn.public_compression import PublicPredictionsCompression
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -62,6 +63,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Cozy Commons Dice API", lifespan=lifespan)
 app.state.runtime_policy = RUNTIME_POLICY
+app.add_middleware(PublicPredictionsCompression)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
