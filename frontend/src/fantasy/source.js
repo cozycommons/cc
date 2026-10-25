@@ -93,14 +93,33 @@ export function cleanSnapshot(data) {
   };
 }
 
-async function read(url, signal) {
+const cacheKey = apiUrl => `fantasy:last-good:v1:${apiUrl || FALLBACK_URL}`;
+const usable = data => data?.matchups.some(match => !match.unavailable);
+
+// Store only validated public payloads; revalidate on read across app releases.
+export function cachedSnapshot(apiUrl) {
+  try {
+    const data = cleanSnapshot(JSON.parse(localStorage.getItem(cacheKey(apiUrl))));
+    return usable(data) ? data : null;
+  } catch { return null; }
+}
+
+function remember(apiUrl, raw) {
+  try { localStorage.setItem(cacheKey(apiUrl), JSON.stringify(raw)); } catch { /* Storage may be full or disabled. */ }
+}
+
+async function read(url, signal, apiUrl) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
     try {
       const response = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
       if (response.status === 404) return null;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return cleanSnapshot(await response.json());
+      const raw = await response.json();
+      const data = cleanSnapshot(raw);
+      if (!usable(data)) return null;
+      remember(apiUrl, raw);
+      return data;
     } catch (error) {
       // Keep the loading state during one quiet retry, including body timeouts.
       if (signal?.aborted || attempt === 1 || (!timeout.aborted && error.name !== 'TimeoutError')) throw error;
@@ -114,13 +133,15 @@ export async function loadSnapshot(apiUrl, signal) {
   const urls = apiUrl ? [`${apiUrl}/espn/public/predictions/latest`, FALLBACK_URL] : [FALLBACK_URL];
   for (const url of urls) {
     try {
-      const data = await read(url, signal);
+      const data = await read(url, signal, apiUrl);
       if (data) return data;
     } catch (error) {
       if (signal?.aborted) throw error;
       failed = true;
     }
   }
+  const saved = cachedSnapshot(apiUrl);
+  if (saved) return saved;
   if (failed) throw new Error('Predictions unavailable');
   return null;
 }

@@ -1,20 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import AdminPanel, { AdminEntry } from './AdminPanel.jsx';
+import AdminPanel from './AdminPanel.jsx';
 import { getLeague, saveLeague } from './admin.js';
 
 const validSeason = value => /^[0-9]{4}$/.test(value) && Number(value) >= 2000 && Number(value) <= 2100;
 const validId = value => /^[0-9]{1,12}$/.test(value);
 
-export default function FantasyAdmin({ apiUrl, token, initialSeason, onSaved }) {
-  const [open, setOpen] = useState(false);
+// Mounted only while open; the header's admin icon owns open/closed.
+export default function FantasyAdmin({ apiUrl, token, initialSeason, onSaved, onClose }) {
   const [season, setSeason] = useState(String(initialSeason || new Date().getFullYear() + (new Date().getMonth() >= 6 ? 1 : 0)));
   const [leagueId, setLeagueId] = useState('');
   const [state, setState] = useState({ loading: true });
   const generation = useRef(0);
-  const entryRef = useRef(null);
   useEffect(() => {
     const request = ++generation.current;
-    if (!open) return;
     const controller = new AbortController();
     setLeagueId('');
     setState({ loading: true });
@@ -30,7 +28,7 @@ export default function FantasyAdmin({ apiUrl, token, initialSeason, onSaved }) 
       if (request === generation.current && error.name !== 'AbortError') setState({ error: 'Could not load settings.' });
     });
     return () => { controller.abort(); };
-  }, [apiUrl, token, season, open]);
+  }, [apiUrl, token, season]);
   const save = async () => {
     if (!validSeason(season) || !validId(leagueId)) {
       setState({ error: 'Enter a season and a league ID of 1–12 digits.' });
@@ -49,17 +47,12 @@ export default function FantasyAdmin({ apiUrl, token, initialSeason, onSaved }) 
   };
   const close = () => {
     generation.current++;
-    setOpen(false);
-    setLeagueId('');
-    entryRef.current?.querySelector('button')?.focus();
+    onClose?.();
   };
   return (
-    <div className="fx-admin-slot">
-      <div ref={entryRef}><AdminEntry open={open} onClick={() => open ? close() : setOpen(true)} /></div>
-      {open && <AdminPanel season={season} onSeasonChange={value => { generation.current++; setSeason(value); }}
-        leagueId={leagueId} onLeagueIdChange={value => { generation.current++; setLeagueId(value); setState({}); }}
-        onSave={save} onClose={close} {...state}
-        leagueUrl={validSeason(season) && validId(leagueId) ? `https://fantasy.espn.com/basketball/league?leagueId=${leagueId}&seasonId=${season}` : null} />}
-    </div>
+    <AdminPanel season={season} onSeasonChange={value => { generation.current++; setSeason(value); }}
+      leagueId={leagueId} onLeagueIdChange={value => { generation.current++; setLeagueId(value); setState({}); }}
+      onSave={save} onClose={close} {...state}
+      leagueUrl={validSeason(season) && validId(leagueId) ? `https://fantasy.espn.com/basketball/league?leagueId=${leagueId}&seasonId=${season}` : null} />
   );
 }

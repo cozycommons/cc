@@ -11,7 +11,7 @@ const respond = (status, body) => vi.fn().mockResolvedValue({ status, ok: status
 const view = path => render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/fantasy/*" element={<Fantasy />} /></Routes></MemoryRouter>);
 
 describe('Fantasy pages', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
   it('hub shows the season race and links each matchup to its page', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
@@ -137,5 +137,13 @@ describe('Fantasy pages', () => {
     vi.stubGlobal('fetch', respond(404, null));
     view('/fantasy');
     expect(await screen.findByText('No predictions yet.')).toBeTruthy();
+  });
+
+  it('renders saved predictions immediately while a new request is pending', async () => {
+    localStorage.setItem('fantasy:last-good:v1:https://api.example.test', JSON.stringify(SNAPSHOT_V2));
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    view('/fantasy');
+    expect(screen.getByText('Race to the playoffs')).toBeTruthy();
+    expect(screen.queryByText('Loading…')).toBeNull();
   });
 });
