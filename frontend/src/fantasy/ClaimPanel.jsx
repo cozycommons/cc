@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { claimTeam, releaseTeam, signIn, signedInToken, suggestions } from './claims.js';
 import { TeamLogo } from './parts.jsx';
 
+import { TeamLinks } from './EspnLink.jsx';
+
 const ERRORS = {
   profile_required: 'Make a Dice profile first; its name and photo show here.',
   team_claimed: 'Someone already linked that team.',
@@ -98,6 +100,7 @@ export default function ClaimPanel({ apiUrl, data, onChange }) {
           ) : <p className="fx-small">No open team matches your profile name. Ask an admin to link yours.</p>}
         </>
       )}
+      {mine && <TeamLinks teamId={mine.id} />}
       {state.message && <p className="fx-small" role="alert">{state.message}</p>}
     </section>
   );

@@ -184,8 +184,8 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 .fx-highlights{margin:0 0 16px}
 .fx-highlights h3{margin:0 0 8px;font-size:14px;color:#201711}
 .fx-highlights ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px}
-.fx-highlights a{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 12px;background:#fffaf2;border:1px solid #e4d6bd;border-radius:12px;color:inherit;text-decoration:none}
-.fx-highlights a:hover b{text-decoration:underline}
+.fx-highlights .fx-hl-card{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 12px;background:#fffaf2;border:1px solid #e4d6bd;border-radius:12px;color:inherit;text-decoration:none}
+.fx-highlights a{color:inherit;text-decoration:none}.fx-highlights a:hover{text-decoration:underline}
 .fx-highlights img{width:56px;height:41px;object-fit:cover;border-radius:6px;background:#efe4d1}
 .fx-hl-main{display:grid;gap:3px;min-width:0}
 .fx-hl-main b{font-size:15px;color:#201711;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -194,3 +194,11 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 .fx-hl-num{display:grid;justify-items:end;gap:2px}
 .fx-hl-num strong{padding:2px 9px;border-radius:999px;background:#e1eee0;color:#3f7d4e;font-size:16px;font-variant-numeric:tabular-nums}
 .fx-hl-num small{font-size:11.5px;color:#75695b;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.fx-espn-link { display: inline-flex; align-items: center; gap: 5px; color: inherit; font-size: 12px; text-decoration: none; }
+.fx-espn-link:hover { text-decoration: underline; }
+.fx-espn-badge { color: #b52b24; font: italic 800 9px/1 system-ui, sans-serif; letter-spacing: -.4px; border: 1px solid currentColor; border-radius: 3px; padding: 3px; }
+.fx-espn-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.fx-matchup-card { min-width: 0; }
+.fx-matchup-card > .fx-card { display: block; }
+.fx-matchup-card > .fx-espn-link { margin-top: 8px; }

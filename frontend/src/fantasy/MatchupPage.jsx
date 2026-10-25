@@ -4,6 +4,8 @@ import { favorite } from './paths.js';
 import { finished, matchupRead, notableSwings, playerSwings } from './analysis.js';
 import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, round, weekday, winPct } from './parts.jsx';
 
+import { PlayerLink, MatchupLink, TeamLinks } from './EspnLink.jsx';
+
 const observed = day => day.state !== 'projected' && Array.isArray(day.actual) && day.actual.some(Number.isFinite);
 
 function DayBars({ matchup, selected, onSelect }) {
@@ -47,7 +49,7 @@ function Players({ matchup, date }) {
             {rows.length ? <ol>{rows.map(player => (
               <li key={player.id}>
                 <img src={headshot(player.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
-                <span>{player.name}</span>
+                <span><PlayerLink id={player.id} name={player.name} /></span>
                 <b style={{ color: player.points < 0 ? '#a1442b' : undefined }}>{round(player.points)}</b>
               </li>
             ))}</ol> : <p className="fx-small">No games.</p>}
@@ -74,7 +76,7 @@ function SwingRow({ row }) {
   return (
     <li className={`fx-swing fx-swing--${tone}`}>
       <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
-      <span>{row.name}<small>{round(row.actual)} of {round(row.expected)} expected{row.games > 1 ? ` · ${row.games} games` : ''}</small></span>
+      <span><PlayerLink id={row.id} name={row.name} /><small>{round(row.actual)} of {round(row.expected)} expected{row.games > 1 ? ` · ${row.games} games` : ''}</small></span>
       <b>{row.diff >= 0 ? '+' : '−'}{Math.abs(round(row.diff))}</b>
     </li>
   );
@@ -128,7 +130,7 @@ export default function MatchupPage({ data }) {
           <div key={side} className={`fx-hero-team${fav === side ? ' fx-team--fav' : ''}`}>
             <TeamLogo team={team} side={side} size={64} />
             <h2>{team.name}</h2>
-            <Manager team={team} />
+            <Manager team={team} /><TeamLinks teamId={team.id} />
             <strong style={{ color: COLORS[side] }}>{round(matchup.scores[side])}</strong>
             <span>{winPct(odds[side], finished(matchup))} to win from here · proj. {round(matchup.projected_totals[side])}</span>
           </div>
@@ -137,6 +139,7 @@ export default function MatchupPage({ data }) {
       <div className="fx-bar fx-bar--big" aria-hidden="true">
         {odds.map((value, side) => <i key={side} style={{ flex: `${value} 0 0`, background: COLORS[side], opacity: fav === side ? 1 : 0.35 }} />)}
       </div>
+      <MatchupLink matchup={matchup} />
       <Read read={matchupRead(matchup)} />
       <Swings matchup={matchup} teams={teams} />
 

@@ -7,9 +7,10 @@ import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
 import OnboardPanel from './OnboardPanel.jsx';
-import { fetchOwners } from './claims.js';
+import { fetchOwners, leagueLinks } from './claims.js';
 import { acquiredLabel, finished, highlights, matchupRead } from './analysis.js';
 import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, round, useNarrow, winPct } from './parts.jsx';
+import { LeagueLinksContext, MatchupLink, PlayerLink } from './EspnLink.jsx';
 import './fantasy.css';
 
 function MatchupCard({ matchup, narrow }) {
@@ -59,19 +60,19 @@ function Highlights({ rows }) {
           const how = acquiredLabel(row.acquired);
           return (
             <li key={`${row.key}-${row.id}`}>
-              <Link to={row.key}>
+              <div className="fx-hl-card">
                 <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer"
                   onError={event => { event.currentTarget.style.visibility = 'hidden'; }} />
                 <span className="fx-hl-main">
-                  <b>{row.name}</b>
-                  <small><TeamLogo team={row.team} side={row.side} size={16} />{row.team.name}</small>
+                  <b><PlayerLink id={row.id} name={row.name} /></b>
+                  <small><TeamLogo team={row.team} side={row.side} size={16} /><Link to={row.key}>{row.team.name}</Link></small>
                   {how && <span className="fx-hl-how">{how}</span>}
                 </span>
                 <span className="fx-hl-num">
                   <strong>+{round(row.diff)}</strong>
                   <small>{round(row.actual)} vs {round(row.expected)} exp.{row.games > 1 ? ` · ${row.games} games` : ''}</small>
                 </span>
-              </Link>
+              </div>
             </li>
           );
         })}
@@ -93,7 +94,12 @@ function Hub({ data, apiUrl, onOwnersChange }) {
           <span>Ends {longDay(data.matchup.ends)}</span>
         </div>
         <Highlights rows={highlights(data.matchups)} />
-        <div className="fx-grid">{orderMatchups(data.matchups).map(matchup => <MatchupCard key={matchup.key} matchup={matchup} narrow={narrow} />)}</div>
+        <div className="fx-grid">{orderMatchups(data.matchups).map(matchup => (
+          <div className="fx-matchup-card" key={matchup.key}>
+            <MatchupCard matchup={matchup} narrow={narrow} />
+            <MatchupLink matchup={matchup} />
+          </div>
+        ))}</div>
       </section>
     </>
   );
@@ -101,6 +107,8 @@ function Hub({ data, apiUrl, onOwnersChange }) {
 
 function Fantasy() {
   const [state, setState] = useState({ status: 'loading' });
+  const [links, setLinks] = useState(null);
+  const [revision, setRevision] = useState(0);
   const [owners, setOwners] = useState(() => new Map());
   const [apiUrl] = useState(() => { try { return getUrl(); } catch { return null; } });
   useEffect(() => {
@@ -113,8 +121,33 @@ function Fantasy() {
       .catch(error => { if (error.name !== 'AbortError') setState({ status: 'error' }); });
     return () => controller.abort();
   }, [apiUrl]);
+  useEffect(() => {
+    let active = true, generation = 0, subscription;
+    const refresh = async (session) => {
+      const request = ++generation;
+      setLinks(null);
+      const token = session?.access_token;
+      const next = token && apiUrl ? await leagueLinks(apiUrl, token).catch(() => null) : null;
+      if (active && request === generation) setLinks(next);
+    };
+    if (state.data?.linkable) {
+      import('../supabase').then(async ({ auth }) => {
+        const result = await auth.onAuthStateChange((_event, session) => { refresh(session); });
+        subscription = result.data.subscription;
+        if (!active) return subscription.unsubscribe();
+        const request = generation;
+        const session = await auth.getSession();
+        if (active && request === generation) refresh(session);
+      }).catch(() => {});
+    }
+    return () => { active = false; subscription?.unsubscribe(); };
+  }, [apiUrl, revision, state.data]);
   const { status, data } = state;
-  const reloadOwners = () => fetchOwners(apiUrl, data?.year, undefined, true).then(setOwners);
+  const reloadOwners = () => {
+    setLinks(null);
+    setRevision(value => value + 1);
+    return fetchOwners(apiUrl, data?.year, undefined, true).then(setOwners);
+  };
   return (
     <main className="fx-page">
       <header className="fx-header">
@@ -127,12 +160,12 @@ function Fantasy() {
       {status === 'error' && <p className="fx-status" role="alert">Predictions unavailable.</p>}
       {data && (
         <>
-          <OwnersContext.Provider value={owners}>
+          <OwnersContext.Provider value={owners}><LeagueLinksContext.Provider value={links?.season === data.year ? links : null}>
             <Routes>
               <Route index element={<Hub data={data} apiUrl={apiUrl} onOwnersChange={reloadOwners} />} />
               <Route path=":key" element={<MatchupPage data={data} />} />
             </Routes>
-          </OwnersContext.Provider>
+          </LeagueLinksContext.Provider></OwnersContext.Provider>
         </>
       )}
     </main>

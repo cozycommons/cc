@@ -45,3 +45,5 @@ export const claimTeam = (apiUrl, token, season, teamId) =>
   call(apiUrl, token, '/espn/claims', { method: 'POST', body: JSON.stringify({ season, team_id: teamId }) });
 export const releaseTeam = (apiUrl, token, season, teamId) =>
   call(apiUrl, token, `/espn/claims/${season}/${teamId}`, { method: 'DELETE' });
+
+export const leagueLinks = (apiUrl, token) => call(apiUrl, token, '/espn/claims/links', { cache: 'no-store' });

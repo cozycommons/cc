@@ -76,7 +76,7 @@ export const auth = {
     // Listen to auth changes - returns subscription object directly
     onAuthStateChange: (callback) => {
         // Return a promise that resolves to the subscription
-        return getSupabaseClient().then(supabase => {
+        return Promise.resolve(getSupabaseClient()).then(supabase => {
             return supabase.auth.onAuthStateChange(callback);
         });
     }

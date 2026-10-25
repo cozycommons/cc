@@ -508,3 +508,11 @@ def test_v2_accepts_how_a_player_was_acquired(client, snapshot_v2, acquired):
 def test_v2_rejects_malformed_acquisition(client, snapshot_v2, acquired):
     snapshot_v2["matchups"][0]["days"][0]["players"][0][0]["acquired"] = acquired
     assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 422
+
+
+def test_server_league_id_never_reaches_public_predictions(client, monkeypatch):
+    monkeypatch.setenv("ESPN_FANTASY_LEAGUE_ID", "918273645")
+    assert client.post(PATH, json=SNAPSHOT, headers=AUTH).status_code == 200
+    response = client.get(PATH + "/latest")
+    assert response.status_code == 200 and "918273645" not in response.text
+    assert "leagueId" not in response.text and "league_id" not in response.text
