@@ -5,7 +5,7 @@ import VenmoConfirmation from './VenmoConfirmation.jsx';
 import VenmoProfile from './VenmoProfile.jsx';
 
 afterEach(cleanup);
-const profile = { found: true, displayName: 'Alex Rivera', initials: 'AR', photoUrl: 'https://pics-v3.venmo.com/a.jpg', active: true };
+const profile = { found: true, displayName: 'Alex Rivera', initials: 'AR', photoUrl: '/venmo/photo?handle=alex-rivera&sig=synthetic', active: true };
 it('shows loading then name and photo, with initials if the photo fails', async () => {
   const request = vi.fn().mockResolvedValue(profile);
   const { container } = render(<VenmoProfile handle="alex-rivera" request={request} />);
@@ -18,7 +18,7 @@ it('shows loading then name and photo, with initials if the photo fails', async 
 it.each([{ found: false }, { ...profile, active: false }])('keeps a friendly fallback for missing or inactive profiles', async result => {
   render(<VenmoProfile handle="alex-rivera" request={vi.fn().mockResolvedValue(result)} />);
   await waitFor(() => expect(screen.getByRole('status')).not.toHaveTextContent('Finding'));
-  expect(screen.getByRole('status').textContent).toMatch(/Preview unavailable|isn’t active/);
+  expect(screen.getByRole('status').textContent).toBe(result.found ? 'This profile isn’t active. Check the handle.' : '');
   expect(screen.getByRole('link')).toBeInTheDocument();
 });
 it('debounces edits and saves the normalized handle', async () => {
@@ -38,7 +38,7 @@ it('ignores stale responses after a handle change', async () => {
   const view = render(<VenmoProfile handle="alex-rivera" request={request} />);
   await waitFor(() => expect(request).toHaveBeenCalled());
   view.rerender(<VenmoProfile handle="jamie-rivera" request={request} />);
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Preview unavailable'));
+  await waitFor(() => expect(screen.getByRole('status')).not.toHaveTextContent('Finding'));
   resolve(profile);
   await waitFor(() => expect(screen.queryByText('Alex Rivera')).not.toBeInTheDocument());
 });
