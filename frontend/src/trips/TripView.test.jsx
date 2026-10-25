@@ -296,11 +296,11 @@ it('leaves a trip that was deleted while it was open', async () => {
   await waitFor(() => expect(screen.queryByRole('heading', { name: 'Tahoe & Reno' })).not.toBeInTheDocument());
 });
 
-const suggestions = [
+const suggestions = { revision: 3, members: [
   { member_id: 'jason', member_name: 'Jason', status: 'suggested', user_id: 'user-jason', account_name: 'Jason Keung', score: 0.7,
     basis: 'first name', venmo_username: 'jason-sample', flags: ['weak'],
     alternatives: [{ user_id: 'user-jay', account_name: 'Jason Other', score: 0.7, basis: 'first name', venmo_username: null }] },
-];
+] };
 
 it('hides account linking from creators who are not admins', async () => {
   open('/trips/trip-id?tab=people');
@@ -330,7 +330,8 @@ it('lets an admin creator review and confirm one account link at a time', async 
   expect(writes()).toEqual([]);
   fireEvent.click(within(dialog).getByRole('button', { name: 'Link Jason' }));
   await waitFor(() => expect(writes()).toHaveLength(1));
-  expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/link', 'POST', { revision: 4, user_id: 'user-jason' }]);
+  // Confirms against the revision the suggestions were built from, not whatever loaded since.
+  expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/link', 'POST', { revision: 3, user_id: 'user-jason' }]);
   expect(await screen.findByText('Linked Jason to Jason Keung.')).toBeInTheDocument();
 });
 
@@ -344,6 +345,24 @@ it('lets an admin unlink a wrong account and hands back a fresh invite link', as
   const dialog = screen.getByRole('dialog', { name: 'Unlink Andrew?' });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Unlink' }));
   await waitFor(() => expect(writes()).toHaveLength(1));
-  expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/andrew/unlink', 'POST', { revision: 4 }]);
+  expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/andrew/unlink', 'POST', { revision: 4, user_id: 'user-andrew' }]);
   expect((await screen.findByRole('textbox', { name: 'Invite link for Andrew' })).value).toContain('#invite=fresh-token');
+});
+
+it('refreshes the review instead of linking when the trip changed since the suggestions loaded', async () => {
+  mocked.auth.profile.is_admin = true;
+  open('/trips/trip-id?tab=people');
+  let reviews = 0;
+  mocked.request.mockImplementation((_client, path, method) => {
+    if (path.startsWith('/admin/')) { reviews += 1; return Promise.resolve(suggestions); }
+    if (method === 'POST') return Promise.reject(Object.assign(new Error('Someone changed this trip.'), { status: 409 }));
+    return Promise.resolve(trip());
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Link people to accounts' }));
+  const dialog = screen.getByRole('dialog', { name: 'Link people to accounts' });
+  fireEvent.click(await within(dialog).findByRole('button', { name: 'Review linking Jason to Jason Keung' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Link Jason' }));
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('review again');
+  expect(reviews).toBe(2);
+  expect(within(dialog).getByRole('button', { name: 'Review linking Jason to Jason Keung' })).toBeInTheDocument();
 });

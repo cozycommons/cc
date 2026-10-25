@@ -373,9 +373,9 @@ def link_member(trip_id: UUID, member_id: UUID, payload: MemberAccount, request:
 
 
 @router.post('/groups/{trip_id}/members/{member_id}/unlink')
-def unlink_member(trip_id: UUID, member_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
+def unlink_member(trip_id: UUID, member_id: UUID, payload: MemberAccount, request: Request, user=Depends(current_user)):
     require_admin(user)
-    return command(request, trip_id, user, 'unlink_member', {**payload.model_dump(), 'member_id': str(member_id)})
+    return command(request, trip_id, user, 'unlink_member', {**payload.model_dump(mode='json'), 'member_id': str(member_id)})
 
 
 @router.get('/admin/groups/{trip_id}/link-suggestions')
@@ -390,7 +390,8 @@ def link_suggestions(trip_id: UUID, request: Request, response: Response, user=D
     except LedgerError as error:
         raise HTTPException(error.status, str(error))
     response.headers['Cache-Control'] = 'no-store'
-    return suggest(row['data']['members'], read_accounts(client(request)))
+    # Links confirm against this revision, so a trip changed since the review conflicts instead of linking.
+    return {'revision': row['revision'], 'members': suggest(row['data']['members'], read_accounts(client(request)))}
 
 
 @router.post('/groups/{trip_id}/join')

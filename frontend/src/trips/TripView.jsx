@@ -331,9 +331,10 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
         onInvite={person('invite')} onVenmo={person('member_venmo')} onRename={person('rename_member')} onRemove={person('remove_member')}
         onUnlink={admin ? person('unlink_member') : null} />}
       {modal.type === 'link_accounts' && <LinkAccounts group={group} request={request} onClose={close}
-        onLink={(memberId, userId, message) => update(`/members/${memberId}/link`, 'POST', { revision: latest.current.revision, user_id: userId }, message, null, { keepModal: true })} />}
+        onLink={(memberId, userId, revision, message) => update(`/members/${memberId}/link`, 'POST', { revision, user_id: userId }, message, null, { keepModal: true })} />}
       {modal.type === 'unlink_member' && <Form destructive submit="Unlink" onCancel={back} onSubmit={async () => {
-        const result = await update(`/members/${modal.member.id}/unlink`, 'POST', { revision: modal.revision }, `Unlinked ${memberName(modal.member)}.`);
+        // Names the account being removed, so a retry after someone else's correction can't revoke the new one.
+        const result = await update(`/members/${modal.member.id}/unlink`, 'POST', { revision: modal.revision, user_id: modal.member.user_id }, `Unlinked ${memberName(modal.member)}.`);
         if (alive.current) showInvite(memberName(modal.member), result.invite_token);
       }}><p>{memberName(modal.member)}’s account loses access to this trip. Their expenses and payments stay on this place as {modal.member.name}.</p>
         <p className="trips-muted">You’ll get a new invite link so the right person can claim it.</p></Form>}
