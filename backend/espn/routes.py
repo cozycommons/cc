@@ -2,6 +2,7 @@
 
 Endpoints:
   POST /espn/onboard          store ESPN cookies, mint an API token
+  POST /espn/onboard/login    log in with email+password, mint a token
   GET  /espn/me               check a token / describe the account
   GET  /espn/league           league settings + slim teams
   GET  /espn/standings        teams ranked by wins, then points for
@@ -26,6 +27,16 @@ rest (see accounts.py):
       -> {"id", "label", "league_id", "season", "token"}
 The token is shown ONCE.
 
+There is also a login front door for users who can't extract cookies:
+  POST /onboard/login {email, password, label?, league_id?, season?,
+                       enable_automation?}
+The backend runs the MyDisney login once (see disney_login.py), discovers
+the account's basketball leagues, and feeds the harvested cookies into the
+same store path. The password is used once and never stored or logged.
+With several leagues and no league_id, nothing is created; the response
+is {"status": "league_selection_required", "leagues": [...]} and the
+client re-submits with the chosen league_id.
+
 Auth: Authorization: Bearer <personal token> (from /onboard).
 Every request resolves the token to exactly one account and only ever touches
 that account's ESPN league. An EspnAuthError from ESPN (expired cookies) maps
@@ -42,11 +53,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from . import accounts
+from . import disney_login
 from . import lineup
 from . import logic
 from . import snapshots
 from .accounts import AccountError
-from .espn_client import EspnAuthError, EspnError
+from .espn_client import EspnAuthError, EspnClient, EspnError
 from .public_predictions import router as public_predictions_router
 from .scoreboard import ScoreboardClient
 from .team_claims import router as team_claims_router
@@ -192,6 +204,148 @@ def onboard(body: OnboardBody, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except EspnError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+# --- login onboarding ----------------------------------------------------------
+
+
+class OnboardLoginBody(BaseModel):
+    email: str = Field(description="ESPN account email (MyDisney login)")
+    password: str = Field(
+        description="ESPN account password — used once to log in, never stored"
+    )
+    label: str = Field(default="espn", max_length=80)
+    league_id: int | None = Field(
+        default=None,
+        description="League to onboard; omit to auto-discover the "
+        "account's basketball leagues for the season",
+    )
+    season: int | None = Field(
+        default=None,
+        description="Season (ending) year; defaults to the current "
+        "season by the July 1 rollover",
+    )
+    enable_automation: bool = Field(
+        default=False,
+        description="Opt the new account into daily lineup automation",
+    )
+
+
+def _default_season() -> int:
+    """Current NBA season (ending year): rolls over on July 1 (UTC).
+
+    The same rule team_claims applies to snapshot seasons.
+    """
+    now = datetime.now(timezone.utc)
+    return now.year + (1 if now.month >= 7 else 0)
+
+
+def _league_echo(espn_s2: str, swid: str, league_id: int, season: int) -> dict:
+    """Best-effort league/team names for the onboarding response.
+
+    The account is already created when this runs, so a failure here
+    must never fail the request (that would strand the minted token) —
+    the names are a confirmation nicety, not part of the contract.
+    """
+    try:
+        payload = EspnClient(espn_s2, swid, league_id, season).get_league(
+            ["mSettings", "mTeam"]
+        )
+    except EspnError:
+        return {}
+    echo = {"league_name": (payload.get("settings") or {}).get("name")}
+    try:
+        team = lineup.find_member_team(payload, swid)
+    except ValueError:
+        return echo
+    echo["team_id"] = team.get("id")
+    echo["team_name"] = logic._team_name(team)
+    return echo
+
+
+@router.post("/onboard/login")
+def onboard_login(body: OnboardLoginBody, request: Request):
+    """Onboard by logging in to ESPN with email + password.
+
+    Runs the MyDisney login exactly once (the password is never stored
+    or logged), discovers the account's basketball leagues for the
+    season, and stores the harvested cookies through the same path as
+    cookie onboarding. Outcomes map to stable detail codes the hosted
+    form renders: invalid_credentials (401), account_not_found (404),
+    challenge_required (403), disney_unavailable (502),
+    league_discovery_failed (502), no_league_found (400).
+    """
+    ip = (request.client.host if request.client else "unknown") or "unknown"
+    _onboard_rate_check(ip)
+    if not body.email.strip() or not body.password:
+        raise HTTPException(status_code=400, detail="email_and_password_required")
+    season = body.season or _default_season()
+    try:
+        cookies = disney_login.login(body.email, body.password)
+    except disney_login.InvalidCredentialsError:
+        raise HTTPException(status_code=401, detail="invalid_credentials")
+    except disney_login.AccountNotFoundError:
+        raise HTTPException(status_code=404, detail="account_not_found")
+    except disney_login.ChallengeRequiredError:
+        raise HTTPException(status_code=403, detail="challenge_required")
+    except disney_login.DisneyLoginError:
+        raise HTTPException(status_code=502, detail="disney_unavailable")
+    espn_s2, swid = cookies["espn_s2"], cookies["swid"]
+
+    if body.league_id is not None:
+        league_id = body.league_id
+    else:
+        try:
+            leagues = disney_login.discover_basketball_leagues(
+                espn_s2, swid, season
+            )
+        except disney_login.DisneyLoginError:
+            raise HTTPException(status_code=502, detail="league_discovery_failed")
+        if not leagues:
+            raise HTTPException(status_code=400, detail="no_league_found")
+        if len(leagues) > 1:
+            # Create nothing yet — the client asks the user to pick.
+            return {
+                "status": "league_selection_required",
+                "season": season,
+                "leagues": [
+                    {
+                        "league_id": entry["league_id"],
+                        "name": entry["name"],
+                        "team_name": entry["team_name"],
+                    }
+                    for entry in leagues
+                ],
+            }
+        league_id = leagues[0]["league_id"]
+
+    try:
+        created = accounts.create_account(
+            _supabase(request),
+            body.label,
+            league_id,
+            season,
+            espn_s2,
+            swid,
+        )
+    except AccountError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except EspnError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    automation = False
+    if body.enable_automation:
+        try:
+            automation = accounts.set_lineup_automation(
+                _supabase(request), created["id"], True
+            )
+        except Exception:
+            automation = False
+    return {
+        **created,
+        "lineup_automation_enabled": automation,
+        **_league_echo(espn_s2, swid, league_id, season),
+    }
 
 
 @router.get("/me")
