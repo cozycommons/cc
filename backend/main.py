@@ -70,6 +70,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["ETag", "X-Accel-Buffering"],
 )
 
 cache_store = SupabaseTTLCacheStore(ttl_seconds=120)
