@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { BarChart3, Plus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import PlayerAvatar from './components/PlayerAvatar.jsx';
+import SiteHeader from '../components/SiteHeader.jsx';
 
 export default function DiceHeader({ auth }) {
   const { user, profile, loading, signIn } = auth;
@@ -10,18 +11,11 @@ export default function DiceHeader({ auth }) {
   const isSandbox = import.meta.env.VITE_DICE_LOCAL_HARNESS === 'true';
 
   return (
-    <nav
-      className="jk-dice-header w-full px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-y-2"
-      style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-page)' }}
+    <div
+      className="jk-dice-header w-full px-4 sm:px-6 py-3"
+      style={{ background: 'var(--surface-page)' }}
     >
-      <div className="flex items-center gap-4 flex-shrink-0">
-        <Link
-          to="/dice"
-          className="jk-display whitespace-nowrap"
-          style={{ fontSize: 22, color: 'var(--text-primary)' }}
-        >
-          🎲 Dice
-        </Link>
+      <SiteHeader product="Dice" to="/dice" icon="🎲">
         {isSandbox && (
           <span
             className="jk-label px-2 py-1 rounded-full"
@@ -31,7 +25,6 @@ export default function DiceHeader({ auth }) {
             Private sandbox
           </span>
         )}
-      </div>
 
       <div className="jk-dice-header-actions flex items-center gap-2 flex-wrap justify-end">
         <Button size="sm" variant="outline" onClick={() => navigate('/dice/leaderboard/elo')} aria-label="Players">
@@ -65,6 +58,7 @@ export default function DiceHeader({ auth }) {
           )
         )}
       </div>
-    </nav>
+      </SiteHeader>
+    </div>
   );
 }

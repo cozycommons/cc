@@ -1869,7 +1869,7 @@ textarea {
     scroll-behavior: auto;
   }
 
-  *,
+  *:not(.cc-mascot *),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;

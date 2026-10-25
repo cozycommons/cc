@@ -13,6 +13,7 @@ import { readPlayerPreferences, savePlayerPreferences } from './playerPreference
 import { useScrubPreviews } from './ScrubPreview';
 import { eventDate, eventRange, matchesSearch } from './setDetails';
 import './crowdset.css';
+import SiteHeader from '../components/SiteHeader.jsx';
 
 export function time(seconds) {
   const value = Math.max(0, seconds || 0);
@@ -219,7 +220,7 @@ export default function Crowdset() {
     });
   }}>
     <div className="cs-shell">
-    <header className="cs-header"><button className="cs-wordmark" disabled={busy} onClick={() => { choose(null); setQuery(''); }}>crowdset</button><a href="/">Cozy Commons ↗</a></header>
+    <SiteHeader product="Crowdset" to="/crowdset" productDisabled={busy} onProductClick={(event) => { event.preventDefault(); choose(null); setQuery(''); }} />
     {(error || statusError) && <div role="alert" className="cs-error">{error || statusError}</div>}
     {loading ? <p className="cs-loading" role="status">Loading…</p> : !available ? <section className="cs-sign-in"><h1>{needsSignIn ? 'Sign in' : 'Crowdset'}</h1>
       {needsSignIn ? <button className="cs-primary" disabled={busy} onClick={() => action(async () => { const { auth } = await import('../supabase'); await auth.signInWithGoogle(`${window.location.origin}${window.location.pathname}`); })}>{busy ? 'Connecting…' : 'Continue with Google'}</button> : <button className="cs-primary" onClick={reload}>Reconnect</button>}

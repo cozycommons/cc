@@ -151,11 +151,11 @@ it('lets the trip creator set a username for someone who has not joined', async 
   expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/venmo', 'PUT', { venmo_username: 'jason-k', revision: 4 }]);
 });
 
-it('gives the NITEHARTS trip its heart icon only while that trip is open', async () => {
+it('keeps the shared site icons while a branded trip is open', async () => {
   open('/trips/trip-id', trip({ name: 'NITEHARTS 26' }));
   await screen.findByRole('heading', { name: 'NITEHARTS 26' });
   const icons = () => [...document.head.querySelectorAll('link[href^="/trips/niteharts/"]')].map((link) => `${link.rel} ${link.getAttribute('href')}`);
-  expect(icons()).toEqual(['icon /trips/niteharts/favicon.svg', 'icon /trips/niteharts/favicon-32.png', 'apple-touch-icon /trips/niteharts/apple-touch-icon.png']);
+  expect(icons()).toEqual([]);
   cleanup();
   expect(icons()).toEqual([]);
   open('/trips/trip-id');

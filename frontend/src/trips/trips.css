@@ -315,7 +315,7 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
   .trips-invites .trips-form-actions { grid-template-columns: 1fr; }
 }
 @keyframes trips-sheet { from { transform: translateY(24px); opacity: .5; } to { transform: translateY(0); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .trips, .trips *, .trips *::before, .trips *::after, .trips-modal, .trips-modal *, .trips-modal *::before, .trips-modal *::after { scroll-behavior: auto; transition: none !important; animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .trips, .trips *:not(.cc-mascot *), .trips *::before, .trips *::after, .trips-modal, .trips-modal *, .trips-modal *::before, .trips-modal *::after { scroll-behavior: auto; transition: none !important; animation: none !important; } }
 
 /* Playful layer: a travel scrapbook on Commons paper. Stickers, stamps and ticket stubs decorate;
    amounts, names and owe/owed words stay upright, sans-serif and in their usual colours. */
