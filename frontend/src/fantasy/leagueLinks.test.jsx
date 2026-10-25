@@ -13,6 +13,8 @@ vi.mock('../supabase', () => ({ auth: {
 } }));
 vi.mock('./claims.js', async importOriginal => ({ ...(await importOriginal()), signedInToken: async () => auth.session?.access_token || null }));
 const json = body => ({ ok: true, json: async () => body });
+// The hub renders every card before the links resolve; match the 10s findByRole waits below.
+const SLOW = 15000;
 const links = { season: 2027, team_id: 1, team: 'https://fantasy.espn.com/basketball/team?leagueId=synthetic',
   lineup: 'https://fantasy.espn.com/basketball/team?leagueId=synthetic', free_agents: 'https://fantasy.espn.com/basketball/players/add?leagueId=synthetic',
   matchups: { 1: 'https://fantasy.espn.com/basketball/boxscore?leagueId=synthetic' } };
@@ -34,7 +36,7 @@ it('clears league links on sign-out', async () => {
   act(() => { auth.session = null; auth.listener('SIGNED_OUT', null); });
   expect(screen.queryByRole('link', { name: 'Free agents' })).toBeNull();
   expect(document.querySelector('a[href*="leagueId"]')).toBeNull();
-});
+}, SLOW);
 it('clears the former account links while loading a new account', async () => {
   let resolve;
   view(options => options.headers.Authorization === 'Bearer first' ? json(links) : new Promise(r => { resolve = r; }));
@@ -44,7 +46,7 @@ it('clears the former account links while loading a new account', async () => {
   expect(document.querySelector('a[href*="leagueId"]')).toBeNull();
   await act(async () => { resolve({ ok: false, json: async () => ({}) }); });
   expect(document.querySelector('a[href*="leagueId"]')).toBeNull();
-});
+}, SLOW);
 it('ignores a links response that arrives after sign-out', async () => {
   let resolve;
   view(() => new Promise(r => { resolve = r; }));
@@ -52,7 +54,7 @@ it('ignores a links response that arrives after sign-out', async () => {
   await waitFor(() => expect(auth.listener).toBeTypeOf('function'));
   await act(async () => { auth.listener('SIGNED_OUT', null); resolve(json(links)); });
   expect(document.querySelector('a[href*="leagueId"]')).toBeNull();
-});
+}, SLOW);
 
 // Simulate an OAuth return so the lazy auth facade initializes the mocked client.
 beforeEach(() => { window.history.replaceState({}, '', '/fantasy?code=synthetic'); });

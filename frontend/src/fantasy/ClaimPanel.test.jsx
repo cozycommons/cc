@@ -37,7 +37,7 @@ describe('team links', () => {
     expect((await screen.findAllByText('Jordan')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('Paulo R')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Paulo')).toBeNull();
-    expect(await screen.findByRole('button', { name: 'Sign in to link your Dice profile' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeTruthy();
   });
 
   it('suggests the matching team, links it on confirm, and can unlink', async () => {
@@ -49,7 +49,7 @@ describe('team links', () => {
     expect(screen.getByText(/Is this you\?/).textContent).toContain('Harbor Hoopers');
     mine = { team_id: 1 };
     fireEvent.click(confirm);
-    expect((await screen.findByText(/Linked to/)).textContent).toContain('Harbor Hoopers');
+    await waitFor(() => expect(document.querySelector('.fx-linked')?.textContent).toContain('Harbor Hoopers'));
     expect(calls).toContainEqual(['https://api.example.test/espn/claims', 'POST']);
     mine = null;
     fireEvent.click(screen.getByRole('button', { name: 'Unlink' }));

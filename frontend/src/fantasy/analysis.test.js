@@ -11,19 +11,19 @@ describe('matchupRead', () => {
   it('names a favorite that trails, with games left', () => {
     const m = matchup(27, [768, 754], [day('projected', [3, 5])]);
     expect(gamesLeft(m)).toEqual([3, 5]);
-    expect(matchupRead(m)).toEqual({ side: 1, headline: 'Away 73%', facts: ['Down 14', '5 games left vs 3'] });
+    expect(matchupRead(m)).toEqual({ side: 1, headline: 'Away 73%', facts: ['5 games left vs 3'] });
   });
 
   it('names the projected finish, which explains a trailing favorite', () => {
     const m = { ...matchup(35, [920, 914], [day('projected', [6, 7])]), projected_totals: [1135, 1165] };
-    expect(matchupRead(m)).toEqual({ side: 1, headline: 'Away 65%', facts: ['Down 6', 'Projected to win by 30', '7 games left vs 6'] });
+    expect(matchupRead(m)).toEqual({ side: 1, headline: 'Away 65%', facts: ['Away by 30', '7 games left vs 6'] });
   });
 
   it('handles leads, finished weeks, ties and the last live games', () => {
-    expect(matchupRead(matchup(80, [700, 640], [day('projected', [4, 4])])).facts).toEqual(['Up 60', '4 games left each']);
+    expect(matchupRead(matchup(80, [700, 640], [day('projected', [4, 4])])).facts).toEqual(['4 games left each']);
     expect(matchupRead(matchup(100, [700, 640], [day('final', [4, 4], [100, 90])]))).toEqual({ side: 0, headline: 'Home wins', facts: ['Final', '700–640'] });
     expect(matchupRead(matchup(40, [650.4, 650.2], [day('final', [4, 4], [100, 90])])).headline).toBe('Tied 650–650');
-    expect(matchupRead(matchup(99, [700, 640], [day('live', [4, 4], [100, 90])])).facts).toEqual(['Up 60', 'Last games in progress']);
+    expect(matchupRead(matchup(99, [700, 640], [day('live', [4, 4], [100, 90])])).facts).toEqual(['Last games in progress']);
     expect(matchupRead(matchup(99.9, [700, 640], [day('projected', [4, 4])])).headline).toBe('Home >99%');
     expect(matchupRead(matchup(100, [700, 640], [day('projected', [4, 4])])).headline).toBe('Home >99%');
   });

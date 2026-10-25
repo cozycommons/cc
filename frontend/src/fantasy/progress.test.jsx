@@ -18,7 +18,7 @@ it('fills stable slots cumulatively and resets safely on a new stream', async ()
   loadSnapshot.mockImplementation((_url, _signal, callback) => { emit = callback; return new Promise(done => { resolve = done; }); });
   mount();
   act(() => emit({ meta, matchups: [], done: false, error: null }));
-  expect(screen.getByText(`0 of ${slots.length} matchups`)).toBeTruthy();
+  expect(screen.getByText(`0 of ${slots.length}`)).toBeTruthy();
   const match = data.matchups.find(m => !m.unavailable);
   act(() => emit({ meta, matchups: [match], done: false, error: null }));
   const card = screen.getByRole('link', { name: new RegExp(`${match.home.name} vs`) });
@@ -28,7 +28,7 @@ it('fills stable slots cumulatively and resets safely on a new stream', async ()
   act(() => emit({ meta, matchups: [], done: false, error: null }));
   expect(document.querySelectorAll('.fx-skeleton')).toHaveLength(slots.length);
   await act(async () => { emit({ meta, matchups: data.matchups, done: true, error: null }); resolve(data); });
-  expect(document.querySelector('.fx-loading--done')).toBeTruthy();
+  expect(document.querySelector('.fx-loading')).toBeNull();
   expect(document.querySelectorAll('.fx-skeleton')).toHaveLength(0);
 });
 
