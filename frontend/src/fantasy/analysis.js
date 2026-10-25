@@ -22,6 +22,9 @@ export function matchupRead(matchup) {
   const lead = r(matchup.scores[side] - matchup.scores[other]);
   const left = gamesLeft(matchup);
   const facts = [lead > 0 ? `Up ${lead}` : lead < 0 ? `Down ${-lead}` : 'Tied'];
+  // The projected finish is the real reason for the odds, most of all when the favorite trails.
+  const finish = r((matchup.projected_totals?.[side] ?? NaN) - (matchup.projected_totals?.[other] ?? NaN));
+  if (Number.isFinite(finish)) facts.push(finish > 0 ? `Projected to win by ${finish}` : finish < 0 ? `Projected to lose by ${-finish}` : 'Projected even');
   if (!left[side] && !left[other]) facts.push('Last games in progress');
   else if (left[side] === left[other]) facts.push(`${left[side]} games left each`);
   else facts.push(`${left[side]} games left vs ${left[other]}`);
@@ -69,8 +72,12 @@ export function weekNotes(matchups) {
   const players = live.flatMap(m => playerSwings(m).flatMap((rows, side) => rows.map(row => ({ ...row, team: [m.home, m.away][side].name }))));
   const cold = [...players].sort((a, b) => a.diff - b.diff)[0];
   const hot = [...players].sort((a, b) => b.diff - a.diff)[0];
-  if (cold && cold.diff <= -20) notes.push({ tone: 'cold', tag: 'Cold', text: cold.name, detail: `${r(cold.actual)} of ${r(cold.expected)} expected · ${cold.team}` });
-  if (hot && hot.diff >= 20) notes.push({ tone: 'hot', tag: 'Hot', text: hot.name, detail: `${r(hot.actual)} vs ${r(hot.expected)} expected · ${hot.team}` });
+  const games = row => (row.games > 1 ? ` in ${row.games} games` : '');
+  if (cold && cold.diff <= -20) {
+    const what = r(cold.actual) === 0 ? `Scored 0${games(cold)}, ${r(cold.expected)} expected` : `${r(cold.actual)} of ${r(cold.expected)} expected${games(cold)}`;
+    notes.push({ tone: 'cold', tag: 'Cold', text: cold.name, detail: `${what} · ${cold.team}` });
+  }
+  if (hot && hot.diff >= 20) notes.push({ tone: 'hot', tag: 'Hot', text: hot.name, detail: `${r(hot.actual)} vs ${r(hot.expected)} expected${games(hot)} · ${hot.team}` });
   return notes;
 }
 

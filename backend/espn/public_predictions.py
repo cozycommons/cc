@@ -58,6 +58,16 @@ class PublicDay(PublicModel):
 class PublicOddsPoint(PublicModel):
     date: date
     chance: Chance
+    at: AwareDatetime | None = None  # capture time; present when points are intraday
+
+    @field_validator("at", mode="before")
+    @classmethod
+    def iso_timestamp(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("timestamp must be an ISO string")
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 class PublicPrediction(PublicModel):
@@ -69,7 +79,7 @@ class PublicPrediction(PublicModel):
     range: tuple[Number, Number]
     margin_80: tuple[Number, Number]
     days: list[PublicDay] = Field(max_length=14)
-    odds_history: list[PublicOddsPoint] = Field(max_length=30)
+    odds_history: list[PublicOddsPoint] = Field(max_length=200)
 
     @model_validator(mode="after")
     def bounds_are_ordered(self):
