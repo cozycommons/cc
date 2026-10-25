@@ -248,3 +248,5 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 
 .fx-hero-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--cc-space-1) var(--cc-space-2); }
 .fx-hero-facts > span { white-space: nowrap; }
+
+.fx-espn-link { min-height: var(--cc-tap-target); }
