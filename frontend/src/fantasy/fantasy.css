@@ -308,3 +308,8 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-flame{flex:none}
 .fx-highlights .fx-espn-logo{width:22px;height:12px;border-radius:2px;object-fit:contain}
 
+/* Compact rows: the team name gives way first; the coach name always shows. */
+.fx-hl-main small a{flex:0 1 auto;min-width:0}
+.fx-hl-main small .fx-manager{flex:none;white-space:nowrap}
+.fx-hl-main small .fx-manager img{width:14px;height:14px}
+.fx-hl-how{overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
