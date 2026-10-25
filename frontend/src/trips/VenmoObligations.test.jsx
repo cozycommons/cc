@@ -27,7 +27,8 @@ it('requests the exact debtor and amount from each row without mutating the ledg
   expect(screen.queryByText('Got $12.34 from Alex?')).not.toBeInTheDocument();
   fireEvent.click(first); fireEvent.focus(window);
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Got it' })));
-  expect(settle).toHaveBeenCalledExactlyOnceWith(obligations[0]);
+  expect(settle).toHaveBeenCalledTimes(1);
+  expect(settle.mock.calls[0][0]).toMatchObject(obligations[0]);
 });
 
 it.each(['Not yet', 'Dismiss payment prompt'])('leaves a payer obligation open after %s and navigation away', async label => {
@@ -84,16 +85,19 @@ it.each(['amount', 'id', 'cycle', 'handle'])('drops the request return prompt wh
   expect(settle).not.toHaveBeenCalled();
 });
 
-it('does not submit Sent from a payment sheet after its opened obligation changes', async () => {
+it('records the opened Pay amount after the current pair changes', async () => {
   const settle = vi.fn();
   const view = render(<VenmoReview group={group} transfer={transfers[0]} role="pay" obligation={obligations[0]} request={request} onSettle={settle} />);
   const link = screen.getByRole('link', { name: 'Pay $12.34 in Venmo' });
   link.addEventListener('click', e => e.preventDefault()); fireEvent.click(link);
   const changed = { ...obligations[0], id: 'new', amount_minor: 5678 };
-  view.rerender(<VenmoReview group={group} transfer={changed} role="pay" obligation={changed} request={request} onSettle={settle} />);
-  fireEvent.focus(window); fireEvent.click(screen.getByRole('button', { name: 'Sent' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Payment changed');
-  expect(settle).not.toHaveBeenCalled();
+  const refreshed = { ...group, obligations: [{ ...obligations[0], status: 'replaced' }, changed] };
+  view.rerender(<VenmoReview group={refreshed} transfer={changed} role="pay" obligation={changed} request={request} onSettle={settle} />);
+  fireEvent.focus(window);
+  expect(screen.getByText('Amounts changed.')).toBeInTheDocument();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Sent' })));
+  expect(settle).toHaveBeenCalledTimes(1);
+  expect(settle.mock.calls[0][0]).toMatchObject({ id: 'o0', amount_minor: 1234, cycle: 0 });
 });
 
 it.each([true, false])('shows a Pay sheet checkmark only for a confirmed payee: %s', async confirmed => {
@@ -110,4 +114,28 @@ it('shows confirmed badges in Who owes you and the person menu', async () => {
   view.unmount();
   render(<PersonSheet group={group} member={confirmedMembers[1]} request={request} />);
   expect(screen.getByRole('img', { name: 'Confirmed Venmo' })).toBeInTheDocument();
+});
+
+it('keeps a Request prompt when its row disappears and records the original debt', async () => {
+  const settle = vi.fn();
+  const view = render(<BalancesPanel group={group} me={members[0]} request={request} onSettle={settle} />);
+  const link = screen.getByRole('link', { name: 'Request $12.34 from @alex-rivera' });
+  link.addEventListener('click', e => e.preventDefault()); fireEvent.click(link);
+  const refreshed = { ...group, transfers: [transfers[1]], obligations: [{ ...obligations[0], status: 'replaced' }, obligations[1]] };
+  view.rerender(<BalancesPanel group={refreshed} me={members[0]} request={request} onSettle={settle} />);
+  fireEvent.focus(window);
+  expect(screen.getByText('Got $12.34 from Alex?')).toBeInTheDocument();
+  expect(screen.getByText('Amounts changed.')).toBeInTheDocument();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Got it' })));
+  expect(settle.mock.calls[0][0]).toMatchObject({ id: 'o0', cycle: 0, amount_minor: 1234 });
+});
+
+it('follows the current pair amount before opening and shows Close if the pair is gone', () => {
+  const updated = { ...obligations[0], amount_minor: 4500, id: 'new' };
+  const view = render(<VenmoReview group={{ ...group, obligations: [updated] }} transfer={transfers[0]} obligation={updated} role="pay" request={request} />);
+  expect(screen.getByRole('link', { name: 'Pay $45.00 in Venmo' })).toHaveAttribute('href', expect.stringContaining('amount=45.00'));
+  view.rerender(<VenmoReview group={{ ...group, obligations: [] }} transfer={transfers[0]} role="pay" request={request} />);
+  expect(screen.getByText('This payment changed.')).toBeInTheDocument();
+  expect(screen.getAllByRole('button')).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
 });

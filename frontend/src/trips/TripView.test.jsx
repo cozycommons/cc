@@ -372,3 +372,56 @@ it('shows a payment nudge when the payer opens the trip on Expenses', async () =
   open('/trips/trip-id?tab=expenses', trip({ obligations: [{ id: 'nudge', status: 'open', from_member: 'me', to_member: 'andrew', amount_minor: 19818, nudged_at: '2026-10-25T00:00:00+00:00' }] }));
   expect(await screen.findByText('Andrew nudged you · $198.18')).toBeInTheDocument();
 });
+
+const gated = (overrides = {}) => trip({ settle: { started: false, ready: { andrew: { by: 'andrew', at: '2026' } }, waiting: ['me', 'aziz'], ...overrides }, obligations: [] });
+
+it('shows Waiting on you only while another member is ready and posts Done adding', async () => {
+  open('/trips/trip-id?tab=expenses', gated());
+  expect(await screen.findByText('Waiting on you')).toBeInTheDocument();
+  mocked.request.mockResolvedValue(gated({ ready: { me: { by: 'me' }, andrew: { by: 'andrew' } }, waiting: ['aziz'] }));
+  fireEvent.click(screen.getByRole('button', { name: 'Done adding' }));
+  await waitFor(() => expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/settle/ready', 'POST', { member_id: 'me', ready: true }]));
+  await waitFor(() => expect(screen.queryByText('Waiting on you')).not.toBeInTheDocument());
+});
+
+it('confirms closing out a member and Cancel writes nothing', async () => {
+  open('/trips/trip-id?tab=people', gated());
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage Aziz' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close out' }));
+  expect(screen.getByRole('dialog', { name: "Close out Aziz's expenses?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(writes()).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Close out' }));
+  mocked.request.mockResolvedValue(gated());
+  fireEvent.click(screen.getByRole('button', { name: 'Close out' }));
+  await waitFor(() => expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/settle/ready', 'POST', { member_id: 'aziz', ready: true }]));
+});
+
+it('lets a joined non-creator close someone out without exposing creator actions', async () => {
+  open('/trips/trip-id?tab=people', { ...gated(), owner_id: 'user-andrew' });
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage Aziz' }));
+  expect(screen.getByRole('button', { name: 'Close out' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Remove from trip/ })).not.toBeInTheDocument();
+});
+
+it('reports the other party settling an opened payment and keeps exact opened state across refresh', async () => {
+  const item = { id: 'opened', from_member: 'me', to_member: 'andrew', amount_minor: 19818, cycle: 0, status: 'open' };
+  open('/trips/trip-id?tab=balances', trip({ obligations: [item] }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Pay Andrew with Venmo' }));
+  const link = screen.getByRole('link', { name: 'Pay $198.18 in Venmo' });
+  link.addEventListener('click', e => e.preventDefault()); fireEvent.click(link);
+  mocked.request.mockResolvedValue(trip({ obligations: [{ ...item, status: 'settled', settled_by: 'andrew' }] }));
+  fireEvent.focus(window);
+  expect(await screen.findByText('Andrew already marked it.')).toBeInTheDocument();
+  expect(screen.queryByText('Sent $198.18 to Andrew?')).not.toBeInTheDocument();
+});
+
+it('uses Undone. after undoing an old settled payment', async () => {
+  const item = { id: 'paid', from_member: 'me', to_member: 'andrew', amount_minor: 19818, cycle: 0, status: 'settled', settled_by: 'me' };
+  open('/trips/trip-id?tab=balances', trip({ obligations: [item], repayments: [{ ...item, date: '2026-10-25' }] }));
+  const button = await screen.findByRole('button', { name: /Undo payment from Matt to Andrew/ });
+  mocked.request.mockResolvedValue(trip({ obligations: [{ ...item, status: 'replaced', cycle: 1 }] }));
+  fireEvent.click(button);
+  expect(await screen.findByText('Undone.')).toBeInTheDocument();
+  expect(writes()[0][1]).toBe('/groups/trip-id/obligations/paid/undo');
+});

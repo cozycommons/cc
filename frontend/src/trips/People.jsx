@@ -71,7 +71,7 @@ export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditPr
         </div>
         <span className={`trips-person-balance ${balance < 0 ? 'trips-owe' : balance > 0 ? 'trips-positive' : ''}`}>{balance ? `${balance < 0 ? 'owes' : 'gets'} ${money(Math.abs(balance), group.currency)}` : 'square'}</span>
         {you ? <Button variant="ghost" className="trips-person-action" onClick={onEditProfile} aria-label="Edit your Venmo username"><Pencil size={14} aria-hidden="true" /><span className="trips-person-action-label">Venmo</span></Button>
-          : owner && <Button variant="ghost" className="trips-person-action" onClick={() => onManage(m)} aria-label={`Manage ${memberName(m)}`}><MoreHorizontal size={18} aria-hidden="true" /></Button>}
+          : (owner || (group.settle?.started === false && m.user_id && !group.settle.ready[m.id])) && <Button variant="ghost" className="trips-person-action" onClick={() => onManage(m)} aria-label={`Manage ${memberName(m)}`}><MoreHorizontal size={18} aria-hidden="true" /></Button>}
       </li>;
     })}</ul>
     <p className="trips-muted trips-small">Anyone on the trip can add and edit expenses.</p>
@@ -81,7 +81,7 @@ export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditPr
 }
 
 // The creator's options for one person. Each choice opens its own small, reviewable step.
-export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemove, onUnlink, request }) {
+export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemove, onUnlink, onCloseOut, manage = true, request }) {
   const joined = Boolean(member.user_id);
   const busy = isInvolved(group, member.id);
   return <div className="trips-person-sheet">
@@ -89,13 +89,14 @@ export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemo
     <div className="trips-venmo-who">{!member.venmo_username && <Avatar member={member} size={44} />}
       <span className="trips-muted">{joined ? 'Joined' : 'Hasn’t joined'}</span></div>
     <ul className="trips-menu">
-      {!joined && <li><button type="button" onClick={onInvite}><Link2 size={16} aria-hidden="true" /><span>New invite link<small>Older links for {firstName(member)} stop working.</small></span></button></li>}
-      {!joined && <li><button type="button" onClick={onVenmo}><Pencil size={16} aria-hidden="true" /><span>{member.venmo_username ? 'Change Venmo username' : 'Add Venmo username'}<small>Until {firstName(member)} joins and adds their own.</small></span></button></li>}
-      {!joined && <li><button type="button" onClick={onRename}><Pencil size={16} aria-hidden="true" /><span>Rename</span></button></li>}
-      {joined && onUnlink && member.user_id !== group.owner_id && <li><button type="button" onClick={onUnlink}><Unlink size={16} aria-hidden="true" /><span>Unlink account
+      {onCloseOut && <li><button type="button" onClick={onCloseOut}>Close out</button></li>}
+      {manage && !joined && <li><button type="button" onClick={onInvite}><Link2 size={16} aria-hidden="true" /><span>New invite link<small>Older links for {firstName(member)} stop working.</small></span></button></li>}
+      {manage && !joined && <li><button type="button" onClick={onVenmo}><Pencil size={16} aria-hidden="true" /><span>{member.venmo_username ? 'Change Venmo username' : 'Add Venmo username'}<small>Until {firstName(member)} joins and adds their own.</small></span></button></li>}
+      {manage && !joined && <li><button type="button" onClick={onRename}><Pencil size={16} aria-hidden="true" /><span>Rename</span></button></li>}
+      {manage && joined && onUnlink && member.user_id !== group.owner_id && <li><button type="button" onClick={onUnlink}><Unlink size={16} aria-hidden="true" /><span>Unlink account
         <small>For a wrong link. {firstName(member)} keeps their history and gets a new invite link.</small></span></button></li>}
-      <li><button type="button" className="trips-danger" disabled={busy} onClick={onRemove}><UserMinus size={16} aria-hidden="true" /><span>Remove from trip
-        {busy && <small>On expenses or payments. Take {firstName(member)} off those first.</small>}</span></button></li>
+      {manage && <li><button type="button" className="trips-danger" disabled={busy} onClick={onRemove}><UserMinus size={16} aria-hidden="true" /><span>Remove from trip
+        {busy && <small>On expenses or payments. Take {firstName(member)} off those first.</small>}</span></button></li>}
     </ul>
     {joined && <p className="trips-muted trips-small">Name and Venmo: {firstName(member)}’s profile.</p>}
   </div>;

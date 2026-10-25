@@ -168,3 +168,10 @@ it('starts a percent split even and rebalances the blank fields as you type', as
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
   expect(save.mock.calls[0][0]).toMatchObject({ split_mode: 'percent', shares: { matt: 5000, alex: 2500, jamie: 2500 } });
 });
+
+it('shows the settle-change line only for a started new trip', () => {
+  const view = render(<ExpenseForm group={{ ...group, settle: { started: true, started_at: '2026-10-25' } }} user={{ id: 'user-matt' }} />);
+  expect(screen.getByText('Settling started. Saving changes who owes what.')).toBeInTheDocument();
+  view.rerender(<ExpenseForm group={group} user={{ id: 'user-matt' }} />);
+  expect(screen.queryByText('Settling started. Saving changes who owes what.')).not.toBeInTheDocument();
+});

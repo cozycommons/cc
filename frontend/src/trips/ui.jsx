@@ -79,7 +79,7 @@ export function Form({ onSubmit, children, submit, onCancel, destructive = false
       {primaryFirst && <Button type="submit" variant={destructive ? 'destructive' : submitVariant} disabled={busy || submitDisabled}>{busy ? 'Saving…' : submit}</Button>}
       {aside && <fieldset className="trips-form-aside" disabled={busy}>{aside}</fieldset>}
       <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
-      {!primaryFirst && <Button type="submit" variant={destructive ? 'destructive' : submitVariant} disabled={busy || submitDisabled}>{busy ? 'Saving…' : submit}</Button>}
+      {!primaryFirst && submit && <Button type="submit" variant={destructive ? 'destructive' : submitVariant} disabled={busy || submitDisabled}>{busy ? 'Saving…' : submit}</Button>}
     </div>
   </form>;
 }

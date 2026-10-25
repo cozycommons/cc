@@ -44,3 +44,6 @@ export async function tripRequest(supabase, path, method = 'GET', payload, expec
   }
   return result;
 }
+
+export const settleReady = (request, tripId, memberId, ready) => request(`/groups/${tripId}/settle/ready`, 'POST', { member_id: memberId, ready });
+export const settleStart = (request, tripId) => request(`/groups/${tripId}/settle/start`, 'POST', {});
