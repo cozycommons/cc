@@ -1,6 +1,6 @@
 import { decimal } from './money.js';
 
-// Mirrors backend/trips/venmo.py. Usernames are display data, never proof of identity.
+// Mirrors backend/venmo/usernames.py. Usernames are display data, never proof of identity.
 const USERNAME = /^[A-Za-z0-9_-]{5,30}$/;
 const PREFIX = /^(?:https?:\/\/)?(?:www\.|account\.)?venmo\.com\/(?:u\/)?/i;
 
@@ -22,11 +22,12 @@ export function settlementRole(transfer, myMemberId) {
 // Public profile page: shows the person's Venmo name and photo so people can check before paying.
 export const venmoProfile = (username) => `https://venmo.com/u/${encodeURIComponent(username)}`;
 
-export const tripNote =(groupName) => `${groupName} · Cozy Trips`;
+export const tripNote =(groupName) => `Cozy Trips · ${groupName}`;
 
 // Venmo redirects these public links to its web app or mobile app. Prefill is best-effort; the person reviews it there.
-export function venmoLink({ username, role, amountMinor, note }) {
+export function venmoLink({ username, role, amountMinor, note, reference }) {
   // The native Venmo app displays form-encoded '+' spaces literally.
+  if (reference) note = `${note} · ${reference}`;
   const params = Object.entries({ txn: role === 'request' ? 'charge' : 'pay', amount: decimal(amountMinor), note })
     .map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
   return `https://venmo.com/${encodeURIComponent(username)}?${params}`;
