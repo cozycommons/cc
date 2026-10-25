@@ -3,18 +3,18 @@ import { playerProfile } from './espn.js';
 
 export const LeagueLinksContext = createContext(null);
 
-export default function EspnLink({ href, children }) {
+export default function EspnLink({ href, children, badge = true }) {
   if (!href) return null;
-  return <a className="fx-espn-link" href={href} rel="noreferrer"><span className="fx-espn-badge" aria-hidden="true">ESPN</span>{children}</a>;
+  return <a className="fx-espn-link" href={href} rel="noreferrer">{badge && <span className="fx-espn-badge" aria-hidden="true">ESPN</span>}{children}</a>;
 }
 
 export function PlayerLink({ id, name }) {
-  return <EspnLink href={playerProfile(id)}>{name}</EspnLink>;
+  return <EspnLink href={playerProfile(id)} badge={false}>{name}</EspnLink>;
 }
 
 export function MatchupLink({ matchup }) {
   const links = useContext(LeagueLinksContext);
-  return <EspnLink href={links?.matchups?.[matchup.home.id]}>Matchup in ESPN</EspnLink>;
+  return <EspnLink href={links?.matchups?.[matchup.home.id]}>Open in ESPN</EspnLink>;
 }
 
 export function TeamLinks({ teamId }) {

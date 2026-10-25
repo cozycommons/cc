@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import { Link, Route, Routes } from 'react-router-dom';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
@@ -7,20 +7,19 @@ import { favorite, orderMatchups } from './paths.js';
 import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
-import OnboardPanel from './OnboardPanel.jsx';
 import { fetchOwners, leagueLinks } from './claims.js';
 import { acquiredLabel, finished, highlights, matchupRead } from './analysis.js';
-import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, round, useNarrow, winPct } from './parts.jsx';
-import { LeagueLinksContext, MatchupLink, PlayerLink } from './EspnLink.jsx';
+import { Manager, OwnersContext, TeamLogo, WinChart, round, useNarrow, weekday, winPct } from './parts.jsx';
+import { LeagueLinksContext, PlayerLink, TeamLinks } from './EspnLink.jsx';
 import { checkAdmin } from './admin.js';
 import FantasyAdmin from './FantasyAdmin.jsx';
 import { AdminEntry } from './AdminPanel.jsx';
 import Basketball from './Basketball.jsx';
-import { Confetti, MotionLink, GameStatus, OddsBar, Score, SlidingTabs, reducedMotion, sharedName } from './motion.jsx';
+import { Confetti, MotionLink, GameStatus, OddsBar, Score, sharedName } from './motion.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './fantasy.css';
 
-function MatchupCard({ matchup, narrow, week }) {
+function MatchupCard({ matchup, week, mine }) {
   const teams = [matchup.home, matchup.away];
   if (matchup.unavailable) {
     return (
@@ -34,8 +33,7 @@ function MatchupCard({ matchup, narrow, week }) {
   const fav = favorite(matchup);
   const read = matchupRead(matchup);
   return (
-    <MotionLink className="fx-card fx-card--link" to={matchup.key} aria-label={`${teams[0].name} vs ${teams[1].name}: open matchup`}>
-      <div className="fx-team fx-card-head" aria-hidden="true"><span /><span /><small>Score</small><small>To win</small></div>
+    <MotionLink className={`fx-card fx-card--link${mine ? ' fx-mine' : ''}`} to={matchup.key} aria-label={`${teams[0].name} vs ${teams[1].name}: open matchup`}>
       {teams.map((team, side) => (
         <div className={`fx-team${fav === side ? ' fx-team--fav' : ''}`} key={side}>
           <span style={{ viewTransitionName: sharedName(matchup, side, 'jersey') }}><TeamLogo team={team} side={side} /></span>
@@ -45,9 +43,8 @@ function MatchupCard({ matchup, narrow, week }) {
         </div>
       ))}
       <OddsBar chance={matchup.chance} />
-      <p className="fx-why"><GameStatus matchup={matchup} />{read.facts.map(fact => <span key={fact}>{fact}</span>)}</p>
-      {!narrow && <ScorePath matchup={matchup} height={120} />}
-      <div className="fx-meta"><OddsTrend history={matchup.odds_history} name={teams[0].name} final={finished(matchup)} /></div>
+      <p className="fx-why"><GameStatus matchup={matchup} /><span>{read.facts.join(' · ')}</span></p>
+      <WinChart history={matchup.odds_history} final={finished(matchup)} />
     </MotionLink>
   );
 }
@@ -75,7 +72,7 @@ function Highlights({ rows }) {
                 </span>
                 <span className="fx-hl-num">
                   <strong>+{round(row.diff)}</strong>
-                  <small>{round(row.actual)} vs {round(row.expected)} exp.{row.games > 1 ? ` · ${row.games} games` : ''}</small>
+                  <small>{round(row.actual)} pts{row.games > 1 ? ` · ${row.games} games` : ''}</small>
                 </span>
               </div>
             </li>
@@ -86,53 +83,41 @@ function Highlights({ rows }) {
   );
 }
 
-// Phones: one row of jump tabs, and this week's matchups come first.
-const HUB_TABS = [['fx-week', 'This week'], ['fx-race', 'Playoff race'], ['fx-team', 'Your team'], ['fx-lineups', 'Lineups']];
-
-// Only sections that actually render get a tab, so no tab jumps to an empty spot.
-export function HubTabs({ show }) {
-  const [active, setActive] = useState('fx-week');
-  const jump = id => { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: reducedMotion() ? 'instant' : 'smooth', block: 'start' }); };
-  return <nav aria-label="Sections"><SlidingTabs className="fx-tabs" label="Section tabs" items={HUB_TABS.filter(([id]) => show[id])} active={active} onSelect={jump} /></nav>;
-}
-
 function SkeletonCard({ failed }) {
-  return <article className={`fx-card fx-skeleton${failed ? ' fx-skeleton--failed' : ''}`} aria-hidden="true"><div className="fx-team fx-card-head"><span /><span /><small>Score</small><small>To win</small></div>{[0, 1].map(side => <div className="fx-team" key={side}><span className="fx-logo" /><span className="fx-name"><span className="fx-bone" /><small className="fx-bone">&nbsp;</small></span><b>—</b><span>—</span></div>)}<div className="fx-bar fx-bone" /><p className="fx-why fx-bone">&nbsp;</p><div className="fx-skeleton-chart" /><div className="fx-meta fx-bone">&nbsp;</div></article>;
+  return <article className={`fx-card fx-skeleton${failed ? ' fx-skeleton--failed' : ''}`} aria-hidden="true">{[0, 1].map(side => <div className="fx-team" key={side}><span className="fx-logo" /><span className="fx-name"><span className="fx-bone" /><small className="fx-bone">&nbsp;</small></span><b>—</b><span>—</span></div>)}<div className="fx-bar fx-bone" /><p className="fx-why fx-bone">&nbsp;</p></article>;
 }
 
-function Loading({ received, total, done }) {
-  const [line, setLine] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setLine(value => Math.min(3, value + 1)), 1800);
-    const slow = setTimeout(() => { clearInterval(timer); setLine(4); }, 6000);
-    return () => { clearInterval(timer); clearTimeout(slow); };
-  }, []);
-  return <div className={`fx-loading${done ? ' fx-loading--done' : ''}`} aria-hidden={done || undefined}>
-    <span className="fx-loading-ball"><Basketball size={28} /></span>
-    <span className="fx-microcopy" key={total ? 'count' : line} aria-live="polite">{total ? `${received} of ${total} matchups` : ['Tipping off…', 'Checking box scores…', 'Running the odds…', 'Counting minutes…', 'Still dribbling…'][line]}</span>
+function Loading({ received, total }) {
+  return <div className="fx-loading" role="status">
+    <span className="fx-loading-ball"><Basketball size={22} /></span>
+    <span>{total ? `${received} of ${total}` : 'Loading'}</span>
   </div>;
 }
 
 function Hub({ data, apiUrl, onOwnersChange, progress, loading }) {
+  const links = useContext(LeagueLinksContext);
   const narrow = useNarrow();
   const matchups = data?.matchups || [];
-  const slots = progress?.meta?.slots || (data ? orderMatchups(matchups) : Array.from({ length: 6 }, (_, key) => ({ key })));
+  const ordered = progress?.meta?.slots || (data ? orderMatchups(matchups) : Array.from({ length: 6 }, (_, key) => ({ key })));
+  // The viewer's own matchup leads.
+  const isMine = slot => links?.team_id != null && [slot.home?.id ?? slot.home, slot.away?.id ?? slot.away].includes(links.team_id);
+  const slots = [...ordered.filter(isMine), ...ordered.filter(slot => !isMine(slot))];
   const ready = new Map(matchups.map(matchup => [matchup.key, matchup]));
   const total = progress?.meta?.totalMatchups;
   return <div className="fx-hub">
-    {narrow && <HubTabs show={{ 'fx-week': true, 'fx-race': loading || !!data?.season, 'fx-team': loading || !!(data?.linkable && apiUrl), 'fx-lineups': loading || !!apiUrl }} />}
     <section id="fx-week" className="fx-slot fx-slot--week" aria-label="This week's matchups" aria-busy={loading}>
-      <div className="fx-section-head"><h2>This week</h2><span>{data ? `Ends ${longDay(data.matchup.ends)}` : '\u00a0'}</span>
-        {(loading || progress) && <Loading received={progress?.matchups.length || 0} total={total} done={!loading} />}
+      <div className="fx-section-head"><h2>This week</h2><span>{data ? `Ends ${weekday(data.matchup.ends)}` : '\u00a0'}</span>
+        {loading && <Loading received={progress?.matchups.length || 0} total={total} />}
       </div>
       <div className="fx-grid">{slots.map((slot, index) => {
         const matchup = ready.get(slot.key);
-        return <div className="fx-matchup-card" key={slot.key}>{matchup ? <div className="fx-arrive" style={{ '--i': index }}><MatchupCard matchup={matchup} narrow={narrow} week={`${data.year}-${data.matchup.id}`} /><MatchupLink matchup={matchup} /></div> : <SkeletonCard failed={!loading} />}</div>;
+        const mine = matchup && isMine(matchup);
+        return <div className="fx-matchup-card" key={slot.key}>{matchup ? <div className="fx-arrive" style={{ '--i': index }}><MatchupCard matchup={matchup} mine={mine} week={`${data.year}-${data.matchup.id}`} />{mine && <TeamLinks teamId={links.team_id} />}</div> : <SkeletonCard failed={!loading} />}</div>;
       })}</div>
       <Highlights rows={highlights(matchups)} />
     </section>
     {data?.season && <div id="fx-race" className="fx-slot"><SeasonRace season={data.season} narrow={narrow} /></div>}
-    {data && <><div id="fx-team" className="fx-slot"><ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} /></div><div id="fx-lineups" className="fx-slot"><OnboardPanel apiUrl={apiUrl} /></div></>}
+    {data && <div id="fx-team" className="fx-slot"><ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} /></div>}
   </div>;
 }
 
@@ -222,8 +207,8 @@ function Fantasy() {
       <main className="fx-main">
         <div className="fx-header">
           <h1>Fantasy Nelsoners</h1>
-          <p className="fx-updated">{data ? `Matchup ${data.matchup.id} · Updated ${new Date(data.generatedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '\u00a0'}</p>
-        {(progress || status === 'loading') && <div className={`fx-progress${status !== 'loading' ? ' fx-loading--done' : ''}`} role="progressbar" aria-label="Matchups received" aria-valuemin={0} aria-valuemax={progress?.meta?.totalMatchups || 6} aria-valuenow={(progress?.matchups.length || 0)}><i style={{ transform: `scaleX(${(progress?.matchups.length || 0) / (progress?.meta?.totalMatchups || 6)})` }} /></div>}
+          <p>{data ? `Week ${data.matchup.id} · Scores as of ${new Date(data.capturedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '\u00a0'}</p>
+        {status === 'loading' && <div className="fx-progress" role="progressbar" aria-label="Matchups received" aria-valuemin={0} aria-valuemax={progress?.meta?.totalMatchups || 6} aria-valuenow={(progress?.matchups.length || 0)}><i style={{ transform: `scaleX(${(progress?.matchups.length || 0) / (progress?.meta?.totalMatchups || 6)})` }} /></div>}
         </div>
 
         {status === 'empty' && <p className="fx-status">No predictions yet.</p>}

@@ -83,19 +83,46 @@ export function ScorePath({ matchup, height = 150 }) {
   );
 }
 
-// Win chance over time, spaced by when each estimate was saved.
-export function OddsTrend({ history, name, wide = false, final = false }) {
-  const mask = React.useId().replace(/:/g, '');
+// Readable text shades of the two team colors.
+export const TEXT_COLORS = ['#a0502f', '#2066b8'];
+
+const change = value => { const size = Math.round(Math.abs(value)); return `${size && value > 0 ? '▲' : size ? '▼' : ''}${size}%`; };
+
+// Win odds over time, one line per team, spaced by when each estimate was saved.
+export function WinChart({ history, final = false, big = false }) {
+  const [cursor, setCursor] = React.useState(null);
   if (!history || history.length < 2) return null;
   const start = history[0].time, span = Math.max(1, history.at(-1).time - start);
-  const points = history.map(point => `${((point.time - start) / span * 100).toFixed(1)},${(30 - point.chance * 0.3).toFixed(1)}`).join(' ');
-  const change = history.at(-1).chance - history[0].chance;
+  const x = point => (point.time - start) / span * 100;
+  const line = side => history.map(point => `${x(point).toFixed(2)},${(side ? point.chance : 100 - point.chance).toFixed(2)}`).join(' ');
+  const shown = cursor ?? history.at(-1);
+  const now = [shown.chance, 100 - shown.chance];
+  const moved = [shown.chance - history[0].chance, history[0].chance - shown.chance];
+  const days = big ? [...new Map(history.map(point => [point.date, point])).values()] : [];
+  const scrub = event => {
+    if (!big) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    const at = start + Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)) * span;
+    setCursor(history.reduce((best, point) => (Math.abs(point.time - at) < Math.abs(best.time - at) ? point : best)));
+  };
   return (
-    <span className={`fx-trend${wide ? ' fx-trend--wide' : ''}`}>
-      <svg viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`Home win chance from ${winPct(history[0].chance)} to ${winPct(history.at(-1).chance, final)}`}>
-        <defs><mask id={mask}><rect className="fx-draw" x="0" y="-5" width="110" height="40" fill="white" /></mask></defs><line x1="0" x2="100" y1="15" y2="15" /><polyline points={points} mask={`url(#${mask})`} />
-      </svg>
-      <span>{name ? `${name} odds ` : ''}{change > 0 ? '+' : ''}{Math.round(change)} since {weekday(history[0].date)}</span>
-    </span>
+    <div className={`fx-win${big ? ' fx-win--big' : ''}`}>
+      <div className="fx-win-plot" onPointerMove={scrub} onPointerDown={scrub} onPointerLeave={() => setCursor(null)}>
+        <div className="fx-win-area">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
+          aria-label={`Win odds since ${weekday(history[0].date)}: ${winPct(now[0], final)} to ${winPct(now[1], final)}`}>
+          {big && [0, 100].map(y => <line key={y} className="fx-win-grid" x1="0" x2="100" y1={y} y2={y} />)}
+          <line className="fx-win-mid" x1="0" x2="100" y1="50" y2="50" />
+          {cursor && <line className="fx-win-cursor" x1={x(cursor)} x2={x(cursor)} y1="0" y2="100" />}
+          {[0, 1].map(side => <polyline key={side} points={line(side)} stroke={COLORS[side]} />)}
+        </svg>
+        {big && [[0, '100%'], [50, '50%'], [100, '0%']].map(([top, label]) => <span key={label} className="fx-win-y" style={{ top: `${top}%` }}>{label}</span>)}
+        </div>
+        {big && <div className="fx-win-axis">{days.map(point => <span key={point.date}>{weekday(point.date)}</span>)}</div>}
+      </div>
+      <div className="fx-win-labels">
+        {[0, 1].map(side => <span key={side} style={{ color: TEXT_COLORS[side] }}><b>{winPct(now[side], final)}</b>{change(moved[side])}</span>)}
+      </div>
+    </div>
   );
 }

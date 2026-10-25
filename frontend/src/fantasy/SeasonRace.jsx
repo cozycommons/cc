@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Manager, TeamLogo, pct } from './parts.jsx';
 import { SlidingTabs } from './motion.jsx';
-import { seasonRead } from './analysis.js';
 
 const MODES = [['projections', 'Projections only'], ['balanced', 'Balanced'], ['hot', 'Hot hand']];
 const ordinal = n => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
@@ -18,17 +17,15 @@ export default function SeasonRace({ season, narrow }) {
   const shown = narrow && !all ? rows.slice(0, season.playoffTeams) : rows;
   const [open, setOpen] = useState(null);
   return (
-    <section className="fx-race" aria-label="Race to the playoffs">
+    <section className="fx-race" aria-label="Playoff race">
       <div className="fx-section-head">
-        <h2>Race to the playoffs</h2>
-        <span>{season.trials?.toLocaleString()} simulated seasons · {season.weeksRemaining} weeks left</span>
+        <h2>Playoff race</h2>
       </div>
-      <SeasonRead read={seasonRead(rows)} />
       {/* All modes match until a week is complete, so the toggle would do nothing. */}
       {season.formActive && available.length > 1 && (
         <SlidingTabs className="fx-modes" label="Form weighting" items={available} active={mode} onSelect={setMode} />
       )}
-      <div className="fx-key" aria-hidden="true"><span><i className="fx-key-title" />Win title</span><span><i className="fx-key-playoffs" />Make playoffs</span></div>
+      <div className="fx-race-cols" aria-hidden="true"><span>Playoffs</span><span>Title</span></div>
       <ol className="fx-race-list" aria-label="Playoff and title chances by team">
         {shown.map(row => {
           const expanded = open === row.team.id;
@@ -37,13 +34,13 @@ export default function SeasonRace({ season, narrow }) {
               <button type="button" className="fx-race-row" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : row.team.id)}
                 aria-label={`${row.team.name}: ${pct(row.playoff_pct)} playoffs, ${pct(row.title_pct)} title`}>
                 <span className="fx-race-team"><TeamLogo team={row.team} side={0} size={26} />
-                  <span>{row.team.name}<small><Manager team={row.team} />{row.record?.slice(0, 2).join('–')} · {row.expected_wins} exp. wins</small></span></span>
+                  <span>{row.team.name}<small><Manager team={row.team} />{row.record?.slice(0, 2).join('–')}</small></span></span>
                 <span className="fx-odds-bar" aria-hidden="true">
                   <i className="fx-odds-playoffs" style={{ width: `${row.playoff_pct}%` }} />
                   <i className="fx-odds-title" style={{ width: `${row.title_pct}%` }} />
                 </span>
-                <span className="fx-race-nums"><b>{pct(row.playoff_pct)}</b><small>playoffs</small></span>
-                <span className="fx-race-nums"><b>{pct(row.title_pct)}</b><small>title</small></span>
+                <span className="fx-race-nums"><b>{pct(row.playoff_pct)}</b></span>
+                <span className="fx-race-nums"><b>{pct(row.title_pct)}</b></span>
               </button>
               {expanded && <Finishes row={row} playoffTeams={season.playoffTeams} />}
             </li>
@@ -52,15 +49,6 @@ export default function SeasonRace({ season, narrow }) {
       </ol>
       {shown.length < rows.length && <button type="button" className="fx-more" onClick={() => setAll(true)}>Show all {rows.length} teams</button>}
     </section>
-  );
-}
-
-function SeasonRead({ read }) {
-  if (!read) return null;
-  return (
-    <div className="fx-read">
-      <p className="fx-headline"><b>{read.leader}</b> leads. <span>{read.why}.</span></p>
-    </div>
   );
 }
 

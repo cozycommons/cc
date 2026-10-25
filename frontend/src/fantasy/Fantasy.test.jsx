@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import Fantasy, { HubTabs } from './Fantasy.jsx';
+import Fantasy from './Fantasy.jsx';
 import { SNAPSHOT_V2 } from './fixture.js';
 
 vi.mock('../api.js', () => ({ getUrl: () => 'https://api.example.test' }));
@@ -16,8 +16,8 @@ describe('Fantasy pages', () => {
   it('hub shows the season race and links each matchup to its page', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy');
-    expect(await screen.findByText('Race to the playoffs')).toBeTruthy();
-    expect(screen.getByText(/Most projected wins|Best playoff odds/)).toBeTruthy();
+    expect(await screen.findByText('Playoff race')).toBeTruthy();
+    expect(screen.queryByText(/simulated seasons|Most projected wins|Best playoff odds/)).toBeNull();
     const link = screen.getByRole('link', { name: /Harbor Hoopers vs Lob City/ });
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
@@ -31,8 +31,8 @@ describe('Fantasy pages', () => {
     const section = await screen.findByRole('region', { name: 'Outperformers this week' });
     expect(section.querySelector('.fx-hl-how').textContent).toBe('Round 11 · pick 130');
     expect(section.querySelector('.fx-hl-num strong').textContent).toMatch(/^\+\d+$/);
-    expect(document.querySelector('.fx-card-head').textContent).toBe('ScoreTo win');
-    for (const filler of [/Just for fun/, /chance to win from here/, /Uncalibrated/, /Locked/, /Big favorites/, /unlock after week 1/, /Assumes today/]) {
+    expect(section.querySelector('.fx-hl-num small').textContent).toMatch(/^\d+ pts/);
+    for (const filler of [/Matchup in ESPN/, /^Score$/, /^To win$/, /exp\./, /Up \d+/, /Down \d+/, /Projected to/, /since \w{3}$/, /Just for fun/, /chance to win from here/, /Uncalibrated/, /Locked/, /Big favorites/, /unlock after week 1/, /Assumes today/]) {
       expect(screen.queryByText(filler)).toBeNull();
     }
   });
@@ -43,13 +43,15 @@ describe('Fantasy pages', () => {
     m.odds_history = [{ date: '2026-10-21', chance: 80 }, { date: '2026-10-22', chance: 100 }];
     vi.stubGlobal('fetch', respond(200, snap));
     view(`/fantasy/${m.home}-${m.away}`);
-    expect((await screen.findByRole('img', { name: /^Home win chance/ })).getAttribute('aria-label')).toBe('Home win chance from 80% to >99%');
+    expect((await screen.findByRole('img', { name: /^Win odds since/ })).getAttribute('aria-label')).toBe('Win odds since Wed: >99% to <1%');
+    const labels = [...document.querySelectorAll('.fx-win--big .fx-win-labels span')].map(span => span.textContent);
+    expect(labels).toEqual(['>99%▲20%', '<1%▼20%']);
   });
 
   it('shows the form toggle only once a week is complete', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     const first = view('/fantasy');
-    await screen.findByText('Race to the playoffs');
+    await screen.findByText('Playoff race');
     expect(screen.queryByRole('group', { name: 'Form weighting' })).toBeNull();
     first.unmount();
     const active = structuredClone(SNAPSHOT_V2);
@@ -75,7 +77,7 @@ describe('Fantasy pages', () => {
     vi.stubGlobal('matchMedia', query => ({ matches: query === '(max-width: 600px)', addEventListener() {}, removeEventListener() {} }));
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy');
-    await screen.findByText('Race to the playoffs');
+    await screen.findByText('Playoff race');
     expect(document.querySelector('.fx-chart')).toBeNull();
     expect(screen.getAllByText(/^proj\. \d+$/).length).toBeGreaterThan(0);
     const raceRows = () => document.querySelectorAll('.fx-race-row:not(.fx-race-labels)').length;
@@ -85,30 +87,25 @@ describe('Fantasy pages', () => {
     expect(screen.queryByRole('button', { name: /Show all/ })).toBeNull();
   });
 
-  it('phones get one row of section tabs that jump to each section', async () => {
+  it('is one scrolling page with no section tabs or lineup sign-in', async () => {
     vi.stubGlobal('matchMedia', query => ({ matches: query === '(max-width: 600px)', addEventListener() {}, removeEventListener() {} }));
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
-    const scrolled = [];
-    const spy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(function () { scrolled.push(this.id); });
     view('/fantasy');
-    const tabs = await screen.findByRole('navigation', { name: 'Sections' });
-    expect([...tabs.querySelectorAll('button')].map(b => b.textContent)).toEqual(['This week', 'Playoff race', 'Your team', 'Lineups']);
-    fireEvent.click(screen.getByRole('button', { name: 'Playoff race' }));
-    expect(scrolled).toEqual(['fx-race']);
-    for (const id of ['fx-week', 'fx-race', 'fx-team', 'fx-lineups']) expect(document.getElementById(id)).toBeTruthy();
-    spy.mockRestore();
-  });
-
-  it('only shows tabs for sections that render', () => {
-    render(<HubTabs show={{ 'fx-week': true, 'fx-race': true, 'fx-team': false, 'fx-lineups': false }} />);
-    expect(screen.getAllByRole('button').map(b => b.textContent)).toEqual(['This week', 'Playoff race']);
-  });
-
-  it('desktop has no section tabs', async () => {
-    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
-    view('/fantasy');
-    await screen.findByText('Race to the playoffs');
+    await screen.findByText('Playoff race');
     expect(screen.queryByRole('navigation', { name: 'Sections' })).toBeNull();
+    expect(document.querySelector('input[type=password]')).toBeNull();
+    expect(screen.queryByText(/Automatic lineups|ESPN password/)).toBeNull();
+  });
+
+  it('dates the page by when scores were captured', async () => {
+    const snap = structuredClone(SNAPSHOT_V2);
+    snap.captured_at = '2026-10-25T19:31:00Z';
+    snap.generated_at = '2026-10-25T20:02:00Z';
+    vi.stubGlobal('fetch', respond(200, snap));
+    view('/fantasy');
+    await screen.findByText('Playoff race');
+    const stamp = new Date(snap.captured_at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    expect(screen.getByText(`Week ${snap.matchup.id} · Scores as of ${stamp}`)).toBeTruthy();
   });
 
   it('matchup page shows the hero, daily bars and players who scored', async () => {
@@ -143,7 +140,7 @@ describe('Fantasy pages', () => {
     localStorage.setItem('fantasy:last-good:v1:https://api.example.test', JSON.stringify(SNAPSHOT_V2));
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
     view('/fantasy');
-    expect(screen.getByText('Race to the playoffs')).toBeTruthy();
+    expect(screen.getByText('Playoff race')).toBeTruthy();
     expect(screen.queryByText('Loading…')).toBeNull();
   });
 });

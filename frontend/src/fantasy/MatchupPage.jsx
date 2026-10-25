@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Confetti, GameStatus, MotionLink, OddsBar, Score, sharedName } from './motion.jsx';
+import { Confetti, MotionLink, OddsBar, Score, sharedName } from './motion.jsx';
 import { favorite } from './paths.js';
 import { finished, matchupRead, notableSwings, playerSwings } from './analysis.js';
-import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, round, weekday, winPct } from './parts.jsx';
+import { COLORS, Manager, ScorePath, TeamLogo, WinChart, longDay, round, weekday, winPct } from './parts.jsx';
 
 import { PlayerLink, MatchupLink, TeamLinks } from './EspnLink.jsx';
 
@@ -77,7 +77,7 @@ function SwingRow({ row }) {
   return (
     <li className={`fx-swing fx-swing--${tone}`}>
       <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
-      <span><PlayerLink id={row.id} name={row.name} /><small>{round(row.actual)} of {round(row.expected)} expected{row.games > 1 ? ` · ${row.games} games` : ''}</small></span>
+      <span><PlayerLink id={row.id} name={row.name} /><small>{round(row.actual)} pts{row.games > 1 ? ` · ${row.games} games` : ''}</small></span>
       <b>{row.diff >= 0 ? '+' : '−'}{Math.abs(round(row.diff))}</b>
     </li>
   );
@@ -89,7 +89,7 @@ function Swings({ matchup, teams }) {
   if (!sides.some(rows => rows.length)) return null;
   return (
     <div className="fx-panel">
-      <div className="fx-panel-head"><h3>Who’s swinging it</h3><span className="fx-small">Finished games vs expected</span></div>
+      <div className="fx-panel-head"><h3>Who’s swinging it</h3></div>
       <div className="fx-swing-teams">
         {sides.map((rows, side) => {
           const { cold, hot } = notableSwings(rows);
@@ -138,15 +138,19 @@ export default function MatchupPage({ data }) {
         ))}
       </div>
       <OddsBar chance={matchup.chance} big />
-      <GameStatus matchup={matchup} />
-      <MatchupLink matchup={matchup} />
       <Read read={matchupRead(matchup)} />
+      <MatchupLink matchup={matchup} />
       <Swings matchup={matchup} teams={teams} />
 
+      {matchup.odds_history?.length > 1 && <div className="fx-panel">
+        <div className="fx-panel-head"><h3>Win odds</h3></div>
+        <WinChart history={matchup.odds_history} final={finished(matchup)} big />
+      </div>}
+
       <div className="fx-panel">
-        <div className="fx-panel-head"><h3>Score so far and projected</h3><OddsTrend history={matchup.odds_history} wide final={finished(matchup)} /></div>
+        <div className="fx-panel-head"><h3>Score so far and projected</h3></div>
         <ScorePath matchup={matchup} height={230} />
-        <p className="fx-small">Likely final margin: {round(matchup.margin_80[0])} to {round(matchup.margin_80[1])}.</p>
+        
       </div>
 
       <div className="fx-panel">

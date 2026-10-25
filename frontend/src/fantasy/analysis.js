@@ -20,12 +20,11 @@ export function matchupRead(matchup) {
     return { side, headline: `${names[side]} wins`, facts: ['Final', `${Math.max(h, a)}–${Math.min(h, a)}`] };
   }
   const side = matchup.chance >= 50 ? 0 : 1, other = 1 - side;
-  const lead = r(matchup.scores[side] - matchup.scores[other]);
   const left = gamesLeft(matchup);
-  const facts = [lead > 0 ? `Up ${lead}` : lead < 0 ? `Down ${-lead}` : 'Tied'];
-  // The projected finish is the real reason for the odds, most of all when the favorite trails.
+  const facts = [];
+  // The projected finish is the real reason for the odds; the scores already show the current lead.
   const finish = r((matchup.projected_totals?.[side] ?? NaN) - (matchup.projected_totals?.[other] ?? NaN));
-  if (Number.isFinite(finish)) facts.push(finish > 0 ? `Projected to win by ${finish}` : finish < 0 ? `Projected to lose by ${-finish}` : 'Projected even');
+  if (Number.isFinite(finish)) facts.push(finish > 0 ? `${names[side]} by ${finish}` : finish < 0 ? `${names[other]} by ${-finish}` : 'Even');
   if (!left[side] && !left[other]) facts.push('Last games in progress');
   else if (left[side] === left[other]) facts.push(`${left[side]} games left each`);
   else facts.push(`${left[side]} games left vs ${left[other]}`);

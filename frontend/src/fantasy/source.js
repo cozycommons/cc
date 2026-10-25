@@ -97,7 +97,7 @@ export function cleanSnapshot(data, apiUrl) {
   return {
     // Only v2 carries real ESPN team ids, which is what Dice links are keyed by.
     linkable: data.version === 'public-v2',
-    generatedAt: data.generated_at, matchup: data.matchup, year: Number.isInteger(data.season_year) ? data.season_year : null, label: typeof data.label === 'string' ? data.label : '',
+    generatedAt: data.generated_at, capturedAt: data.captured_at ?? data.generated_at, matchup: data.matchup, year: Number.isInteger(data.season_year) ? data.season_year : null, label: typeof data.label === 'string' ? data.label : '',
     teams, matchups: raw.map(m => matchup(m, teams)).filter(Boolean), season: season(data.season, teams),
   };
 }
