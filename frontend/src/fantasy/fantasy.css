@@ -165,7 +165,6 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 
 .fx-espn-link { display: inline-flex; align-items: center; gap: 5px; color: inherit; font-size: 12px; text-decoration: none; }
 .fx-espn-link:hover { text-decoration: underline; }
-.fx-espn-badge { color: #b52b24; font: italic 800 9px/1 system-ui, sans-serif; letter-spacing: -.4px; border: 1px solid currentColor; border-radius: 3px; padding: 3px; }
 .fx-espn-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .fx-matchup-card { min-width: 0; }
 .fx-matchup-card > .fx-card { display: block; }
@@ -219,7 +218,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
   .fx-hl-main .fx-espn-link { white-space: normal; }
   .fx-hl-num { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cc-space-2); }
 }
-.fx-espn-badge { flex: 0 0 auto; }
 
 /* Site header, loading and arrival. Transforms and opacity only. */
 .fx-page .cc-sitebar{color:#3d2f29}
@@ -293,3 +291,19 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
   .fx-highlights .fx-hl-main small a{min-height:24px;line-height:24px}
   .fx-hl-main{gap:1px}
 }
+
+/* ESPN's logo marks every link that leaves for ESPN. */
+.fx-espn-logo{display:block;flex:none;width:25px;height:14px;border-radius:2px}
+.fx-espn-button{min-height:32px!important;padding:0 10px 0 4px;gap:6px;border:1px solid #e4d6bd;border-radius:999px;background:#fffaf2;font-size:12.5px;font-weight:600;color:#3d2f29}
+.fx-espn-button:hover{text-decoration:none;border-color:#cd2a30}
+.fx-card-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;margin-top:6px}
+.fx-card-links:empty{display:none}
+.fx-card-links>.fx-espn-actions{display:contents}
+.fx-hl-main b .fx-espn-link{gap:6px}
+.fx-hl-main small .fx-manager{margin:0 0 0 2px}
+.fx-hl-main small .fx-manager::before{content:'·';margin-right:5px;color:#b9a68d}
+.fx-hl-main small .fx-manager::after,.fx-swing-teams h4 .fx-manager::after,.fx-players h4 .fx-manager::after{content:none}
+.fx-swing-teams h4 .fx-manager,.fx-players h4 .fx-manager{font-size:12.5px;font-weight:500}
+.fx-matchup>.fx-espn-link{margin:0 0 12px}
+.fx-highlights .fx-espn-logo{width:25px;height:14px;border-radius:2px;object-fit:contain;background:none}
+.fx-hl-main b .fx-espn-link{flex-direction:row-reverse;justify-content:flex-end}

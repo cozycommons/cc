@@ -46,7 +46,7 @@ function Players({ matchup, date }) {
         const rows = [...day.players[side]].sort((a, b) => (b.points ?? -Infinity) - (a.points ?? -Infinity));
         return (
           <div key={side} className="fx-players-team">
-            <h4><TeamLogo team={team} side={side} size={22} />{team.name}<span>{round(day.actual?.[side])}</span></h4>
+            <h4><TeamLogo team={team} side={side} size={22} />{team.name}<Manager team={team} /><span>{round(day.actual?.[side])}</span></h4>
             {rows.length ? <ol>{rows.map(player => (
               <li key={player.id}>
                 <img src={headshot(player.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
@@ -97,7 +97,7 @@ function Swings({ matchup, teams }) {
           const rest = [...rows].sort((a, b) => a.diff - b.diff).filter(row => !named.includes(row));
           return (
             <div key={side}>
-              <h4><TeamLogo team={teams[side]} side={side} size={22} />{teams[side].name}</h4>
+              <h4><TeamLogo team={teams[side]} side={side} size={22} />{teams[side].name}<Manager team={teams[side]} /></h4>
               {named.length ? <ul>{named.map(row => <SwingRow key={row.id} row={row} />)}</ul>
                 : <p className="fx-small">Everyone close to expected.</p>}
               {!!rest.length && (
