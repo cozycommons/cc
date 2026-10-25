@@ -119,9 +119,51 @@ def weighted_shares(amount, weights):
     return shares
 
 
+def obligations_for(row):
+    from venmo.obligations import reconcile
+    return reconcile(row['data'].get('obligations', []), transfers(balances(row['data'])),
+                     {'kind': 'trip', 'id': row['id']}, row['revision'], row['updated_at'])
+
+
+def obligation_command(row, user_id, action, payload):
+    from venmo.obligations import transition, reconcile
+    items = obligations_for(row)
+    item = next((item for item in items if item['id'] == payload['id']), None)
+    if item is None:
+        raise LedgerError('This payment changed. Refresh to see the latest amounts.', 409)
+    cycle = item.get('cycle', 0)
+    expected = payload.get('cycle', cycle)
+    if expected != cycle:
+        if action == 'undo' and item['status'] == 'open' and expected + 1 == cycle:
+            return deepcopy(row), None
+        raise LedgerError('This payment changed. Refresh before marking it again.', 409)
+    actor = next((m['id'] for m in row['data']['members'] if m.get('user_id') == user_id), None)
+    try:
+        changed = transition(item, action, actor, timestamp=now())
+    except ValueError as error:
+        raise LedgerError(str(error), 422)
+    if action == 'settle' and item['status'] == 'open':
+        result, _ = apply_command(row, user_id, 'add_repayment', {
+            'id': item['id'], 'from_member': item['from_member'], 'to_member': item['to_member'],
+            'amount_minor': item['amount_minor'], 'date': now()[:10], 'notes': item['reference'], 'revision': row['revision']})
+    elif action == 'undo' and item['status'] == 'settled':
+        result, _ = apply_command(row, user_id, 'delete_repayment', {'id': item['id'], 'revision': row['revision']})
+    elif action == 'nudge':
+        result = deepcopy(row)
+        result['revision'] += 1
+        result['updated_at'] = now()
+    else:
+        return deepcopy(row), None  # Repeated taps and lost-response retries are idempotent.
+    items = [changed if current['id'] == changed['id'] else current for current in items]
+    result['data']['obligations'] = reconcile(items, transfers(balances(result['data'])),
+        {'kind': 'trip', 'id': row['id']}, result['revision'], result['updated_at'])
+    return result, None
+
+
 def public_group(row):
     data = deepcopy(row['data'])
     data.pop('account_links', None)
+    data['obligations'] = obligations_for(row)
     for member in data['members']:
         member.pop('invite_hash', None)
     amounts = balances(data)
@@ -179,10 +221,13 @@ def require_member(row, user_id):
 def apply_command(row, user_id, command, payload):
     """Return a complete revision to save with compare-and-swap. Never mutate input."""
     require_member(row, user_id)
-    if command not in CREATES and payload['revision'] != row['revision']:
+    if command not in CREATES and not command.startswith('obligation_') and payload['revision'] != row['revision']:
         raise LedgerError('Someone changed this trip. Refresh, review the changes, and try again.', 409)
+    if command.startswith('obligation_'):
+        return obligation_command(row, user_id, command.removeprefix('obligation_'), payload)
     result = deepcopy(row)
     data = result['data']
+    data['obligations'] = obligations_for(row)
     members = {member['id']: member for member in data['members']}
     timestamp = now()
     invite_token = None
@@ -346,6 +391,9 @@ def apply_command(row, user_id, command, payload):
         if not repayment:
             raise LedgerError('Repayment not found.', 404)
         data['repayments'].remove(repayment)
+        for obligation in data.get('obligations', []):
+            if obligation['id'] == repayment['id']:
+                obligation.update(status='open', settled_at=None, settled_by=None, cycle=obligation.get('cycle', 0) + 1)
         summary = (f"Removed repayment from {members[repayment['from_member']]['name']} "
                    f"to {members[repayment['to_member']]['name']}")
         entry = {'kind': command, 'item_id': repayment['id'], 'amount_minor': repayment['amount_minor']}
@@ -379,6 +427,7 @@ def apply_command(row, user_id, command, payload):
                         + data['activity'])[:100]
     result['revision'] += 1
     result['updated_at'] = timestamp
+    data['obligations'] = obligations_for(result)
     return result, invite_token
 
 

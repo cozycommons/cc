@@ -176,7 +176,7 @@ def already_restored(row, expense_id):
 
 def command(request, trip_id, user, kind, payload):
     # Creates are independent of other changes: when another write lands first, reread and add on top of it.
-    attempts = 5 if kind in CREATES else 1
+    attempts = 5 if kind in CREATES or kind.startswith('obligation_') else 1
     try:
         for attempt in range(attempts):
             before = read_row(request, trip_id)
@@ -470,3 +470,12 @@ def add_repayment(trip_id: UUID, payload: Repayment, request: Request, user=Depe
 @router.delete('/groups/{trip_id}/repayments/{repayment_id}')
 def delete_repayment(trip_id: UUID, repayment_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'delete_repayment', {**payload.model_dump(), 'id': str(repayment_id)})
+
+
+class ObligationAction(Input):
+    cycle: Annotated[int, Field(strict=True, ge=0)]
+
+
+@router.post('/groups/{trip_id}/obligations/{obligation_id}/{action}')
+def change_obligation(trip_id: UUID, obligation_id: UUID, action: Literal['settle', 'undo', 'nudge'], payload: ObligationAction, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'obligation_' + action, {'id': str(obligation_id), 'cycle': payload.cycle})
