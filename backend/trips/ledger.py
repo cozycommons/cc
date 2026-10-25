@@ -136,15 +136,17 @@ def obligation_command(row, user_id, action, payload):
     cycle = item.get('cycle', 0)
     expected = payload.get('cycle', cycle)
     if expected != cycle:
-        if action == 'undo' and item['status'] == 'open' and expected + 1 == cycle:
+        if action == 'undo' and item['status'] in ('open', 'replaced') and expected + 1 == cycle:
             return deepcopy(row), None
         raise LedgerError('This payment changed. Refresh before marking it again.', 409)
+    if item['status'] == 'replaced' and action != 'settle':
+        raise LedgerError('This payment changed.', 409)
     actor = next((m['id'] for m in row['data']['members'] if m.get('user_id') == user_id), None)
     try:
         changed = transition(item, action, actor, timestamp=now())
     except ValueError as error:
         raise LedgerError(str(error), 422)
-    if action == 'settle' and item['status'] == 'open':
+    if action == 'settle' and item['status'] in ('open', 'replaced'):
         result, _ = apply_command(row, user_id, 'add_repayment', {
             'id': item['id'], 'from_member': item['from_member'], 'to_member': item['to_member'],
             'amount_minor': item['amount_minor'], 'date': now()[:10], 'notes': item['reference'], 'revision': row['revision']})
