@@ -29,6 +29,17 @@ describe('cleanSnapshot', () => {
     expect(cleanSnapshot(raw).matchups[0].unavailable).toBe(true);
   });
 
+  it('orders intraday odds by capture time and rejects bad timestamps', () => {
+    const snap = copy();
+    snap.matchups[0].odds_history = [
+      { date: '2026-10-23', chance: 60, at: '2026-10-23T22:00:00Z' },
+      { date: '2026-10-23', chance: 40, at: '2026-10-23T18:00:00Z' },
+    ];
+    expect(cleanSnapshot(snap).matchups[0].odds_history.map(p => p.chance)).toEqual([40, 60]);
+    snap.matchups[0].odds_history[0].at = 'soon';
+    expect(cleanSnapshot(snap).matchups[0].unavailable).toBe(true);
+  });
+
   it('still renders older public-v1 snapshots', () => {
     const v1 = { version: 'public-v1', generated_at: 'x', matchup: { id: 1, ends: '2026-10-25' }, label: '',
       matchups: [{ home: { name: 'A' }, away: { name: 'B' }, scores: [1, 2], projected_totals: [3, 4], chance: 40,

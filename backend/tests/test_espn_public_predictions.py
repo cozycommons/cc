@@ -256,9 +256,11 @@ def test_extra_fields_forbidden_at_every_level(client, path, key):
     (["matchups", 0, "days", 0, "games"], [1.5, 2]),
     (["matchups", 0, "days", 0, "games"], [True, 2]),
     (["matchups", 0, "odds_history", 0, "chance"], 101),
+    (["matchups", 0, "odds_history", 0, "at"], 1761300000),
+    (["matchups", 0, "odds_history", 0, "at"], "2026-10-24T10:00:00"),
     (["matchups"], SNAPSHOT["matchups"] * 21),
     (["matchups", 0, "days"], SNAPSHOT["matchups"][0]["days"] * 15),
-    (["matchups", 0, "odds_history"], SNAPSHOT["matchups"][0]["odds_history"] * 31),
+    (["matchups", 0, "odds_history"], SNAPSHOT["matchups"][0]["odds_history"] * 201),
 ])
 def test_invalid_values_and_bounds(client, path, value):
     body = copy.deepcopy(SNAPSHOT)
@@ -310,6 +312,14 @@ def test_valid_boundaries(client):
     entry["odds_history"][0]["chance"] = 100
     entry["odds_history"] *= 30
     body["matchups"] *= 20
+    assert client.post(PATH, json=body, headers=AUTH).status_code == 200
+
+
+def test_intraday_odds_points_carry_their_capture_time(client):
+    body = copy.deepcopy(SNAPSHOT)
+    body["matchups"][0]["odds_history"] = [
+        {"date": "2026-10-22", "chance": 50, "at": f"2026-10-22T{hour % 24:02d}:00:00Z"} for hour in range(200)
+    ]
     assert client.post(PATH, json=body, headers=AUTH).status_code == 200
 
 

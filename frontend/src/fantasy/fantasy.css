@@ -171,3 +171,4 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 .fx-swing--cold b{background:#f6e3dc;color:#a1442b}
 .fx-swing--hot b{background:#e1eee0;color:#3f7d4e}
 .fx-fold summary{min-height:36px;display:flex;align-items:center;cursor:pointer;font-size:13px;color:#75695b}
+.fx-trend--wide svg{width:160px;height:32px}

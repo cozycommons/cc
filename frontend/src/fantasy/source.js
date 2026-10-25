@@ -21,6 +21,11 @@ function day(value) {
   return (value.actual === null || numbers(value.actual, true)) && numbers(value.expected, open) && numbers(value.games, open) && players;
 }
 
+// Intraday points carry their capture time; daily points sit at noon local time.
+const oddsHistory = points => points
+  .map(point => ({ ...point, time: point.at ? Date.parse(point.at) : Date.parse(`${point.date}T12:00:00`) }))
+  .sort((a, b) => a.time - b.time);
+
 function matchup(value, teams) {
   const home = teams.get(value?.home), away = teams.get(value?.away);
   if (!home || !away) return null;
@@ -28,8 +33,9 @@ function matchup(value, teams) {
   const ok = !value.unavailable && numbers(value.scores) && numbers(value.projected_totals) && pct(value.chance)
     && Array.isArray(value.days) && value.days.every(day)
     && value.days.every((d, i) => i === 0 || d.date > value.days[i - 1].date)
-    && (value.odds_history ?? []).every(point => typeof point?.date === 'string' && pct(point.chance));
-  return ok ? { ...value, ...base, odds_history: value.odds_history ?? [] } : { ...base, unavailable: true };
+    && (value.odds_history ?? []).every(point => typeof point?.date === 'string' && pct(point.chance)
+      && (point.at === undefined || Number.isFinite(Date.parse(point.at))));
+  return ok ? { ...value, ...base, odds_history: oddsHistory(value.odds_history ?? []) } : { ...base, unavailable: true };
 }
 
 function season(value, teams) {
