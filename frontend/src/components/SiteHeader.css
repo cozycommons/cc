@@ -22,14 +22,14 @@
 .cc-sitebar-icon[aria-expanded=true] { border-color: var(--line); background: var(--paper-light); color: var(--espresso); }
 .cc-sitebar-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 
-/* Mascot idles: a slow blink every 6s and a drifting z. Opacity and a 1-2px nudge only,
-   so they stay on under reduced motion by design. */
-.cc-mascot--animated .cc-mascot-eyes { animation: cc-mascot-open 6s step-end infinite; }
+/* Mascot idles: closed lids flash over the eyes every 6s and the z drifts. Opacity and a 1px
+   nudge only, so they stay on under reduced motion by design. */
 .cc-mascot--animated .cc-mascot-blink { opacity: 0; animation: cc-mascot-shut 6s step-end infinite; }
-.cc-mascot--animated .cc-mascot-z { animation: cc-mascot-drift 3.6s ease-in-out infinite; }
-@keyframes cc-mascot-open { 0%, 100% { opacity: 1; } 94% { opacity: 0; } 97% { opacity: 1; } }
+.cc-mascot--animated .cc-mascot-z { animation: cc-mascot-fade 3.6s ease-in-out infinite, cc-mascot-rise 3.6s step-end infinite; }
 @keyframes cc-mascot-shut { 0%, 100% { opacity: 0; } 94% { opacity: 1; } 97% { opacity: 0; } }
-@keyframes cc-mascot-drift { 0%, 100% { opacity: .9; transform: translate(0, 0); } 50% { opacity: .45; transform: translate(1px, -1px); } }
+@keyframes cc-mascot-fade { 0%, 100% { opacity: .9; } 50% { opacity: .45; } }
+/* Whole-pixel hops keep the z crisp; an eased sub-pixel slide would blur it. */
+@keyframes cc-mascot-rise { 0%, 90%, 100% { transform: translate(0, 0); } 40% { transform: translate(1px, -1px); } }
 
 @media (prefers-reduced-motion: reduce) { .cc-sitebar-logo { transition: none; } }
 
@@ -43,7 +43,6 @@
 /* Keep the warm lockup legible when the browser requests a dark surface. */
 @media (prefers-color-scheme: dark) {
   .cc-sitebar { --ink: #f2eadb; --ink-soft: #d6c5a7; --espresso: #f2eadb; --line: #6f6256; --paper-light: #473328; background: #2d2422; padding-inline: 12px; border-radius: var(--radius-small); box-sizing: border-box; }
-  .cc-sitebar .cc-mascot-z { fill: #f0c477; }
 }
 .jk-dice .cc-sitebar { width: 100%; }
 
