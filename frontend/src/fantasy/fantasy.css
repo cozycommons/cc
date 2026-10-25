@@ -369,3 +369,4 @@ body:has(.fx-page){background:var(--paper-light)}
 .fx-skeleton-chart{height:128px}
 .fx-logo--lazy{position:relative;overflow:hidden}
 .fx-logo--lazy img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;background:#fff}
+.fx-section-head>.fx-loading{width:180px;box-sizing:border-box}
