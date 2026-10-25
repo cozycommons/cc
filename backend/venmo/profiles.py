@@ -68,7 +68,15 @@ def parse_layers(html, handle):
     parser.feed(html)
     failures = {}
     try:
-        user = json.loads(parser.next_data)['props']['pageProps']['user']
+        user = json.loads(parser.next_data)
+        path = []
+        for key in ('props', 'pageProps', 'user'):
+            path.append(key)
+            if not isinstance(user, dict) or key not in user:
+                raise ValueError('.'.join(path) + ' missing/mistyped')
+            user = user[key]
+        if not isinstance(user, dict):
+            raise ValueError('props.pageProps.user mistyped')
         return {**validate_user(user, handle), 'source': 'live'}, failures
     except (ValueError, KeyError, TypeError) as error:
         failures['next'] = str(error) if isinstance(error, KeyError) else 'invalid JSON or user fields' if isinstance(error, json.JSONDecodeError) else str(error)

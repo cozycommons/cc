@@ -134,3 +134,10 @@ def test_signed_thumbnail_paths_are_scoped_and_expire(monkeypatch):
     assert not photo_auth.authorized(**{**params, 'sig': 'invalid'})
     now[0] += 301
     assert not photo_auth.authorized(**params)
+
+
+@pytest.mark.parametrize('data,key', [({}, 'props'), ({'props': []}, 'props.pageProps'), ({'props': {'pageProps': {}}}, 'props.pageProps.user'), ({'props': {'pageProps': {'user': []}}}, 'props.pageProps.user')])
+def test_parser_names_missing_or_mistyped_paths(data, key):
+    profile, failures = profiles.parse_layers('<script id="__NEXT_DATA__">' + json.dumps(data) + '</script>', 'alex-rivera')
+    assert profile is None
+    assert key in failures['next']

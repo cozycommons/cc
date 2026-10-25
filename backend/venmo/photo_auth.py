@@ -1,11 +1,12 @@
 """Short-lived, handle-scoped thumbnail authorization for browser image requests."""
 import hashlib
 import hmac
+import os
 import secrets
 import time
 from urllib.parse import urlencode
 
-KEY = secrets.token_bytes(32)
+KEY = (os.getenv('VENMO_PHOTO_SIGNING_KEY') or os.getenv('SUPABASE_SERVICE_KEY') or secrets.token_hex(32)).encode()
 
 
 def signature(handle, user, expires):
