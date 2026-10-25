@@ -18,7 +18,7 @@ def test_derivation_settle_undo_and_both_party_idempotence():
     row = owing_trip()
     original = balances(row['data'])
     item = next(o for o in obligations_for(row) if o['from_member'] == row['data']['members'][1]['id'])
-    payload = {'id': item['id']}
+    payload = {'id': item['id'], 'amount_minor': item['amount_minor']}
     settled, _ = apply_command(row, 'alex', 'obligation_settle', payload)
     assert len(settled['data']['repayments']) == 1
     assert next(o for o in obligations_for(settled) if o['id'] == item['id'])['status'] == 'settled'
@@ -37,7 +37,7 @@ def test_stale_suggestion_never_settles_wrong_amount_and_third_party_cannot_sett
     item = obligations_for(row)[0]
     changed, _ = apply_command(row, 'matt', 'add_expense', expense(row, amount=6000))
     with pytest.raises(LedgerError):
-        apply_command(changed, 'matt', 'obligation_settle', {'id': item['id']})
+        apply_command(changed, 'matt', 'obligation_settle', {'id': item['id'], 'amount_minor': item['amount_minor']})
     other = next(o for o in obligations_for(row) if o['from_member'] != row['data']['members'][1]['id'])
     with pytest.raises(LedgerError):
         apply_command(row, 'alex', 'obligation_settle', {'id': other['id']})
@@ -61,7 +61,7 @@ def test_nudge_age_and_48h_rate_limit():
 def test_delayed_settle_retry_after_undo_cannot_settle_again():
     row = owing_trip()
     item = obligations_for(row)[0]
-    payload = {'id': item['id'], 'cycle': 0}
+    payload = {'id': item['id'], 'cycle': 0, 'amount_minor': item['amount_minor']}
     settled, _ = apply_command(row, 'matt', 'obligation_settle', payload)
     undone, _ = apply_command(settled, 'matt', 'obligation_undo', payload)
     with pytest.raises(LedgerError):
@@ -74,7 +74,7 @@ def test_third_member_cannot_delete_obligation_repayment_through_legacy_command(
     row['data']['members'][2]['user_id'] = 'jamie'
     row['member_user_ids'].append('jamie')
     item = next(o for o in obligations_for(row) if o['from_member'] == row['data']['members'][1]['id'])
-    settled, _ = apply_command(row, 'alex', 'obligation_settle', {'id': item['id']})
+    settled, _ = apply_command(row, 'alex', 'obligation_settle', {'id': item['id'], 'amount_minor': item['amount_minor']})
     before = deepcopy(settled)
     with pytest.raises(LedgerError) as error:
         apply_command(settled, 'jamie', 'delete_repayment', {'id': item['id'], 'revision': settled['revision']})
@@ -84,3 +84,14 @@ def test_third_member_cannot_delete_obligation_repayment_through_legacy_command(
         undone, _ = apply_command(settled, party, 'delete_repayment', {'id': item['id'], 'revision': settled['revision']})
         assert not undone['data']['repayments']
         assert balances(undone['data']) == balances(row['data'])
+
+
+@pytest.mark.parametrize('amount', [None, 1, 5678])
+def test_settle_rejects_missing_or_mismatched_amount(amount):
+    row = owing_trip()
+    item = obligations_for(row)[0]
+    before = deepcopy(row)
+    with pytest.raises(LedgerError) as error:
+        apply_command(row, 'matt', 'obligation_settle', {'id': item['id'], 'cycle': 0, 'amount_minor': amount})
+    assert error.value.status == 409
+    assert row == before and not row['data']['repayments']
