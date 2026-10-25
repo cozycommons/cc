@@ -1,12 +1,14 @@
 """Suggest and confirm public team links using Cozy's existing Dice identity."""
 
 import os
+import re
 import time
 import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime
 from difflib import SequenceMatcher
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from postgrest.exceptions import APIError
@@ -238,3 +240,51 @@ def delete_claim(season: int, team_id: int, request: Request,
         raise HTTPException(status_code=403, detail="claim_owner_required")
     db.table("espn_team_claims").delete().eq("id", claim["id"]).execute()
     return {"season": season, "team_id": team_id}
+
+
+# Server-only; never part of a snapshot or a public response. Unset hides league links.
+LEAGUE_ID_ENV = "ESPN_FANTASY_LEAGUE_ID"
+ESPN_FANTASY = "https://fantasy.espn.com/basketball"
+
+
+def _league_id():
+    value = os.getenv(LEAGUE_ID_ENV, "").strip()
+    return value if re.fullmatch(r"\d{1,12}", value) else None
+
+
+def league_links(league_id, season, team_id, matchup_id, matchups):
+    """ESPN URLs for one claimed team; matchups are (home, away) team ID pairs."""
+    def url(path, **params):
+        return f"{ESPN_FANTASY}/{path}?{urlencode({'leagueId': league_id, **params})}"
+
+    team = {"teamId": team_id, "seasonId": season}
+    return {
+        "team": url("team", **team),
+        "lineup": url("team", **team, statSplit="singleScoringPeriod"),
+        "free_agents": url("players/add", **team),
+        "matchups": {
+            str(home): url("boxscore", matchupPeriodId=matchup_id, seasonId=season, teamId=home)
+            for home, _ in matchups
+        } if matchup_id is not None else {},
+    }
+
+
+@router.get("/claims/links")
+def claim_links(request: Request, response: Response,
+                auth: AuthedUser = Depends(require_authenticated_user)):
+    response.headers["Cache-Control"] = "private, no-store"
+    db = request.app.state.supabase
+    snapshot = _latest_snapshot(db)
+    season = _season(snapshot)
+    mine = next((claim for claim in (_claims(db, season) if season is not None else [])
+                 if claim["user_id"] == auth.user_id), None)
+    if mine is None:
+        raise HTTPException(status_code=403, detail="claim_required")
+    league_id = _league_id()
+    if league_id is None:
+        raise HTTPException(status_code=404, detail="league_links_unavailable")
+    pairs = [(m["home"], m["away"]) for m in snapshot.get("matchups", [])
+             if isinstance(m.get("home"), int) and isinstance(m.get("away"), int)]
+    matchup_id = (snapshot.get("matchup") or {}).get("id")
+    return {"season": season, "team_id": mine["team_id"],
+            **league_links(league_id, season, mine["team_id"], matchup_id, pairs)}

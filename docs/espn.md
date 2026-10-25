@@ -178,6 +178,16 @@ it. Migration `0010_beli_espn_team_claims.sql` advances the Beli schema
 contract to 10 and installs the service-only table and atomic claim function
 through the normal release step.
 
+`GET /espn/claims/links` returns ESPN links for the signed-in user's claimed
+team in the latest season: `team`, `lineup`, `free_agents`, and `matchups`
+(boxscore links keyed by each current matchup's home team ID). It needs Cozy
+auth (401) and a confirmed claim (403 `claim_required`), and is never cached
+(`Cache-Control: private, no-store`). The league ID comes only from the
+server's `ESPN_FANTASY_LEAGUE_ID` environment variable (digits); it never
+appears in snapshots or public responses. Unset or invalid returns 404
+`league_links_unavailable` and the page hides those links. Player links on
+`/fantasy` use public ESPN player pages and need no league ID.
+
 Migration `0011_beli_espn_seed_team_claims.sql` pre-links the 2026-27 managers
 who already had Dice profiles (10 of 12, matched on the ESPN owner's full name).
 It only inserts for users that exist and never replaces an existing link; those
@@ -204,3 +214,7 @@ The same operations are available as MCP tools at `/espn/mcp` — pass your
 token as the `api_token` argument.
 
 Observed-day players may carry an optional `acquired` field: `{"how":"draft","round":11,"pick":130}`, `{"how":"add"}`, `{"how":"trade"}`, or null. The fantasy page uses it to tag this week's outperformers (players furthest above their expected points on finished days).
+
+ESPN link UI captures use the synthetic public-v2 fixture:
+[390px phone](images/espn-links/phone-390.png) ·
+[1440px desktop](images/espn-links/desktop-1440.png).

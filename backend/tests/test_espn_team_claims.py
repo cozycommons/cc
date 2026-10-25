@@ -423,3 +423,73 @@ def test_fallback_fetch_validates_caches_and_fails_closed(monkeypatch):
     monkeypatch.setitem(team_claims._fallback_cache, "at", None)
     body = b'{"version": "public-v2", "player_name": "x"}'
     assert team_claims._fallback_snapshot() is None
+
+
+LEAGUE_ID = "918273645"
+
+
+def with_matchups(db):
+    payload = db.tables["espn_public_predictions"][0]["payload"]
+    payload.update(matchup={"id": 5, "ends": "2026-10-25"},
+                   matchups=[{"home": 1, "away": 2}, {"home": 3, "away": 4}])
+
+
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer invalid"}])
+def test_league_links_require_cozy_auth(client, monkeypatch, headers):
+    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    client.app.state.supabase.add_claim(1)
+    response = client.get("/espn/claims/links", headers=headers)
+    assert response.status_code in (401, 403) and LEAGUE_ID not in response.text
+
+
+def test_league_links_require_a_confirmed_claim(client, monkeypatch):
+    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    db = client.app.state.supabase
+    db.add_claim(2, "other-id")
+    db.add_claim(1, season=2026)  # last season's claim doesn't count
+    response = client.get("/espn/claims/links", headers=AUTH)
+    assert response.status_code == 403 and response.json()["detail"] == "claim_required"
+    assert LEAGUE_ID not in response.text
+
+
+def test_league_links_for_the_claimed_team(client, monkeypatch):
+    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    db = client.app.state.supabase
+    with_matchups(db)
+    db.add_claim(3)
+    response = client.get("/espn/claims/links", headers=AUTH)
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    body = response.json()
+    base = "https://fantasy.espn.com/basketball"
+    assert body == {
+        "season": 2027, "team_id": 3,
+        "team": f"{base}/team?leagueId={LEAGUE_ID}&teamId=3&seasonId=2027",
+        "lineup": f"{base}/team?leagueId={LEAGUE_ID}&teamId=3&seasonId=2027&statSplit=singleScoringPeriod",
+        "free_agents": f"{base}/players/add?leagueId={LEAGUE_ID}&teamId=3&seasonId=2027",
+        "matchups": {
+            "1": f"{base}/boxscore?leagueId={LEAGUE_ID}&matchupPeriodId=5&seasonId=2027&teamId=1",
+            "3": f"{base}/boxscore?leagueId={LEAGUE_ID}&matchupPeriodId=5&seasonId=2027&teamId=3",
+        },
+    }
+
+
+@pytest.mark.parametrize("value", [None, "", "abc", "12&teamId=9", "1" * 13])
+def test_league_links_hide_without_a_valid_league_id(client, monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv(team_claims.LEAGUE_ID_ENV, raising=False)
+    else:
+        monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, value)
+    client.app.state.supabase.add_claim(1)
+    response = client.get("/espn/claims/links", headers=AUTH)
+    assert response.status_code == 404 and response.json()["detail"] == "league_links_unavailable"
+
+
+def test_league_id_stays_out_of_public_and_claim_responses(client, monkeypatch):
+    monkeypatch.setenv(team_claims.LEAGUE_ID_ENV, LEAGUE_ID)
+    db = client.app.state.supabase
+    with_matchups(db)
+    db.add_claim(1)
+    for path in ("/espn/public/claims", "/espn/public/claims?season=2027", "/espn/claims/suggestions"):
+        response = client.get(path, headers=AUTH)
+        assert response.status_code == 200 and LEAGUE_ID not in response.text
