@@ -27,6 +27,32 @@ Moves are lineup slot moves only (plus IR activation / parking when
 needed for a legal lineup). Adds, drops, trades and waiver claims are
 out of scope and have no code path here.
 
+Player locks are PER-PLAYER on ESPN: a player locks at his own game's
+tip-off and cannot be moved afterwards, while every teammate whose
+game has not started stays movable. ESPN validates a multi-item
+transaction atomically, so one locked player in a batch rejects the
+WHOLE transaction (live, 2026-10-24: the evening pass lost all 5
+moves to a 409 "Naz Reid is locked", including an unrelated bench
+player's start). The runner therefore pre-filters moves for players
+whose game has already tipped — tip-offs come from the pro-games
+block, or the scoreboard in the fallback path — and records each
+exclusion in the plan's ``locked_skips`` (kind ``player_locked``):
+never a conflict, never a run failure. As a safety net for a game
+tipping between plan and submit, a 409 that names a locked player is
+answered by dropping that player's moves and retrying the rest
+(bounded: each retry removes at least one player's moves).
+
+The roster cap is a second legality the planner itself must respect:
+ESPN counts only ACTIVE players (starters + bench) against the
+roster maximum — the IR slot is extra. Activating an IR player while
+the active roster is already at the cap, with no OUT / IR-eligible
+player able to take his IR spot, yields a final state ESPN rejects
+outright (live, 2026-10-24 morning: 409 "Too many players on roster
+(maximum 13)", 0 of 8 moves applied). No item ordering fixes an
+illegal final state, so the planner pins such a player to IR: he
+sits, recorded as a ``roster_cap`` conflict, and the rest of the
+lineup is still set.
+
 Every run — live, dry-run, or failed — is persisted to
 ``espn_lineup_runs`` with its plan, submitted moves, conflicts and
 error. An ESPN auth failure (expired cookies) is recorded as an
@@ -71,6 +97,7 @@ this fallback is unreachable.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -139,6 +166,40 @@ def pro_teams_playing(payload: dict, scoring_period_id: int):
             if isinstance(value, int):
                 playing.add(value)
     return playing
+
+
+def pro_team_tipoffs(payload: dict, scoring_period_id: int):
+    """{pro team id: earliest tip-off datetime} for the period.
+
+    Reads the same ``proGamesByScoringPeriod`` block as
+    :func:`pro_teams_playing`; each game carries its tip-off as an
+    epoch-ms ``date``. Returns None when the block is absent entirely
+    (callers fall back to the scoreboard), and an empty dict when the
+    block exists but publishes no dates — no lock information, which
+    the caller treats as "nothing known to be locked" and leaves to
+    the 409 retry safety net.
+    """
+    block = payload.get("proGamesByScoringPeriod")
+    if not isinstance(block, dict):
+        return None
+    games = block.get(str(scoring_period_id))
+    if games is None:
+        games = block.get(scoring_period_id)
+    tipoffs: dict[int, datetime] = {}
+    for game in games or []:
+        if not isinstance(game, dict):
+            continue
+        raw = game.get("date")
+        if not isinstance(raw, (int, float)):
+            continue
+        moment = datetime.fromtimestamp(raw / 1000, tz=timezone.utc)
+        for key in ("homeProTeamId", "awayProTeamId", "proTeamId"):
+            value = game.get(key)
+            if isinstance(value, int) and (
+                value not in tipoffs or moment < tipoffs[value]
+            ):
+                tipoffs[value] = moment
+    return tipoffs
 
 
 def _period_date_map(payload: dict) -> dict:
@@ -387,6 +448,43 @@ def _schedule_gate(scoreboard_teams, projected_teams):
     return passed, detail
 
 
+def _scoreboard_tipoffs(scoreboard, target_date):
+    """{str(pro team id): ISO tip-off} for schedule_info, or None.
+
+    Duck-typed like the kona getter: a scoreboard without tip-off
+    support (older fakes) simply yields None, and the runner then has
+    no pre-filter lock source in the fallback path — the 409 retry
+    net still guards the write.
+
+Excluding a locked player's own move is not always enough: when he
+is STAYING in a slot the plan wanted to vacate, another player's move
+INTO that slot would overfill it in the final state — ESPN validates
+the batch atomically, so that is the same batch-killing 409 wearing
+a different message (live, 2026-10-24, minutes after the first fix
+deployed: Reid correctly skipped at C, but Jokic's move into C was
+still submitted and the run died on "Too many players in the C slot
+(maximum 1)"). The runner therefore reconciles occupancy after the
+own-move exclusions: any move whose target slot would end over its
+count ONLY because a locked player is staying put is excluded too,
+recorded as a ``player_locked`` skip with source ``blocked_by_lock``
+naming the blocker. Overflows the plan itself sanctions (bench/IR
+capacity fallbacks) are not lock-caused and are left alone.
+    """
+    getter = getattr(scoreboard, "team_tipoffs_on", None)
+    if getter is None:
+        return None
+    try:
+        tipoffs = getter(target_date)
+    except EspnError:
+        return None
+    if not tipoffs:
+        return None
+    return {
+        str(team_id): moment.isoformat()
+        for team_id, moment in tipoffs.items()
+    }
+
+
 def _resolve_period_via_scoreboard(
     client, base, season, target_date, scoreboard
 ):
@@ -477,6 +575,9 @@ def _resolve_period_via_scoreboard(
                 "candidates_tried": tried,
                 "gate": detail,
             }
+            tipoffs = _scoreboard_tipoffs(scoreboard, target_date)
+            if tipoffs is not None:
+                info["team_tipoffs"] = tipoffs
             return candidate, scoped, playing, info
     if anchor_scoped is not None and not any_projected and checks_complete:
         # No projection data exists anywhere: the gate cannot verify
@@ -499,6 +600,9 @@ def _resolve_period_via_scoreboard(
                 "days_since_season_start": (target_date - d0).days,
             },
         }
+        tipoffs = _scoreboard_tipoffs(scoreboard, target_date)
+        if tipoffs is not None:
+            info["team_tipoffs"] = tipoffs
         return anchor, anchor_scoped, playing, info
     raise ValueError(
         "schedule gate: no scoring period near the anchor "
@@ -562,12 +666,15 @@ def _scoreboard_fallback_playing(
     detail["p_source"] = p_source
     if kona_note is not None:
         detail["p_note"] = kona_note
+    tipoffs = _scoreboard_tipoffs(scoreboard, target_date)
     if passed:
         info = {
             "source": "scoreboard",
             "target_date": target_date.isoformat(),
             "gate": detail,
         }
+        if tipoffs is not None:
+            info["team_tipoffs"] = tipoffs
         return playing, info
     if not projected and playing and kona_note is None:
         # Both sources were checked and neither publishes any
@@ -578,6 +685,8 @@ def _scoreboard_fallback_playing(
             "gate": "unverifiable_no_projection_data",
             "gate_detail": detail,
         }
+        if tipoffs is not None:
+            info["team_tipoffs"] = tipoffs
         return playing, info
     raise ValueError(
         f"schedule gate: projected teams for scoring period {period} "
@@ -785,7 +894,38 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
         (p for p in players if p["scheduled"]),
         key=lambda p: (-p["value"], p["player_id"]),
     )
-    assignment = _match_scheduled(scheduled, instances)
+
+    # Roster-cap legality: ESPN counts ACTIVE players (starters +
+    # bench) against the roster maximum; the IR slot is extra, so at
+    # least ``min_on_ir`` players must END on IR. The only players who
+    # can legally be there are current IR occupants and OUT /
+    # IR-eligible players. When releasing a scheduled IR occupant
+    # would leave fewer than ``min_on_ir`` of them behind, his
+    # activation makes the final state illegal and ESPN rejects the
+    # whole transaction (the 2026-10-24 morning 409) — so he is
+    # pinned to IR before matching: he sits (a roster_cap conflict
+    # below) and the planner optimizes the rest without him. Release
+    # capacity is spent on the highest-value scheduled occupants
+    # first, consistent with the PPG policy.
+    active_cap = sum(counts.values()) - counts.get(IR_SLOT, 0)
+    min_on_ir = max(0, len(players) - active_cap)
+    ir_pinned: set = set()
+    if min_on_ir > 0:
+        ir_capable = [
+            p
+            for p in players
+            if p["current_slot"] == IR_SLOT
+            or (p["out"] and IR_SLOT in p["eligible_slots"])
+        ]
+        releasable = max(0, len(ir_capable) - min_on_ir)
+        candidates = sorted(
+            (p for p in ir_capable if p["scheduled"]),
+            key=lambda p: (-p["value"], p["player_id"]),
+        )
+        ir_pinned = {p["player_id"] for p in candidates[releasable:]}
+
+    matchable = [p for p in scheduled if p["player_id"] not in ir_pinned]
+    assignment = _match_scheduled(matchable, instances)
     sitters = [p for p in scheduled if p["player_id"] not in assignment]
     # Report sitters deterministically, lowest value first (ties by
     # player id): that is the order a reader scans "who sat, and who
@@ -797,7 +937,7 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
     if sitters:
         kind = (
             "slot_overflow"
-            if len(scheduled) > len(instances)
+            if len(matchable) > len(instances)
             else "eligibility_jam"
         )
         # The value comparison behind each sit decision: the weakest
@@ -811,6 +951,52 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
             else None
         )
         for p in sitters:
+            detail = {
+                "value": p["value"],
+                "value_source": p["value_source"],
+                "eligible_slots": sorted(
+                    set(p["eligible_slots"]) & STARTING_SLOT_IDS
+                ),
+                "scheduled_count": len(scheduled),
+                "starting_slots": len(instances),
+                "on_ir": p["current_slot"] == IR_SLOT,
+                "lowest_starter_value": (
+                    lowest_kept["value"] if lowest_kept else None
+                ),
+                "lowest_starter_value_source": (
+                    lowest_kept["value_source"] if lowest_kept else None
+                ),
+                "lowest_starter_player_id": (
+                    lowest_kept["player_id"] if lowest_kept else None
+                ),
+                "lowest_starter_name": (
+                    lowest_kept["name"] if lowest_kept else None
+                ),
+            }
+            if p["player_id"] in ir_pinned:
+                # Not a value or eligibility loss: the roster cap
+                # forbids his activation outright (see the pinning
+                # above). He stays on IR and scores nothing today.
+                detail["roster_size"] = len(players)
+                detail["active_roster_max"] = active_cap
+                detail["min_on_ir"] = min_on_ir
+                conflicts.append(
+                    {
+                        "kind": "roster_cap",
+                        "scoring_period_id": scoring_period_id,
+                        "player_id": p["player_id"],
+                        "player_name": p["name"],
+                        "reason": (
+                            "scheduled player must sit: he is on IR and "
+                            f"activating him would put {len(players)} "
+                            f"players on the active roster (maximum "
+                            f"{active_cap}); no rostered player is "
+                            "eligible to take the IR slot"
+                        ),
+                        "detail": detail,
+                    }
+                )
+                continue
             conflicts.append(
                 {
                     "kind": kind,
@@ -824,30 +1010,7 @@ def plan_lineup(team: dict, payload: dict, scoring_period_id: int, playing) -> d
                         else "scheduled player must sit: no starting slot he "
                         "is eligible for is available (eligibility jam)"
                     ),
-                    "detail": {
-                        "value": p["value"],
-                        "value_source": p["value_source"],
-                        "eligible_slots": sorted(
-                            set(p["eligible_slots"]) & STARTING_SLOT_IDS
-                        ),
-                        "scheduled_count": len(scheduled),
-                        "starting_slots": len(instances),
-                        "on_ir": p["current_slot"] == IR_SLOT,
-                        "lowest_starter_value": (
-                            lowest_kept["value"] if lowest_kept else None
-                        ),
-                        "lowest_starter_value_source": (
-                            lowest_kept["value_source"]
-                            if lowest_kept
-                            else None
-                        ),
-                        "lowest_starter_player_id": (
-                            lowest_kept["player_id"] if lowest_kept else None
-                        ),
-                        "lowest_starter_name": (
-                            lowest_kept["name"] if lowest_kept else None
-                        ),
-                    },
+                    "detail": detail,
                 }
             )
 
@@ -1005,11 +1168,14 @@ def list_runs(supabase, account_id, limit: int = 25,
 # --- the runner ------------------------------------------------------------------
 
 
-def _verify(client, account: dict, plan: dict) -> list:
+def _verify(client, account: dict, plan: dict, skipped_ids=frozenset()) -> list:
     """Re-read the roster FOR THE PLAN'S PERIOD and diff actual slots.
 
     Returns a list of verify_mismatch conflict records (empty = the
-    lineup on ESPN matches the plan exactly).
+    lineup on ESPN matches the plan exactly). Players in
+    ``skipped_ids`` (locked players whose moves were excluded) are
+    expected to still be in their ORIGINAL slot — they were never
+    submitted, so their plan target is not a mismatch.
     """
     payload = (
         client.get_league(
@@ -1025,7 +1191,10 @@ def _verify(client, account: dict, plan: dict) -> list:
     mismatches = []
     for entry in plan.get("players") or []:
         pid = entry["player_id"]
-        if actual.get(pid) != entry["to_slot"]:
+        expected = (
+            entry["from_slot"] if pid in skipped_ids else entry["to_slot"]
+        )
+        if actual.get(pid) != expected:
             mismatches.append(
                 {
                     "kind": "verify_mismatch",
@@ -1034,7 +1203,7 @@ def _verify(client, account: dict, plan: dict) -> list:
                     "player_name": entry.get("name"),
                     "reason": "lineup on ESPN does not match the submitted plan",
                     "detail": {
-                        "expected_slot": entry["to_slot"],
+                        "expected_slot": expected,
                         "actual_slot": actual.get(pid),
                     },
                 }
@@ -1042,9 +1211,239 @@ def _verify(client, account: dict, plan: dict) -> list:
     return mismatches
 
 
+def _locked_players(team, payload, base, period, schedule_info, now):
+    """(locked player ids, {player_id: tip-off}) for one run.
+
+    A player is locked when his pro team's game for the target period
+    has already tipped (tip-off <= now): ESPN freezes him at tip-off
+    and rejects any transaction that tries to move him. Tip-off
+    sources, in order: the period's pro-games block (the scoped
+    payload, then the base payload), then the scoreboard tip-offs the
+    fallback path recorded in ``schedule_info``. With no source at
+    all, nobody is known to be locked and the 409 retry net in
+    :func:`_submit_lineup` is the only guard.
+    """
+    tipoffs = pro_team_tipoffs(payload, period)
+    if tipoffs is None:
+        tipoffs = pro_team_tipoffs(base, period)
+    if tipoffs is None and schedule_info:
+        tipoffs = {}
+        for key, value in (schedule_info.get("team_tipoffs") or {}).items():
+            try:
+                tipoffs[int(key)] = datetime.fromisoformat(value)
+            except (TypeError, ValueError):
+                continue
+    if not tipoffs:
+        return set(), {}
+    locked_teams = {
+        team_id for team_id, moment in tipoffs.items() if moment <= now
+    }
+    if not locked_teams:
+        return set(), {}
+    locked = set()
+    per_player = {}
+    for p in _parse_roster(team):
+        if p["pro_team_id"] in locked_teams:
+            locked.add(p["player_id"])
+            per_player[p["player_id"]] = tipoffs[p["pro_team_id"]]
+    return locked, per_player
+
+
+def _locked_skip(plan_entry: dict, source: str, tipoff) -> dict:
+    """One locked-move exclusion record (plan["locked_skips"]).
+
+    Deliberately NOT a conflict: the player is not sitting on value
+    or eligibility — ESPN froze him when his game tipped, and
+    conflicts count only scheduled players who actually sit.
+    """
+    return {
+        "kind": "player_locked",
+        "player_id": plan_entry["player_id"],
+        "player_name": plan_entry.get("name"),
+        "reason": "player_locked: his game has already started, so "
+        "ESPN no longer allows moving him",
+        "detail": {
+            "from_slot": plan_entry["from_slot"],
+            "to_slot": plan_entry["to_slot"],
+            "tipoff": tipoff.isoformat() if tipoff is not None else None,
+            "source": source,
+        },
+    }
+
+
+def _reconcile_lock_exclusions(plan, locked_ids, tipoffs, counts):
+    """(submittable moves, locked skips) for a plan under per-player locks.
+
+    Step 1 excludes every locked player's own move. Step 2 reconciles
+    slot occupancy: with the excluded players reverted to their
+    current slots, any slot that would end OVER its count — while
+    the plan's own final state respected the count — overflows only
+    because a locked player is staying in it, so the lowest-value
+    inbound move to that slot is excluded as a collateral skip
+    (source ``blocked_by_lock``, naming who is staying in the slot:
+    the locked player, or — in a cascade — an earlier collateral
+    victim whose own exclusion keeps the slot full) and the scan
+    repeats: one exclusion can cascade (a reverted mover can itself
+    overfill the slot it stays in). The loop is bounded by the
+    number of plan moves — each pass excludes one. A slot with no inbound mover left is left as-is:
+    ESPN will 409 and the run records an error, today's residual
+    behaviour for shapes the planner itself produced.
+
+    Skips come back ordered by plan move order, so the run log reads
+    like the plan.
+    """
+    plan_by_id = {p["player_id"]: p for p in plan["players"]}
+    counts = counts or {}
+    excluded: dict = {}
+
+    for move in plan["moves"]:
+        pid = move["playerId"]
+        if pid in locked_ids:
+            excluded[pid] = _locked_skip(
+                plan_by_id[pid], "schedule", tipoffs.get(pid)
+            )
+
+    if excluded:
+        plan_occ = Counter(p["to_slot"] for p in plan["players"])
+
+        def occupancy():
+            return Counter(
+                p["from_slot"] if p["player_id"] in excluded else p["to_slot"]
+                for p in plan["players"]
+            )
+
+        stuck: set = set()
+        while True:
+            occ = occupancy()
+            target_slot = None
+            candidates: list = []
+            for slot in sorted(occ):
+                if slot in stuck or slot not in counts:
+                    continue
+                if occ[slot] <= counts[slot]:
+                    continue
+                if plan_occ.get(slot, 0) > counts[slot]:
+                    continue  # planner-sanctioned, not lock-caused
+                candidates = [
+                    plan_by_id[m["playerId"]]
+                    for m in plan["moves"]
+                    if m["playerId"] not in excluded
+                    and m["playerId"] not in locked_ids
+                    and m["toLineupSlotId"] == slot
+                    and m["fromLineupSlotId"] != slot
+                ]
+                if not candidates:
+                    # Nothing submittable feeds this overflow (e.g. a
+                    # locked bench player simply staying put): leave
+                    # it and keep scanning — another slot may still
+                    # be fixable.
+                    stuck.add(slot)
+                    continue
+                target_slot = slot
+                break
+            if target_slot is None:
+                break
+            victim = min(
+                candidates, key=lambda p: (p["value"], p["player_id"])
+            )
+            blockers = [
+                p
+                for p in plan["players"]
+                if p["from_slot"] == target_slot
+                and (
+                    p["player_id"] in locked_ids
+                    or p["player_id"] in excluded
+                )
+            ]
+            skip = _locked_skip(
+                victim, "blocked_by_lock", tipoffs.get(victim["player_id"])
+            )
+            if blockers:
+                # Name who is staying in the slot: a locked player
+                # when one is there; otherwise an earlier collateral
+                # victim whose own exclusion is what keeps the slot
+                # full (the cascade case — his game has NOT started,
+                # so the reason must not claim it has).
+                locked_blockers = [
+                    p for p in blockers if p["player_id"] in locked_ids
+                ]
+                blocker = min(
+                    locked_blockers or blockers,
+                    key=lambda p: p["player_id"],
+                )
+                skip["detail"]["blocked_by_player_id"] = blocker["player_id"]
+                skip["detail"]["blocked_by_name"] = blocker.get("name")
+                if blocker["player_id"] in locked_ids:
+                    skip["reason"] = (
+                        f"player_locked: {blocker.get('name')} is locked in "
+                        "the slot this move targets, so the move cannot "
+                        "be submitted"
+                    )
+                else:
+                    skip["reason"] = (
+                        f"player_locked: {blocker.get('name')} is staying "
+                        "in the slot this move targets (his own move was "
+                        "lock-excluded), so the move cannot be submitted"
+                    )
+            excluded[victim["player_id"]] = skip
+
+    order = {m["playerId"]: i for i, m in enumerate(plan["moves"])}
+    skips = sorted(
+        excluded.values(), key=lambda s: order.get(s["player_id"], 1 << 30)
+    )
+    to_submit = [m for m in plan["moves"] if m["playerId"] not in excluded]
+    return to_submit, skips
+
+
+def _submit_lineup(client, account, team_id, period, items, plan_by_id):
+    """Submit LINEUP moves, shedding locked players on a 409.
+
+    Returns (response, submitted_items, extra_skips). ESPN validates
+    a transaction atomically and a player can lock between planning
+    and submitting, so a 409 naming a locked player ("<name> is
+    locked") drops only that player's moves and retries the rest —
+    each retry removes at least one player's moves, so there is at
+    most one retry per rostered player. Any other failure (auth
+    included) propagates to the run's normal error handling. When
+    every move is shed, returns (None, [], skips): nothing was
+    written, and that is not an error.
+    """
+    remaining = list(items)
+    extra_skips = []
+    while remaining:
+        try:
+            response = client.post_lineup_transaction(
+                member_id=account["swid"],
+                team_id=team_id,
+                scoring_period_id=period,
+                items=remaining,
+            )
+            return response, remaining, extra_skips
+        except EspnAuthError:
+            raise
+        except EspnError as e:
+            if getattr(e, "status", None) != 409:
+                raise
+            text = str(e)
+            culprit = None
+            for pid, entry in plan_by_id.items():
+                name = entry.get("name")
+                if name and f"{name} is locked" in text:
+                    culprit = pid
+                    break
+            if culprit is None or all(
+                m["playerId"] != culprit for m in remaining
+            ):
+                raise
+            extra_skips.append(_locked_skip(plan_by_id[culprit], "espn_409", None))
+            remaining = [m for m in remaining if m["playerId"] != culprit]
+    return None, [], extra_skips
+
+
 def run_lineup(supabase, account: dict, client, dry_run: bool = False,
                scoring_period_id: int | None = None,
-               date: str | None = None, scoreboard=None) -> dict:
+               date: str | None = None, scoreboard=None,
+               now: datetime | None = None) -> dict:
     """Plan (and, unless dry_run, submit + verify) one day's lineup.
 
     The target day comes from ``scoring_period_id``, or ``date``
@@ -1194,30 +1593,61 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
         run["moves"] = plan["moves"]
         run["conflicts"] = list(plan["conflicts"])
 
+        # Per-player locks (see module docstring): moves for players
+        # whose game has already tipped — and moves that only a
+        # locked player's staying put makes illegal — are excluded
+        # from the submission and recorded in plan["locked_skips"]:
+        # never a conflict, never a run failure. Computed for dry
+        # runs too, as part of the preview; only a live run acts on it.
+        moment = now if now is not None else datetime.now(timezone.utc)
+        locked_ids, tipoffs = _locked_players(
+            team, payload, base, period, schedule_info, moment
+        )
+        plan_by_id = {p["player_id"]: p for p in plan["players"]}
+        to_submit, skips = _reconcile_lock_exclusions(
+            plan, locked_ids, tipoffs, lineup_slot_counts(payload)
+        )
+        plan["locked_skips"] = skips
+
         if dry_run:
             run["status"] = "dry_run"
             return record_run(supabase, run)
 
         if plan["moves"]:
-            response = client.post_lineup_transaction(
-                member_id=account["swid"],
-                team_id=team.get("id"),
-                scoring_period_id=period,
-                items=plan["moves"],
-            )
-            txn_status = response.get("status") if isinstance(response, dict) else None
-            if txn_status not in (None, "EXECUTED"):
-                run["conflicts"].append(
-                    {
-                        "kind": "verify_mismatch",
-                        "scoring_period_id": period,
-                        "player_id": None,
-                        "player_name": None,
-                        "reason": f"ESPN transaction status is {txn_status}",
-                        "detail": {"transaction_status": txn_status},
-                    }
+            response = None
+            submitted: list = []
+            if to_submit:
+                response, submitted, retry_skips = _submit_lineup(
+                    client,
+                    account,
+                    team.get("id"),
+                    period,
+                    to_submit,
+                    plan_by_id,
                 )
-            mismatches = _verify(client, account, plan)
+                if retry_skips:
+                    skips = skips + retry_skips
+                    plan["locked_skips"] = skips
+            run["moves"] = submitted
+            if response is not None:
+                txn_status = (
+                    response.get("status")
+                    if isinstance(response, dict)
+                    else None
+                )
+                if txn_status not in (None, "EXECUTED"):
+                    run["conflicts"].append(
+                        {
+                            "kind": "verify_mismatch",
+                            "scoring_period_id": period,
+                            "player_id": None,
+                            "player_name": None,
+                            "reason": f"ESPN transaction status is {txn_status}",
+                            "detail": {"transaction_status": txn_status},
+                        }
+                    )
+            skipped_ids = {s["player_id"] for s in skips}
+            mismatches = _verify(client, account, plan, skipped_ids)
             run["conflicts"].extend(mismatches)
 
         kinds = {c["kind"] for c in run["conflicts"]}
@@ -1225,7 +1655,7 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
             run["status"] = "verify_mismatch"
         elif run["conflicts"]:
             run["status"] = "conflict"
-        elif plan["moves"]:
+        elif run["moves"]:
             run["status"] = "ok"
         else:
             run["status"] = "noop"

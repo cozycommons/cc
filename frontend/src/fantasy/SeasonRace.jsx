@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Manager, TeamLogo, pct } from './parts.jsx';
-import { seasonStory } from './analysis.js';
+import { seasonRead } from './analysis.js';
 
 const MODES = [['projections', 'Projections only'], ['balanced', 'Balanced'], ['hot', 'Hot hand']];
 const ordinal = n => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
@@ -15,7 +15,6 @@ export default function SeasonRace({ season, narrow }) {
   const [all, setAll] = useState(false);
   const rows = rankTeams(season.modes[mode]);
   const shown = narrow && !all ? rows.slice(0, season.playoffTeams) : rows;
-  const leader = rows[0];
   const [open, setOpen] = useState(null);
   return (
     <section className="fx-race" aria-label="Race to the playoffs">
@@ -23,7 +22,7 @@ export default function SeasonRace({ season, narrow }) {
         <h2>Race to the playoffs</h2>
         <span>{season.trials?.toLocaleString()} simulated seasons · {season.weeksRemaining} weeks left</span>
       </div>
-      <p className="fx-headline">{seasonStory(rows)}</p>
+      <SeasonRead read={seasonRead(rows)} />
       {available.length > 1 && (
         <div className="fx-modes" role="group" aria-label="Form weighting">
           {available.map(([key, label]) => <button key={key} type="button" aria-pressed={mode === key} onClick={() => setMode(key)}>{label}</button>)}
@@ -55,6 +54,16 @@ export default function SeasonRace({ season, narrow }) {
       {shown.length < rows.length && <button type="button" className="fx-more" onClick={() => setAll(true)}>Show all {rows.length} teams</button>}
       <p className="fx-small">Assumes today’s rosters.</p>
     </section>
+  );
+}
+
+function SeasonRead({ read }) {
+  if (!read) return null;
+  return (
+    <div className="fx-read">
+      <p className="fx-headline"><b>{read.leader}</b> leads. <span>{read.why}.</span></p>
+      {!!read.tags.length && <p className="fx-chips">{read.tags.map(tag => <span key={tag} className="fx-chip">{tag}</span>)}</p>}
+    </div>
   );
 }
 

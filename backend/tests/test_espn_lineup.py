@@ -1398,3 +1398,418 @@ def test_mcp_run_lineup_and_get_lineup_runs(monkeypatch):
         )
     )
     assert out["count"] == 0
+
+
+# --- per-player locks (2026-10-24 evening regression) ----------------------------
+#
+# ESPN locks each player at his own game's tip-off; everyone else
+# stays movable. The old runner submitted all moves as ONE atomic
+# transaction, so one locked player (Naz Reid) made ESPN reject the
+# whole batch — including Dillon Brooks' start, which Warner had
+# deliberately left on the bench as a test. The runner now excludes
+# locked players' moves before submitting (plan["locked_skips"],
+# kind player_locked — not a conflict, not an error) and sheds a
+# named player's moves if a 409 still slips through.
+
+LOCK_NOW = datetime(2026, 10, 24, 23, 30, tzinfo=timezone.utc)
+PAST_TIP_MS = int(
+    datetime(2026, 10, 24, 23, 0, tzinfo=timezone.utc).timestamp() * 1000
+)
+FUTURE_TIP_MS = int(
+    datetime(2026, 10, 25, 1, 0, tzinfo=timezone.utc).timestamp() * 1000
+)
+
+
+def _dated_game(home, away, date_ms):
+    return {"homeProTeamId": home, "awayProTeamId": away, "date": date_ms}
+
+
+def _lock_payload(past_game=True):
+    """10 scheduled players; teams 1/3 tip in the future, 2/4 already
+    tipped (relative to LOCK_NOW) — or all four in the future when
+    past_game is False."""
+    late = PAST_TIP_MS if past_game else FUTURE_TIP_MS
+    entries = [
+        _entry(101, BE, _player(101, 1, [SG, G, UTIL, BE], 30)),
+        _entry(102, SG, _player(102, 3, [SG, G, UTIL, BE], 20)),
+        # team 2 (already tipped): a planned bench -> PG move, locked
+        _entry(103, BE, _player(103, 2, [PG, G, UTIL, BE], 28)),
+        # team 4 (already tipped): planned C -> UTIL move, locked
+        _entry(104, C, _player(104, 4, [C, UTIL, BE], 22)),
+        _entry(116, BE, _player(116, 1, [C, BE], 35)),
+        _entry(106, SF, _player(106, 3, [SF, F, UTIL, BE], 24)),
+        _entry(107, PF, _player(107, 1, [PF, F, UTIL, BE], 23)),
+        _entry(108, UTIL, _player(108, 3, [PG, SG, G, UTIL, BE], 21)),
+        _entry(109, F, _player(109, 1, [SF, PF, F, UTIL, BE], 19)),
+        _entry(110, UTIL, _player(110, 3, [UTIL, BE], 18)),
+        _entry(111, BE, _player(111, 9, [UTIL, BE])),
+        _entry(112, BE, _player(112, 9, [UTIL, BE])),
+        _entry(113, BE, _player(113, 9, [UTIL, BE])),
+        _entry(114, IR, _player(114, 9, [C, UTIL, BE, IR], None,
+                                status="OUT")),
+    ]
+    games = [
+        _dated_game(1, 3, FUTURE_TIP_MS),
+        _dated_game(2, 4, late),
+    ]
+    return _payload(entries, {PERIOD: games})
+
+
+def test_locked_players_moves_excluded_others_applied():
+    db = FakeSupabase()
+    client = StatefulClient(_lock_payload())
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, now=LOCK_NOW)
+    assert run["status"] == "ok"
+    # a lock is not a conflict and must not look like one
+    assert run["conflicts"] == []
+    # exactly one transaction, carrying only the submittable moves:
+    # the two locked players' own moves AND 116's move into the C
+    # slot locked 104 is staying in (see the collateral test below)
+    (post,) = client.posts
+    posted = {m["playerId"] for m in post["items"]}
+    assert posted == {101, 102, 106, 108, 109}
+    assert posted == {m["playerId"] for m in run["moves"]}
+    # the locked players' moves were excluded and reported as skips
+    skips = {s["player_id"]: s for s in run["plan"]["locked_skips"]}
+    assert set(skips) == {103, 104, 116}
+    for pid in (103, 104):
+        s = skips[pid]
+        assert s["kind"] == "player_locked"
+        assert "player_locked" in s["reason"]
+        assert s["detail"]["source"] == "schedule"
+        assert s["detail"]["tipoff"] == (
+            datetime(2026, 10, 24, 23, 0, tzinfo=timezone.utc).isoformat()
+        )
+    collateral = skips[116]
+    assert collateral["kind"] == "player_locked"
+    assert collateral["detail"]["source"] == "blocked_by_lock"
+    assert collateral["detail"]["blocked_by_player_id"] == 104
+    assert "Player 104 is locked" in collateral["reason"]
+    # the fake roster shows the applied moves and the locked players
+    # exactly where they were (verify did not flag them)
+    plan = _plan_players(run)
+    assert plan[103]["from_slot"] == BE
+    assert plan[104]["from_slot"] == C
+    entries = {
+        e["playerId"]: e["lineupSlotId"]
+        for e in client.payload["teams"][0]["roster"]["entries"]
+    }
+    assert entries[103] == BE
+    assert entries[104] == C
+    assert entries[116] == BE
+    assert entries[101] in STARTING
+
+
+def test_move_into_locked_players_slot_is_collateral_skip():
+    # The dependent-move case from the live run that followed PR
+    # #111 (2026-10-24, period 5): Reid was correctly skipped at C,
+    # but Jokic's move INTO C was still submitted and ESPN rejected
+    # the whole batch — "Too many players in the C slot (maximum
+    # 1)". A move whose target slot only overflows because a locked
+    # player is staying in it must be excluded too, as a
+    # blocked_by_lock skip naming the blocker — not submitted, not a
+    # conflict, not an error.
+    entries = [
+        # team 2 already tipped: locked at C; the plan wants him at
+        # PF, but he is not going anywhere
+        _entry(501, C, _player(501, 2, [C, PF, F, UTIL, BE], 20)),
+        # team 1 (future tip): the best player on the roster is
+        # C-only, so the plan starts him at C — straight into the
+        # slot 501 is locked into
+        _entry(503, BE, _player(503, 1, [C, BE], 30)),
+        _entry(502, PF, _player(502, 1, [PF, F, UTIL, BE], 15)),
+        _entry(509, PG, _player(509, 1, [PG, G, UTIL, BE], 19)),
+        _entry(504, SG, _player(504, 1, [SG, G, UTIL, BE], 18)),
+        _entry(505, SF, _player(505, 3, [SF, F, UTIL, BE], 17)),
+        _entry(506, G, _player(506, 1, [PG, SG, G, UTIL, BE], 16)),
+        _entry(507, F, _player(507, 3, [SF, PF, F, UTIL, BE], 14)),
+        _entry(508, UTIL, _player(508, 3, [UTIL, BE], 13)),
+        _entry(510, BE, _player(510, 1, [SG, G, UTIL, BE], 12)),
+        _entry(511, BE, _player(511, 9, [UTIL, BE])),
+        _entry(512, BE, _player(512, 9, [UTIL, BE])),
+        _entry(513, BE, _player(513, 9, [UTIL, BE])),
+        _entry(514, IR, _player(514, 9, [C, UTIL, BE, IR], None,
+                                status="OUT")),
+    ]
+    games = [
+        _dated_game(1, 3, FUTURE_TIP_MS),
+        _dated_game(2, 4, PAST_TIP_MS),
+    ]
+    payload = _payload(entries, {PERIOD: games})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, now=LOCK_NOW)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    plan = _plan_players(run)
+    # the plan really did want 501 out of C and 503 into it
+    assert plan[501]["to_slot"] != C
+    assert plan[503]["to_slot"] == C
+    # neither move was submitted; the rest of the plan applied (the
+    # matching rotates the flexible players through G/F/UTIL/SG —
+    # the exact set of movers is pinned, 501/503 are not among them)
+    (post,) = client.posts
+    posted = {m["playerId"] for m in post["items"]}
+    assert posted == {502, 504, 505, 506, 507, 510}
+    assert posted == {m["playerId"] for m in run["moves"]}
+    skips = {s["player_id"]: s for s in run["plan"]["locked_skips"]}
+    assert set(skips) == {501, 503}
+    assert skips[501]["kind"] == "player_locked"
+    assert skips[501]["detail"]["source"] == "schedule"
+    assert skips[503]["kind"] == "player_locked"
+    assert skips[503]["detail"]["source"] == "blocked_by_lock"
+    assert skips[503]["detail"]["blocked_by_player_id"] == 501
+    assert "Player 501 is locked" in skips[503]["reason"]
+    # verify passed with both players exactly where they started
+    entries_now = {
+        e["playerId"]: e["lineupSlotId"]
+        for e in client.payload["teams"][0]["roster"]["entries"]
+    }
+    assert entries_now[501] == C
+    assert entries_now[503] == BE
+
+
+def test_reconcile_lock_exclusions_cascade_names_staying_blocker():
+    # Pure-function view of the cascade the live 2026-10-24 run hit:
+    # A (locked at C) stays -> B's move into C is collateral -> B
+    # staying at UTIL overfills UTIL -> R's move into UTIL is
+    # collateral too, blocked by B — who is NOT locked, so his skip
+    # must name B as staying, not claim R's game has started.
+    plan = {
+        "players": [
+            {"player_id": 1, "name": "A", "from_slot": C, "to_slot": F,
+             "value": 20.0},
+            {"player_id": 2, "name": "B", "from_slot": UTIL, "to_slot": C,
+             "value": 30.0},
+            {"player_id": 3, "name": "R", "from_slot": F, "to_slot": UTIL,
+             "value": 15.0},
+            {"player_id": 4, "name": "X", "from_slot": UTIL,
+             "to_slot": UTIL, "value": 10.0},
+            {"player_id": 5, "name": "Y", "from_slot": UTIL,
+             "to_slot": UTIL, "value": 9.0},
+            {"player_id": 6, "name": "Z", "from_slot": BE, "to_slot": PG,
+             "value": 8.0},
+        ],
+        "moves": [
+            {"playerId": 1, "fromLineupSlotId": C, "toLineupSlotId": F},
+            {"playerId": 2, "fromLineupSlotId": UTIL, "toLineupSlotId": C},
+            {"playerId": 3, "fromLineupSlotId": F, "toLineupSlotId": UTIL},
+            {"playerId": 6, "fromLineupSlotId": BE, "toLineupSlotId": PG},
+        ],
+    }
+    counts = {PG: 1, C: 1, F: 1, UTIL: 3, BE: 3}
+    tipoff = datetime(2026, 10, 24, 22, 0, tzinfo=timezone.utc)
+    to_submit, skips = lineup._reconcile_lock_exclusions(
+        plan, {1}, {1: tipoff}, counts
+    )
+    assert [m["playerId"] for m in to_submit] == [6]
+    assert [s["player_id"] for s in skips] == [1, 2, 3]
+    by_id = {s["player_id"]: s for s in skips}
+    assert by_id[1]["detail"]["source"] == "schedule"
+    assert by_id[2]["detail"]["source"] == "blocked_by_lock"
+    assert by_id[2]["detail"]["blocked_by_player_id"] == 1
+    assert "A is locked in the slot" in by_id[2]["reason"]
+    assert by_id[3]["detail"]["source"] == "blocked_by_lock"
+    assert by_id[3]["detail"]["blocked_by_player_id"] == 2
+    assert "B is staying in the slot" in by_id[3]["reason"]
+    assert "already started" not in by_id[3]["reason"]
+
+
+def test_brooks_regression_bench_player_starts_despite_locked_teammates():
+    # The exact 2026-10-24 evening shape: a scheduled bench player
+    # (Brooks) whose game has NOT started must be started even though
+    # teammates on an already-tipped team are locked.
+    entries = [
+        _entry(201, BE, _player(201, 1, [SG, G, UTIL, BE], 29)),  # Brooks
+        _entry(202, SG, _player(202, 3, [SG, G, UTIL, BE], 20)),
+        # already-tipped team 2: C incumbent and his C-only backup —
+        # the plan swaps them, but both are locked
+        _entry(206, C, _player(206, 2, [C, UTIL, BE], 26)),
+        _entry(207, BE, _player(207, 2, [C, BE], 30)),
+        _entry(210, PG, _player(210, 9, [PG, G, UTIL, BE])),
+        _entry(211, SF, _player(211, 9, [SF, F, UTIL, BE])),
+        _entry(212, PF, _player(212, 9, [PF, F, UTIL, BE])),
+        _entry(213, G, _player(213, 9, [PG, SG, G, UTIL, BE])),
+        _entry(214, F, _player(214, 9, [SF, PF, F, UTIL, BE])),
+        _entry(215, UTIL, _player(215, 9, [UTIL, BE])),
+        _entry(216, UTIL, _player(216, 9, [UTIL, BE])),
+        _entry(217, BE, _player(217, 9, [UTIL, BE])),
+        _entry(218, BE, _player(218, 9, [UTIL, BE])),
+        _entry(219, IR, _player(219, 9, [UTIL, BE, IR], None, status="OUT")),
+    ]
+    games = [_dated_game(1, 3, FUTURE_TIP_MS), _dated_game(2, 4, PAST_TIP_MS)]
+    payload = _payload(entries, {PERIOD: games})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, now=LOCK_NOW)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    posted = {m["playerId"]: m for m in client.posts[0]["items"]}
+    # Brooks got his start; neither locked teammate was submitted
+    assert posted[201]["toLineupSlotId"] in STARTING
+    assert 206 not in posted
+    assert 207 not in posted
+    assert {s["player_id"] for s in run["plan"]["locked_skips"]} == {206, 207}
+
+
+class LockedOnceClient(StatefulClient):
+    """First post 409s naming a locked player; later posts apply."""
+
+    def __init__(self, payload, locked_name):
+        super().__init__(payload)
+        self._locked_name = locked_name
+        self._attempts = 0
+
+    def post_lineup_transaction(self, member_id, team_id,
+                                scoring_period_id, items):
+        self._attempts += 1
+        if self._attempts == 1:
+            self.posts.append(
+                {
+                    "member_id": member_id,
+                    "team_id": team_id,
+                    "scoring_period_id": scoring_period_id,
+                    "items": items,
+                }
+            )
+            raise EspnError(
+                "ESPN lineup transaction -> 409 "
+                '{"messages":["Lineup transaction could not be '
+                f'completed, {self._locked_name} is locked"]}}',
+                status=409,
+            )
+        return super().post_lineup_transaction(
+            member_id, team_id, scoring_period_id, items
+        )
+
+
+def test_write_409_locked_retries_without_that_player():
+    # All games tip in the future, so the pre-filter sees no locks —
+    # this simulates a game tipping between plan and submit.
+    db = FakeSupabase()
+    client = LockedOnceClient(_lock_payload(past_game=False), "Player 103")
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, now=LOCK_NOW)
+    assert run["status"] == "ok"
+    assert run["conflicts"] == []
+    assert len(client.posts) == 2
+    first = {m["playerId"] for m in client.posts[0]["items"]}
+    second = {m["playerId"] for m in client.posts[1]["items"]}
+    assert 103 in first
+    assert second == first - {103}
+    assert second == {m["playerId"] for m in run["moves"]}
+    (skip,) = run["plan"]["locked_skips"]
+    assert skip["player_id"] == 103
+    assert skip["kind"] == "player_locked"
+    assert skip["detail"]["source"] == "espn_409"
+    # the retry's moves really landed; the locked player never moved
+    entries = {
+        e["playerId"]: e["lineupSlotId"]
+        for e in client.payload["teams"][0]["roster"]["entries"]
+    }
+    assert entries[103] == BE
+    assert entries[116] == C
+
+
+def test_all_moves_locked_no_write_noop_with_skips():
+    payload = _lock_payload()
+    # tip BOTH games in the past relative to LOCK_NOW
+    payload["proGamesByScoringPeriod"][str(PERIOD)] = [
+        _dated_game(1, 3, PAST_TIP_MS),
+        _dated_game(2, 4, PAST_TIP_MS),
+    ]
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, now=LOCK_NOW)
+    assert run["status"] == "noop"
+    assert run["moves"] == []
+    assert run["conflicts"] == []
+    assert client.posts == []  # no write was even attempted
+    planned = {m["playerId"] for m in run["plan"]["moves"]}
+    assert planned  # the plan did want moves
+    assert {s["player_id"] for s in run["plan"]["locked_skips"]} == planned
+
+
+def test_locked_players_from_scoreboard_schedule_info():
+    # The fallback lock source: schedule_info carries the scoreboard
+    # tip-offs as {str(team_id): ISO} when the payload has no block.
+    team = {
+        "id": 7,
+        "owners": [SWID],
+        "roster": {
+            "entries": [
+                _entry(401, BE, _player(401, 1, [PG, BE], 10)),
+                _entry(402, BE, _player(402, 2, [SG, BE], 10)),
+            ]
+        },
+    }
+    info = {
+        "source": "scoreboard",
+        "team_tipoffs": {
+            "1": "2026-10-24T23:00:00+00:00",
+            "2": "2026-10-25T01:00:00+00:00",
+        },
+    }
+    locked, tipoffs = lineup._locked_players(team, {}, {}, PERIOD, info, LOCK_NOW)
+    assert locked == {401}
+    assert tipoffs[401] == datetime(2026, 10, 24, 23, 0, tzinfo=timezone.utc)
+
+
+# --- roster cap: IR activation legality (2026-10-24 morning regression) ---------
+#
+# The morning run planned Coby White IR -> PG with nobody going back
+# to IR: 14 rostered, so the final state had 14 ACTIVE players and
+# ESPN rejected the whole batch (409 "Too many players on roster
+# (maximum 13)"). Not an ordering problem — no legal final state
+# starts White while nobody IR-eligible can take his slot. The
+# planner now pins him to IR and records a roster_cap conflict; the
+# rest of the lineup is still set. (When an OUT player CAN take the
+# IR slot, activation stays legal — see
+# test_ir_activation_and_out_player_parked.)
+
+
+def test_roster_cap_ir_activation_blocked_is_conflict_not_error():
+    entries = [
+        # healthy + scheduled, stuck on IR (the White shape)
+        _entry(301, IR, _player(301, 1, [PG, G, UTIL, BE, IR], 25)),
+        _entry(302, PG, _player(302, 1, [PG, G, UTIL, BE], 30)),
+        _entry(303, SG, _player(303, 2, [SG, G, UTIL, BE], 28)),
+        _entry(304, SF, _player(304, 1, [SF, F, UTIL, BE], 27)),
+        _entry(305, PF, _player(305, 3, [PF, F, UTIL, BE], 26)),
+        _entry(306, C, _player(306, 2, [C, UTIL, BE], 24)),
+        _entry(307, G, _player(307, 3, [PG, SG, G, UTIL, BE], 23)),
+        _entry(308, F, _player(308, 4, [SF, PF, F, UTIL, BE], 22)),
+        _entry(309, UTIL, _player(309, 4, [UTIL, BE], 21)),
+        _entry(310, BE, _player(310, 2, [UTIL, BE], 20)),
+        _entry(311, UTIL, _player(311, 9, [UTIL, BE])),
+        _entry(312, BE, _player(312, 9, [UTIL, BE])),
+        _entry(313, BE, _player(313, 9, [UTIL, BE])),
+        _entry(314, BE, _player(314, 9, [UTIL, BE])),
+    ]
+    payload = _payload(entries, {PERIOD: _games(1, 2, 3, 4)})
+    db = FakeSupabase()
+    client = StatefulClient(payload)
+    run = lineup.run_lineup(db, dict(ACCOUNT), client)
+    assert run["status"] == "conflict"
+    (conflict,) = run["conflicts"]
+    assert conflict["kind"] == "roster_cap"
+    assert conflict["player_id"] == 301
+    assert conflict["detail"]["on_ir"] is True
+    assert conflict["detail"]["roster_size"] == 14
+    assert conflict["detail"]["active_roster_max"] == 13
+    assert "maximum 13" in conflict["reason"]
+    assert run["plan"]["sitting_player_ids"] == [301]
+    plan = _plan_players(run)
+    assert plan[301]["scheduled"] is True
+    assert plan[301]["to_slot"] == IR  # pinned: never submitted
+    # the rest of the lineup was still set in one transaction, and
+    # White's activation is not in it
+    (post,) = client.posts
+    posted = {m["playerId"] for m in post["items"]}
+    assert 301 not in posted
+    assert posted == {302, 304, 307, 308, 310}
+    entries_now = {
+        e["playerId"]: e["lineupSlotId"]
+        for e in client.payload["teams"][0]["roster"]["entries"]
+    }
+    assert entries_now[301] == IR
+    assert entries_now[310] == UTIL

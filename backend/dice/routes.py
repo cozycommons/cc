@@ -833,11 +833,16 @@ def put_my_profile(
         raise HTTPException(status_code=status_code, detail=str(exc))
 
 
+def _without_contact(profile: DiceProfile) -> DiceProfile:
+    # Phone numbers and SMS settings are visible only to the profile owner and admins.
+    return profile.model_copy(update={"phone_number": None, "sms_notifications_enabled": False})
+
+
 @router.get("/profiles/search", response_model=list[DiceProfile])
 def get_profiles_search(
     request: Request, q: str = Query(default=""), limit: int = Query(default=20, ge=1, le=500)
 ) -> list[DiceProfile]:
-    return search_profiles(request.app.state.supabase, q, limit)
+    return [_without_contact(profile) for profile in search_profiles(request.app.state.supabase, q, limit)]
 
 
 @router.get("/profiles/{user_id}", response_model=DiceProfile)
@@ -852,6 +857,8 @@ def get_profile_by_id(
     if viewer is not None and viewer.user_id != user_id:
         head_to_head = get_head_to_head(request.app.state.supabase, viewer.user_id, user_id)
         profile = profile.model_copy(update={"head_to_head": head_to_head})
+    if viewer is None or (viewer.user_id != user_id and not viewer.is_admin):
+        profile = _without_contact(profile)
     return profile
 
 

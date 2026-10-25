@@ -10,6 +10,7 @@ def test_espn_migrations_render_in_beli_family():
     assert "Applying 0008_beli_espn_lineup.sql" in script
     assert "Applying 0009_beli_espn_public_predictions.sql" in script
     assert "Applying 0010_beli_espn_team_claims.sql" in script
+    assert "Applying 0011_beli_espn_seed_team_claims.sql" in script
     assert "Applying 0001_beli_accounts.sql" in script
     assert "espn_accounts" in script
     assert "espn_snapshots" in script
@@ -35,7 +36,7 @@ def test_public_predictions_append_only_privileges_and_contract():
     assert "from public, anon, authenticated" in migration
     assert "grant select, insert on public.espn_public_predictions to service_role" in migration
     assert "revoke update, delete, truncate" in migration
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "10"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "11"
     contract = (directory / "beli_schema_contract.sql").read_text()
     for column in ("id", "matchup_id", "generated_at", "received_at", "payload"):
         assert f"espn_public_predictions.{column}" in contract
@@ -64,3 +65,10 @@ def test_team_claims_schema_privileges_atomic_move_and_contract():
     for column in ("id", "season", "team_id", "user_id", "created_at"):
         assert f"espn_team_claims.{column}" in contract
     assert "to_regprocedure('public.espn_claim_team(integer,integer,uuid)')" in contract
+
+
+def test_seeded_claims_are_guarded_and_never_override_links():
+    migration = (migration_runner.ROOT / "migrations" / "0011_beli_espn_seed_team_claims.sql").read_text()
+    assert "where exists (select 1 from auth.users where id = seed.user_id)" in migration
+    assert migration.rstrip().endswith("on conflict do nothing;")
+    assert migration.count("::uuid)") == 10
