@@ -130,7 +130,7 @@ files revalidate. Missing hashes return 404 rather than the SPA document. A fail
 lazy chunk import triggers at most one full reload per build, guarded in
 `sessionStorage`; a persistent failure shows an error instead of looping.
 The stock nginx image supports
-gzip (enabled for scripts and styles), but has no Brotli module.
+gzip (level 6 for scripts and styles), but has no Brotli module.
 
 The initial Trips release used commit
 `efbaf35c91e61f59bba1f6777d16370ccc199c4f` for both resources:
