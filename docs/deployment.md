@@ -322,3 +322,15 @@ If a rollout fails:
 4. Never reverse a production migration by editing migration history. Restore
    application compatibility or add a new forward migration.
 5. Repeat the readiness and smoke checks before resuming automatic deployment.
+
+### Venmo previews
+
+Venmo previews persist only public display fields in migration
+`0081_venmo_profiles.sql`. The release migration runner applies the `venmo`
+family automatically. Outbound requests share a process bucket (default one per
+second, burst five; `VENMO_REQUEST_RATE` / `VENMO_REQUEST_BURST`) and a ten-minute
+breaker after five failures. Run one API worker for a deployment-wide limit;
+multiple workers each have their own bucket and breaker. Hits expire in about
+24 hours and misses in about one hour, with 10% jitter. Durable previews serve
+immediately while one background revalidation runs per handle. Thumbnail bytes
+are authenticated, bounded, and privately cached for one day.
