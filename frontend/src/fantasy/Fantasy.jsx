@@ -7,7 +7,7 @@ import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
 import { fetchOwners } from './claims.js';
-import { weekStory } from './analysis.js';
+import { matchupRead, weekNotes } from './analysis.js';
 import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, pct, round, useNarrow } from './parts.jsx';
 import './fantasy.css';
 
@@ -23,6 +23,7 @@ function MatchupCard({ matchup, narrow }) {
   }
   const odds = [matchup.chance, 100 - matchup.chance];
   const fav = favorite(matchup);
+  const read = matchupRead(matchup);
   return (
     <Link className="fx-card fx-card--link" to={matchup.key} aria-label={`${teams[0].name} vs ${teams[1].name}: open matchup`}>
       {teams.map((team, side) => (
@@ -36,9 +37,22 @@ function MatchupCard({ matchup, narrow }) {
       <div className="fx-bar" aria-hidden="true">
         {odds.map((value, side) => <i key={side} style={{ flex: `${value} 0 0`, background: COLORS[side], opacity: fav === side ? 1 : 0.35 }} />)}
       </div>
+      <p className="fx-why" style={{ color: read.side == null ? undefined : COLORS[read.side] }}>{read.facts.join(' · ')}</p>
       {!narrow && <ScorePath matchup={matchup} height={120} />}
       <div className="fx-meta"><OddsTrend history={matchup.odds_history} name={teams[0].name} /></div>
     </Link>
+  );
+}
+
+function WeekNotes({ notes }) {
+  if (!notes.length) return null;
+  return (
+    <ul className="fx-notes" aria-label="This week at a glance">
+      {notes.map(note => {
+        const body = <><span className="fx-tag">{note.tag}</span><b>{note.text}</b>{note.detail && <small>{note.detail}</small>}</>;
+        return <li key={note.tag} className={`fx-note--${note.tone}`}>{note.key ? <Link to={note.key}>{body}</Link> : body}</li>;
+      })}
+    </ul>
   );
 }
 
@@ -53,7 +67,7 @@ function Hub({ data, apiUrl, onOwnersChange }) {
           <h2>This week</h2>
           <span>Ends {longDay(data.matchup.ends)}</span>
         </div>
-        {weekStory(data.matchups) && <p className="fx-story">{weekStory(data.matchups)}</p>}
+        <WeekNotes notes={weekNotes(data.matchups)} />
         <div className="fx-grid">{orderMatchups(data.matchups).map(matchup => <MatchupCard key={matchup.key} matchup={matchup} narrow={narrow} />)}</div>
       </section>
     </>
