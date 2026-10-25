@@ -34,7 +34,7 @@ def test_lkg_survives_restart_and_two_parties_cannot_double_settle(local_api, mo
     obligation = group['obligations'][0]
     path = base + '/obligations/' + obligation['id']
     def settle(name):
-        return api.post(path + '/settle', headers=tokens[name], json={'cycle': 0})
+        return api.post(path + '/settle', headers=tokens[name], json={'cycle': 0, 'amount_minor': obligation['amount_minor']})
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(settle, ['Matt', 'Alex']))
     assert all(r.status_code == 200 for r in responses), [r.text for r in responses]
@@ -42,6 +42,11 @@ def test_lkg_survives_restart_and_two_parties_cannot_double_settle(local_api, mo
     assert len(settled['repayments']) == 1
     assert all(v == 0 for v in settled['balances'].values())
     assert settled['obligations'][0]['status'] == 'settled'
+    third = api.post(base + '/members', headers=tokens['Matt'], json={'name': 'Jamie', 'revision': settled['revision']}).json()
+    joined = api.post(base + '/join', headers=tokens['Jamie'], json={'invite_token': third['invite_token']}).json()
+    denied = api.request('DELETE', base + '/repayments/' + obligation['id'], headers=tokens['Jamie'], json={'revision': joined['revision']})
+    assert denied.status_code == 403
+    assert api.get(base, headers=tokens['Matt']).json()['repayments'] == settled['repayments']
     undone = api.post(path + '/undo', headers=tokens['Alex'], json={'cycle': 0}).json()
-    assert undone['balances'] == group['balances'] and not undone['repayments']
+    assert {m: undone['balances'][m] for m in members} == group['balances'] and not undone['repayments']
     assert api.post(path + '/settle', headers=tokens['Matt'], json={'cycle': 0}).status_code == 409

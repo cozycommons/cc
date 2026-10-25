@@ -473,9 +473,12 @@ def delete_repayment(trip_id: UUID, repayment_id: UUID, payload: Revision, reque
 
 
 class ObligationAction(Input):
+    amount_minor: Money | None = None
     cycle: Annotated[int, Field(strict=True, ge=0)]
 
 
 @router.post('/groups/{trip_id}/obligations/{obligation_id}/{action}')
 def change_obligation(trip_id: UUID, obligation_id: UUID, action: Literal['settle', 'undo', 'nudge'], payload: ObligationAction, request: Request, user=Depends(current_user)):
-    return command(request, trip_id, user, 'obligation_' + action, {'id': str(obligation_id), 'cycle': payload.cycle})
+    if action == 'settle' and payload.amount_minor is None:
+        raise HTTPException(422, 'The payment amount is required.')
+    return command(request, trip_id, user, 'obligation_' + action, {'id': str(obligation_id), **payload.model_dump()})

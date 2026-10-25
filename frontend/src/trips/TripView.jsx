@@ -205,7 +205,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     () => update(`/repayments/${payload.id}`, 'DELETE', { revision: latest.current.revision }, 'Payment removed.', null, { keepModal: true }));
   const obligationAction = async (obligation, action) => {
     try {
-      return await update(`/obligations/${obligation.id}/${action}`, 'POST', { cycle: obligation.cycle || 0 },
+      return await update(`/obligations/${obligation.id}/${action}`, 'POST', { cycle: obligation.cycle || 0, ...(action === 'settle' ? { amount_minor: obligation.amount_minor } : {}) },
         action === 'settle' ? 'Payment settled.' : action === 'undo' ? 'Payment reopened.' : 'Nudge sent.',
         action === 'settle' ? () => obligationAction(obligation, 'undo') : null, { keepModal: action === 'undo' });
     } catch (error) { setNotice({ message: error.message }); throw error; }

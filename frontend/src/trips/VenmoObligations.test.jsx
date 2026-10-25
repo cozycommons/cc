@@ -68,3 +68,29 @@ it('offers Undo from a settled row', () => {
   fireEvent.click(screen.getByRole('button', { name: /Undo payment from/ }));
   expect(undo).toHaveBeenCalledWith(settled);
 });
+
+it.each(['amount', 'id', 'cycle', 'handle'])('drops the request return prompt when its %s changes', async field => {
+  const settle = vi.fn();
+  const view = render(<BalancesPanel group={group} me={members[0]} request={request} onSettle={settle} />);
+  const link = screen.getByRole('link', { name: 'Request $12.34 from @alex-rivera' });
+  link.addEventListener('click', e => e.preventDefault()); fireEvent.click(link); fireEvent.focus(window);
+  expect(screen.getByRole('button', { name: 'Got it' })).toBeInTheDocument();
+  const changed = { ...obligations[0], ...(field === 'amount' ? { amount_minor: 5678 } : field === 'id' ? { id: 'replacement' } : field === 'cycle' ? { cycle: 1 } : {}) };
+  const refreshed = { ...group, obligations: [changed, obligations[1]], transfers: [changed, transfers[1]], members: members.map(m => m.id === 'a' && field === 'handle' ? { ...m, venmo_username: 'different-handle' } : m) };
+  view.rerender(<BalancesPanel group={refreshed} me={members[0]} request={request} onSettle={settle} />);
+  fireEvent.focus(window);
+  expect(screen.queryByRole('button', { name: 'Got it' })).not.toBeInTheDocument();
+  expect(settle).not.toHaveBeenCalled();
+});
+
+it('does not submit Sent from a payment sheet after its opened obligation changes', async () => {
+  const settle = vi.fn();
+  const view = render(<VenmoReview group={group} transfer={transfers[0]} role="pay" obligation={obligations[0]} request={request} onSettle={settle} />);
+  const link = screen.getByRole('link', { name: 'Pay @matt-rivera $12.34' });
+  link.addEventListener('click', e => e.preventDefault()); fireEvent.click(link);
+  const changed = { ...obligations[0], id: 'new', amount_minor: 5678 };
+  view.rerender(<VenmoReview group={group} transfer={changed} role="pay" obligation={changed} request={request} onSettle={settle} />);
+  fireEvent.focus(window); fireEvent.click(screen.getByRole('button', { name: 'Sent' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('This payment changed');
+  expect(settle).not.toHaveBeenCalled();
+});

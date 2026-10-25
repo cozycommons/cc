@@ -131,6 +131,8 @@ def obligation_command(row, user_id, action, payload):
     item = next((item for item in items if item['id'] == payload['id']), None)
     if item is None:
         raise LedgerError('This payment changed. Refresh to see the latest amounts.', 409)
+    if action == 'settle' and (type(payload.get('amount_minor')) is not int or payload['amount_minor'] != item['amount_minor']):
+        raise LedgerError('This payment amount changed. Refresh before marking it.', 409)
     cycle = item.get('cycle', 0)
     expected = payload.get('cycle', cycle)
     if expected != cycle:
