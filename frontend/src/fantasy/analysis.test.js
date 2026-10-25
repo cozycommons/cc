@@ -24,6 +24,8 @@ describe('matchupRead', () => {
     expect(matchupRead(matchup(100, [700, 640], [day('final', [4, 4], [100, 90])]))).toEqual({ side: 0, headline: 'Home wins', facts: ['Final', '700–640'] });
     expect(matchupRead(matchup(40, [650.4, 650.2], [day('final', [4, 4], [100, 90])])).headline).toBe('Tied 650–650');
     expect(matchupRead(matchup(99, [700, 640], [day('live', [4, 4], [100, 90])])).facts).toEqual(['Up 60', 'Last games in progress']);
+    expect(matchupRead(matchup(99.9, [700, 640], [day('projected', [4, 4])])).headline).toBe('Home >99%');
+    expect(matchupRead(matchup(100, [700, 640], [day('projected', [4, 4])])).headline).toBe('Home >99%');
   });
 });
 
@@ -33,11 +35,11 @@ describe('season and week reads', () => {
     const rows = [...data.season.modes.balanced].sort((a, b) => b.title_pct - a.title_pct);
     expect(seasonRead(rows)).toMatchObject({ leader: 'Glass Cleaners' });
   });
-  it('tags settled games and the closest race, linking to it', () => {
+  it('shows big favorites with their odds, never as decided, and links the closest race', () => {
     const lock = matchup(97, [705, 496], [day('projected', [3, 3])], 'a');
     const close = matchup(48, [600, 610], [day('projected', [4, 5])], 'b');
     expect(weekNotes([lock, close])).toEqual([
-      { tone: 'lock', tag: 'Locked', text: 'Home' },
+      { tone: 'fav', tag: 'Big favorites', text: 'Home 97%', detail: 'Not over: upsets still happen' },
       { tone: 'close', tag: 'Coin flip', key: 'b', text: 'Home vs Away', detail: 'Away 52% · Up 10 · 5 games left vs 4' },
     ]);
   });

@@ -1,7 +1,8 @@
 // Short reads of the snapshot. Everything here is derived from published numbers.
 const r = value => Math.round(value);
+const odds = value => (value > 99 ? '>99' : value < 1 ? '<1' : r(value));  // only used before a matchup is final
 const isLeft = day => day.state === 'projected' || (day.state === 'live' && !(Array.isArray(day.actual) && day.actual.some(Number.isFinite)));
-const finished = matchup => (matchup.days || []).length > 0 && matchup.days.every(day => day.state === 'final');
+export const finished = matchup => (matchup.days || []).length > 0 && matchup.days.every(day => day.state === 'final');
 
 // Games each side still has this week (projected days plus live days with no points yet).
 export function gamesLeft(matchup) {
@@ -28,7 +29,7 @@ export function matchupRead(matchup) {
   if (!left[side] && !left[other]) facts.push('Last games in progress');
   else if (left[side] === left[other]) facts.push(`${left[side]} games left each`);
   else facts.push(`${left[side]} games left vs ${left[other]}`);
-  return { side, headline: `${names[side]} ${r(Math.max(matchup.chance, 100 - matchup.chance))}%`, facts };
+  return { side, headline: `${names[side]} ${odds(Math.max(matchup.chance, 100 - matchup.chance))}%`, facts };
 }
 
 // Players' actual vs expected points over finished days, per side (live games are partial).
@@ -55,14 +56,17 @@ export function notableSwings(rows, threshold = 15) {
   };
 }
 
-// The week in a few tagged lines: what's settled, what's close, who's cold and hot.
+// The week in a few tagged lines: who is favored, what's close, who's cold and hot.
 export function weekNotes(matchups) {
   const live = matchups.filter(m => !m.unavailable);
   if (!live.length) return [];
   const notes = [];
-  const settled = live.filter(m => finished(m) || m.chance >= 90 || m.chance <= 10);
-  if (settled.length) notes.push({ tone: 'lock', tag: 'Locked', text: settled.map(m => matchupRead(m).headline.replace(/ \d+%$| wins$/, '')).join(' · ') });
-  const open = live.filter(m => !settled.includes(m));
+  // Nothing is decided until the last game; big favorites keep their odds on show.
+  const done = live.filter(finished);
+  if (done.length) notes.push({ tone: 'final', tag: 'Final', text: done.map(m => matchupRead(m).headline).join(' · ') });
+  const big = live.filter(m => !finished(m) && (m.chance >= 90 || m.chance <= 10));
+  if (big.length) notes.push({ tone: 'fav', tag: 'Big favorites', text: big.map(m => matchupRead(m).headline).join(' · '), detail: 'Not over: upsets still happen' });
+  const open = live.filter(m => !done.includes(m) && !big.includes(m));
   const closest = [...open].sort((a, b) => Math.abs(a.chance - 50) - Math.abs(b.chance - 50))[0];
   if (closest) {
     const read = matchupRead(closest);

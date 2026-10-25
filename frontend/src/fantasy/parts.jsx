@@ -4,7 +4,9 @@ import { scorePath } from './paths.js';
 
 export const COLORS = ['#b75f41', '#2a78d6'];
 export const round = value => (Number.isFinite(value) ? Math.round(value) : '—');
-export const pct = value => (Number.isFinite(value) ? `${value > 0 && value < 1 ? '<1' : Math.round(value)}%` : '—');
+export const pct = value => (Number.isFinite(value) ? `${value > 0 && value < 1 ? '<1' : value > 99 && value < 100 ? '>99' : Math.round(value)}%` : '—');
+// A matchup's win chance never reads 0% or 100% before the last game: upsets still happen.
+export const winPct = (value, final = false) => (!final && Number.isFinite(value) && (value > 99 || value < 1) ? (value > 99 ? '>99%' : '<1%') : pct(value));
 export const weekday = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short' });
 export const longDay = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 const NARROW = '(max-width: 600px)';

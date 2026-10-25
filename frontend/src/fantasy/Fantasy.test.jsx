@@ -22,6 +22,14 @@ describe('Fantasy pages', () => {
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
 
+  it('labels card percentages as the chance to win from here', async () => {
+    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+    view('/fantasy');
+    expect(await screen.findByText(/chance to win from here/)).toBeTruthy();
+    expect(document.querySelector('.fx-card-head').textContent).toBe('ScoreTo win');
+    expect(screen.queryByText('Locked')).toBeNull();
+  });
+
   it('says up front that the numbers are rough guesses', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy/1-2');
