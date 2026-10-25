@@ -121,6 +121,7 @@ def weighted_shares(amount, weights):
 
 def public_group(row):
     data = deepcopy(row['data'])
+    data.pop('account_links', None)
     for member in data['members']:
         member.pop('invite_hash', None)
     amounts = balances(data)
@@ -154,8 +155,19 @@ def deleted_expense(data, expense_id):
                  and a.get('item_id') == expense_id and a.get('expense')), None)
 
 
+def invite_digest(token):
+    return sha256(token.encode()).hexdigest()
+
+
+def new_invite(member):
+    """Give a place a fresh one-use invitation; any older link for it stops working."""
+    token = secrets.token_urlsafe(32)
+    member['invite_hash'] = invite_digest(token)
+    return token
+
+
 def invite_slot(row, token):
-    digest = sha256(token.encode()).hexdigest()
+    digest = invite_digest(token)
     return next((m for m in row['data']['members'] if secrets.compare_digest(m.get('invite_hash', ''), digest)), None)
 
 
@@ -175,7 +187,7 @@ def apply_command(row, user_id, command, payload):
     timestamp = now()
     invite_token = None
     entry = {}  # What the activity row points at, so it can show amounts and link back.
-    owner_only = {'add_member', 'invite_member', 'rename_trip', 'rename_member', 'remove_member'}
+    owner_only = {'add_member', 'invite_member', 'rename_trip', 'rename_member', 'remove_member', 'link_member', 'unlink_member'}
     if command in owner_only and row['owner_id'] != user_id:
         raise LedgerError('Only the trip creator can manage the trip and its people.', 403)
 
@@ -191,8 +203,7 @@ def apply_command(row, user_id, command, payload):
             member = members.get(payload['member_id'])
             if not member or member.get('user_id'):
                 raise LedgerError('That person has already joined or is not on this trip.')
-        invite_token = secrets.token_urlsafe(32)
-        member['invite_hash'] = sha256(invite_token.encode()).hexdigest()
+        invite_token = new_invite(member)
         summary = f"Invited {member['name']}"
     elif command in {'add_expense', 'edit_expense'}:
         if payload['paid_by'] not in members:
@@ -265,6 +276,36 @@ def apply_command(row, user_id, command, payload):
         else:
             member.pop('venmo_username', None)
             summary = f"Removed Venmo for {member['name']}"
+    elif command in {'link_member', 'unlink_member'}:
+        # One explicitly confirmed mapping at a time; callers must never derive it from names alone.
+        member = members.get(payload['member_id'])
+        if not member:
+            raise LedgerError('That person is not on this trip.', 404)
+        previous = member.get('user_id')
+        if command == 'link_member':
+            if previous:
+                raise LedgerError('That person is already linked to an account.', 409)
+            if payload['user_id'] in result['member_user_ids']:
+                raise LedgerError('That account already has a place on this trip.', 409)
+            member['user_id'] = payload['user_id']
+            member.pop('invite_hash', None)  # An outstanding invitation can no longer claim this place.
+            member.pop('venmo_username', None)  # Same as joining: the account owner manages their own username.
+            result['member_user_ids'].append(payload['user_id'])
+            summary = f"Linked {member['name']} to their account"
+        else:
+            if not previous:
+                raise LedgerError('That person isn’t linked to an account.', 409)
+            if previous == row['owner_id']:
+                raise LedgerError('The trip creator’s own place can’t be unlinked.', 422)
+            # Their history stays on this place; a fresh invitation lets the right person claim it.
+            member['user_id'] = None
+            result['member_user_ids'].remove(previous)
+            invite_token = new_invite(member)
+            summary = f"Unlinked {member['name']} from their account"
+        # Unlike the rolling activity feed, this record is never trimmed; it stays off the members' view.
+        data.setdefault('account_links', []).append({
+            'action': command.removesuffix('_member'), 'member_id': member['id'], 'user_id': payload.get('user_id', previous),
+            'by': user_id, 'at': timestamp})
     elif command == 'delete_expense':
         expense = next((e for e in data['expenses'] if e['id'] == payload['id']), None)
         if not expense:
