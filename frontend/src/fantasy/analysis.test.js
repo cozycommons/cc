@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cleanSnapshot } from './source.js';
-import { gamesLeft, matchupRead, notableSwings, playerSwings, seasonRead, weekNotes } from './analysis.js';
+import { acquiredLabel, gamesLeft, highlights, matchupRead, notableSwings, playerSwings, seasonRead } from './analysis.js';
 import { SNAPSHOT_V2 } from './fixture.js';
 
 const team = name => ({ id: name.length, name });
@@ -35,14 +35,6 @@ describe('season and week reads', () => {
     const rows = [...data.season.modes.balanced].sort((a, b) => b.title_pct - a.title_pct);
     expect(seasonRead(rows)).toMatchObject({ leader: 'Glass Cleaners' });
   });
-  it('shows big favorites with their odds, never as decided, and links the closest race', () => {
-    const lock = matchup(97, [705, 496], [day('projected', [3, 3])], 'a');
-    const close = matchup(48, [600, 610], [day('projected', [4, 5])], 'b');
-    expect(weekNotes([lock, close])).toEqual([
-      { tone: 'fav', tag: 'Big favorites', text: 'Home 97%', detail: 'Not over: upsets still happen' },
-      { tone: 'close', tag: 'Coin flip', key: 'b', text: 'Home vs Away', detail: 'Away 52% · Up 10 · 5 games left vs 4' },
-    ]);
-  });
 });
 
 describe('player swings', () => {
@@ -60,17 +52,23 @@ describe('player swings', () => {
     expect(home.hot.map(r => r.name)).toEqual(['Tyler Herro']);
     expect(away).toEqual({ cold: [], hot: [] });
   });
-  it('tags the coldest and hottest players of the week', () => {
-    const notes = weekNotes([m]);
-    expect(notes.find(n => n.tone === 'cold')).toMatchObject({ text: 'Tobias Harris', detail: '4 of 60 expected in 2 games · Home' });
-    expect(notes.find(n => n.tone === 'hot')).toMatchObject({ text: 'Tyler Herro', detail: '52 vs 30 expected · Home' });
+  it('ranks the biggest outperformers and keeps how each was acquired', () => {
+    const tagged = matchup(60, [1, 1], [
+      played([[{ id: 7, name: 'Late Pick', points: 56, expected: 30, acquired: { how: 'draft', round: 11, pick: 130 } }], []]),
+      played([[{ id: 5, name: 'Pickup', points: 70, expected: 30, acquired: { how: 'add' } }], [{ id: 6, name: 'Small', points: 34, expected: 30 }]]),
+    ], 'k2');
+    const rows = highlights([m, tagged]);
+    expect(rows.map(row => [row.name, Math.round(row.diff)])).toEqual([['Pickup', 40], ['Late Pick', 26], ['Tyler Herro', 22]]);
+    expect(rows[0]).toMatchObject({ key: 'k2', side: 0, team: { name: 'Home' } });
+    expect(acquiredLabel(rows[0].acquired)).toBe('Waiver pickup');
+    expect(acquiredLabel(rows[1].acquired)).toBe('Round 11 · pick 130');
+    expect(highlights([m], 1)).toHaveLength(1);
   });
-  it('says plainly when a cold player scored nothing', () => {
-    const zero = matchup(60, [1, 1], [
-      played([[{ id: 9, name: 'Brandon Ingram', points: 0, expected: 40 }], []]),
-      played([[{ id: 9, name: 'Brandon Ingram', points: 0, expected: 37 }], []]),
-    ]);
-    expect(weekNotes([zero]).find(n => n.tone === 'cold').detail).toBe('Scored 0 in 2 games, 77 expected · Home');
+  it('labels only well-formed acquisitions', () => {
+    expect(acquiredLabel({ how: 'trade' })).toBe('Trade');
+    expect(acquiredLabel({ how: 'draft', round: 2 })).toBeNull();
+    expect(acquiredLabel(null)).toBeNull();
+    expect(acquiredLabel({ how: 'keeper' })).toBeNull();
   });
 
   it('leaves live games and players without an expectation out', () => {

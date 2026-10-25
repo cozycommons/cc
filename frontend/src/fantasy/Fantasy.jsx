@@ -7,7 +7,7 @@ import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
 import { fetchOwners } from './claims.js';
-import { finished, matchupRead, weekNotes } from './analysis.js';
+import { acquiredLabel, finished, highlights, matchupRead } from './analysis.js';
 import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, round, useNarrow, winPct } from './parts.jsx';
 import './fantasy.css';
 
@@ -45,15 +45,37 @@ function MatchupCard({ matchup, narrow }) {
   );
 }
 
-function WeekNotes({ notes }) {
-  if (!notes.length) return null;
+const headshot = id => `https://a.espncdn.com/i/headshots/nba/players/full/${id}.png`;
+
+// This week's biggest outperformers, with how their manager got them.
+function Highlights({ rows }) {
+  if (!rows.length) return null;
   return (
-    <ul className="fx-notes" aria-label="This week at a glance">
-      {notes.map(note => {
-        const body = <><span className="fx-tag">{note.tag}</span><b>{note.text}</b>{note.detail && <small>{note.detail}</small>}</>;
-        return <li key={note.tag} className={`fx-note--${note.tone}`}>{note.key ? <Link to={note.key}>{body}</Link> : body}</li>;
-      })}
-    </ul>
+    <section className="fx-highlights" aria-label="Outperformers this week">
+      <h3>Outperformers</h3>
+      <ul>
+        {rows.map(row => {
+          const how = acquiredLabel(row.acquired);
+          return (
+            <li key={`${row.key}-${row.id}`}>
+              <Link to={row.key}>
+                <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer"
+                  onError={event => { event.currentTarget.style.visibility = 'hidden'; }} />
+                <span className="fx-hl-main">
+                  <b>{row.name}</b>
+                  <small><TeamLogo team={row.team} side={row.side} size={16} />{row.team.name}</small>
+                  {how && <span className="fx-hl-how">{how}</span>}
+                </span>
+                <span className="fx-hl-num">
+                  <strong>+{round(row.diff)}</strong>
+                  <small>{round(row.actual)} vs {round(row.expected)} exp.{row.games > 1 ? ` · ${row.games} games` : ''}</small>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -68,8 +90,7 @@ function Hub({ data, apiUrl, onOwnersChange }) {
           <h2>This week</h2>
           <span>Ends {longDay(data.matchup.ends)}</span>
         </div>
-        <p className="fx-small fx-explain">Percentages are each team’s chance to win from here, given the score so far and the games left. Nothing is decided until the last game.</p>
-        <WeekNotes notes={weekNotes(data.matchups)} />
+        <Highlights rows={highlights(data.matchups)} />
         <div className="fx-grid">{orderMatchups(data.matchups).map(matchup => <MatchupCard key={matchup.key} matchup={matchup} narrow={narrow} />)}</div>
       </section>
     </>
@@ -97,7 +118,6 @@ function Fantasy() {
       <header className="fx-header">
         <Link to="/" className="fx-home">Cozy Commons</Link>
         <h1><Link to="/fantasy">Fantasy basketball</Link></h1>
-        {data && <p className="fx-caveat"><b>Just for fun.</b> Rough guesses from one model, not tested against real results. Expect big swings, especially early.</p>}
         {data && <p>Matchup {data.matchup.id} · updated {new Date(data.generatedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
       </header>
       {status === 'loading' && <p className="fx-status" role="status">Loading…</p>}
@@ -111,7 +131,6 @@ function Fantasy() {
               <Route path=":key" element={<MatchupPage data={data} />} />
             </Routes>
           </OwnersContext.Provider>
-          <p className="fx-note">{data.label}</p>
         </>
       )}
     </main>

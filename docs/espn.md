@@ -155,3 +155,5 @@ users can unlink like any other claim.
 
 The same operations are available as MCP tools at `/espn/mcp` — pass your
 token as the `api_token` argument.
+
+Observed-day players may carry an optional `acquired` field: `{"how":"draft","round":11,"pick":130}`, `{"how":"add"}`, `{"how":"trade"}`, or null. The fantasy page uses it to tag this week's outperformers (players furthest above their expected points on finished days).
