@@ -54,7 +54,7 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   const link = within(dialog).getByRole('link', { name: /Open Venmo to pay/ });
   const url = new URL(link.getAttribute('href'));
   expect([url.pathname, url.searchParams.get('txn'), url.searchParams.get('amount'), url.searchParams.get('note')])
-    .toEqual(['/andsohn', 'pay', '198.18', 'Tahoe & Reno · Cozy Trips']);
+    .toEqual(['/andsohn', 'pay', '198.18', 'Cozy Trips · Tahoe & Reno']);
   expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   link.addEventListener('click', (event) => event.preventDefault());
   fireEvent.click(link);
