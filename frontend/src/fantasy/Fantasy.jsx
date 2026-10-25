@@ -6,6 +6,7 @@ import { favorite, orderMatchups } from './paths.js';
 import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
+import OnboardPanel from './OnboardPanel.jsx';
 import { fetchOwners } from './claims.js';
 import { acquiredLabel, finished, highlights, matchupRead } from './analysis.js';
 import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, round, useNarrow, winPct } from './parts.jsx';
@@ -85,6 +86,7 @@ function Hub({ data, apiUrl, onOwnersChange }) {
     <>
       {data.season && <SeasonRace season={data.season} narrow={narrow} />}
       <ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} />
+      <OnboardPanel apiUrl={apiUrl} />
       <section aria-label="This week's matchups">
         <div className="fx-section-head">
           <h2>This week</h2>
