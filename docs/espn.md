@@ -123,7 +123,7 @@ sits. Each sit is recorded as a **conflict**, visible in
 
 ## Public predictions
 
-Courtside can upload a daily `public-v2` JSON snapshot (`public-v1` remains accepted) with
+A publisher can upload a daily `public-v2` JSON snapshot (`public-v1` remains accepted) with
 `POST /espn/public/predictions`, using `Authorization: Bearer <token>` matching
 the backend's `ESPN_PUBLIC_PREDICTIONS_TOKEN`. Without that environment variable,
 uploads return 503. The upload limit is 256 KiB; unsupported fields and invalid

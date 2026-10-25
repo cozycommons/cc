@@ -9,7 +9,7 @@ describe('cleanSnapshot', () => {
     const data = cleanSnapshot(copy());
     expect(data.teams.size).toBe(4);
     expect(data.matchups.map(m => m.key)).toEqual(['1-2', '3-4']);
-    expect(data.matchups[0].home.name).toBe('Glass Cleaners');
+    expect(data.matchups[0].home.name).toBe('Harbor Hoopers');
     expect(data.season.modes.balanced).toHaveLength(4);
     expect(data.season.modes.balanced[0].team.id).toBe(1);
   });

@@ -81,27 +81,49 @@ function Highlights({ rows }) {
   );
 }
 
+// Phones: one row of jump tabs, and this week's matchups come first.
+const HUB_TABS = [['fx-week', 'This week'], ['fx-race', 'Playoff race'], ['fx-team', 'Your team'], ['fx-lineups', 'Lineups']];
+
+function HubTabs({ hasRace }) {
+  const jump = id => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  return (
+    <nav className="fx-tabs" aria-label="Sections">
+      {HUB_TABS.filter(([id]) => hasRace || id !== 'fx-race').map(([id, label]) => (
+        <button key={id} type="button" onClick={() => jump(id)}>{label}</button>
+      ))}
+    </nav>
+  );
+}
+
 function Hub({ data, apiUrl, onOwnersChange }) {
   const narrow = useNarrow();
-  return (
-    <>
-      {data.season && <SeasonRace season={data.season} narrow={narrow} />}
-      <ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} />
-      <OnboardPanel apiUrl={apiUrl} />
-      <section aria-label="This week's matchups">
-        <div className="fx-section-head">
-          <h2>This week</h2>
-          <span>Ends {longDay(data.matchup.ends)}</span>
+  const outperformers = <Highlights rows={highlights(data.matchups)} />;
+  const week = (
+    <section id="fx-week" className="fx-slot fx-slot--week" aria-label="This week's matchups">
+      <div className="fx-section-head">
+        <h2>This week</h2>
+        <span>Ends {longDay(data.matchup.ends)}</span>
+      </div>
+      {!narrow && outperformers}
+      <div className="fx-grid">{orderMatchups(data.matchups).map(matchup => (
+        <div className="fx-matchup-card" key={matchup.key}>
+          <MatchupCard matchup={matchup} narrow={narrow} />
+          <MatchupLink matchup={matchup} />
         </div>
-        <Highlights rows={highlights(data.matchups)} />
-        <div className="fx-grid">{orderMatchups(data.matchups).map(matchup => (
-          <div className="fx-matchup-card" key={matchup.key}>
-            <MatchupCard matchup={matchup} narrow={narrow} />
-            <MatchupLink matchup={matchup} />
-          </div>
-        ))}</div>
-      </section>
-    </>
+      ))}</div>
+      {narrow && outperformers}
+    </section>
+  );
+  // Phones lead with this week's score cards; render order (not CSS order) so reading order matches.
+  return (
+    <div className="fx-hub">
+      {narrow && <HubTabs hasRace={!!data.season} />}
+      {narrow && week}
+      {data.season && <div id="fx-race" className="fx-slot"><SeasonRace season={data.season} narrow={narrow} /></div>}
+      <div id="fx-team" className="fx-slot"><ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} /></div>
+      <div id="fx-lineups" className="fx-slot"><OnboardPanel apiUrl={apiUrl} /></div>
+      {!narrow && week}
+    </div>
   );
 }
 

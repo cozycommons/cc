@@ -25,7 +25,7 @@ function server({ owners = [], suggestion, claim = body => json(200, body) }) {
   return calls;
 }
 const view = () => render(<MemoryRouter initialEntries={['/fantasy']}><Routes><Route path="/fantasy/*" element={<Fantasy />} /></Routes></MemoryRouter>);
-const teams = [{ team_id: 1, name: 'Glass Cleaners', manager: 'Matthew', score: 0.95, claimed: false, mine: false, can_claim: true },
+const teams = [{ team_id: 1, name: 'Harbor Hoopers', manager: 'Jordan', score: 0.95, claimed: false, mine: false, can_claim: true },
   { team_id: 2, name: 'Lob City', manager: 'Paulo', score: 0.1, claimed: false, mine: false, can_claim: false }];
 
 describe('team links', () => {
@@ -34,7 +34,7 @@ describe('team links', () => {
   it('shows ESPN manager first names, and the Dice name once a team is confirmed', async () => {
     server({ owners: [{ team_id: 2, display_name: 'Paulo R', avatar_url: 'https://cdn.example/p.png' }], suggestion: () => ({}) });
     view();
-    expect((await screen.findAllByText('Matthew')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Jordan')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('Paulo R')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Paulo')).toBeNull();
     expect(await screen.findByRole('button', { name: 'Sign in to link your Dice profile' })).toBeTruthy();
@@ -46,10 +46,10 @@ describe('team links', () => {
     const calls = server({ suggestion: () => ({ season: 2027, has_profile: true, mine, teams: teams.map(t => ({ ...t, mine: mine?.team_id === t.team_id, claimed: mine?.team_id === t.team_id })) }) });
     view();
     const confirm = await screen.findByRole('button', { name: 'That’s me' });
-    expect(screen.getByText(/Is this you\?/).textContent).toContain('Glass Cleaners');
+    expect(screen.getByText(/Is this you\?/).textContent).toContain('Harbor Hoopers');
     mine = { team_id: 1 };
     fireEvent.click(confirm);
-    expect((await screen.findByText(/Linked to/)).textContent).toContain('Glass Cleaners');
+    expect((await screen.findByText(/Linked to/)).textContent).toContain('Harbor Hoopers');
     expect(calls).toContainEqual(['https://api.example.test/espn/claims', 'POST']);
     mine = null;
     fireEvent.click(screen.getByRole('button', { name: 'Unlink' }));
@@ -70,7 +70,7 @@ describe('team links', () => {
       claim: () => json(403, { detail: 'name_mismatch' }) });
     view();
     const options = await screen.findAllByRole('option');
-    expect(options.map(o => o.textContent)).toEqual(['Choose…', 'Glass Cleaners (Matthew)']);
+    expect(options.map(o => o.textContent)).toEqual(['Choose…', 'Harbor Hoopers (Jordan)']);
     fireEvent.click(screen.getByRole('button', { name: 'That’s me' }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/doesn’t match your profile/);
   });

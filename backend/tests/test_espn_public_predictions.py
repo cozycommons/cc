@@ -348,7 +348,7 @@ def test_v2_optional_fields_and_unavailable(client, snapshot_v2):
     assert client.get(PATH + "/latest").json() == snapshot_v2
 
 
-@pytest.mark.parametrize("manager", [None, "Matthew", "Anne-Marie O'Neil Jr.", "A" * 40])
+@pytest.mark.parametrize("manager", [None, "Jordan", "Anne-Marie O'Neil Jr.", "A" * 40])
 @pytest.mark.parametrize("season", [2000, 2027, 2100])
 def test_v2_accepts_season_year_and_public_manager(client, snapshot_v2, manager, season):
     snapshot_v2["season_year"] = season
@@ -358,8 +358,8 @@ def test_v2_accepts_season_year_and_public_manager(client, snapshot_v2, manager,
 
 
 @pytest.mark.parametrize("manager", [
-    "", " Matthew", "1Matthew", "Matthew42", "Matt@example.com", "Matt/Ho",
-    "Mätthew", "Matt\nHo", "Matt\n", "A" * 41, 123, True,
+    "", " Jordan", "1Jordan", "Jordan42", "Jord@example.com", "Jord/Lee",
+    "Mätthew", "Jord\nHo", "Jord\n", "A" * 41, 123, True,
 ])
 def test_v2_rejects_private_or_invalid_manager(client, snapshot_v2, manager):
     snapshot_v2["teams"][0]["manager"] = manager
@@ -385,7 +385,7 @@ def test_v1_still_rejects_season_and_manager(client, field):
     body[field] = 2027
     assert client.post(PATH, json=body, headers=AUTH).status_code == 422
     del body[field]
-    body["matchups"][0]["home"]["manager"] = "Matthew"
+    body["matchups"][0]["home"]["manager"] = "Jordan"
     assert client.post(PATH, json=body, headers=AUTH).status_code == 422
 
 

@@ -18,7 +18,7 @@ describe('Fantasy pages', () => {
     view('/fantasy');
     expect(await screen.findByText('Race to the playoffs')).toBeTruthy();
     expect(screen.getByText(/Most projected wins|Best playoff odds/)).toBeTruthy();
-    const link = screen.getByRole('link', { name: /Glass Cleaners vs Lob City/ });
+    const link = screen.getByRole('link', { name: /Harbor Hoopers vs Lob City/ });
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
 
@@ -62,12 +62,12 @@ describe('Fantasy pages', () => {
   it('race rows show playoff and title odds and expand into labelled finishes', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy');
-    const row = await screen.findByRole('button', { name: /^Glass Cleaners: \d+% playoffs, \d+% title$/ });
+    const row = await screen.findByRole('button', { name: /^Harbor Hoopers: \d+% playoffs, \d+% title$/ });
     expect(row.getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('.fx-finish')).toBeNull();
     fireEvent.click(row);
     expect(row.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('img', { name: /Glass Cleaners finish chances: 1st \d+%/ })).toBeTruthy();
+    expect(screen.getByRole('img', { name: /Harbor Hoopers finish chances: 1st \d+%/ })).toBeTruthy();
     expect(document.querySelectorAll('.fx-finish-col').length).toBe(4);
   });
 
@@ -85,11 +85,32 @@ describe('Fantasy pages', () => {
     expect(screen.queryByRole('button', { name: /Show all/ })).toBeNull();
   });
 
+  it('phones get one row of section tabs that jump to each section', async () => {
+    vi.stubGlobal('matchMedia', query => ({ matches: query === '(max-width: 600px)', addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+    const scrolled = [];
+    const spy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(function () { scrolled.push(this.id); });
+    view('/fantasy');
+    const tabs = await screen.findByRole('navigation', { name: 'Sections' });
+    expect([...tabs.querySelectorAll('button')].map(b => b.textContent)).toEqual(['This week', 'Playoff race', 'Your team', 'Lineups']);
+    fireEvent.click(screen.getByRole('button', { name: 'Playoff race' }));
+    expect(scrolled).toEqual(['fx-race']);
+    for (const id of ['fx-week', 'fx-race', 'fx-team', 'fx-lineups']) expect(document.getElementById(id)).toBeTruthy();
+    spy.mockRestore();
+  });
+
+  it('desktop has no section tabs', async () => {
+    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+    view('/fantasy');
+    await screen.findByText('Race to the playoffs');
+    expect(screen.queryByRole('navigation', { name: 'Sections' })).toBeNull();
+  });
+
   it('matchup page shows the hero, daily bars and players who scored', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy/1-2');
     expect(await screen.findByText('Points by day')).toBeTruthy();
-    expect(screen.getByRole('heading', { level: 2, name: 'Glass Cleaners' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: 'Harbor Hoopers' })).toBeTruthy();
     expect(screen.getByText(/Who scored ·/)).toBeTruthy();
     const swings = screen.getByText('Who’s swinging it').closest('.fx-panel');
     expect(swings.querySelectorAll('.fx-swing--cold b').length).toBeGreaterThan(0);
