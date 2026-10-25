@@ -323,11 +323,11 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
           if (!modal.expense && alive.current) setFresh(payload.id);
         }} />}
       {modal.type === 'repayment' && <RepaymentForm group={formGroup} meId={me?.id} suggestion={modal.suggestion} onCancel={close} onSave={recordPayment} />}
-      {modal.type === 'venmo' && <VenmoReview group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
+      {modal.type === 'venmo' && <VenmoReview request={request} group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
         onSaveHandle={owner ? (username) => saveHandle(findMember(group, modal.role === 'pay' ? modal.transfer.to_member : modal.transfer.from_member), username) : null} />}
       {modal.type === 'people' && <AddPeopleForm onCancel={close} onSave={addPeople} />}
       {modal.type === 'invites' && <InviteLinks links={modal.links} tripName={group.name} inviter={ownerName} onClose={close} />}
-      {modal.type === 'person' && <PersonSheet group={group} member={findMember(group, modal.member.id) || modal.member}
+      {modal.type === 'person' && <PersonSheet request={request} group={group} member={findMember(group, modal.member.id) || modal.member}
         onInvite={person('invite')} onVenmo={person('member_venmo')} onRename={person('rename_member')} onRemove={person('remove_member')}
         onUnlink={admin ? person('unlink_member') : null} />}
       {modal.type === 'link_accounts' && <LinkAccounts group={group} request={request} onClose={close}

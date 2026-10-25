@@ -462,3 +462,10 @@ def add_repayment(trip_id: UUID, payload: Repayment, request: Request, user=Depe
 @router.delete('/groups/{trip_id}/repayments/{repayment_id}')
 def delete_repayment(trip_id: UUID, repayment_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'delete_repayment', {**payload.model_dump(), 'id': str(repayment_id)})
+
+
+@router.get('/venmo/profile')
+def venmo_profile(response: Response, handle: str, user=Depends(current_user)):
+    from .venmo_profile import lookup
+    response.headers['Cache-Control'] = 'no-store'
+    return lookup.lookup(handle, user.id)
