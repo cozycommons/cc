@@ -67,3 +67,20 @@ def test_delayed_settle_retry_after_undo_cannot_settle_again():
     with pytest.raises(LedgerError):
         apply_command(undone, 'matt', 'obligation_settle', payload)
     assert apply_command(undone, 'matt', 'obligation_undo', payload)[0] == undone
+
+
+def test_third_member_cannot_delete_obligation_repayment_through_legacy_command():
+    row = owing_trip()
+    row['data']['members'][2]['user_id'] = 'jamie'
+    row['member_user_ids'].append('jamie')
+    item = next(o for o in obligations_for(row) if o['from_member'] == row['data']['members'][1]['id'])
+    settled, _ = apply_command(row, 'alex', 'obligation_settle', {'id': item['id']})
+    before = deepcopy(settled)
+    with pytest.raises(LedgerError) as error:
+        apply_command(settled, 'jamie', 'delete_repayment', {'id': item['id'], 'revision': settled['revision']})
+    assert error.value.status == 403
+    assert settled == before
+    for party in ['alex', 'matt']:
+        undone, _ = apply_command(settled, party, 'delete_repayment', {'id': item['id'], 'revision': settled['revision']})
+        assert not undone['data']['repayments']
+        assert balances(undone['data']) == balances(row['data'])

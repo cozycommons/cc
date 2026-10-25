@@ -390,6 +390,9 @@ def apply_command(row, user_id, command, payload):
         repayment = next((p for p in data['repayments'] if p['id'] == payload['id']), None)
         if not repayment:
             raise LedgerError('Repayment not found.', 404)
+        linked = next((o for o in data.get('obligations', []) if o['id'] == repayment['id']), None)
+        if linked and user_id not in {members.get(linked[party], {}).get('user_id') for party in ('from_member', 'to_member')}:
+            raise LedgerError('Only the people on this payment can undo it.', 403)
         data['repayments'].remove(repayment)
         for obligation in data.get('obligations', []):
             if obligation['id'] == repayment['id']:
