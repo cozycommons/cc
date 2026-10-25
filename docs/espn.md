@@ -24,6 +24,53 @@ Treat both cookies like a password: together they are a login to your ESPN
 account. On the server they're encrypted at rest; never paste them into a
 chat or a shared doc.
 
+## Onboard with your ESPN login (no DevTools)
+
+The easy path — no cookies to extract:
+
+1. Open the fantasy page: **https://cozycommons.dev/fantasy**
+2. In the **Automatic lineups** panel, enter your ESPN email and password,
+   tick "Set my lineup automatically every day" if you want daily lineups,
+   and hit **Connect ESPN**.
+3. If you're in more than one basketball league, pick yours from the list.
+4. Save the `cce_...` token it shows you — like the cookie flow, it's
+   **shown once**.
+
+Your password travels once, over HTTPS, straight to the backend, which
+uses it for a single MyDisney login and then discards it. It is never
+stored or logged; the only secret kept is the pair of ESPN session
+cookies the login returns, encrypted at rest exactly like the cookie
+flow. The panel answers with your league name and your team name, so you
+can confirm it connected the right team before you close the page.
+
+If ESPN demands extra verification for your account (a CAPTCHA or a
+code), the form can't complete that step — it will say so, and the
+cookie flow below is the fallback.
+
+The same flow is available as an API call:
+
+```bash
+curl -s -X POST https://api.cozycommons.dev/espn/onboard/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"...","enable_automation":true}'
+# one league  -> {"id":"...","label":"...","league_id":1234567,"season":2027,
+#                 "token":"cce_...","lineup_automation_enabled":true,
+#                 "league_name":"...","team_name":"...","team_id":1}
+# many leagues -> {"status":"league_selection_required","season":2027,
+#                  "leagues":[{"league_id":...,"name":"...","team_name":"..."}]}
+#                 -> re-submit with "league_id": <the chosen one>
+```
+
+`league_id` and `season` are optional: omit `league_id` and the backend
+discovers your basketball leagues (season defaults to the current one —
+the ending year, rolling over July 1). Error outcomes are stable detail
+codes: `invalid_credentials` (401), `account_not_found` (404),
+`challenge_required` (403), `no_league_found` (400),
+`league_discovery_failed` / `disney_unavailable` (502). The endpoint
+shares the cookie flow's rate limit: 10 attempts per IP per hour — and it
+attempts the Disney login exactly once per call, because repeated failed
+logins can lock an ESPN account.
+
 ## Onboard
 
 ```bash
