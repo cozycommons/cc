@@ -182,9 +182,9 @@ through the normal release step.
 team in the latest season: `team`, `lineup`, `free_agents`, and `matchups`
 (boxscore links keyed by each current matchup's home team ID). It needs Cozy
 auth (401) and a confirmed claim (403 `claim_required`), and is never cached
-(`Cache-Control: private, no-store`). The league ID comes only from the
-server's `ESPN_FANTASY_LEAGUE_ID` environment variable (digits); it never
-appears in snapshots or public responses. Unset or invalid returns 404
+(`Cache-Control: private, no-store`). The league ID comes from the season's service-only `fantasy_leagues` row,
+cached for 30 seconds; it never appears in snapshots or public responses.
+A missing setting returns 404
 `league_links_unavailable` and the page hides those links. Player links on
 `/fantasy` use public ESPN player pages and need no league ID.
 
@@ -218,3 +218,27 @@ Observed-day players may carry an optional `acquired` field: `{"how":"draft","ro
 ESPN link UI captures use the synthetic public-v2 fixture:
 [390px phone](images/espn-links/phone-390.png) ·
 [1440px desktop](images/espn-links/desktop-1440.png).
+
+## Fantasy admin
+
+Sign in with a Cozy admin account at `/fantasy`, open **Admin**, select the
+ending season year, paste the **ESPN league ID**, and choose **Save**.
+**Open league** verifies the league on ESPN. The existing Dice admin allowlist
+controls access; user-editable profile metadata grants no privileges.
+
+`GET /espn/admin` checks administrator access. Admin-only
+`GET /espn/admin/leagues/{season}` reads the setting; `PUT` saves
+`{"espn_league_id":"<digits>"}` (1–12 ASCII digits). Responses are private
+and not cached. Saving invalidates the local links cache; other workers
+refresh within 30 seconds. The old league ID environment variable is unused.
+
+Migration `0012_beli_fantasy_leagues.sql` advances the Beli contract to 12
+through `python -m release` on deploy. Do not apply it from a branch.
+The table has RLS and no anon/authenticated privileges or policies; only the
+backend service role can select, insert, or update. No additional services
+or extensions are needed.
+
+Admin UI captures use synthetic settings:
+[390px admin](images/fantasy-admin/admin-390.png) ·
+[1440px admin](images/fantasy-admin/admin-1440.png) ·
+[390px member](images/fantasy-admin/member-390.png).

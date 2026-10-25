@@ -1,7 +1,6 @@
 """Suggest and confirm public team links using Cozy's existing Dice identity."""
 
 import os
-import re
 import time
 import unicodedata
 import urllib.error
@@ -15,6 +14,7 @@ from postgrest.exceptions import APIError
 from pydantic import HttpUrl, ValidationError
 
 from dice.routes import AuthedUser, require_authenticated_user
+from .fantasy_admin import league_id_for_season
 from .public_predictions import PublicModel, PublicSnapshotV2, SeasonYear
 
 router = APIRouter()
@@ -242,14 +242,7 @@ def delete_claim(season: int, team_id: int, request: Request,
     return {"season": season, "team_id": team_id}
 
 
-# Server-only; never part of a snapshot or a public response. Unset hides league links.
-LEAGUE_ID_ENV = "ESPN_FANTASY_LEAGUE_ID"
 ESPN_FANTASY = "https://fantasy.espn.com/basketball"
-
-
-def _league_id():
-    value = os.getenv(LEAGUE_ID_ENV, "").strip()
-    return value if re.fullmatch(r"\d{1,12}", value) else None
 
 
 def league_links(league_id, season, team_id, matchup_id, matchups):
@@ -280,7 +273,7 @@ def claim_links(request: Request, response: Response,
                  if claim["user_id"] == auth.user_id), None)
     if mine is None:
         raise HTTPException(status_code=403, detail="claim_required")
-    league_id = _league_id()
+    league_id = league_id_for_season(request, season)
     if league_id is None:
         raise HTTPException(status_code=404, detail="league_links_unavailable")
     pairs = [(m["home"], m["away"]) for m in snapshot.get("matchups", [])

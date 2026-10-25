@@ -41,6 +41,36 @@ def test_real_runner_fresh_existing_retry_and_checksum_rejection(tmp_path):
         driver = migration_runner.render(["dice", "commons", "beli", "trips"])
         first = sql(driver,url)
         assert first.returncode == 0, first.stdout+first.stderr
+        # Fantasy settings stay service-only even under default table grants.
+        for role in ("anon", "authenticated"):
+            for statement in (
+                "select * from public.fantasy_leagues",
+                "insert into public.fantasy_leagues(season,espn_league_id) values(2027,'1')",
+                "update public.fantasy_leagues set espn_league_id='2'",
+                "delete from public.fantasy_leagues",
+            ):
+                denied = sql(f"set role {role}; {statement};", url)
+                assert denied.returncode != 0 and "permission denied" in denied.stderr
+        # RLS remains a second boundary if table privileges are ever granted.
+        rls_denied = sql("""begin;
+            grant select, insert on public.fantasy_leagues to authenticated;
+            set local role authenticated;
+            insert into public.fantasy_leagues(season,espn_league_id) values(2027,'1');
+            rollback;""", url)
+        assert rls_denied.returncode != 0 and "row-level security" in rls_denied.stderr
+        service_settings = sql("""begin; set local role service_role;
+            insert into public.fantasy_leagues(season,espn_league_id) values(2027,'1');
+            update public.fantasy_leagues set espn_league_id='2' where season=2027;
+            select espn_league_id from public.fantasy_leagues where season=2027;
+            rollback;""", url)
+        assert service_settings.returncode == 0, service_settings.stderr
+        assert "2" in service_settings.stdout
+        for value in ("abc", "１２３", "123\n", "1" * 13):
+            invalid = sql("begin; set local role service_role; insert into public.fantasy_leagues"
+                          f"(season,espn_league_id) values(2027,'{value}'); rollback;", url)
+            assert invalid.returncode != 0 and "check constraint" in invalid.stderr
+        rls = sql("select relrowsecurity from pg_class where oid='public.fantasy_leagues'::regclass;", url)
+        assert rls.returncode == 0 and "t" in rls.stdout
         assert sql("select public.dice_release_readiness();",url).returncode == 0
         service_ready = sql("set role service_role; select public.dice_release_readiness();",url)
         assert service_ready.returncode == 0, service_ready.stderr
