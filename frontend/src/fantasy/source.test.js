@@ -228,6 +228,22 @@ describe('streaming predictions', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
+  it('does not treat empty chunks as progress and stops after the second idle deadline', async () => {
+    vi.useFakeTimers();
+    const controllers = [];
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(new ReadableStream({ start(c) { controllers.push(c); } })))));
+    const pending = loadSnapshot(null);
+    const failure = expect(pending).rejects.toThrow('Predictions unavailable');
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(15000);
+    controllers[0].enqueue(new Uint8Array());
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(20000);
+    await failure;
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('publishes each matchup before EOF, then caches only a complete stream', async () => {
     let controller;
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(new ReadableStream({ start(c) { controller = c; } }), 'application/x-ndjson')));

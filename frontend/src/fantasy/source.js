@@ -196,7 +196,8 @@ async function read(url, signal, apiUrl, onProgress) {
     try {
       arm(HEADER_TIMEOUT_MS);
       const response = await wait(fetch(url, { signal: controller.signal,
-        ...(apiUrl && url !== FALLBACK_URL && { headers: { Accept: 'application/x-ndjson, application/json' } }) }));
+        ...(apiUrl && url !== FALLBACK_URL && { headers: { Accept: typeof ReadableStream === 'function' && typeof TextDecoder === 'function'
+          ? 'application/x-ndjson, application/json' : 'application/json' } }) }));
       clearTimeout(timer);
       if (response.status === 404) return null;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
