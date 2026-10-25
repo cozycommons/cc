@@ -488,3 +488,6 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
   .trips .cc-button, .trips-modal .cc-button, .trips-breadcrumb :is(a, button), .trips-balance-pill, .trips-chip, .trips-split-quick button, .trips-more summary, .trips-segment span, .trips-search input { min-height: 44px; }
   .trips-calculation summary, .trips-hero .trips-text-button { display: flex; align-items: center; min-height: 44px; }
 }
+.trips-link-account { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.trips-link-account > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.trips-link-account small { font-size: 12px; }

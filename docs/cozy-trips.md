@@ -306,6 +306,11 @@ usernames. They flag ambiguous matches, scores below 0.9, and any lone first nam
 even an exact one. A name match is never proof: the People tab's **Link people to
 accounts** review spells out the access and Venmo change before each link. The
 endpoint returns no emails or other metadata, is never cached, and writes nothing.
+Candidates also carry their avatar for recognition, but only the normalized name and
+Venmo username count as telling two accounts apart: when another eligible account,
+shown or not, shares both, the candidate is flagged `lookalike` and can't be linked;
+send that person an invite link instead. The link endpoint enforces the same rules
+and refuses any account that isn't a scored candidate for that person (422).
 A link confirms against the revision its suggestions were built from, so a trip
 changed in the meantime returns 409 and the review refreshes.
 An agent may prepare the review; the admin confirms each link.

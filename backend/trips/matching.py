@@ -4,7 +4,7 @@ from difflib import SequenceMatcher
 import re
 import unicodedata
 
-from .profiles import profile_map
+from .profiles import avatar_url, profile_map
 from .venmo import account_venmo
 
 # Common English nicknames, both directions. A match on these is a suggestion, never evidence.
@@ -58,23 +58,33 @@ def name_score(member_name, candidate_name):
     return round(ratio * 0.7, 2), 'similar spelling'
 
 
+def candidates_for(member, members, accounts):
+    """Every eligible account for one unlinked member, best first, each flagged if it has an on-screen twin."""
+    linked = {m['user_id'] for m in members if m.get('user_id')}
+    scored = []
+    for account in accounts:
+        if account['user_id'] in linked:
+            continue  # Linking refuses an account that already has a place.
+        score, basis, matched = max(((*name_score(member['name'], name), name) for name in account['names']),
+                                    key=lambda item: item[0], default=(0.0, None, None))
+        if score >= CANDIDATE_FLOOR:
+            scored.append({'user_id': account['user_id'], 'account_name': matched, 'score': score, 'basis': basis,
+                           'venmo_username': account.get('venmo_username'), 'avatar_url': account.get('avatar_url')})
+    scored.sort(key=lambda item: -item['score'])
+    # Judge lookalikes against every eligible account, before anything is truncated for display.
+    looks = Counter(looks_like(c) for c in scored)
+    for candidate in scored:
+        candidate['lookalike'] = looks[looks_like(candidate)] > 1
+    return scored
+
+
 def suggest(members, accounts):
     """members: [{id, name, user_id}]; accounts: [{user_id, names, venmo_username}]. One review row per unlinked member."""
-    linked = {m['user_id'] for m in members if m.get('user_id')}
     rows = []
     for member in members:
         if member.get('user_id'):
             continue
-        scored = []
-        for account in accounts:
-            if account['user_id'] in linked:
-                continue  # Linking refuses an account that already has a place.
-            score, basis, matched = max(((*name_score(member['name'], name), name) for name in account['names']),
-                                        key=lambda item: item[0], default=(0.0, None, None))
-            if score >= CANDIDATE_FLOOR:
-                scored.append({'user_id': account['user_id'], 'account_name': matched, 'score': score, 'basis': basis,
-                               'venmo_username': account.get('venmo_username')})
-        scored.sort(key=lambda item: -item['score'])
+        scored = candidates_for(member, members, accounts)
         best = scored[0] if scored and scored[0]['score'] >= SUGGEST_THRESHOLD else None
         flags = []
         if best and len(scored) > 1 and scored[1]['score'] >= best['score'] - AMBIGUOUS_MARGIN:
@@ -83,13 +93,20 @@ def suggest(members, accounts):
             flags.append('weak')  # A lone first name matches many people, even exactly.
         rows.append({'member_id': member['id'], 'member_name': member['name'],
                      'status': 'suggested' if best else 'no match', **(best or {
-                         'user_id': None, 'account_name': None, 'score': None, 'basis': None, 'venmo_username': None}),
+                         'user_id': None, 'account_name': None, 'score': None, 'basis': None, 'venmo_username': None,
+                         'avatar_url': None, 'lookalike': False}),
                      'flags': flags, 'alternatives': scored[1:4] if best else scored[:3]})
     counts = Counter(row['user_id'] for row in rows if row['status'] == 'suggested')
     for row in rows:
         if row['status'] == 'suggested' and counts[row['user_id']] > 1:
             row['flags'].append('same account suggested twice')
     return rows
+
+
+def looks_like(candidate):
+    """What reliably tells two accounts apart on screen. Avatars don't count: different URLs can show the same
+    picture, or none. Candidates that share this can't be told apart, so neither may be linked."""
+    return (' '.join(tokens(candidate['account_name'])), (candidate.get('venmo_username') or '').casefold())
 
 
 def read_accounts(client):
@@ -107,5 +124,7 @@ def read_accounts(client):
         metadata = user.user_metadata or {}
         names = [dice.get(user.id, {}).get('display_name'), metadata.get('full_name'), metadata.get('name')]
         accounts.append({'user_id': user.id, 'names': list(dict.fromkeys(n for n in names if isinstance(n, str) and n)),
-                         'venmo_username': account_venmo(metadata)['venmo_username']})
+                         'venmo_username': account_venmo(metadata)['venmo_username'],
+                         # Same-named accounts must look different before anyone links one.
+                         'avatar_url': dice.get(user.id, {}).get('avatar_url') or avatar_url(metadata.get('avatar_url'))})
     return accounts

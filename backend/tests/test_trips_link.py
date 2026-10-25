@@ -100,6 +100,10 @@ def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch): 
     monkeypatch.setattr('trips.routes.ADMIN_EMAILS', {'matt@trips.local', 'alex@trips.local'})
     assert api.get('/trips/me', headers=tokens['Matt']).json()['is_admin'] is True
     assert api.get(suggestions, headers=tokens['Alex']).status_code == 404  # An admin who isn't on the trip.
+    # ...gets the same answer from the link endpoint whatever account they try, before any account is examined.
+    outsider = {'revision': group['revision']}
+    assert {api.post(f'{base}/members/{place}/link', headers=tokens['Alex'], json=outsider | {'user_id': uid}).status_code
+            for uid in [alex_id, str(uuid4())]} == {404}
     listed = api.get(suggestions, headers=tokens['Matt'])
     assert listed.status_code == 200 and listed.headers['cache-control'] == 'no-store'
     assert listed.json()['revision'] == group['revision']
@@ -110,6 +114,19 @@ def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch): 
     refused = api.post(f'{base}/members/{place}/link', headers=tokens['Matt'], json=attempt | {'user_id': str(uuid4())})
     assert refused.status_code == 404, refused.text
     assert api.get(base, headers=tokens['Alex']).status_code == 404
+
+    # An identical twin, even one never shown, blocks linking at the API, not just on screen.
+    import trips.routes
+    real_accounts = trips.routes.read_accounts
+    twin = {'names': ['Alex'], 'venmo_username': None, 'avatar_url': None}
+    monkeypatch.setattr('trips.routes.read_accounts', lambda _client: [{'user_id': alex_id, **twin}, {'user_id': str(uuid4()), **twin}])
+    blocked = api.post(f'{base}/members/{place}/link', headers=tokens['Matt'], json=attempt)
+    assert blocked.status_code == 422 and 'told apart' in blocked.text
+    # An account that isn't a likely match can't be linked by posting its ID directly.
+    monkeypatch.setattr('trips.routes.read_accounts', lambda _client: [{'user_id': alex_id, 'names': ['Zed Unrelated'], 'venmo_username': None, 'avatar_url': None}])
+    blind = api.post(f'{base}/members/{place}/link', headers=tokens['Matt'], json=attempt)
+    assert blind.status_code == 422 and 'likely match' in blind.text
+    monkeypatch.setattr('trips.routes.read_accounts', real_accounts)
 
     linked = api.post(f'{base}/members/{place}/link', headers=tokens['Matt'], json=attempt)
     assert linked.status_code == 200, linked.text
