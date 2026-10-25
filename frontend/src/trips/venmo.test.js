@@ -29,12 +29,21 @@ describe('Venmo links', () => {
     expect(url.searchParams.get('txn')).toBe('pay');
     expect(url.searchParams.get('amount')).toBe('198.18');
     expect(url.searchParams.get('note')).toBe('Tahoe & Reno #2 🏔️ · Cozy Trips');
+    expect(url.search).not.toContain('+');
+    expect(url.search).toContain('note=Tahoe%20%26%20Reno%20%232%20');
     expect([...url.searchParams.keys()]).toEqual(['txn', 'amount', 'note']);
   });
   it('uses charge for requests and keeps whole-dollar cents', () => {
     const url = new URL(venmoLink({ username: 'mattsho', role: 'request', amountMinor: 500, note: 'x' }));
     expect(url.searchParams.get('txn')).toBe('charge');
     expect(url.searchParams.get('amount')).toBe('5.00');
+  });
+  it('keeps spaces and literal plus signs distinct in the native app note', () => {
+    const link = venmoLink({ username: 'andsohn', role: 'pay', amountMinor: 19818, note: tripNote('NITEHARTS 26 + friends') });
+    const note = link.split('note=')[1];
+    expect(note).not.toContain('+');
+    expect(note).toBe('NITEHARTS%2026%20%2B%20friends%20%C2%B7%20Cozy%20Trips');
+    expect(decodeURIComponent(note)).toBe('NITEHARTS 26 + friends · Cozy Trips');
   });
 });
 

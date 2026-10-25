@@ -26,6 +26,8 @@ export const tripNote =(groupName) => `${groupName} · Cozy Trips`;
 
 // Venmo redirects these public links to its web app or mobile app. Prefill is best-effort; the person reviews it there.
 export function venmoLink({ username, role, amountMinor, note }) {
-  const params = new URLSearchParams({ txn: role === 'request' ? 'charge' : 'pay', amount: decimal(amountMinor), note });
+  // The native Venmo app displays form-encoded '+' spaces literally.
+  const params = Object.entries({ txn: role === 'request' ? 'charge' : 'pay', amount: decimal(amountMinor), note })
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
   return `https://venmo.com/${encodeURIComponent(username)}?${params}`;
 }
