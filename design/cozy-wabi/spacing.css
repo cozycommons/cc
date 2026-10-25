@@ -1,5 +1,5 @@
 /* Shared layout rhythm for Trips and Fantasy. */
-:root {
+:root, .trips, .trips-modal, .fx-page {
   --cc-space-1: 4px;
   --cc-space-2: 8px;
   --cc-space-3: 12px;

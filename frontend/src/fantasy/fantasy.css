@@ -85,7 +85,7 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-day-title{margin:18px 0 8px !important}
 .fx-players{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .fx-players h4{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:14px;color:#3d2f29}
-.fx-players h4 span{margin-left:auto;font-variant-numeric:tabular-nums}
+.fx-players h4 > span:not(.fx-logo){margin-left:auto;font-variant-numeric:tabular-nums}
 .fx-players ol{list-style:none;margin:0;padding:0}
 .fx-players li{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 0;border-top:1px solid #efe4d1;font-size:13.5px}
 .fx-players li img{width:40px;height:30px;object-fit:cover;object-position:top;border-radius:6px;background:#efe4d1}
@@ -222,11 +222,11 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 /* index.css sets overflow-x:hidden on body/#root, which makes them scroll containers and breaks the sticky
    section tabs. clip keeps the no-sideways-scroll guarantee without creating a scroll container. */
 body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
-.fx-page :is(button, input, select, summary) { min-height: var(--cc-tap-target); }
+.fx-page :is(button, input:not([type=checkbox]):not([type=radio]), select, summary) { min-height: var(--cc-tap-target); }
 .fx-page :is(input, select) { min-width: 0; font-size: 16px; }
 .fx-page :is(.fx-card, .fx-panel, .fx-hero-team, .fx-race, .fx-claim, .fx-onboard) { min-width: 0; }
 .fx-chip { max-width: 100%; overflow-wrap: anywhere; }
-.fx-key, .fx-modes, .fx-panel-head { flex-wrap: wrap; gap: var(--cc-space-2) var(--cc-space-4); }
+.fx-key, .fx-panel-head { flex-wrap: wrap; gap: var(--cc-space-2) var(--cc-space-4); }
 .fx-fold summary { color: #b75f41; text-decoration: underline; text-underline-offset: 3px; }
 .fx-bars { overflow-x: auto; padding-bottom: var(--cc-space-1); }
 .fx-bars-day { flex: 1 0 var(--cc-tap-target); min-width: var(--cc-tap-target); }
@@ -241,3 +241,10 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
   .fx-bars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); height: auto; gap: var(--cc-space-2); overflow: visible; }
   .fx-bars-day { height: 170px; }
 }
+
+@media (max-width: 360px) {
+  .fx-race-team small { white-space: normal; overflow: visible; }
+}
+
+.fx-hero-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--cc-space-1) var(--cc-space-2); }
+.fx-hero-facts > span { white-space: nowrap; }
