@@ -20,10 +20,15 @@ def is_member(row, user_id):
     return user_id in row['member_user_ids']
 
 
+def paid_amounts(expense):
+    return expense.get('payers') or {expense['paid_by']: expense['amount_minor']}
+
+
 def balances(data):
     result = {member['id']: 0 for member in data['members']}
     for expense in data['expenses']:
-        result[expense['paid_by']] += expense['amount_minor']
+        for member_id, amount in paid_amounts(expense).items():
+            result[member_id] += amount
         for member_id, amount in expense['shares'].items():
             result[member_id] -= amount
     for repayment in data['repayments']:
@@ -139,7 +144,7 @@ CREATES = {'add_expense', 'add_repayment', 'restore_expense'}
 
 
 def involved(data, member_id):
-    return (any(e['paid_by'] == member_id or member_id in e['shares'] for e in data['expenses'])
+    return (any(member_id in paid_amounts(e) or member_id in e['shares'] for e in data['expenses'])
             or any(member_id in (p['from_member'], p['to_member']) for p in data['repayments']))
 
 
@@ -192,6 +197,12 @@ def apply_command(row, user_id, command, payload):
     elif command in {'add_expense', 'edit_expense'}:
         if payload['paid_by'] not in members:
             raise LedgerError('Choose a payer on this trip.')
+        payers = payload.get('payers') or {}
+        if payers and (len(payers) < 2 or not set(payers) <= members.keys()
+                       or any(value <= 0 for value in payers.values()) or sum(payers.values()) != payload['amount_minor']):
+            raise LedgerError('When several people pay, give each payer an amount; together they must add up to the expense.')
+        if payers:  # paid_by names the biggest payer (earliest member on ties) so one-payer views stay meaningful.
+            payload = {**payload, 'paid_by': max((key for key in members if key in payers), key=lambda key: payers[key])}
         participants = payload['participants']
         if not participants or len(set(participants)) != len(participants) or not set(participants) <= members.keys():
             raise LedgerError('Choose each participant once from this trip.')
@@ -202,10 +213,15 @@ def apply_command(row, user_id, command, payload):
         if payload['split_mode'] == 'equal':
             quotient, remainder = divmod(amount, len(ordered))
             shares = {key: quotient + int(index < remainder) for index, key in enumerate(ordered)}
-        elif payload['split_mode'] == 'shares':
-            if set(payload['shares']) != set(participants) or any(not 1 <= w <= 1000 for w in payload['shares'].values()):
-                raise LedgerError('Give each selected person between 1 and 1000 shares.')
-            weights = {key: payload['shares'][key] for key in ordered}
+        elif payload['split_mode'] in {'shares', 'percent'}:
+            # Percentages arrive as basis points (12.5% = 1250) so they stay whole-number weights.
+            percent = payload['split_mode'] == 'percent'
+            values = payload['shares']
+            if (set(values) != set(participants) or any(not 1 <= w <= (10000 if percent else 1000) for w in values.values())
+                    or (percent and sum(values.values()) != 10000)):
+                raise LedgerError('Percentages must cover every selected person and add up to 100%.' if percent
+                                  else 'Give each selected person between 1 and 1000 shares.')
+            weights = {key: values[key] for key in ordered}
             shares = weighted_shares(amount, weights)
         else:
             shares = payload['shares']
@@ -221,8 +237,11 @@ def apply_command(row, user_id, command, payload):
         expense = {**(existing or {}), **{key: payload[key] for key in
                    ['id', 'description', 'amount_minor', 'paid_by', 'split_mode', 'date', 'category', 'notes']}}
         expense.pop('weights', None)
+        expense.pop('payers', None)
         if weights:
             expense['weights'] = weights
+        if payers:
+            expense['payers'] = {key: payers[key] for key in members if key in payers}
         expense.update(shares=shares, created_by=existing['created_by'] if existing else user_id,
                        created_at=existing['created_at'] if existing else timestamp,
                        updated_by=user_id, updated_at=timestamp)
@@ -259,7 +278,7 @@ def apply_command(row, user_id, command, payload):
         snapshot = deleted_expense(data, payload['id'])
         if not snapshot:
             raise LedgerError('This expense can no longer be restored.', 404)
-        if snapshot['paid_by'] not in members or not set(snapshot['shares']) <= members.keys():
+        if not set(paid_amounts(snapshot)) <= members.keys() or not set(snapshot['shares']) <= members.keys():
             raise LedgerError('Someone on this expense has left the trip, so it can’t be restored.', 422)
         expense = {**snapshot, 'updated_by': user_id, 'updated_at': timestamp}
         data['expenses'].append(expense)
