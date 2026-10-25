@@ -1,7 +1,8 @@
 // Interim snapshot host until the Cozy upload route is configured in production.
 export const FALLBACK_URL = 'https://gist.githubusercontent.com/homatthew/a417a860db31c1a9e5c13b08338b7a65/raw/fantasy-latest.json';
 
-const TIMEOUT_MS = 8000;
+// Allow slow mobile connections time to receive and decode the snapshot.
+const TIMEOUT_MS = 60000;
 const MODES = ['projections', 'balanced', 'hot'];
 const MANAGER = /^[A-Za-z][A-Za-z '\-.]{0,39}$/;
 const finite = value => Number.isFinite(value);
@@ -93,11 +94,18 @@ export function cleanSnapshot(data) {
 }
 
 async function read(url, signal) {
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
-  const response = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return cleanSnapshot(await response.json());
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return cleanSnapshot(await response.json());
+    } catch (error) {
+      // Keep the loading state during one quiet retry, including body timeouts.
+      if (signal?.aborted || attempt === 1 || (!timeout.aborted && error.name !== 'TimeoutError')) throw error;
+    }
+  }
 }
 
 // Cozy API first; the interim host only when the API has nothing to serve.

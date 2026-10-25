@@ -82,6 +82,47 @@ describe('loadSnapshot', () => {
     expect(fetch.mock.calls[1][0]).toBe(FALLBACK_URL);
   });
 
+  it('allows a slow response and quietly retries a timeout once', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    vi.stubGlobal('fetch', vi.fn()
+      .mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'))
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => copy() }));
+    try {
+      expect((await loadSnapshot(null)).matchup.id).toBe(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(timeout).toHaveBeenNthCalledWith(1, 60000);
+      expect(timeout).toHaveBeenNthCalledWith(2, 60000);
+    } finally { timeout.mockRestore(); }
+  });
+
+  it('does not retry a caller cancellation', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('cancelled', 'AbortError')));
+    await expect(loadSnapshot(null, controller.signal)).rejects.toThrow('cancelled');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a timeout while reading the response body', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => { throw new DOMException('timed out', 'TimeoutError'); } })
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => copy() }));
+    expect((await loadSnapshot(null)).matchup.id).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops after two timeouts', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('timed out', 'TimeoutError')));
+    await expect(loadSnapshot(null)).rejects.toThrow('Predictions unavailable');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry HTTP errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 500, ok: false }));
+    await expect(loadSnapshot(null)).rejects.toThrow('Predictions unavailable');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('moves on to the interim host when the API stalls', async () => {
     vi.stubGlobal('fetch', vi.fn((url, { signal }) => (url === FALLBACK_URL
       ? Promise.resolve({ status: 200, ok: true, json: async () => copy() })
