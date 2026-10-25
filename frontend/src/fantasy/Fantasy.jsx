@@ -95,6 +95,7 @@ function Fantasy() {
       <header className="fx-header">
         <Link to="/" className="fx-home">Cozy Commons</Link>
         <h1><Link to="/fantasy">Fantasy basketball</Link></h1>
+        {data && <p className="fx-caveat"><b>Just for fun.</b> Rough guesses from one model, not tested against real results. Expect big swings, especially early.</p>}
         {data && <p>Matchup {data.matchup.id} · updated {new Date(data.generatedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
       </header>
       {status === 'loading' && <p className="fx-status" role="status">Loading…</p>}

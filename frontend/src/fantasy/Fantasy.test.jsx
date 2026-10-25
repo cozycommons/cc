@@ -22,6 +22,12 @@ describe('Fantasy pages', () => {
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
 
+  it('says up front that the numbers are rough guesses', async () => {
+    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+    view('/fantasy/1-2');
+    expect((await screen.findByText('Just for fun.')).closest('p').textContent).toMatch(/not tested against real results/);
+  });
+
   it('shows the form toggle only once a week is complete', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     const first = view('/fantasy');
