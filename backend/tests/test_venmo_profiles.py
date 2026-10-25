@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import httpx
 import pytest
 
-from trips import venmo_profile as profiles
+from venmo import profiles
 from trips.routes import router
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'venmo'
