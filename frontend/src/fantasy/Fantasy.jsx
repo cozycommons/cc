@@ -7,6 +7,7 @@ import { favorite, orderMatchups } from './paths.js';
 import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
+import OnboardPanel from './OnboardPanel.jsx';
 import { fetchOwners, leagueLinks } from './claims.js';
 import { acquiredLabel, finished, highlights, lowlights, matchupRead } from './analysis.js';
 import { Manager, OwnersContext, TeamLogo, WinChart, round, useNarrow, weekday, winPct } from './parts.jsx';
@@ -89,6 +90,17 @@ function Loading({ received, total }) {
   </div>;
 }
 
+// The ESPN login form lives on its own page so the hub stays a clean,
+// sign-in-free scoreboard (the design assertion in Fantasy.test.jsx).
+function ConnectPage({ apiUrl }) {
+  return (
+    <>
+      <Link className="fx-back" to="..">← All matchups</Link>
+      <OnboardPanel apiUrl={apiUrl} />
+    </>
+  );
+}
+
 function Hub({ data, apiUrl, onOwnersChange, progress, loading }) {
   const links = useContext(LeagueLinksContext);
   const narrow = useNarrow();
@@ -114,6 +126,7 @@ function Hub({ data, apiUrl, onOwnersChange, progress, loading }) {
     </section>
     {data?.season && <div id="fx-race" className="fx-slot"><SeasonRace season={data.season} narrow={narrow} /></div>}
     {data && <div id="fx-team" className="fx-slot"><ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} /></div>}
+    {data && <p className="fx-small"><Link to="connect">Connect your ESPN account</Link> to set your lineup automatically every day.</p>}
   </div>;
 }
 
@@ -214,6 +227,7 @@ function Fantasy() {
             <OwnersContext.Provider value={owners}><LeagueLinksContext.Provider value={links?.season === data?.year ? links : null}>
               <Routes>
                 <Route index element={<Hub data={data} apiUrl={apiUrl} onOwnersChange={reloadOwners} progress={progress} loading={status === 'loading'} />} />
+                <Route path="connect" element={<ConnectPage apiUrl={apiUrl} />} />
                 <Route path=":key" element={data ? <MatchupPage data={data} /> : <Hub apiUrl={apiUrl} loading />} />
               </Routes>
             </LeagueLinksContext.Provider></OwnersContext.Provider>

@@ -28,8 +28,8 @@ chat or a shared doc.
 
 The easy path — no cookies to extract:
 
-1. Open the fantasy page: **https://cozycommons.dev/fantasy**
-2. In the **Automatic lineups** panel, enter your ESPN email and password,
+1. Open the connect page: **https://cozycommons.dev/fantasy/connect**
+2. On the **Automatic lineups** form, enter your ESPN email and password,
    tick "Set my lineup automatically every day" if you want daily lineups,
    and hit **Connect ESPN**.
 3. If you're in more than one basketball league, pick yours from the list.
@@ -40,7 +40,7 @@ Your password travels once, over HTTPS, straight to the backend, which
 uses it for a single MyDisney login and then discards it. It is never
 stored or logged; the only secret kept is the pair of ESPN session
 cookies the login returns, encrypted at rest exactly like the cookie
-flow. The panel answers with your league name and your team name, so you
+flow. The form answers with your league name and your team name, so you
 can confirm it connected the right team before you close the page.
 
 If ESPN demands extra verification for your account (a CAPTCHA or a

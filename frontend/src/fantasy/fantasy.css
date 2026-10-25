@@ -130,6 +130,22 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-claim button{min-height:var(--cc-tap-target);padding:0 14px;border:1px solid #d6c5a7;border-radius:8px;background:transparent;color:#3d2f29;font:inherit;cursor:pointer}
 .fx-claim button:disabled{opacity:.5;cursor:default}
 .fx-claim .fx-claim-primary{background:#b75f41;border-color:#b75f41;color:#fff}
+.fx-onboard{background:var(--fx-surface);border:1px solid var(--fx-line);border-radius:14px;padding:12px 18px;margin-top:16px}
+.fx-onboard h3{font-size:15px;margin:0 0 8px;color:var(--fx-text)}
+.fx-onboard p{font-size:14px;color:var(--fx-text)}
+.fx-onboard form{display:flex;flex-direction:column;gap:6px}
+.fx-onboard label{font-size:13px;color:var(--fx-text);margin-top:6px}
+.fx-onboard input[type=email],.fx-onboard input[type=password],.fx-onboard input[type=text]{min-height:var(--cc-tap-target);padding:0 10px;border:1px solid #d6c5a7;border-radius:8px;background:#fff;font:inherit}
+.fx-onboard .fx-check{display:flex;align-items:center;gap:8px;font-size:14px}
+.fx-onboard .fx-check input{width:18px;height:18px}
+.fx-onboard-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:6px 0}
+.fx-onboard-row select{min-height:var(--cc-tap-target);padding:0 10px;border:1px solid #d6c5a7;border-radius:8px;background:#fff;font:inherit;max-width:100%}
+.fx-onboard button{min-height:var(--cc-tap-target);padding:0 14px;border:1px solid #d6c5a7;border-radius:8px;background:transparent;color:var(--fx-text);font:inherit;cursor:pointer;margin-top:8px}
+.fx-onboard button:disabled{opacity:.5;cursor:default}
+.fx-onboard .fx-claim-primary{background:#b75f41;border-color:#b75f41;color:#fff}
+.fx-token-row{display:flex;gap:8px;align-items:center}
+.fx-token-row input{flex:1;min-width:0;min-height:var(--cc-tap-target);padding:0 10px;border:1px solid #d6c5a7;border-radius:8px;background:#fff;font:inherit;font-size:13px}
+.fx-token-row button{margin-top:0}
 @media(max-width:600px){.fx-claim{padding:10px 12px}.fx-claim button{min-height:44px}}
 @media(max-width:600px){.fx-onboard{padding:10px 12px}.fx-onboard button{min-height:44px}}
 /* Short reads: tags and chips instead of paragraphs. */
@@ -170,7 +186,7 @@ p.fx-read b{font-family:var(--sans,system-ui,sans-serif);font-weight:700;font-si
 body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-page :is(button, input:not([type=checkbox]):not([type=radio]), select, summary) { min-height: var(--cc-tap-target); }
 .fx-page :is(input, select) { min-width: 0; font-size: 16px; }
-.fx-page :is(.fx-card, .fx-panel, .fx-hero-team, .fx-race, .fx-claim) { min-width: 0; }
+.fx-page :is(.fx-card, .fx-panel, .fx-hero-team, .fx-race, .fx-claim, .fx-onboard) { min-width: 0; }
 .fx-chip { max-width: 100%; overflow-wrap: anywhere; }
 .fx-fold summary { color: #b75f41; text-decoration: underline; text-underline-offset: 3px; }
 .fx-bars { overflow-x: auto; padding-bottom: var(--cc-space-1); }

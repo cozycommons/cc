@@ -98,6 +98,14 @@ describe('Fantasy pages', () => {
     expect(screen.queryByText(/Automatic lineups|ESPN password/)).toBeNull();
   });
 
+  it('connect page carries the ESPN login form, off the hub', async () => {
+    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+    view('/fantasy/connect');
+    expect(await screen.findByText('Automatic lineups')).toBeTruthy();
+    expect(document.querySelector('input[type=password]')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /All matchups/ })).toBeTruthy();
+  });
+
   it('dates the page by when scores were captured', async () => {
     const snap = structuredClone(SNAPSHOT_V2);
     snap.captured_at = '2026-10-25T19:31:00Z';
