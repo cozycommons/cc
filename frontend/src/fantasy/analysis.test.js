@@ -14,6 +14,11 @@ describe('matchupRead', () => {
     expect(matchupRead(m)).toEqual({ side: 1, headline: 'Away 73%', facts: ['Down 14', '5 games left vs 3'] });
   });
 
+  it('names the projected finish, which explains a trailing favorite', () => {
+    const m = { ...matchup(35, [920, 914], [day('projected', [6, 7])]), projected_totals: [1135, 1165] };
+    expect(matchupRead(m)).toEqual({ side: 1, headline: 'Away 65%', facts: ['Down 6', 'Projected to win by 30', '7 games left vs 6'] });
+  });
+
   it('handles leads, finished weeks, ties and the last live games', () => {
     expect(matchupRead(matchup(80, [700, 640], [day('projected', [4, 4])])).facts).toEqual(['Up 60', '4 games left each']);
     expect(matchupRead(matchup(100, [700, 640], [day('final', [4, 4], [100, 90])]))).toEqual({ side: 0, headline: 'Home wins', facts: ['Final', '700–640'] });
@@ -55,9 +60,17 @@ describe('player swings', () => {
   });
   it('tags the coldest and hottest players of the week', () => {
     const notes = weekNotes([m]);
-    expect(notes.find(n => n.tone === 'cold')).toMatchObject({ text: 'Tobias Harris', detail: '4 of 60 expected · Home' });
+    expect(notes.find(n => n.tone === 'cold')).toMatchObject({ text: 'Tobias Harris', detail: '4 of 60 expected in 2 games · Home' });
     expect(notes.find(n => n.tone === 'hot')).toMatchObject({ text: 'Tyler Herro', detail: '52 vs 30 expected · Home' });
   });
+  it('says plainly when a cold player scored nothing', () => {
+    const zero = matchup(60, [1, 1], [
+      played([[{ id: 9, name: 'Brandon Ingram', points: 0, expected: 40 }], []]),
+      played([[{ id: 9, name: 'Brandon Ingram', points: 0, expected: 37 }], []]),
+    ]);
+    expect(weekNotes([zero]).find(n => n.tone === 'cold').detail).toBe('Scored 0 in 2 games, 77 expected · Home');
+  });
+
   it('leaves live games and players without an expectation out', () => {
     const live = matchup(60, [1, 1], [played([[{ id: 1, name: 'Early', points: 0, expected: 40 }], []], 'live')]);
     expect(playerSwings(live)).toEqual([[], []]);
