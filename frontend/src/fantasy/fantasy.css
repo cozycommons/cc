@@ -207,7 +207,6 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 .fx-slot{scroll-margin-top:64px}
 @media(max-width:600px){
   .fx-page{padding-top:0}
-  .fx-header h1{margin-top:-6px}
   .fx-header{margin-bottom:6px}
   .fx-header .fx-home{display:inline-flex;align-items:center;min-height:44px;font-size:12px}
   .fx-header h1{font-size:24px;margin:0 0 2px;line-height:1.15}

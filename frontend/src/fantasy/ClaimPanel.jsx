@@ -26,7 +26,15 @@ export default function ClaimPanel({ apiUrl, data, onChange }) {
   };
   useEffect(() => { if (apiUrl) refresh(); }, [apiUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (state.status === 'off' || state.status === 'checking') return null;
+  if (state.status === 'off') return null;
+  if (state.status === 'checking') {
+    return (
+      <section className="fx-claim" aria-label="Your team" aria-busy="true">
+        <h3>Your team</h3>
+        <p className="fx-small">Checking…</p>
+      </section>
+    );
+  }
   if (state.status === 'error') {
     return (
       <section className="fx-claim" aria-label="Your team">

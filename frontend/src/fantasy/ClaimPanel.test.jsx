@@ -81,4 +81,13 @@ describe('team links', () => {
     view();
     expect(await screen.findByText(/Team linking isn’t available/)).toBeTruthy();
   });
+
+  it('keeps the Your team section in place while sign-in is still loading', async () => {
+    globalThis.__session = new Promise(() => {});  // auth never settles during this test
+    server({ suggestion: () => ({}) });
+    view();
+    const section = await screen.findByRole('region', { name: 'Your team' });
+    expect(section.getAttribute('aria-busy')).toBe('true');
+    expect(section.textContent).toContain('Checking…');
+  });
 });
