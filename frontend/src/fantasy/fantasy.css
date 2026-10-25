@@ -367,3 +367,5 @@ body:has(.fx-page){background:var(--paper-light)}
 @media(prefers-reduced-motion:reduce){::view-transition-group(*){animation:none!important}::view-transition-old(*),::view-transition-new(*){animation-duration:120ms!important}}
 .fx-skeleton .fx-bar{min-height:6px}
 .fx-skeleton-chart{height:128px}
+.fx-logo--lazy{position:relative;overflow:hidden}
+.fx-logo--lazy img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;background:#fff}

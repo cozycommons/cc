@@ -23,6 +23,15 @@ describe('cleanSnapshot', () => {
     expect(teams.get(3).logo).toMatch(/^data:image\/png;base64,/);
   });
 
+  it('resolves only content-addressed public logo paths against the API', () => {
+    const raw = copy();
+    raw.teams[0].logo = '/espn/public/logos/' + 'a'.repeat(64);
+    expect(cleanSnapshot(raw, 'https://api.example.test').teams.get(1).logo).toBe('https://api.example.test' + raw.teams[0].logo);
+    expect(cleanSnapshot(raw, '/api').teams.get(1).logo).toBe('/api' + raw.teams[0].logo);
+    raw.teams[0].logo = '//evil.example/logo.png';
+    expect(cleanSnapshot(raw, 'https://api.example.test').teams.get(1).logo).toBeNull();
+  });
+
   it('marks a matchup unavailable when players appear on a projected day', () => {
     const raw = copy();
     raw.matchups[0].days.at(-1).players = [[{ id: 1, name: 'X', points: 1 }], []];
