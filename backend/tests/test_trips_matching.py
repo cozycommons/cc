@@ -1,7 +1,7 @@
 """Name-matching suggestions for linking trip members. Synthetic names only."""
 import pytest
 
-from trips.matching import name_score, suggest, tokens
+from trips.matching import candidates_for, name_score, suggest, tokens
 
 
 def test_tokens_ignore_case_accents_punctuation_and_spacing():
@@ -44,7 +44,7 @@ def test_suggestions_flag_ambiguity_skip_linked_accounts_and_report_venmo():
     assert rows['m3'] | {'alternatives': []} == {
         'member_id': 'm3', 'member_name': 'Riley Sample', 'status': 'suggested', 'user_id': 'u-riley',
         'account_name': 'Riley Sample', 'score': 1.0, 'basis': 'exact', 'venmo_username': 'riley-v',
-        'flags': [], 'alternatives': []}
+        'avatar_url': None, 'lookalike': False, 'flags': [], 'alternatives': []}
     assert rows['m4']['status'] == 'no match' and rows['m4']['user_id'] is None
     assert rows['m5']['status'] == 'no match'  # The owner's account already has a place.
 
@@ -53,3 +53,18 @@ def test_an_exact_lone_first_name_is_still_weak():
     rows = suggest([{'id': 'm', 'name': 'Riley', 'user_id': None}],
                    [{'user_id': 'u', 'names': ['Riley'], 'venmo_username': None}])
     assert (rows[0]['score'], rows[0]['flags']) == (1.0, ['weak'])
+
+
+def test_lookalikes_are_flagged_across_every_candidate_even_hidden_ones():
+    members = [{'id': 'm1', 'name': 'Alex Smith', 'user_id': None}]
+    # Same name throughout; only Venmo tells the first three apart. Avatars don't count: two URLs can show one picture.
+    looks = [('Alex Smith', '/a.png', 'alex-a'), ('Alex Smith', None, 'alex-s'), ('Alex Smith', '/b.png', 'alex-b'),
+             ('Alex Smith', '/c.png#one', None), ('Alex  smith', '/c.png#two', None)]
+    accounts = [{'user_id': f'u{i}', 'names': [name], 'avatar_url': avatar, 'venmo_username': venmo}
+                for i, (name, avatar, venmo) in enumerate(looks)]
+    row = suggest(members, accounts)[0]
+    shown = [row, *row['alternatives']]
+    assert len(shown) == 4  # The fifth account is not displayed...
+    assert {c['user_id']: c['lookalike'] for c in shown} == {'u0': False, 'u1': False, 'u2': False, 'u3': True}  # ...but its twin blocks linking.
+    assert {c['user_id']: c['lookalike'] for c in candidates_for(members[0], members, accounts)}['u4'] is True
+    assert 'email_hint' not in row

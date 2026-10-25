@@ -15,7 +15,7 @@ from dice.routes import ADMIN_EMAILS
 from .ledger import (CREATES, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
                      new_group, require_member)
 from .imports import ImportTrip, prepare_import, require_same_import
-from .matching import read_accounts, suggest
+from .matching import candidates_for, read_accounts, suggest
 from .profiles import current_profile, render_group, render_groups
 from .venmo import normalize_username
 
@@ -361,6 +361,14 @@ def set_member_venmo(trip_id: UUID, member_id: UUID, payload: MemberVenmo, reque
 def link_member(trip_id: UUID, member_id: UUID, payload: MemberAccount, request: Request, user=Depends(current_user)):
     # Admin and creator: an ordinary creator could otherwise enrol any account and read its profile.
     require_admin(user)
+    # Authorize the trip before looking at any account, so outsiders learn nothing from the answers.
+    try:
+        row = read_row(request, trip_id)
+        require_member(row, user.id)
+        if row['owner_id'] != user.id:
+            raise LedgerError('Only the trip creator can link people to accounts.', 403)
+    except LedgerError as error:
+        raise HTTPException(error.status, str(error))
     try:
         account = client(request).auth.admin.get_user_by_id(str(payload.user_id)).user
     except AuthApiError as error:
@@ -369,7 +377,24 @@ def link_member(trip_id: UUID, member_id: UUID, payload: MemberAccount, request:
         account = None
     if not account or account.id != str(payload.user_id):
         raise HTTPException(404, 'No Commons account has that ID.')
+    blocked = link_blocked(request, row, str(member_id), str(payload.user_id))
+    if blocked:
+        raise HTTPException(422, blocked)
     return command(request, trip_id, user, 'link_member', {**payload.model_dump(mode='json'), 'member_id': str(member_id)})
+
+
+def link_blocked(request, row, member_id, user_id):
+    """Only an account the review screen would offer, and could tell apart, may be linked; never one posted blind."""
+    member = next((m for m in row['data']['members'] if m['id'] == member_id and not m.get('user_id')), None)
+    if not member:
+        return None  # The link command reports a missing or already linked place itself.
+    candidate = next((c for c in candidates_for(member, row['data']['members'], read_accounts(client(request)))
+                      if c['user_id'] == user_id), None)
+    if not candidate:
+        return 'That account isn’t a likely match for this person. Send them an invite link instead.'
+    if candidate['lookalike']:
+        return 'That account can’t be told apart from another one. Send this person an invite link instead.'
+    return None
 
 
 @router.post('/groups/{trip_id}/members/{member_id}/unlink')
