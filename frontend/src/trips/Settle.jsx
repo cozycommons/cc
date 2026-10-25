@@ -143,8 +143,8 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
 
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2></div>
     {!!group.transfers.length && <p className="trips-muted trips-small trips-settle-note">{group.settlement === 'fewest'
-      ? 'The fewest payments to square everyone. You might pay someone other than who covered you.'
-      : 'These square everyone with the least money changing hands. You might pay someone other than who covered you.'}</p>}
+      ? 'The fewest payments to square everyone.'
+      : 'These square everyone with the least money changing hands.'}</p>}
     {!group.transfers.length ? <div className="trips-empty trips-empty--square">{!me && <SquareStamp />}<p>All square. Nobody owes anybody.</p></div> : <>
       {!!mine.length && <ul className="trips-transfers">{mine.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul>}
       {!!others.length && <>{!!mine.length && <h3 className="trips-subheading">Between others</h3>}
