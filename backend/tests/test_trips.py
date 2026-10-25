@@ -55,12 +55,50 @@ def test_exact_split_exclusion_edit_and_delete_recalculate():
     assert list(balances(row['data']).values()) == [0, 0, 0]
 
 
+def test_several_payers_are_credited_and_editing_back_to_one_payer_clears_them():
+    row, _ = trip()
+    ids = [m['id'] for m in row['data']['members']]
+    item = expense(row, 9000, paid_by=ids[2], payers={ids[1]: 3000, ids[0]: 6000})
+    row, _ = apply_command(row, 'matt', 'add_expense', item)
+    assert row['data']['expenses'][0]['payers'] == {ids[0]: 6000, ids[1]: 3000}
+    assert row['data']['expenses'][0]['paid_by'] == ids[0]  # The server names the biggest payer.
+    assert list(balances(row['data']).values()) == [3000, 0, -3000]
+    item.update(revision=row['revision'], paid_by=ids[0], payers={})
+    row, _ = apply_command(row, 'matt', 'edit_expense', item)
+    assert 'payers' not in row['data']['expenses'][0]
+    assert list(balances(row['data']).values()) == [6000, -3000, -3000]
+
+
+def test_percent_split_stores_whole_basis_points_and_rounds_like_shares():
+    row, _ = trip()
+    ids = [m['id'] for m in row['data']['members']]
+    row, _ = apply_command(row, 'matt', 'add_expense', expense(row, 10001, split_mode='percent', shares=dict(zip(ids, [3333, 3333, 3334]))))
+    saved = row['data']['expenses'][0]
+    assert saved['weights'] == dict(zip(ids, [3333, 3333, 3334]))
+    assert saved['shares'] == dict(zip(ids, [3333, 3333, 3335]))
+    assert sum(balances(row['data']).values()) == 0
+
+
 @pytest.mark.parametrize('overrides', [
     {'participants': []}, {'participants': ['someone-else']},
     {'paid_by': 'someone-else'}, {'split_mode': 'exact', 'shares': {}},
+    {'split_mode': 'percent', 'shares': {}}, {'payers': {'someone-else': 6001, 'another': 6000}},
 ])
 def test_invalid_splits_are_rejected(overrides):
     row, _ = trip()
+    with pytest.raises(LedgerError):
+        apply_command(row, 'matt', 'add_expense', expense(row, **overrides))
+
+
+@pytest.mark.parametrize('rule', ['percent_not_100', 'payers_do_not_add_up', 'one_payer_listed'])
+def test_percent_and_payer_rules_are_enforced(rule):
+    row, _ = trip()
+    ids = [m['id'] for m in row['data']['members']]
+    overrides = {
+        'percent_not_100': {'split_mode': 'percent', 'shares': dict(zip(ids, [5000, 2500, 2400]))},
+        'payers_do_not_add_up': {'payers': {ids[0]: 6000, ids[1]: 6000}},
+        'one_payer_listed': {'payers': {ids[0]: 12001}},
+    }[rule]
     with pytest.raises(LedgerError):
         apply_command(row, 'matt', 'add_expense', expense(row, **overrides))
 
