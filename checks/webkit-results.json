@@ -1,6 +1,6 @@
 {
   "engine": "Playwright WebKit 27.2",
-  "commit": "2c9abd3e6fd59a3273f16c6e5e1fa0a692c2c293",
+  "commit": "9416150c69d9ee73334736d7ddabd86a39234cf8",
   "padding": [
     {
       "width": 320,
@@ -75,7 +75,7 @@
     },
     {
       "width": 320,
-      "safeAreaActionBottom": 794
+      "safeAreaActionBottom": 778
     },
     {
       "width": 390,
@@ -100,7 +100,7 @@
     },
     {
       "width": 390,
-      "safeAreaActionBottom": 794
+      "safeAreaActionBottom": 778
     }
   ]
 }
