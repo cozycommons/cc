@@ -17,7 +17,7 @@ function DayBars({ matchup, selected, onSelect }) {
       {matchup.days.map(day => {
         const values = value(day) || [null, null], projected = !observed(day);
         return (
-          <button type="button" key={day.date} className="fx-bars-day" aria-pressed={selected === day.date}
+          <button type="button" key={day.date} className={`fx-bars-day${projected ? ' fx-bars-day--proj' : ''}`} aria-pressed={selected === day.date}
             disabled={projected} onClick={() => onSelect(day.date)}
             aria-label={`${longDay(day.date)}: ${values.map(round).join(' to ')}${projected ? ' projected' : ''}`}>
             <span className="fx-bars-pair">
@@ -29,7 +29,7 @@ function DayBars({ matchup, selected, onSelect }) {
                 </span>
               ))}
             </span>
-            <small>{weekday(day.date)}{projected ? ' · proj.' : day.state === 'live' ? ' · live' : ''}</small>
+            <small>{weekday(day.date)}{day.state === 'live' && <span className="fx-live" role="img" aria-label="live" />}</small>
           </button>
         );
       })}

@@ -310,3 +310,9 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-win-axis{position:relative;display:block;height:16px}
 .fx-win-axis span{position:absolute;top:0;white-space:nowrap}
 .fx-win-plot:focus-visible{outline:2px solid #b75f41;outline-offset:4px;border-radius:4px}
+/* Projected days: one-line label, dashed column so the whole day reads as a forecast. */
+.fx-bars-day small{white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:4px}
+.fx-bars-day small .fx-live{margin:0}
+.fx-bars-day--proj{background:repeating-linear-gradient(135deg,#f3e8d6 0 4px,transparent 4px 9px);outline:1px dashed #c9b597;outline-offset:-1px}
+.fx-bars-day--proj b{font-style:italic;color:#75695b}
+.fx-players h4 .fx-manager{margin-left:2px!important;color:#75695b}
