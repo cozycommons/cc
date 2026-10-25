@@ -23,12 +23,13 @@ export default function SeasonRace({ season, narrow }) {
         <span>{season.trials?.toLocaleString()} simulated seasons · {season.weeksRemaining} weeks left</span>
       </div>
       <SeasonRead read={seasonRead(rows)} />
-      {available.length > 1 && (
+      {/* All modes match until a week is complete, so the toggle would do nothing. */}
+      {season.formActive && available.length > 1 && (
         <div className="fx-modes" role="group" aria-label="Form weighting">
           {available.map(([key, label]) => <button key={key} type="button" aria-pressed={mode === key} onClick={() => setMode(key)}>{label}</button>)}
         </div>
       )}
-      {!season.formActive && available.length > 1 && <p className="fx-small">Form starts counting after week 1.</p>}
+      {!season.formActive && available.length > 1 && <p className="fx-small">Hot-hand and balanced views unlock after week 1.</p>}
       <div className="fx-key" aria-hidden="true"><span><i className="fx-key-title" />Win title</span><span><i className="fx-key-playoffs" />Make playoffs</span></div>
       <ol className="fx-race-list" aria-label="Playoff and title chances by team">
         {shown.map(row => {
