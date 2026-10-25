@@ -9,6 +9,7 @@ import { ExpenseDetail, ExpenseForm, categoryOf, payerLabel, savedSummary } from
 import { paidAmounts, payersOf } from './balances.js';
 import { BalancesPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
 import { AddPeopleForm, InviteLinks, PeoplePanel, PersonSheet, RenameForm, TripSettings, VenmoForm } from './People.jsx';
+import LinkAccounts from './LinkAccounts.jsx';
 
 const tabs = [
   { key: 'expenses', label: 'Expenses', icon: ReceiptText },
@@ -167,6 +168,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
   }, [niteharts]);
   const me = myMember(group, user.id);
   const owner = group.owner_id === user.id;
+  const admin = Boolean(profile?.is_admin);
   const setTab = (key) => setParams((next) => { next.set('tab', key); return next; }, { replace: true });
   const close = () => setModal(null);
   // Sub-steps (delete, edit, rename…) go back to the sheet they came from.
@@ -252,11 +254,12 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
   const titles = { expense: modal?.expense ? 'Edit expense' : 'Add expense', expense_detail: modal?.item?.description, repayment: 'Record a payment',
     venmo: modal?.role === 'request' ? 'Request with Venmo' : 'Pay with Venmo', people: 'Add people', invites: 'Invite links', invite: `Invite ${modalName}`,
     member_venmo: `Venmo for ${modalName}`, person: modalName, rename_member: `Rename ${modalName}`, remove_member: `Remove ${modalName}?`,
-    trip_settings: 'Trip settings', delete_trip: 'Delete this trip?', delete_expense: 'Delete this expense?', delete_repayment: 'Remove this payment?' };
+    link_accounts: 'Link people to accounts', unlink_member: `Unlink ${modalName}?`, trip_settings: 'Trip settings', delete_trip: 'Delete this trip?', delete_expense: 'Delete this expense?', delete_repayment: 'Remove this payment?' };
   const myBalance = group.balances[me?.id] || 0;
   const hasHistory = group.expenses.length + group.repayments.length > 0;
   const openExpense = (expense) => setModal({ type: 'expense_detail', item: expense });
   const ownerName = memberName(group.members.find((m) => m.user_id === group.owner_id));
+  const showInvite = (name, token) => setModal({ type: 'invites', links: [{ name, link: `${window.location.origin}/trips/join/${group.id}#invite=${token}` }] });
   const person = (type) => () => setModalState({ type, member: modal.member, revision: latest.current.revision, back: modal });
 
   return <div className={`trips-trip trips-trip--${tab}`}>
@@ -291,7 +294,8 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
           onRecord={(suggestion) => setModal({ type: 'repayment', suggestion })}
           onRemoveRepayment={(item) => setModal({ type: 'delete_repayment', item })} />}
         {tab === 'people' && <PeoplePanel group={group} user={user} onEditProfile={onEditProfile} onAdd={() => { addedLinks.current = []; setModal({ type: 'people' }); }}
-          onManage={(member) => setModal({ type: 'person', member })} onSettings={() => setModal({ type: 'trip_settings' })} />}
+          onManage={(member) => setModal({ type: 'person', member })} onSettings={() => setModal({ type: 'trip_settings' })}
+          onLinkAccounts={admin ? () => setModal({ type: 'link_accounts' }) : null} />}
         {tab === 'activity' && <>
           <div className="trips-panel-heading"><h2 className="trips-section-heading"><History size={16} aria-hidden="true" />Activity</h2></div>
           <ActivityList group={group} me={me} onOpenExpense={openExpense} onRestore={(expense) => restore(expense).catch((e) => setNotice({ message: e.message }))} />
@@ -324,10 +328,18 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
       {modal.type === 'people' && <AddPeopleForm onCancel={close} onSave={addPeople} />}
       {modal.type === 'invites' && <InviteLinks links={modal.links} tripName={group.name} inviter={ownerName} onClose={close} />}
       {modal.type === 'person' && <PersonSheet group={group} member={findMember(group, modal.member.id) || modal.member}
-        onInvite={person('invite')} onVenmo={person('member_venmo')} onRename={person('rename_member')} onRemove={person('remove_member')} />}
+        onInvite={person('invite')} onVenmo={person('member_venmo')} onRename={person('rename_member')} onRemove={person('remove_member')}
+        onUnlink={admin ? person('unlink_member') : null} />}
+      {modal.type === 'link_accounts' && <LinkAccounts group={group} request={request} onClose={close}
+        onLink={(memberId, userId, message) => update(`/members/${memberId}/link`, 'POST', { revision: latest.current.revision, user_id: userId }, message, null, { keepModal: true })} />}
+      {modal.type === 'unlink_member' && <Form destructive submit="Unlink" onCancel={back} onSubmit={async () => {
+        const result = await update(`/members/${modal.member.id}/unlink`, 'POST', { revision: modal.revision }, `Unlinked ${memberName(modal.member)}.`);
+        if (alive.current) showInvite(memberName(modal.member), result.invite_token);
+      }}><p>{memberName(modal.member)}’s account loses access to this trip. Their expenses and payments stay on this place as {modal.member.name}.</p>
+        <p className="trips-muted">You’ll get a new invite link so the right person can claim it.</p></Form>}
       {modal.type === 'invite' && <Form submit="Create invite link" onCancel={back} onSubmit={async () => {
         const result = await update(`/members/${modal.member.id}/invite`, 'POST', { revision: modal.revision }, 'Invite link ready.');
-        if (alive.current) setModal({ type: 'invites', links: [{ name: memberName(modal.member), link: `${window.location.origin}/trips/join/${group.id}#invite=${result.invite_token}` }] });
+        if (alive.current) showInvite(memberName(modal.member), result.invite_token);
       }}><p>A new one-use link for {memberName(modal.member)}. Older links for them stop working.</p></Form>}
       {modal.type === 'member_venmo' && <VenmoForm initial={modal.member.venmo_username} onCancel={back}
         hint={`Only for this trip, until ${firstName(modal.member)} joins and adds their own.`}

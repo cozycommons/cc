@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Link2, MoreHorizontal, Pencil, Settings, Share2, Trash2, UserMinus, UserPlus, UsersRound } from 'lucide-react';
+import { Link2, MoreHorizontal, Pencil, Settings, Share2, Trash2, Unlink, UserCheck, UserMinus, UserPlus, UsersRound } from 'lucide-react';
 import { money } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
 import { firstName, isInvolved, memberName } from './people.js';
@@ -52,7 +52,7 @@ export function VenmoForm({ initial, onSave, onCancel, hint }) {
   </Form>;
 }
 
-export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditProfile }) {
+export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditProfile, onLinkAccounts }) {
   const owner = group.owner_id === user.id;
   return <>
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><UsersRound size={16} aria-hidden="true" />People</h2>
@@ -75,11 +75,12 @@ export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditPr
     })}</ul>
     <p className="trips-muted trips-small">Anyone on the trip can add and edit expenses.</p>
     {owner && <button type="button" className="trips-text-button" onClick={onSettings}><Settings size={14} aria-hidden="true" />Trip settings</button>}
+    {owner && onLinkAccounts && <button type="button" className="trips-text-button" onClick={onLinkAccounts}><UserCheck size={14} aria-hidden="true" />Link people to accounts</button>}
   </>;
 }
 
 // The creator's options for one person. Each choice opens its own small, reviewable step.
-export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemove }) {
+export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemove, onUnlink }) {
   const joined = Boolean(member.user_id);
   const busy = isInvolved(group, member.id);
   return <div className="trips-person-sheet">
@@ -89,6 +90,8 @@ export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemo
       {!joined && <li><button type="button" onClick={onInvite}><Link2 size={16} aria-hidden="true" /><span>New invite link<small>Older links for {firstName(member)} stop working.</small></span></button></li>}
       {!joined && <li><button type="button" onClick={onVenmo}><Pencil size={16} aria-hidden="true" /><span>{member.venmo_username ? 'Change Venmo username' : 'Add Venmo username'}<small>Until {firstName(member)} joins and adds their own.</small></span></button></li>}
       {!joined && <li><button type="button" onClick={onRename}><Pencil size={16} aria-hidden="true" /><span>Rename</span></button></li>}
+      {joined && onUnlink && member.user_id !== group.owner_id && <li><button type="button" onClick={onUnlink}><Unlink size={16} aria-hidden="true" /><span>Unlink account
+        <small>For a wrong link. {firstName(member)} keeps their history and gets a new invite link.</small></span></button></li>}
       <li><button type="button" className="trips-danger" disabled={busy} onClick={onRemove}><UserMinus size={16} aria-hidden="true" /><span>Remove from trip
         {busy && <small>On expenses or payments. Take {firstName(member)} off those first.</small>}</span></button></li>
     </ul>

@@ -295,3 +295,55 @@ it('leaves a trip that was deleted while it was open', async () => {
   await act(async () => document.dispatchEvent(new Event('visibilitychange')));
   await waitFor(() => expect(screen.queryByRole('heading', { name: 'Tahoe & Reno' })).not.toBeInTheDocument());
 });
+
+const suggestions = [
+  { member_id: 'jason', member_name: 'Jason', status: 'suggested', user_id: 'user-jason', account_name: 'Jason Keung', score: 0.7,
+    basis: 'first name', venmo_username: 'jason-sample', flags: ['weak'],
+    alternatives: [{ user_id: 'user-jay', account_name: 'Jason Other', score: 0.7, basis: 'first name', venmo_username: null }] },
+];
+
+it('hides account linking from creators who are not admins', async () => {
+  open('/trips/trip-id?tab=people');
+  await screen.findByRole('button', { name: 'Add people' });
+  expect(screen.queryByRole('button', { name: 'Link people to accounts' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Manage Andrew' }));
+  expect(screen.queryByRole('button', { name: /Unlink account/ })).toBeNull();
+});
+
+it('lets an admin creator review and confirm one account link at a time', async () => {
+  mocked.auth.profile.is_admin = true;
+  const linked = trip({ revision: 5, members: trip().members.map((m) => m.id === 'jason' ? { ...m, user_id: 'user-jason' } : m) });
+  open('/trips/trip-id?tab=people');
+  mocked.request.mockImplementation((_client, path, method) => {
+    if (path.startsWith('/admin/')) return Promise.resolve(suggestions);
+    if (method === 'POST') return Promise.resolve(linked);
+    return Promise.resolve(trip());
+  });
+  fireEvent.click(await screen.findByRole('button', { name: 'Link people to accounts' }));
+  const dialog = screen.getByRole('dialog', { name: 'Link people to accounts' });
+  expect(await within(dialog).findByText('Jason')).toBeInTheDocument();
+  expect(dialog).toHaveTextContent('Weak match');
+  expect(writes()).toEqual([]);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Review linking Jason to Jason Keung' }));
+  expect(dialog).toHaveTextContent('full access to this trip');
+  expect(dialog).toHaveTextContent('Pay and Request for Jason will go to @jason-sample');
+  expect(writes()).toEqual([]);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Link Jason' }));
+  await waitFor(() => expect(writes()).toHaveLength(1));
+  expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/link', 'POST', { revision: 4, user_id: 'user-jason' }]);
+  expect(await screen.findByText('Linked Jason to Jason Keung.')).toBeInTheDocument();
+});
+
+it('lets an admin unlink a wrong account and hands back a fresh invite link', async () => {
+  mocked.auth.profile.is_admin = true;
+  const unlinked = trip({ revision: 5, members: trip().members.map((m) => m.id === 'andrew' ? { ...m, user_id: null } : m) });
+  open('/trips/trip-id?tab=people');
+  mocked.request.mockImplementation((_client, _path, method) => Promise.resolve(method ? { group: unlinked, invite_token: 'fresh-token' } : trip()));
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage Andrew' }));
+  fireEvent.click(screen.getByRole('button', { name: /Unlink account/ }));
+  const dialog = screen.getByRole('dialog', { name: 'Unlink Andrew?' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Unlink' }));
+  await waitFor(() => expect(writes()).toHaveLength(1));
+  expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/andrew/unlink', 'POST', { revision: 4 }]);
+  expect((await screen.findByRole('textbox', { name: 'Invite link for Andrew' })).value).toContain('#invite=fresh-token');
+});
