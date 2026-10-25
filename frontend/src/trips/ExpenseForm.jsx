@@ -108,7 +108,15 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
   const total = parse(amount, false, group.currency) || 0;
   const selected = group.members.filter((m) => participants.includes(m.id));
   const weightOf = (memberId) => { const value = Number(weights[memberId]); return Number.isInteger(value) && value >= 1 && value <= 1000 ? value : 0; };
-  const basisPoints = Object.fromEntries(selected.map((m) => [m.id, toBasisPoints(percents[m.id] || '')]));
+  // Blank percentages share whatever is left evenly, so a fresh percent split already adds up to 100%
+  // and typing one person's figure rebalances the rest. The placeholder shows the figure that will save.
+  const blank = (memberId) => !(percents[memberId] || '').trim();
+  const blanks = selected.filter((m) => blank(m.id)).map((m) => m.id);
+  const rest = Math.max(0, 10000 - selected.reduce((sum, m) => sum + (blank(m.id) ? 0 : toBasisPoints(percents[m.id])), 0));
+  const basisPoints = Object.fromEntries(selected.map((m) => {
+    const index = blanks.indexOf(m.id);
+    return [m.id, index < 0 ? toBasisPoints(percents[m.id]) : Math.floor(rest / blanks.length) + Number(index < rest % blanks.length)];
+  }));
   const percentLeft = 10000 - Object.values(basisPoints).reduce((a, b) => a + b, 0);
   const preview = mode === 'equal' ? equalShares(total, selected)
     : mode === 'shares' ? weightedShares(total, Object.fromEntries(selected.map((m) => [m.id, weightOf(m.id)])))
@@ -188,7 +196,7 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
         const on = participants.includes(m.id);
         return <div className={`trips-split-row${on ? '' : ' trips-split-row--off'}`} key={m.id}>
           <label><input type="checkbox" name="participants" value={m.id} checked={on} onChange={(e) => toggle(m.id, e.target.checked)} /><Avatar member={m} size={26} /><span>{m.id === me?.id ? `${memberName(m)} (you)` : memberName(m)}</span></label>
-          {mode === 'percent' && <span className="trips-percent"><input name={`percent_${m.id}`} aria-label={`Percent for ${memberName(m)}`} inputMode="decimal" placeholder={selected.length ? String(Math.floor(10000 / selected.length) / 100) : '0'} disabled={!on} value={percents[m.id]} onChange={(e) => setPercents({ ...percents, [m.id]: e.target.value })} />%</span>}
+          {mode === 'percent' && <span className="trips-percent"><input name={`percent_${m.id}`} aria-label={`Percent for ${memberName(m)}`} inputMode="decimal" placeholder={on ? String((basisPoints[m.id] || 0) / 100) : '0'} disabled={!on} value={percents[m.id]} onChange={(e) => setPercents({ ...percents, [m.id]: e.target.value })} />%</span>}
           {mode === 'exact' && <input name={`share_${m.id}`} aria-label={`Amount for ${memberName(m)} (${group.currency})`} inputMode="decimal" placeholder="0.00" disabled={!on} value={exact[m.id]} onChange={(e) => setExact({ ...exact, [m.id]: e.target.value })} />}
           {mode === 'shares' && <span className="trips-stepper">
             <button type="button" aria-label={`Fewer shares for ${memberName(m)}`} disabled={!on || weightOf(m.id) <= 1} onClick={() => step(m.id, -1)}><Minus size={14} /></button>
