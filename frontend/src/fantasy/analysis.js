@@ -41,7 +41,7 @@ export function playerSwings(matchup) {
       if (!Number.isFinite(player.points) || !Number.isFinite(player.expected)) return;
       const row = totals[side].get(player.id) || { id: player.id, name: player.name, actual: 0, expected: 0, games: 0 };
       row.actual += player.points; row.expected += player.expected; row.games += 1;
-      if (player.acquired !== undefined) row.acquired = player.acquired;  // latest day wins
+      if (player.acquired) row.acquired = player.acquired;  // latest tagged day wins; older untagged days don't erase it
       totals[side].set(player.id, row);
     }));
   }
