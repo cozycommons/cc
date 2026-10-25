@@ -22,6 +22,20 @@ describe('Fantasy pages', () => {
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
 
+  it('shows the form toggle only once a week is complete', async () => {
+    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+    const first = view('/fantasy');
+    await screen.findByText(/unlock after week 1/);
+    expect(screen.queryByRole('group', { name: 'Form weighting' })).toBeNull();
+    first.unmount();
+    const active = structuredClone(SNAPSHOT_V2);
+    active.season.form_active = true;
+    vi.stubGlobal('fetch', respond(200, active));
+    view('/fantasy');
+    expect(await screen.findByRole('group', { name: 'Form weighting' })).toBeTruthy();
+    expect(screen.queryByText(/unlock after week 1/)).toBeNull();
+  });
+
   it('race rows show playoff and title odds and expand into labelled finishes', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy');
