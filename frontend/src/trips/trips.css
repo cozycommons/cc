@@ -584,3 +584,13 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
 .trips-confirmation-trigger:focus-visible { outline: 2px solid #1689e8; outline-offset: 2px; border-radius: 4px; }
 .trips-confirmation-tooltip { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; width: 210px; padding: 10px 12px; border: var(--hairline); border-radius: 8px; background: var(--paper-light); color: var(--ink); box-shadow: var(--soft-shadow); font: 13px/1.5 var(--sans); text-align: left; }
 .trips-confirmation-label { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-soft); font: 12px/1.5 var(--sans); }
+
+.trips-settle-gate, .trips-late-changes, .trips-settle-banner { padding: var(--cc-space-4); border: var(--hairline); border-radius: var(--radius-button); margin-block: var(--cc-space-4); background: var(--paper-light); }
+.trips-settle-gate ul { list-style: none; padding: 0; }
+.trips-settle-gate li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--cc-space-3); padding-block: var(--cc-space-2); }
+.trips-settle-gate .cc-button + .cc-button { margin-left: var(--cc-space-2); }
+.trips-settle-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cc-space-3); }
+.trips-updated { display: inline-block; color: var(--ink-soft); border: var(--hairline); border-radius: 6px; padding: 2px 6px; font-size: 12px; }
+.trips-return-prompt { margin-block: var(--cc-space-3); }
+.trips-return-prompt > strong, .trips-return-prompt > small { flex-basis: 100%; }
+.trips-late-changes li { margin-block: var(--cc-space-2); font-size: 13px; }
