@@ -55,7 +55,7 @@ export function Modal({ title, onClose, children }) {
 }
 
 // One submit at a time; the draft stays on errors; dismissal is blocked while saving.
-export function Form({ onSubmit, children, submit, onCancel, destructive = false, submitVariant = 'primary', aside = null, name }) {
+export function Form({ onSubmit, children, submit, onCancel, destructive = false, submitVariant = 'primary', aside = null, name, primaryFirst = false }) {
   const setPending = useContext(ModalPendingContext);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -74,7 +74,12 @@ export function Form({ onSubmit, children, submit, onCancel, destructive = false
   }}>
     <fieldset disabled={busy} className="trips-form-fields">{children}</fieldset>
     {error && <p ref={errorRef} className="trips-error" role="alert">{error}</p>}
-    <div className="trips-form-actions">{aside && <fieldset className="trips-form-aside" disabled={busy}>{aside}</fieldset>}<Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button><Button type="submit" variant={destructive ? 'destructive' : submitVariant} disabled={busy}>{busy ? 'Saving…' : submit}</Button></div>
+    <div className="trips-form-actions">
+      {primaryFirst && <Button type="submit" variant={destructive ? 'destructive' : submitVariant} disabled={busy}>{busy ? 'Saving…' : submit}</Button>}
+      {aside && <fieldset className="trips-form-aside" disabled={busy}>{aside}</fieldset>}
+      <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
+      {!primaryFirst && <Button type="submit" variant={destructive ? 'destructive' : submitVariant} disabled={busy}>{busy ? 'Saving…' : submit}</Button>}
+    </div>
   </form>;
 }
 

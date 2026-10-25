@@ -139,7 +139,7 @@ function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
       ? <div className="trips-empty"><Button onClick={() => window.location.reload()}>Reload profile</Button></div>
       : <p className="trips-loading" role="status">Loading your profile…</p>;
     if (linked && auth.profile?.venmo_confirmed === false) return <VenmoConfirmation key={auth.user.id}
-      username={auth.profile.venmo_username} onConfirm={auth.saveVenmo} onCancel={() => navigate('/trips')} />;
+      request={request} username={auth.profile.venmo_username} onConfirm={auth.saveVenmo} onCancel={() => navigate('/trips')} />;
     return <TripView key={group.id} group={group} user={auth.user} profile={auth.profile} request={request} onUpdated={accept} onRefresh={load} onEditProfile={onEditProfile} />;
   }
   return <>

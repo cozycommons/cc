@@ -1,3 +1,4 @@
+import VenmoProfile from './VenmoProfile.jsx';
 import React, { useRef, useState } from 'react';
 import { Link2, MoreHorizontal, Pencil, Settings, Share2, Trash2, Unlink, UserCheck, UserMinus, UserPlus, UsersRound } from 'lucide-react';
 import { money } from './money.js';
@@ -80,10 +81,11 @@ export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditPr
 }
 
 // The creator's options for one person. Each choice opens its own small, reviewable step.
-export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemove, onUnlink }) {
+export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemove, onUnlink, request }) {
   const joined = Boolean(member.user_id);
   const busy = isInvolved(group, member.id);
   return <div className="trips-person-sheet">
+    <VenmoProfile handle={member.venmo_username} request={request} />
     <div className="trips-venmo-who"><Avatar member={member} size={44} />
       <span className="trips-muted">{joined ? 'Joined' : 'Hasn’t joined'}{member.venmo_username ? ` · @${member.venmo_username}` : ''}</span></div>
     <ul className="trips-menu">

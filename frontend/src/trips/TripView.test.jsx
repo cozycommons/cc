@@ -6,7 +6,7 @@ import TripsApp from './TripsApp.jsx';
 
 const mocked = vi.hoisted(() => ({ auth: null, request: vi.fn() }));
 vi.mock('./useTripsAuth.js', () => ({ useTripsAuth: () => mocked.auth, localDemo: false }));
-vi.mock('./api.js', () => ({ tripRequest: (...args) => mocked.request(...args) }));
+vi.mock('./api.js', () => ({ tripRequest: (...args) => args[1].startsWith('/venmo/profile?') ? Promise.resolve({ found: false }) : mocked.request(...args) }));
 vi.mock('./ui.jsx', async (importOriginal) => ({ ...await importOriginal(),
   Modal: ({ title, children }) => <section role="dialog" aria-label={title}>{children}</section>,
 }));

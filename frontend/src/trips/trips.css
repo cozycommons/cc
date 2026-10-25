@@ -492,3 +492,21 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
 .trips-link-account > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
 .trips-link-account small { font-size: 12px; }
 .trips-venmo-confirmation { max-width: 440px; padding: 24px 0; }
+
+.trips-venmo-card { display: flex; align-items: center; gap: var(--cc-space-4, 16px); padding: var(--cc-space-6, 24px); border: 1px solid var(--line); border-radius: 18px; background: var(--paper-light); color: inherit; text-decoration: none; min-width: 0; }
+.trips-venmo-avatar { display: grid; place-items: center; flex: 0 0 76px; width: 76px; height: 76px; border-radius: 50%; background: #e6f3fc; color: #0879bc; font-size: 30px; overflow: hidden; }
+.trips-venmo-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.trips-venmo-identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.trips-venmo-identity strong { font-size: 22px; line-height: 1.2; }
+.trips-venmo-badge { color: #0879bc; font-size: 11px; font-weight: 700; }
+.trips-venmo-preview > p { margin: 8px 0 0; }
+.trips-venmo-preview > p:empty { display: none; }
+.trips-venmo-prompt { font-size: 20px; font-weight: 600; margin: 8px 0; }
+.trips-venmo-confirmation .trips-form-actions { display: flex; flex-direction: column; align-items: stretch; }
+.trips .trips-venmo-confirmation .cc-button { width: 100%; min-height: max(48px, var(--cc-tap-target, 48px)); }
+.trips-venmo-confirmation .trips-change-handle { margin-top: 4px; }
+
+.trips-venmo-confirmation .trips-form-aside { width: 100%; }
+
+.trips-venmo-confirmation .trips-form { margin-top: var(--cc-space-5, 20px); }
+.trips-venmo-confirmation .trips-form-aside { margin: 0; padding: 0; border: 0; }
