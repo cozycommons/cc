@@ -12,7 +12,7 @@ from postgrest.exceptions import APIError
 
 from dice.routes import ADMIN_EMAILS
 
-from .ledger import (CREATES, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
+from .ledger import (CREATES, INDEPENDENT, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
                      new_group, require_member)
 from .imports import ImportTrip, prepare_import, require_same_import
 from .matching import candidates_for, read_accounts, suggest
@@ -76,6 +76,10 @@ class VenmoUsername(Input):
     @classmethod
     def valid_username(cls, value):
         return normalize_username(value)
+
+
+class AccountVenmo(VenmoUsername):
+    owner_confirmed: bool = False
 
 
 class MemberVenmo(Revision, VenmoUsername):
@@ -176,7 +180,7 @@ def already_restored(row, expense_id):
 
 def command(request, trip_id, user, kind, payload):
     # Creates are independent of other changes: when another write lands first, reread and add on top of it.
-    attempts = 5 if kind in CREATES else 1
+    attempts = 5 if kind in INDEPENDENT or kind.startswith('obligation_') else 1
     try:
         for attempt in range(attempts):
             before = read_row(request, trip_id)
@@ -243,11 +247,19 @@ def get_my_profile(request: Request, user=Depends(current_user)):
 
 
 @router.put('/me')
-def update_my_profile(payload: VenmoUsername, request: Request, user=Depends(current_user)):
+def update_my_profile(payload: AccountVenmo, request: Request, user=Depends(current_user)):
     # Only the caller's own account is writable. GoTrue merges these keys into existing metadata.
     username = payload.venmo_username
     provenance = {'source': 'self', 'provided_by_user_id': user.id,
-                  'provided_at': datetime.now(timezone.utc).isoformat(), 'owner_confirmed': True} if username else None
+                  'provided_at': datetime.now(timezone.utc).isoformat(), 'owner_confirmed': payload.owner_confirmed, 'handle': username.lower()} if username else None
+    if username and payload.owner_confirmed:
+        from venmo.profiles import lookup
+        try:
+            preview = lookup.load(client(request), username.lower()) or {}
+        except Exception:
+            preview = {}
+        if preview.get('found'):
+            provenance['display_name'] = preview['displayName']
     try:
         updated = client(request).auth.admin.update_user_by_id(
             user.id, {'user_metadata': {'venmo_username': username, 'venmo_username_provenance': provenance}}).user
@@ -464,8 +476,28 @@ def delete_repayment(trip_id: UUID, repayment_id: UUID, payload: Revision, reque
     return command(request, trip_id, user, 'delete_repayment', {**payload.model_dump(), 'id': str(repayment_id)})
 
 
-@router.get('/venmo/profile')
-def venmo_profile(response: Response, handle: str, user=Depends(current_user)):
-    from .venmo_profile import lookup
-    response.headers['Cache-Control'] = 'no-store'
-    return lookup.lookup(handle, user.id)
+class ObligationAction(Input):
+    amount_minor: Money | None = None
+    cycle: Annotated[int, Field(strict=True, ge=0)]
+
+
+@router.post('/groups/{trip_id}/obligations/{obligation_id}/{action}')
+def change_obligation(trip_id: UUID, obligation_id: UUID, action: Literal['settle', 'undo', 'nudge'], payload: ObligationAction, request: Request, user=Depends(current_user)):
+    if action == 'settle' and payload.amount_minor is None:
+        raise HTTPException(422, 'The payment amount is required.')
+    return command(request, trip_id, user, 'obligation_' + action, {'id': str(obligation_id), **payload.model_dump()})
+
+
+class SettleReady(Input):
+    member_id: UUID
+    ready: Annotated[bool, Field(strict=True)]
+
+
+@router.post('/groups/{trip_id}/settle/ready')
+def settle_ready(trip_id: UUID, payload: SettleReady, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'settle_ready', payload.model_dump(mode='json'))
+
+
+@router.post('/groups/{trip_id}/settle/start')
+def settle_start(trip_id: UUID, payload: Input, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'settle_start', {})

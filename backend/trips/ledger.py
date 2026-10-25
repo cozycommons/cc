@@ -119,12 +119,72 @@ def weighted_shares(amount, weights):
     return shares
 
 
+def settling(data):
+    return 'settle' not in data or bool(data['settle'].get('started_at'))
+
+
+def waiting(data):
+    ready = data.get('settle', {}).get('ready', {})
+    return [m['id'] for m in data['members'] if m.get('user_id') and m['id'] not in ready]
+
+
+def obligations_for(row):
+    from venmo.obligations import reconcile
+    return reconcile(row['data'].get('obligations', []), transfers(balances(row['data'])) if settling(row['data']) else [],
+                     {'kind': 'trip', 'id': row['id']}, row['revision'], row['updated_at'])
+
+
+def obligation_command(row, user_id, action, payload):
+    from venmo.obligations import transition, reconcile
+    if not settling(row['data']):
+        raise LedgerError("Settling hasn't started.", 422)
+    items = obligations_for(row)
+    item = next((item for item in items if item['id'] == payload['id']), None)
+    if item is None:
+        raise LedgerError('This payment changed. Refresh to see the latest amounts.', 409)
+    if action == 'settle' and (type(payload.get('amount_minor')) is not int or payload['amount_minor'] != item['amount_minor']):
+        raise LedgerError('This payment amount changed. Refresh before marking it.', 409)
+    cycle = item.get('cycle', 0)
+    expected = payload.get('cycle', cycle)
+    if expected != cycle:
+        if action == 'undo' and item['status'] in ('open', 'replaced') and expected + 1 == cycle:
+            return deepcopy(row), None
+        raise LedgerError('This payment changed. Refresh before marking it again.', 409)
+    if item['status'] == 'replaced' and action != 'settle':
+        raise LedgerError('This payment changed.', 409)
+    actor = next((m['id'] for m in row['data']['members'] if m.get('user_id') == user_id), None)
+    try:
+        changed = transition(item, action, actor, timestamp=now())
+    except ValueError as error:
+        raise LedgerError(str(error), 422)
+    if action == 'settle' and item['status'] in ('open', 'replaced'):
+        result, _ = apply_command(row, user_id, 'add_repayment', {
+            'id': item['id'], 'from_member': item['from_member'], 'to_member': item['to_member'],
+            'amount_minor': item['amount_minor'], 'date': now()[:10], 'notes': item['reference'], 'revision': row['revision']})
+    elif action == 'undo' and item['status'] == 'settled':
+        result, _ = apply_command(row, user_id, 'delete_repayment', {'id': item['id'], 'revision': row['revision']})
+    elif action == 'nudge':
+        result = deepcopy(row)
+        result['revision'] += 1
+        result['updated_at'] = now()
+    else:
+        return deepcopy(row), None  # Repeated taps and lost-response retries are idempotent.
+    items = [changed if current['id'] == changed['id'] else current for current in items]
+    result['data']['obligations'] = reconcile(items, transfers(balances(result['data'])) if settling(result['data']) else [],
+        {'kind': 'trip', 'id': row['id']}, result['revision'], result['updated_at'])
+    return result, None
+
+
 def public_group(row):
     data = deepcopy(row['data'])
     data.pop('account_links', None)
+    data['obligations'] = obligations_for(row)
     for member in data['members']:
         member.pop('invite_hash', None)
     amounts = balances(data)
+    state = data.get('settle', {})
+    data['settle'] = {**state, 'started': settling(data), 'started_at': state.get('started_at'),
+                      'started_by': state.get('started_by'), 'ready': state.get('ready', {}), 'waiting': waiting(data) if not settling(data) else []}
     return {**data, 'id': row['id'], 'owner_id': row['owner_id'],
             'revision': row['revision'], 'created_at': row['created_at'],
             'balances': amounts, 'transfers': transfers(amounts), 'settlement': _settlement_mode(amounts),
@@ -136,12 +196,14 @@ def new_group(group_id, user_id, name, currency, display_name):
             'revision': 1, 'created_at': now(), 'updated_at': now(),
             'data': {'name': name, 'currency': currency,
                      'members': [{'id': str(uuid4()), 'name': display_name, 'user_id': user_id}],
-                     'expenses': [], 'repayments': [], 'activity': []}}
+                     'expenses': [], 'repayments': [], 'activity': [],
+                     'settle': {'started_at': None, 'started_by': None, 'ready': {}}}}
 
 
 # Adding a record doesn't depend on what else is in the ledger, so it may land on a newer revision.
 # 409 means "reload and review"; rules that a fresh revision can't satisfy answer 422 instead.
 CREATES = {'add_expense', 'add_repayment', 'restore_expense'}
+INDEPENDENT = CREATES | {'settle_ready', 'settle_start'}
 
 
 def involved(data, member_id):
@@ -179,10 +241,13 @@ def require_member(row, user_id):
 def apply_command(row, user_id, command, payload):
     """Return a complete revision to save with compare-and-swap. Never mutate input."""
     require_member(row, user_id)
-    if command not in CREATES and payload['revision'] != row['revision']:
+    if command not in INDEPENDENT and not command.startswith('obligation_') and payload['revision'] != row['revision']:
         raise LedgerError('Someone changed this trip. Refresh, review the changes, and try again.', 409)
+    if command.startswith('obligation_'):
+        return obligation_command(row, user_id, command.removeprefix('obligation_'), payload)
     result = deepcopy(row)
     data = result['data']
+    data['obligations'] = obligations_for(row)
     members = {member['id']: member for member in data['members']}
     timestamp = now()
     invite_token = None
@@ -191,7 +256,40 @@ def apply_command(row, user_id, command, payload):
     if command in owner_only and row['owner_id'] != user_id:
         raise LedgerError('Only the trip creator can manage the trip and its people.', 403)
 
-    if command in {'add_member', 'invite_member'}:
+    if command in {'settle_ready', 'settle_start'}:
+        actor = next((m for m in data['members'] if m.get('user_id') == user_id), None)
+        if not actor:
+            raise LedgerError('Only joined members can mark ready.', 403)
+        if command == 'settle_start':
+            if row['owner_id'] != user_id:
+                raise LedgerError('Only the trip creator can start settling.', 403)
+            if settling(data):
+                return deepcopy(row), None
+            data['settle'].update(started_at=timestamp, started_by=actor['id'])
+            summary = f"{actor['name']} started settling"
+        else:
+            target = members.get(payload['member_id'])
+            if not target or not target.get('user_id'):
+                raise LedgerError('Choose a joined member.', 422)
+            if not payload['ready'] and target['id'] != actor['id']:
+                raise LedgerError('Only you can mark yourself not ready.', 403)
+            if not payload['ready'] and settling(data):
+                raise LedgerError('Settling already started.', 422)
+            if payload['ready'] and (settling(data) or target['id'] in data['settle']['ready']):
+                return deepcopy(row), None
+            if payload['ready']:
+                data['settle']['ready'][target['id']] = {'by': actor['id'], 'at': timestamp}
+                summary = f"{actor['name']} is done adding" if target['id'] == actor['id'] else f"{actor['name']} closed out {target['name']}"
+            else:
+                if target['id'] not in data['settle']['ready']:
+                    return deepcopy(row), None
+                del data['settle']['ready'][target['id']]
+                summary = f"{actor['name']} isn't done adding"
+            if not waiting(data):
+                data['settle'].update(started_at=timestamp, started_by=actor['id'])
+                data['activity'] = [{'id': str(uuid4()), 'user_id': user_id, 'summary': 'Settling started', 'at': timestamp}, *data['activity']]
+        entry = {'kind': command}
+    elif command in {'add_member', 'invite_member'}:
         if command == 'add_member':
             if len(members) >= 30:
                 raise LedgerError('A trip can have up to 30 people.')
@@ -345,7 +443,13 @@ def apply_command(row, user_id, command, payload):
         repayment = next((p for p in data['repayments'] if p['id'] == payload['id']), None)
         if not repayment:
             raise LedgerError('Repayment not found.', 404)
+        linked = next((o for o in data.get('obligations', []) if o['id'] == repayment['id']), None)
+        if linked and user_id not in {members.get(linked[party], {}).get('user_id') for party in ('from_member', 'to_member')}:
+            raise LedgerError('Only the people on this payment can undo it.', 403)
         data['repayments'].remove(repayment)
+        for obligation in data.get('obligations', []):
+            if obligation['id'] == repayment['id']:
+                obligation.update(status='open', settled_at=None, settled_by=None, cycle=obligation.get('cycle', 0) + 1)
         summary = (f"Removed repayment from {members[repayment['from_member']]['name']} "
                    f"to {members[repayment['to_member']]['name']}")
         entry = {'kind': command, 'item_id': repayment['id'], 'amount_minor': repayment['amount_minor']}
@@ -379,6 +483,7 @@ def apply_command(row, user_id, command, payload):
                         + data['activity'])[:100]
     result['revision'] += 1
     result['updated_at'] = timestamp
+    data['obligations'] = obligations_for(result)
     return result, invite_token
 
 

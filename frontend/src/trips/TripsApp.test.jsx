@@ -53,8 +53,9 @@ it('asks a linked member once, then opens trips after the account confirmation i
   const view = render(app());
   expect(await screen.findByRole('heading', { name: 'Confirm your Venmo' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Add expense' })).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('button', { name: "Yes, that's me" })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: "Yes, that's me" }));
-  await waitFor(() => expect(mocked.auth.saveVenmo).toHaveBeenCalledWith('test-handle'));
+  await waitFor(() => expect(mocked.auth.saveVenmo).toHaveBeenCalledWith('test-handle', true));
   mocked.auth.profile = { ...mocked.auth.profile, venmo_confirmed: true };
   view.rerender(app());
   expect(await screen.findByRole('button', { name: 'Add expense' })).toBeInTheDocument();

@@ -3,52 +3,85 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import VenmoConfirmation from './VenmoConfirmation.jsx';
 
-afterEach(cleanup);
+const request = vi.fn(async path => ({ found: true, displayName: path.includes('correct-handle') ? 'Correct Person' : 'Alex Rivera', photoUrl: '/venmo/photo?handle=synthetic', initials: 'AR' }));
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
+const yes = async () => { const button = await screen.findByRole('button', { name: "Yes, that's me" }); await waitFor(() => expect(button).toBeEnabled()); fireEvent.click(button); };
 
-it('links the public profile and confirms the displayed handle with a primary action', async () => {
+it('only Yes confirms the displayed card and shows an accessible blue checkmark', async () => {
   const confirm = vi.fn().mockResolvedValue({});
-  render(<VenmoConfirmation username="Jayce-e" onConfirm={confirm} onCancel={vi.fn()} />);
-  const profile = screen.getByRole('link', { name: '@Jayce-e, opens Venmo profile' });
-  expect(profile).toHaveAttribute('href', 'https://venmo.com/u/Jayce-e');
-  expect(profile).toHaveAttribute('target', '_blank');
-  expect(profile).toHaveAttribute('rel', 'noopener noreferrer');
-  const button = screen.getByRole('button', { name: "Yes, that's me" });
-  expect(button).toHaveClass('cc-button--primary');
-  fireEvent.click(button);
-  await waitFor(() => expect(confirm).toHaveBeenCalledWith('Jayce-e'));
+  render(<VenmoConfirmation username="alex-rivera" request={request} onConfirm={confirm} onCancel={vi.fn()} />);
+  expect(await screen.findByText('Alex Rivera')).toBeInTheDocument();
+  expect(screen.getByText('@alex-rivera')).toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'Confirmed Venmo' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Confirmed Venmo')).not.toBeInTheDocument();
+  await yes();
+  await waitFor(() => expect(confirm).toHaveBeenCalledExactlyOnceWith('alex-rivera'));
+  expect(await screen.findByRole('img', { name: 'Confirmed Venmo' })).toBeInTheDocument();
+  expect(screen.queryByText('Is this you?')).not.toBeInTheDocument();
 });
 
-it('previews a corrected profile before saving and keeps the draft after a failed save', async () => {
-  const confirm = vi.fn().mockRejectedValueOnce(new Error('Connection lost')).mockResolvedValue({});
-  render(<VenmoConfirmation username="old-handle" onConfirm={confirm} onCancel={vi.fn()} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Change handle' }));
+it('shows no badge on the question card even for a previously confirmed handle', async () => {
+  render(<VenmoConfirmation username="alex-rivera" confirmed request={request} onConfirm={vi.fn()} />);
+  expect(await screen.findByText('Alex Rivera')).toBeInTheDocument();
+  expect(screen.getByText('Is this you?')).toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'Confirmed Venmo' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Confirmed Venmo')).not.toBeInTheDocument();
+});
+
+it('No edits without confirming, updates the preview, and asks again before saving the new handle', async () => {
+  const confirm = vi.fn().mockResolvedValue({});
+  render(<VenmoConfirmation username="old-handle" confirmed request={request} onConfirm={confirm} />);
+  expect(screen.getByText('Is this you?')).toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'Confirmed Venmo' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Confirmed Venmo')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: "No, it's not" }));
+  expect(confirm).not.toHaveBeenCalled();
+  expect(screen.queryByRole('img', { name: 'Confirmed Venmo' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Confirmed Venmo')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Your Venmo username'), { target: { value: '@correct-handle' } });
-  expect(screen.getByRole('link', { name: '@correct-handle, opens Venmo profile' })).toHaveAttribute('href', 'https://venmo.com/u/correct-handle');
-  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Connection lost');
-  expect(screen.getByLabelText('Your Venmo username')).toHaveValue('@correct-handle');
-  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
-  await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
-  expect(confirm).toHaveBeenLastCalledWith('correct-handle');
+  expect(await screen.findByText('Correct Person')).toBeInTheDocument();
+  expect(screen.getByText('@correct-handle')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Review handle' }));
+  expect(await screen.findByText('Is this you?')).toBeInTheDocument();
+  expect(confirm).not.toHaveBeenCalled();
+  expect(screen.queryByRole('img', { name: 'Confirmed Venmo' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Confirmed Venmo')).not.toBeInTheDocument();
+  await yes();
+  await waitFor(() => expect(confirm).toHaveBeenCalledExactlyOnceWith('correct-handle'));
+  expect(await screen.findByRole('img', { name: 'Confirmed Venmo' })).toBeInTheDocument();
 });
 
-it('asks for a missing handle and rejects blank or malformed usernames without saving', async () => {
+it('does not confirm a stale card while the new preview is pending', async () => {
+  let resolve;
+  const slow = vi.fn().mockImplementation(() => new Promise(r => { resolve = r; }));
   const confirm = vi.fn();
-  render(<VenmoConfirmation username={null} onConfirm={confirm} onCancel={vi.fn()} />);
-  expect(screen.getByLabelText('Your Venmo username')).toHaveValue('');
-  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
+  render(<VenmoConfirmation username={null} request={slow} onConfirm={confirm} />);
+  fireEvent.change(screen.getByLabelText('Your Venmo username'), { target: { value: 'new-handle' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Review handle' }));
+  const button = await screen.findByRole('button', { name: "Yes, that's me" });
+  expect(button).toBeDisabled(); fireEvent.click(button); expect(confirm).not.toHaveBeenCalled();
+  await waitFor(() => expect(slow).toHaveBeenCalled());
+  resolve({ found: false });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button); await waitFor(() => expect(confirm).toHaveBeenCalledWith('new-handle'));
+});
+
+it('keeps a failed Yes unconfirmed and supports retry', async () => {
+  const confirm = vi.fn().mockRejectedValueOnce(new Error('Connection lost')).mockResolvedValue({});
+  render(<VenmoConfirmation username="alex-rivera" request={request} onConfirm={confirm} />);
+  await yes();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Connection lost');
+  expect(screen.queryByRole('img', { name: 'Confirmed Venmo' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Confirmed Venmo')).not.toBeInTheDocument();
+  await yes(); expect(await screen.findByRole('img', { name: 'Confirmed Venmo' })).toBeInTheDocument();
+});
+
+it('rejects blank or malformed handles without confirming', async () => {
+  const confirm = vi.fn();
+  render(<VenmoConfirmation username={null} request={request} onConfirm={confirm} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review handle' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Enter your Venmo username.');
   fireEvent.change(screen.getByLabelText('Your Venmo username'), { target: { value: 'bad handle' } });
-  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('5–30 letters');
-  expect(screen.queryByRole('link')).not.toBeInTheDocument();
-  expect(confirm).not.toHaveBeenCalled();
-});
-
-it('does not record confirmation when cancelled', () => {
-  const confirm = vi.fn(), cancel = vi.fn();
-  render(<VenmoConfirmation username="test-handle" onConfirm={confirm} onCancel={cancel} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(cancel).toHaveBeenCalledTimes(1);
-  expect(confirm).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Review handle' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('5–30 letters'); expect(confirm).not.toHaveBeenCalled();
 });

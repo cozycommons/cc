@@ -149,7 +149,7 @@ def test_real_own_username_persistence_and_isolation(local_api):  # noqa: F811
     me = api.get('/trips/me', headers=tokens['Alex']).json()
     original = admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata
     try:
-        saved = api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': '@Alex-Local_1'})
+        saved = api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': '@Alex-Local_1', 'owner_confirmed': True})
         assert saved.status_code == 200, saved.text
         assert saved.json()['venmo_username'] == 'Alex-Local_1' and saved.json()['venmo_confirmed']
         metadata = admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata
@@ -160,6 +160,8 @@ def test_real_own_username_persistence_and_isolation(local_api):  # noqa: F811
         assert api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': 'alex-x', 'user_id': 'other'}).status_code == 422
         assert api.put('/trips/me', json={'venmo_username': 'alex-local'}).status_code == 401
         assert api.get('/trips/me', headers=tokens['Alex']).json()['venmo_username'] == 'Alex-Local_1'
+        changed = api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': 'new-local-handle'}).json()
+        assert not changed['venmo_confirmed']
         cleared = api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': ''}).json()
         assert cleared['venmo_username'] is None
         assert not admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata.get('venmo_username')
@@ -192,3 +194,8 @@ def test_real_trip_exposes_handles_only_to_members(local_api):  # noqa: F811
     retry = api.post(f'{base}/expenses', headers=tokens['Matt'], json=item)
     assert first.status_code == 201 and retry.status_code == 201
     assert retry.json()['revision'] == first.json()['revision'] and len(retry.json()['expenses']) == 1
+
+
+def test_confirmation_is_bound_to_the_handle_that_was_confirmed():
+    assert account_venmo({'venmo_username': 'alex-new', 'venmo_username_provenance': {'owner_confirmed': True, 'handle': 'alex-old'}})['venmo_confirmed'] is False
+    assert account_venmo({'venmo_username': 'Alex-New', 'venmo_username_provenance': {'owner_confirmed': True, 'handle': 'alex-new'}})['venmo_confirmed'] is True

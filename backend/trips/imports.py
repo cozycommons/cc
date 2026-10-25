@@ -103,7 +103,8 @@ def prepare_import(snapshot, user_id, own_member_id):
                 repayments.append({**common, 'from_member': member_ids[sender],
                     'to_member': member_ids[recipient], 'amount_minor': item['amount_minor']})
     data = {'name': source['name'], 'currency': source['currency'], 'members': members,
-            'expenses': expenses, 'repayments': repayments, 'activity': []}
+            'expenses': expenses, 'repayments': repayments, 'activity': [],
+            'settle': {'started_at': None, 'started_by': None, 'ready': {}}}
     expected = {member_ids[key]: value for key, value in source['expected_balances'].items()}
     if balances(data) != expected:
         raise LedgerError('Import does not reconcile with every source balance. No trip was saved.')

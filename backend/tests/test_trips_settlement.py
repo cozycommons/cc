@@ -167,3 +167,98 @@ def test_worst_case_at_limit_stays_within_200ms():
         assert min(samples) < 0.2, samples
         timings.extend(samples)
     print(f"limit={FEWEST_PAYMENTS_LIMIT}; maximum of 9 samples={max(timings) * 1000:.1f} ms")
+
+
+def gated_trip():
+    from tests.test_trips import trip, expense
+    from trips.ledger import apply_command
+    row, _ = trip()
+    row['data']['members'][1]['user_id'] = 'alex'
+    row['member_user_ids'].append('alex')
+    return apply_command(row, 'matt', 'add_expense', expense(row))[0]
+
+
+def test_gate_readiness_close_out_and_legacy_contract():
+    from copy import deepcopy
+    from trips.ledger import apply_command, LedgerError
+    row = gated_trip()
+    view = public_group(row)
+    assert view['transfers'] and view['balances'] and not view['obligations'] and not view['settle']['started']
+    with pytest.raises(LedgerError, match="Settling hasn't started"):
+        apply_command(row, 'matt', 'obligation_settle', {'id': 'none'})
+    matt, alex, placeholder = [m['id'] for m in row['data']['members']]
+    ready = {'member_id': matt, 'ready': True}
+    row, _ = apply_command(row, 'matt', 'settle_ready', ready)
+    assert apply_command(row, 'matt', 'settle_ready', ready)[0] == row
+    with pytest.raises(LedgerError) as error:
+        apply_command(row, 'alex', 'settle_ready', {'member_id': matt, 'ready': False})
+    assert error.value.status == 403
+    row, _ = apply_command(row, 'matt', 'settle_ready', {'member_id': matt, 'ready': False})
+    assert matt in public_group(row)['settle']['waiting']
+    with pytest.raises(LedgerError):
+        apply_command(row, 'matt', 'settle_ready', {'member_id': placeholder, 'ready': True})
+    row, _ = apply_command(row, 'alex', 'settle_ready', ready)
+    assert row['data']['settle']['ready'][matt]['by'] == alex
+    assert row['data']['activity'][0]['summary'] == 'Alex closed out Matt'
+    row, _ = apply_command(row, 'alex', 'settle_ready', {'member_id': alex, 'ready': True})
+    assert public_group(row)['settle']['started'] and row['data']['settle']['started_by'] == alex
+    assert public_group(row)['obligations']
+    with pytest.raises(LedgerError, match='Settling already started'):
+        apply_command(row, 'alex', 'settle_ready', {'member_id': alex, 'ready': False})
+    legacy = deepcopy(row)
+    del legacy['data']['settle']
+    assert public_group(legacy)['settle']['started']
+    assert public_group(legacy)['balances'] == public_group(row)['balances']
+    assert public_group(legacy)['transfers'] == public_group(row)['transfers']
+
+
+def test_creator_start_idempotent_and_late_changes_preserve_settled_money():
+    from copy import deepcopy
+    from tests.test_trips import expense
+    from trips.ledger import apply_command, LedgerError
+    row = gated_trip()
+    with pytest.raises(LedgerError) as error:
+        apply_command(row, 'alex', 'settle_start', {})
+    assert error.value.status == 403
+    row, _ = apply_command(row, 'matt', 'settle_start', {})
+    assert apply_command(row, 'matt', 'settle_start', {})[0] == row
+    for item in list(public_group(row)['obligations']):
+        # The creator is the recipient in this synthetic fixture.
+        row, _ = apply_command(row, 'matt', 'obligation_settle', {**item, 'cycle': 0})
+    settled = deepcopy([o for o in public_group(row)['obligations'] if o['status'] == 'settled'])
+    original = row['data']['expenses'][0]
+    late, _ = apply_command(row, 'matt', 'add_expense', expense(row, amount=300))
+    assert [o for o in public_group(late)['obligations'] if o['status'] == 'settled'] == settled
+    assert all(o['created_at'] > late['data']['settle']['started_at'] for o in public_group(late)['obligations'] if o['status'] == 'open')
+    refund, _ = apply_command(row, 'matt', 'delete_expense', {'id': original['id'], 'revision': row['revision']})
+    assert [o for o in public_group(refund)['obligations'] if o['status'] == 'settled'] == settled
+    assert any(o['status'] == 'open' and o['from_member'] == row['data']['members'][0]['id'] for o in public_group(refund)['obligations'])
+
+
+def test_ready_retries_a_concurrent_member_write(monkeypatch):
+    from types import SimpleNamespace
+    from trips import routes
+    from trips.ledger import apply_command, LedgerError
+    row = gated_trip()
+    matt, alex = [m['id'] for m in row['data']['members'][:2]]
+    state = {'row': row, 'writes': 0}
+    monkeypatch.setattr(routes, 'read_row', lambda *args: state['row'])
+    def save(request, before, after):
+        state['writes'] += 1
+        if state['writes'] == 1:
+            state['row'] = apply_command(state['row'], 'alex', 'settle_ready', {'member_id': alex, 'ready': True})[0]
+            raise LedgerError('Concurrent write', 409)
+        state['row'] = after
+        return public_group(after)
+    monkeypatch.setattr(routes, 'save_revision', save)
+    result = routes.command(None, row['id'], SimpleNamespace(id='matt'), 'settle_ready', {'member_id': matt, 'ready': True})
+    assert result['settle']['started'] and set(result['settle']['ready']) == {matt, alex}
+    assert state['writes'] == 2
+
+
+def test_ready_requires_strict_bool():
+    from uuid import uuid4
+    from pydantic import ValidationError
+    from trips.routes import SettleReady
+    with pytest.raises(ValidationError):
+        SettleReady(member_id=uuid4(), ready='true')

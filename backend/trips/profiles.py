@@ -87,6 +87,7 @@ def render_groups(client, rows):
             if member.get('user_id'):
                 member['venmo_username'] = account.get('venmo_username')
                 member['venmo_confirmed'] = account.get('venmo_confirmed', False)
+                member['venmo_confirmed_name'] = account.get('venmo_confirmed_name')
                 member['venmo_source'] = 'account' if member['venmo_username'] else None
             else:
                 member['venmo_username'] = stored_username(member.get('venmo_username'))
