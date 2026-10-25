@@ -272,7 +272,7 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 | PUT /groups/{id}/members/{member}/venmo | Creator sets/clears a username for someone who hasn't joined |
 | POST /groups/{id}/invite-preview | Before joining: trip name, inviter, the invited place's name and balance, or `already_member` |
 | POST /groups/{id}/members/{member}/link | Admin creator links an unlinked person to an existing account (`user_id`) |
-| POST /groups/{id}/members/{member}/unlink | Admin creator undoes a link; returns a fresh invite |
+| POST /groups/{id}/members/{member}/unlink | Admin creator undoes a link (`user_id` it expects); returns a fresh invite |
 | GET /admin/groups/{id}/link-suggestions | Admin creator reviews name-match suggestions; read-only, `no-store` |
 | POST /groups/{id}/join | Claim an invitation with invite_token |
 | POST /groups/{id}/expenses | Create an expense |
@@ -294,9 +294,11 @@ trip, and an ID with no account.
 
 Unlinking corrects a wrong link: the account loses access, the place keeps its
 name and history, and a fresh one-use invite lets the right person claim it. The
-creator's own place can't be unlinked. Both actions appear in activity and in an
-untrimmed `account_links` audit (actor, member, account, time) kept in the trip row
-and left out of the members' view.
+creator's own place can't be unlinked, and unlinking names the account it expects
+to remove, so a stale review can't revoke a corrected link. Both actions appear in
+activity and in an untrimmed `account_links` audit (actor, member, account, time)
+kept in the trip row. The app's trip responses omit it, but members can read their
+whole row through the Data API, so it holds only account IDs, never names or emails.
 
 Suggestions compare unlinked members with account and Dice display names (case,
 accents, nicknames, last initials) and return candidates with their Venmo
@@ -304,6 +306,8 @@ usernames. They flag ambiguous matches, scores below 0.9, and any lone first nam
 even an exact one. A name match is never proof: the People tab's **Link people to
 accounts** review spells out the access and Venmo change before each link. The
 endpoint returns no emails or other metadata, is never cached, and writes nothing.
+A link confirms against the revision its suggestions were built from, so a trip
+changed in the meantime returns 409 and the review refreshes.
 An agent may prepare the review; the admin confirms each link.
 
 Every mutation to an existing trip except joining includes the `revision` the

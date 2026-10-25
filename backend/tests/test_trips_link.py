@@ -12,9 +12,10 @@ def link(row, user_id, member_index, account):
         'revision': row['revision'], 'member_id': row['data']['members'][member_index]['id'], 'user_id': account})
 
 
-def unlink(row, user_id, member_index):
+def unlink(row, user_id, member_index, account=None):
+    member = row['data']['members'][member_index]
     return apply_command(row, user_id, 'unlink_member', {
-        'revision': row['revision'], 'member_id': row['data']['members'][member_index]['id']})
+        'revision': row['revision'], 'member_id': member['id'], 'user_id': account or member['user_id']})
 
 
 def test_link_replaces_invite_and_placeholder_venmo_and_keeps_a_private_audit():
@@ -45,6 +46,9 @@ def test_unlink_revokes_access_keeps_history_and_issues_a_fresh_invite():
     assert unlinked['data']['account_links'][1]['user_id'] == 'wrong-account'
     joined = claim_invite(unlinked, 'right-account', token)
     assert joined['data']['members'][1]['user_id'] == 'right-account'
+    with pytest.raises(LedgerError) as changed:  # A stale review must not revoke the corrected account.
+        unlink(joined, 'matt', 1, 'wrong-account')
+    assert changed.value.status == 409
 
 
 @pytest.mark.parametrize('command, user_id, member_index, account, status', [
@@ -98,8 +102,9 @@ def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch): 
     assert api.get(suggestions, headers=tokens['Alex']).status_code == 404  # An admin who isn't on the trip.
     listed = api.get(suggestions, headers=tokens['Matt'])
     assert listed.status_code == 200 and listed.headers['cache-control'] == 'no-store'
-    assert [m['member_id'] for m in listed.json()] == [place]  # Linked places, like the creator's, aren't offered.
-    row = listed.json()[0]
+    assert listed.json()['revision'] == group['revision']
+    assert [m['member_id'] for m in listed.json()['members']] == [place]  # Linked places, like the creator's, aren't offered.
+    row = listed.json()['members'][0]
     assert (row['status'], row['user_id'], row['flags']) == ('suggested', alex_id, ['weak'])
     assert 'email' not in listed.text and '@trips.local' not in listed.text
     refused = api.post(f'{base}/members/{place}/link', headers=tokens['Matt'], json=attempt | {'user_id': str(uuid4())})
@@ -111,7 +116,7 @@ def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch): 
     assert linked.json()['members'][1]['user_id'] == alex_id and 'account_links' not in linked.text
     assert api.get(base, headers=tokens['Alex']).status_code == 200
 
-    unlinked = api.post(f'{base}/members/{place}/unlink', headers=tokens['Matt'], json={'revision': linked.json()['revision']})
+    unlinked = api.post(f'{base}/members/{place}/unlink', headers=tokens['Matt'], json={'revision': linked.json()['revision'], 'user_id': alex_id})
     assert unlinked.status_code == 200, unlinked.text
     assert unlinked.json()['invite_token'] and unlinked.json()['group']['members'][1]['user_id'] is None
     assert api.get(base, headers=tokens['Alex']).status_code == 404

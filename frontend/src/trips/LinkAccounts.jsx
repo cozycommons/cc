@@ -6,17 +6,24 @@ const candidates = (row) => (row.status === 'suggested' ? [row, ...row.alternati
 
 // Admin-only review of name-match suggestions. Names only suggest; each link is its own explicit, explained step.
 export default function LinkAccounts({ group, request, onLink, onClose }) {
-  const [rows, setRows] = useState(null);
+  const [review, setReview] = useState(null);
   const [error, setError] = useState('');
   const [choice, setChoice] = useState(null);
   const load = () => request(`/admin/groups/${group.id}/link-suggestions`)
-    .then(setRows, (e) => setError(e.message));
+    .then(setReview, (e) => setError(e.message));
+  const rows = review?.members;
   useEffect(() => { load(); }, [group.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (choice) {
     const { row, candidate } = choice;
     return <Form submit={`Link ${row.member_name}`} onCancel={() => setChoice(null)} onSubmit={async () => {
-      await onLink(row.member_id, candidate.user_id, `Linked ${row.member_name} to ${candidate.account_name}.`);
+      setError('');
+      try {
+        // The revision these suggestions describe: if the trip changed since, this conflicts instead of linking.
+        await onLink(row.member_id, candidate.user_id, review.revision, `Linked ${row.member_name} to ${candidate.account_name}.`);
+      } catch (e) {
+        setError(`${e.message} The suggestions below are refreshed; review again.`);
+      }
       setChoice(null);
       await load();
     }}>

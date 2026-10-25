@@ -295,6 +295,8 @@ def apply_command(row, user_id, command, payload):
         else:
             if not previous:
                 raise LedgerError('That person isn’t linked to an account.', 409)
+            if previous != payload['user_id']:  # Never revoke an account the admin didn't review.
+                raise LedgerError('That place is now linked to a different account. Review it again.', 409)
             if previous == row['owner_id']:
                 raise LedgerError('The trip creator’s own place can’t be unlinked.', 422)
             # Their history stays on this place; a fresh invitation lets the right person claim it.
@@ -302,9 +304,10 @@ def apply_command(row, user_id, command, payload):
             result['member_user_ids'].remove(previous)
             invite_token = new_invite(member)
             summary = f"Unlinked {member['name']} from their account"
-        # Unlike the rolling activity feed, this record is never trimmed; it stays off the members' view.
+        # Unlike the rolling activity feed, this record is never trimmed. The app's trip responses omit it, but members
+        # can read their whole row through the Data API, so it holds only account IDs: no names or emails.
         data.setdefault('account_links', []).append({
-            'action': command.removesuffix('_member'), 'member_id': member['id'], 'user_id': payload.get('user_id', previous),
+            'action': command.removesuffix('_member'), 'member_id': member['id'], 'user_id': payload['user_id'],
             'by': user_id, 'at': timestamp})
     elif command == 'delete_expense':
         expense = next((e for e in data['expenses'] if e['id'] == payload['id']), None)
