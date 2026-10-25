@@ -44,11 +44,17 @@ export function Manager({ team }) {
 const initials = name => name.split(/\s+/).map(word => word[0]).join('').slice(0, 2).toUpperCase();
 
 export function TeamLogo({ team, side, size = 28 }) {
-  const [broken, setBroken] = React.useState(false);
-  const style = { width: size, height: size, '--fx-side': COLORS[side] };
-  return team.logo && !broken
-    ? <img className="fx-logo" src={team.logo} alt="" style={style} referrerPolicy="no-referrer" onError={() => setBroken(true)} />
-    : <span className="fx-logo fx-logo--initials" style={{ ...style, fontSize: Math.max(11, size * 0.38) }} aria-hidden="true">{initials(team.name)}</span>;
+  const [loaded, setLoaded] = React.useState(null);
+  const [broken, setBroken] = React.useState(null);
+  const style = { width: size, height: size, '--fx-side': COLORS[side], fontSize: Math.max(11, size * 0.38) };
+  return (
+    <span className="fx-logo fx-logo--initials fx-logo--lazy" style={style} aria-hidden="true">
+      {initials(team.name)}
+      {team.logo && broken !== team.logo && <img src={team.logo} alt="" loading="lazy" decoding="async"
+        style={{ opacity: loaded === team.logo ? 1 : 0 }} referrerPolicy="no-referrer"
+        onLoad={() => setLoaded(team.logo)} onError={() => setBroken(team.logo)} />}
+    </span>
+  );
 }
 
 export function ScorePath({ matchup, height = 150 }) {

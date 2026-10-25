@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from espn import routes
+from espn import routes, public_predictions, team_claims
 from espn.public_predictions import MAX_BODY_BYTES, MAX_LOGO_BYTES, PNG_SIGNATURE
 
 PATH = "/espn/public/predictions"
@@ -120,12 +120,9 @@ class FakeSupabase:
 
 @pytest.fixture
 def client(monkeypatch):
-    from espn import team_claims
-    monkeypatch.setattr(team_claims, "_fallback_snapshot", lambda: None)
     monkeypatch.setenv("ESPN_PUBLIC_PREDICTIONS_TOKEN", "upload-secret")
-    from espn.public_compression import PublicPredictionsCompression
+    monkeypatch.setattr(team_claims, "_fallback_snapshot", lambda: None)
     app = FastAPI()
-    app.add_middleware(PublicPredictionsCompression)
     app.include_router(routes.router, prefix="/espn")
     app.state.supabase = FakeSupabase()
     with TestClient(app) as client:
@@ -336,11 +333,11 @@ def test_body_limit_accepts_exactly_256_kib(client):
 def test_v2_upload_stores_and_returns_complete_snapshot(client, snapshot_v2):
     assert client.post(PATH, json=snapshot_v2, headers=AUTH).json()["stored"] is True
     assert client.app.state.supabase.rows[0]["payload"] == snapshot_v2
-    assert client.get(PATH + "/latest").json() == snapshot_v2
+    assert client.get(PATH + "/latest").json() == public_predictions._external_logos(snapshot_v2)
     duplicate = copy.deepcopy(snapshot_v2)
     duplicate["label"] = "Do not overwrite v2"
     assert client.post(PATH, json=duplicate, headers=AUTH).json()["stored"] is False
-    assert client.get(PATH + "/latest").json() == snapshot_v2
+    assert client.get(PATH + "/latest").json() == public_predictions._external_logos(snapshot_v2)
 
 
 def test_v2_optional_fields_and_unavailable(client, snapshot_v2):
@@ -349,7 +346,7 @@ def test_v2_optional_fields_and_unavailable(client, snapshot_v2):
     snapshot_v2["teams"].append({"id": 4, "name": "Fourth", "abbrev": "F", "logo": None})
     snapshot_v2["matchups"].append({"home": 3, "away": 4, "unavailable": True})
     assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
-    assert client.get(PATH + "/latest").json() == snapshot_v2
+    assert client.get(PATH + "/latest").json() == public_predictions._external_logos(snapshot_v2)
 
 
 @pytest.mark.parametrize("manager", [None, "Jordan", "Anne-Marie O'Neil Jr.", "A" * 40])
@@ -358,7 +355,7 @@ def test_v2_accepts_season_year_and_public_manager(client, snapshot_v2, manager,
     snapshot_v2["season_year"] = season
     snapshot_v2["teams"][0]["manager"] = manager
     assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
-    assert client.get(PATH + "/latest").json() == snapshot_v2
+    assert client.get(PATH + "/latest").json() == public_predictions._external_logos(snapshot_v2)
 
 
 @pytest.mark.parametrize("manager", [
@@ -502,7 +499,7 @@ def test_v2_logo_size_and_probability_boundaries(client, snapshot_v2, total):
 def test_v2_accepts_how_a_player_was_acquired(client, snapshot_v2, acquired):
     snapshot_v2["matchups"][0]["days"][0]["players"][0][0]["acquired"] = acquired
     assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
-    assert client.get(PATH + "/latest").json() == snapshot_v2
+    assert client.get(PATH + "/latest").json() == public_predictions._external_logos(snapshot_v2)
 
 
 @pytest.mark.parametrize("acquired", [
@@ -522,15 +519,30 @@ def test_server_league_id_never_reaches_public_predictions(client, monkeypatch):
     assert "leagueId" not in response.text and "league_id" not in response.text
 
 
-def test_latest_fallback_only_when_database_empty(client, monkeypatch, snapshot_v2):
-    from espn import team_claims
-    calls = []
-    monkeypatch.setattr(team_claims, "_fallback_snapshot", lambda: calls.append(True) or snapshot_v2)
-    assert client.get(PATH + "/latest").json() == snapshot_v2
-    assert len(calls) == 1
-    client.post(PATH, json=SNAPSHOT, headers=AUTH)
-    assert client.get(PATH + "/latest").json() == SNAPSHOT
-    assert len(calls) == 1
+def test_logos_are_outside_payload_and_cacheable(client, snapshot_v2):
+    client.post(PATH, json=snapshot_v2, headers=AUTH)
+    result = client.get(PATH + "/latest")
+    path = result.json()["teams"][0]["logo"]
+    assert path.startswith("/espn/public/logos/") and "data:image" not in result.text
+    assert client.app.state.supabase.rows[0]["payload"]["teams"][0]["logo"] == PNG_LOGO
+    image = client.get(path)
+    assert image.content == base64.b64decode(PNG_LOGO.split(",")[1])
+    assert image.headers["content-type"] == "image/png"
+    assert image.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert client.get(path, headers={"If-None-Match": image.headers["etag"]}).status_code == 304
+    public_predictions._logos.clear()  # a different worker can rebuild from the public snapshot
+    assert client.get(path).content == image.content
+    assert client.get("/espn/public/logos/" + "0" * 64).status_code == 404
+    assert client.get("/espn/public/logos/invalid").status_code == 404
+    cached = client.get(PATH + "/latest", headers={"If-None-Match": result.headers["etag"]})
+    assert cached.status_code == 304 and not cached.content
+
+
+def test_empty_database_uses_existing_validated_public_fallback(client, snapshot_v2, monkeypatch):
+    monkeypatch.setattr(team_claims, "_fallback_snapshot", lambda: snapshot_v2)
+    response = client.get(PATH + "/latest")
+    assert response.status_code == 200
+    assert response.json() == public_predictions._external_logos(snapshot_v2)
 
 
 def test_ndjson_records_reconstruct_and_preserve_metadata(client, snapshot_v2):
@@ -573,7 +585,7 @@ def test_ndjson_records_reconstruct_and_preserve_metadata(client, snapshot_v2):
                      and m["away"] == history["away"])["odds_history"] = history["odds_history"]
     assembled["teams"] = list(teams.values())
     assembled["season"] = None
-    assert assembled == body
+    assert assembled == public_predictions._external_logos(body)
     assert lines[-1] == {"type": "done"}
 
 
@@ -608,9 +620,9 @@ def test_representation_etags_and_middleware(client, snapshot_v2, encoding):
         assert cached.headers["cache-control"] == "public, max-age=300"
         assert {v.strip() for v in cached.headers["vary"].split(",")} == {"Accept", "Accept-Encoding"}
     plain = client.get(PATH + "/latest", headers={"Accept-Encoding": "identity"})
-    assert plain.headers["etag"] != etag and plain.json() == snapshot_v2
+    assert plain.headers["etag"] != etag and plain.json() == public_predictions._external_logos(snapshot_v2)
     compressed = client.get(PATH + "/latest", headers={"Accept-Encoding": "gzip"})
-    assert compressed.headers["content-encoding"] == "gzip" and compressed.json() == snapshot_v2
+    assert compressed.headers["content-encoding"] == "gzip" and compressed.json() == public_predictions._external_logos(snapshot_v2)
     assert compressed.headers["etag"] == plain.headers["etag"]
     snapshot_v2["label"] = "Changed public label"
     client.app.state.supabase.rows[0]["payload"] = snapshot_v2
@@ -622,7 +634,7 @@ def test_v1_and_refused_ndjson_keep_json(client, snapshot_v2):
     client.post(PATH, json=SNAPSHOT, headers=AUTH)
     assert client.get(PATH + "/latest", headers={"Accept": "application/x-ndjson"}).json() == SNAPSHOT
     client.app.state.supabase.rows[0]["payload"] = snapshot_v2
-    assert client.get(PATH + "/latest", headers={"Accept": "application/x-ndjson;q=0"}).json() == snapshot_v2
+    assert client.get(PATH + "/latest", headers={"Accept": "application/x-ndjson;q=0"}).json() == public_predictions._external_logos(snapshot_v2)
 
 
 @pytest.mark.parametrize("encoding", ["gzip", "identity"])
