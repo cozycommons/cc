@@ -2,14 +2,13 @@ import VenmoProfile from './VenmoProfile.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Trash2 } from 'lucide-react';
 import { decimal, money, shortDate, today, toMinor } from './money.js';
-import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
+import { Avatar, Button, CopyButton, Field, Form, VenmoMark } from './ui.jsx';
 import { findMember, firstName, memberName } from './people.js';
 import { normalizeUsername, settlementRole, tripNote, venmoLink } from './venmo.js';
 import { balanceBreakdown } from './balances.js';
 
 const SquareStamp = () => <span className="trips-square-stamp" aria-hidden="true">All square</span>;
 
-const VenmoMark = () => <span className="trips-venmo-mark" aria-hidden="true">V</span>;
 
 export function RepaymentForm({ group, meId, suggestion, onSave, onCancel }) {
   const [id] = useState(() => crypto.randomUUID());

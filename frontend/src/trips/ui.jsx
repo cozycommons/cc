@@ -3,10 +3,11 @@ import { Check, Copy, X } from 'lucide-react';
 import { memberName, personColor } from './people.js';
 
 export const Button = ({ children, variant = 'secondary', className = '', ...props }) => <button className={`cc-button cc-button--${variant} ${className}`} {...props}>{children}</button>;
+export const VenmoMark = () => <span className="trips-venmo-mark" aria-hidden="true">V</span>;
 const ModalPendingContext = createContext(null);
 
 export function Avatar({ member, size = 32, ring = false }) {
-  const style = { '--person': personColor(member), width: size, height: size, fontSize: Math.round(size * 0.45) };
+  const style = { '--person': personColor(member), width: size, height: size, fontSize: Math.max(11, Math.round(size * 0.45)) };
   // People who haven't claimed their place get a dashed ring.
   const className = `trips-avatar${ring ? ' trips-avatar--ring' : ''}${member?.id && !member.user_id ? ' trips-avatar--invited' : ''}`;
   return member?.avatar_url

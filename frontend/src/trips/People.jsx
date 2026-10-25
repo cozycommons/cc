@@ -70,13 +70,13 @@ export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditPr
               aria-label={`${memberName(m)} on Venmo, @${m.venmo_username}`}>@{m.venmo_username}</a></>}</small>
         </div>
         <span className={`trips-person-balance ${balance < 0 ? 'trips-owe' : balance > 0 ? 'trips-positive' : ''}`}>{balance ? `${balance < 0 ? 'owes' : 'gets'} ${money(Math.abs(balance), group.currency)}` : 'square'}</span>
-        {you ? <Button variant="ghost" className="trips-person-action" onClick={onEditProfile} aria-label="Edit your Venmo username"><Pencil size={14} aria-hidden="true" />Venmo</Button>
+        {you ? <Button variant="ghost" className="trips-person-action" onClick={onEditProfile} aria-label="Edit your Venmo username"><Pencil size={14} aria-hidden="true" /><span className="trips-person-action-label">Venmo</span></Button>
           : owner && <Button variant="ghost" className="trips-person-action" onClick={() => onManage(m)} aria-label={`Manage ${memberName(m)}`}><MoreHorizontal size={18} aria-hidden="true" /></Button>}
       </li>;
     })}</ul>
     <p className="trips-muted trips-small">Anyone on the trip can add and edit expenses.</p>
-    {owner && <button type="button" className="trips-text-button" onClick={onSettings}><Settings size={14} aria-hidden="true" />Trip settings</button>}
-    {owner && onLinkAccounts && <button type="button" className="trips-text-button" onClick={onLinkAccounts}><UserCheck size={14} aria-hidden="true" />Link people to accounts</button>}
+    <div className="trips-action-row trips-people-actions">{owner && <button type="button" className="trips-text-button" onClick={onSettings}><Settings size={14} aria-hidden="true" />Trip settings</button>}
+    {owner && onLinkAccounts && <button type="button" className="trips-text-button" onClick={onLinkAccounts}><UserCheck size={14} aria-hidden="true" />Link people to accounts</button>}</div>
   </>;
 }
 

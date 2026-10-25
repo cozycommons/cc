@@ -48,7 +48,7 @@ export function TeamLogo({ team, side, size = 28 }) {
   const style = { width: size, height: size, '--fx-side': COLORS[side] };
   return team.logo && !broken
     ? <img className="fx-logo" src={team.logo} alt="" style={style} referrerPolicy="no-referrer" onError={() => setBroken(true)} />
-    : <span className="fx-logo fx-logo--initials" style={{ ...style, fontSize: size * 0.38 }} aria-hidden="true">{initials(team.name)}</span>;
+    : <span className="fx-logo fx-logo--initials" style={{ ...style, fontSize: Math.max(11, size * 0.38) }} aria-hidden="true">{initials(team.name)}</span>;
 }
 
 export function ScorePath({ matchup, height = 150 }) {
