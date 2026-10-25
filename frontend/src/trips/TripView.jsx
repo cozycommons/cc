@@ -203,6 +203,13 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
   const recordPayment = (payload) => update('/repayments', 'POST', payload,
     `Recorded ${memberName(findMember(group, payload.from_member))} → ${memberName(findMember(group, payload.to_member))}, ${money(payload.amount_minor, group.currency)}.`,
     () => update(`/repayments/${payload.id}`, 'DELETE', { revision: latest.current.revision }, 'Payment removed.', null, { keepModal: true }));
+  const obligationAction = async (obligation, action) => {
+    try {
+      return await update(`/obligations/${obligation.id}/${action}`, 'POST', { cycle: obligation.cycle || 0 },
+        action === 'settle' ? 'Payment settled.' : action === 'undo' ? 'Payment reopened.' : 'Nudge sent.',
+        action === 'settle' ? () => obligationAction(obligation, 'undo') : null, { keepModal: action === 'undo' });
+    } catch (error) { setNotice({ message: error.message }); throw error; }
+  };
   const restore = (expense, options) => update(`/expenses/${expense.id}/restore`, 'POST', { revision: latest.current.revision }, `Restored ${expense.description}.`, null, options);
   // Adding a missing Venmo username from the pay dialog keeps the dialog open.
   const saveHandle = async (member, username) => {
@@ -279,6 +286,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
       try { await undo(); } catch (e) { setNotice({ message: e.message }); }
     }}>Undo</button>}</>}</div>
 
+    {group.obligations?.filter(o => o.status === 'open' && o.from_member === me?.id && o.nudged_at).map(o => <p className="trips-nudge-banner" role="status" key={o.id}>{memberName(findMember(group, o.to_member))} nudged you about {money(o.amount_minor, group.currency)}.</p>)}
     <nav className="trips-tabs" role="tablist" aria-label="Trip sections">{tabs.map(({ key, label, icon: Icon }) => <button key={key} role="tab" id={`trips-tab-${key}`} aria-controls="trips-panel" aria-selected={tab === key} onClick={() => setTab(key)}>
       <Icon size={18} aria-hidden="true" /><span>{label}</span>{key === 'expenses' && <span className="trips-count">{group.expenses.length}</span>}</button>)}</nav>
 
@@ -289,8 +297,9 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
             {hasHistory && <label className="trips-search"><Search size={15} aria-hidden="true" /><input type="search" name="search" aria-label="Search expenses" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} /></label>}</div>
           <Feed group={group} me={me} query={query} fresh={fresh} onOpenExpense={openExpense} onOpenPayment={(item) => setModal({ type: 'delete_repayment', item })} />
         </>}
-        {tab === 'balances' && <BalancesPanel group={group} me={me} profile={profile} onEditProfile={onEditProfile}
+        {tab === 'balances' && <BalancesPanel request={request} group={group} me={me} profile={profile} onEditProfile={onEditProfile}
           onVenmo={(transfer, role) => setModal({ type: 'venmo', transfer, role })}
+          onSettle={o => obligationAction(o, 'settle')} onUndo={o => obligationAction(o, 'undo').catch(() => {})} onNudge={o => obligationAction(o, 'nudge').catch(() => {})}
           onRecord={(suggestion) => setModal({ type: 'repayment', suggestion })}
           onRemoveRepayment={(item) => setModal({ type: 'delete_repayment', item })} />}
         {tab === 'people' && <PeoplePanel group={group} user={user} onEditProfile={onEditProfile} onAdd={() => { addedLinks.current = []; setModal({ type: 'people' }); }}
@@ -323,7 +332,9 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
           if (!modal.expense && alive.current) setFresh(payload.id);
         }} />}
       {modal.type === 'repayment' && <RepaymentForm group={formGroup} meId={me?.id} suggestion={modal.suggestion} onCancel={close} onSave={recordPayment} />}
-      {modal.type === 'venmo' && <VenmoReview request={request} group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
+      {modal.type === 'venmo' && <VenmoReview key={`${modal.transfer.from_member}-${modal.transfer.to_member}`} request={request}
+        obligation={group.obligations?.find(o => o.status === 'open' && o.from_member === modal.transfer.from_member && o.to_member === modal.transfer.to_member && o.amount_minor === modal.transfer.amount_minor)}
+        onSettle={o => obligationAction(o, 'settle')} group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
         onSaveHandle={owner ? (username) => saveHandle(findMember(group, modal.role === 'pay' ? modal.transfer.to_member : modal.transfer.from_member), username) : null} />}
       {modal.type === 'people' && <AddPeopleForm onCancel={close} onSave={addPeople} />}
       {modal.type === 'invites' && <InviteLinks links={modal.links} tripName={group.name} inviter={ownerName} onClose={close} />}

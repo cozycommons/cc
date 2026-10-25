@@ -50,8 +50,8 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   expect(within(dialog).getByRole('button', { name: 'Copy amount' })).toBeInTheDocument();
   expect(dialog).not.toHaveTextContent('Added for them');
   // Opening Venmo is the main step; marking it paid only takes the lead once Venmo was opened.
-  expect(within(dialog).getByRole('button', { name: 'Mark as paid' })).toHaveClass('cc-button--ghost');
-  const link = within(dialog).getByRole('link', { name: /Open Venmo to pay/ });
+  expect(within(dialog).getByRole('button', { name: 'Sent' })).toHaveClass('cc-button--primary');
+  const link = within(dialog).getByRole('link', { name: /Pay @andsohn/ });
   const url = new URL(link.getAttribute('href'));
   expect([url.pathname, url.searchParams.get('txn'), url.searchParams.get('amount'), url.searchParams.get('note')])
     .toEqual(['/andsohn', 'pay', '198.18', 'Cozy Trips · Tahoe & Reno']);
@@ -59,14 +59,15 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   link.addEventListener('click', (event) => event.preventDefault());
   fireEvent.click(link);
   expect(writes()).toEqual([]);
-  expect(dialog).toHaveTextContent('After you pay in Venmo, mark it here.');
-  expect(within(dialog).getByRole('button', { name: 'Mark as paid' })).toHaveClass('cc-button--primary');
+  fireEvent.focus(window);
+  expect(dialog).toHaveTextContent('Did you send $198.18 to @andsohn?');
+  expect(within(dialog).getByRole('button', { name: 'Sent' })).toHaveClass('cc-button--primary');
 
   const failure = Object.assign(new Error('Could not confirm this saved.'), { uncertain: true });
   mocked.request.mockRejectedValueOnce(failure).mockResolvedValueOnce(trip({ revision: 5 }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Mark as paid' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Sent' }));
   expect(await within(dialog).findByRole('alert')).toHaveTextContent('Could not confirm');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Mark as paid' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Sent' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   const [first, retry] = writes();
   expect(first[1]).toBe('/groups/trip-id/repayments');
@@ -86,14 +87,14 @@ it('offers request to the creditor, nothing to bystanders, and adds a missing us
   expect(dialog).toHaveTextContent('No Venmo username yet');
   expect(within(dialog).queryByRole('link')).not.toBeInTheDocument();
   expect(within(dialog).getByRole('button', { name: 'Copy amount' })).toBeInTheDocument();
-  expect(within(dialog).getByRole('button', { name: 'Mark as received' })).toHaveClass('cc-button--secondary');
+  expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveClass('cc-button--primary');
   const named = trip({ revision: 5, members: trip().members.map((m) => (m.id === 'jason' ? { ...m, venmo_username: 'jason-k', venmo_source: 'trip' } : m)) });
   mocked.request.mockResolvedValueOnce(named);
   fireEvent.change(within(dialog).getByLabelText('Jason’s Venmo username'), { target: { value: '@jason-k' } });
   await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Add' })));
   expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/venmo', 'PUT', { venmo_username: 'jason-k', revision: 4 }]);
   const still = screen.getByRole('dialog', { name: 'Request with Venmo' });
-  expect(within(still).getByRole('link', { name: /Open Venmo to request/ })).toHaveAttribute('href', expect.stringContaining('/jason-k?txn=charge'));
+  expect(within(still).getByRole('link', { name: /Request .* from @jason-k/ })).toHaveAttribute('href', expect.stringContaining('/jason-k?txn=charge'));
   expect(still).not.toHaveTextContent('Added by the trip creator');
 });
 
@@ -365,4 +366,9 @@ it('refreshes the review instead of linking when the trip changed since the sugg
   expect(await within(dialog).findByRole('alert')).toHaveTextContent('review again');
   expect(reviews).toBe(2);
   expect(within(dialog).getByRole('button', { name: 'Review linking Jason to Jason Keung' })).toBeInTheDocument();
+});
+
+it('shows a payment nudge when the payer opens the trip on Expenses', async () => {
+  open('/trips/trip-id?tab=expenses', trip({ obligations: [{ id: 'nudge', status: 'open', from_member: 'me', to_member: 'andrew', amount_minor: 19818, nudged_at: '2026-10-25T00:00:00+00:00' }] }));
+  expect(await screen.findByText('Andrew nudged you about $198.18.')).toBeInTheDocument();
 });
