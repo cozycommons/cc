@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Confetti, GameStatus, MotionLink, OddsBar, Score, sharedName } from './motion.jsx';
 import { favorite } from './paths.js';
 import { finished, matchupRead, notableSwings, playerSwings } from './analysis.js';
 import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, round, weekday, winPct } from './parts.jsx';
@@ -119,26 +120,25 @@ export default function MatchupPage({ data }) {
   const lastObserved = matchup?.days?.filter(observed).at(-1)?.date;
   const [selected, setSelected] = useState(lastObserved);
   if (!matchup || matchup.unavailable) {
-    return <section className="fx-matchup"><Link className="fx-back" to="..">← All matchups</Link><p className="fx-status">This matchup isn't available.</p></section>;
+    return <section className="fx-matchup"><MotionLink className="fx-back" to="..">← All matchups</MotionLink><p className="fx-status">This matchup isn't available.</p></section>;
   }
   const teams = [matchup.home, matchup.away], odds = [matchup.chance, 100 - matchup.chance], fav = favorite(matchup);
   return (
     <section className="fx-matchup" aria-label={`${teams[0].name} vs ${teams[1].name}`}>
-      <Link className="fx-back" to="..">← All matchups</Link>
+      <MotionLink className="fx-back" to="..">← All matchups</MotionLink>
       <div className="fx-hero">
         {teams.map((team, side) => (
           <div key={side} className={`fx-hero-team${fav === side ? ' fx-team--fav' : ''}`}>
-            <TeamLogo team={team} side={side} size={64} />
+            <span style={{ viewTransitionName: sharedName(matchup, side, 'jersey') }}><TeamLogo team={team} side={side} size={64} /></span>
             <h2>{team.name}</h2>
             <Manager team={team} /><TeamLinks teamId={team.id} />
-            <strong style={{ color: COLORS[side] }}>{round(matchup.scores[side])}</strong>
+            <strong style={{ color: COLORS[side] }}><Score value={matchup.scores[side]} side={side} name={sharedName(matchup, side, 'score')} /><Confetti matchup={matchup} side={side} week={`${data.year}-${data.matchup.id}`} /></strong>
             <span className="fx-hero-facts"><span>{winPct(odds[side], finished(matchup))} to win</span><span>Proj. {round(matchup.projected_totals[side])}</span></span>
           </div>
         ))}
       </div>
-      <div className="fx-bar fx-bar--big" aria-hidden="true">
-        {odds.map((value, side) => <i key={side} style={{ flex: `${value} 0 0`, background: COLORS[side], opacity: fav === side ? 1 : 0.35 }} />)}
-      </div>
+      <OddsBar chance={matchup.chance} big />
+      <GameStatus matchup={matchup} />
       <MatchupLink matchup={matchup} />
       <Read read={matchupRead(matchup)} />
       <Swings matchup={matchup} teams={teams} />

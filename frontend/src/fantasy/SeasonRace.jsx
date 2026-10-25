@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Manager, TeamLogo, pct } from './parts.jsx';
+import { SlidingTabs } from './motion.jsx';
 import { seasonRead } from './analysis.js';
 
 const MODES = [['projections', 'Projections only'], ['balanced', 'Balanced'], ['hot', 'Hot hand']];
@@ -25,9 +26,7 @@ export default function SeasonRace({ season, narrow }) {
       <SeasonRead read={seasonRead(rows)} />
       {/* All modes match until a week is complete, so the toggle would do nothing. */}
       {season.formActive && available.length > 1 && (
-        <div className="fx-modes" role="group" aria-label="Form weighting">
-          {available.map(([key, label]) => <button key={key} type="button" aria-pressed={mode === key} onClick={() => setMode(key)}>{label}</button>)}
-        </div>
+        <SlidingTabs className="fx-modes" label="Form weighting" items={available} active={mode} onSelect={setMode} />
       )}
       <div className="fx-key" aria-hidden="true"><span><i className="fx-key-title" />Win title</span><span><i className="fx-key-playoffs" />Make playoffs</span></div>
       <ol className="fx-race-list" aria-label="Playoff and title chances by team">
