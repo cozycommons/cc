@@ -65,13 +65,17 @@ export function acquiredLabel(acquired) {
 }
 
 // The league's biggest outperformers this week, on finished games only.
-export function highlights(matchups, limit = 6, threshold = 15) {
+export function highlights(matchups, limit = 8, threshold = 10, under = false) {
+  const sign = under ? -1 : 1;
   return matchups.filter(m => !m.unavailable)
     .flatMap(m => playerSwings(m).flatMap((rows, side) => rows.map(row => ({ ...row, team: [m.home, m.away][side], side, key: m.key }))))
-    .filter(row => row.diff >= threshold)
-    .sort((a, b) => b.diff - a.diff)
+    .filter(row => sign * row.diff >= threshold)
+    .sort((a, b) => sign * (b.diff - a.diff))
     .slice(0, limit);
 }
+
+// This week's biggest misses against expected points.
+export const lowlights = (matchups, limit, threshold) => highlights(matchups, limit, threshold, true);
 
 // Why the season favorite leads.
 export function seasonRead(rows) {

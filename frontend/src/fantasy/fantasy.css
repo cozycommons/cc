@@ -3,7 +3,7 @@
 .fx-page{min-height:100vh;box-sizing:border-box;width:min(1080px,100%);margin:0 auto;padding:var(--cc-safe-top) var(--cc-safe-right) calc(48px + var(--cc-safe-bottom)) var(--cc-safe-left);color:#3d2f29;font-family:var(--sans,system-ui,sans-serif)}
 body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-header{margin:22px 0 18px}
-.fx-header h1{font-family:var(--serif,Georgia,serif);font-size:clamp(28px,4vw,40px);font-weight:600;margin:0 0 6px;color:#201711}
+.fx-header h1{font-family:var(--sans,system-ui,sans-serif);font-weight:700;font-size:clamp(28px,4vw,40px);font-weight:600;margin:0 0 6px;color:#201711}
 .fx-header p{margin:0;color:#75695b;font-size:14px}
 .fx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:16px}
 .fx-card{background:#fffaf2;border:1px solid #e4d6bd;border-radius:14px;padding:16px 16px 12px;box-shadow:0 6px 18px rgba(106,69,47,.08)}
@@ -32,7 +32,7 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-note{margin-top:20px;font-size:12px;color:#75695b}
 @media(max-width:600px){.fx-grid{grid-template-columns:1fr}}
 .fx-section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:26px 0 12px}
-.fx-section-head h2{font-family:var(--serif,Georgia,serif);font-size:24px;font-weight:600;margin:0;color:#201711}
+.fx-section-head h2{font-family:var(--sans,system-ui,sans-serif);font-weight:700;font-size:24px;font-weight:600;margin:0;color:#201711}
 .fx-section-head span{font-size:12.5px;color:#75695b}
 .fx-small{font-size:12px;color:#75695b;margin:8px 0}
 .fx-logo{display:inline-block;flex:0 0 auto;border-radius:50%;object-fit:cover;background:#fff;box-shadow:0 0 0 2px #fffaf2,0 0 0 3px #e4d6bd}
@@ -54,7 +54,7 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-back{display:inline-block;margin-bottom:14px;color:#75695b;text-decoration:none;font-size:14px}
 .fx-hero{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .fx-hero-team{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fffaf2;border:1px solid #e4d6bd;border-radius:14px;padding:18px 12px;color:#75695b}
-.fx-hero-team h2{font-family:var(--serif,Georgia,serif);font-size:20px;margin:4px 0 0;color:#3d2f29}
+.fx-hero-team h2{font-family:var(--sans,system-ui,sans-serif);font-weight:700;font-size:20px;margin:4px 0 0;color:#3d2f29}
 .fx-hero-team strong{font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
 .fx-hero-team span{font-size:13px}
 .fx-bar--big{height:10px;margin:14px 0 18px}
@@ -136,7 +136,7 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-read{margin:0 0 14px}
 .fx-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 12px}
 .fx-chip{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:#efe4d1;color:#5c4a3d;font-size:12.5px;font-variant-numeric:tabular-nums}
-p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx-side);margin-right:4px}
+p.fx-read b{font-family:var(--sans,system-ui,sans-serif);font-weight:700;font-size:20px;color:var(--fx-side);margin-right:4px}
 .fx-why{margin:6px 0 2px;font-size:12.5px;color:#5c4a3d;font-variant-numeric:tabular-nums}
 .fx-swing-teams{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:8px 24px}
 .fx-swing-teams h4{display:flex;align-items:center;gap:8px;margin:4px 0 6px;font-size:14px;color:#201711}
@@ -149,19 +149,6 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 .fx-swing--hot b{background:#e1eee0;color:#3f7d4e}
 .fx-fold summary{min-height:var(--cc-tap-target);display:flex;align-items:center;cursor:pointer;font-size:13px;color:#75695b}
 
-.fx-highlights{margin:0 0 16px}
-.fx-highlights h3{margin:0 0 8px;font-size:14px;color:#201711}
-.fx-highlights ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:8px}
-.fx-highlights .fx-hl-card{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 12px;background:#fffaf2;border:1px solid #e4d6bd;border-radius:12px;color:inherit;text-decoration:none}
-.fx-highlights a{color:inherit;text-decoration:none}.fx-highlights a:hover{text-decoration:underline}
-.fx-highlights img{width:56px;height:41px;object-fit:cover;border-radius:6px;background:#efe4d1}
-.fx-hl-main{display:grid;gap:3px;min-width:0}
-.fx-hl-main b{font-size:15px;color:#201711;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fx-hl-main small{display:flex;align-items:center;gap:5px;font-size:12px;color:#75695b;overflow:hidden;white-space:nowrap}
-.fx-hl-how{justify-self:start;padding:1px 8px;border-radius:999px;background:#efe4d1;color:#5c4a3d;font-size:11px;font-weight:600}
-.fx-hl-num{display:grid;justify-items:end;gap:2px}
-.fx-hl-num strong{padding:2px 9px;border-radius:999px;background:#e1eee0;color:#3f7d4e;font-size:16px;font-variant-numeric:tabular-nums}
-.fx-hl-num small{font-size:11.5px;color:#75695b;font-variant-numeric:tabular-nums;white-space:nowrap}
 
 .fx-espn-link { display: inline-flex; align-items: center; gap: 5px; color: inherit; font-size: 12px; text-decoration: none; }
 .fx-espn-link:hover { text-decoration: underline; }
@@ -177,7 +164,6 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
   .fx-header{margin-bottom:6px}
   .fx-header h1{font-size:24px;margin:0 0 2px;line-height:1.15}
   .fx-header p{font-size:12px}
-  .fx-slot--week .fx-highlights{margin-top:16px}
   .fx-slot--week .fx-section-head{margin-top:14px}
 }
 /* clip keeps the no-sideways-scroll guarantee without creating a scroll container. */
@@ -211,13 +197,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-espn-link { min-height: var(--cc-tap-target); }
 
 
-.fx-highlights .fx-hl-main small a { display: block; min-width: var(--cc-tap-target); min-height: var(--cc-tap-target); line-height: var(--cc-tap-target); overflow: hidden; text-overflow: ellipsis; }
-@media (max-width: 600px) {
-  .fx-highlights .fx-hl-card { grid-template-columns: 56px minmax(0, 1fr); align-items: start; row-gap: var(--cc-space-2); }
-  .fx-hl-main b { white-space: normal; overflow: visible; }
-  .fx-hl-main .fx-espn-link { white-space: normal; }
-  .fx-hl-num { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cc-space-2); }
-}
 
 /* Site header, loading and arrival. Transforms and opacity only. */
 .fx-page .cc-sitebar{color:#3d2f29}
@@ -284,13 +263,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 @media(max-width:600px){.fx-race-cols{grid-template-columns:minmax(0,1fr) 54px 46px}.fx-race-cols span:first-child{grid-column:2}}
 .fx-win-area{position:relative}
 .fx-hero-team .fx-score,.fx-hero-team .fx-score span{font-size:inherit}
-@media(max-width:600px){
-  .fx-highlights .fx-hl-card{grid-template-columns:44px minmax(0,1fr) auto;align-items:center;row-gap:0;padding:8px 10px}
-  .fx-highlights img{width:44px;height:32px}
-  .fx-hl-num{grid-column:auto;display:grid;justify-items:end;gap:2px}
-  .fx-highlights .fx-hl-main small a{min-height:24px;line-height:24px}
-  .fx-hl-main{gap:1px}
-}
 
 /* ESPN's logo marks every link that leaves for ESPN. */
 .fx-espn-logo{display:block;flex:none;width:25px;height:14px;border-radius:2px}
@@ -299,14 +271,8 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-card-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;margin-top:6px}
 .fx-card-links:empty{display:none}
 .fx-card-links>.fx-espn-actions{display:contents}
-.fx-hl-main b .fx-espn-link{gap:6px}
-.fx-hl-main small .fx-manager{margin:0 0 0 2px}
-.fx-hl-main small .fx-manager::before{content:'·';margin-right:5px;color:#b9a68d}
-.fx-hl-main small .fx-manager::after,.fx-swing-teams h4 .fx-manager::after,.fx-players h4 .fx-manager::after{content:none}
 .fx-swing-teams h4 .fx-manager,.fx-players h4 .fx-manager{font-size:12.5px;font-weight:500}
 .fx-matchup>.fx-espn-link{margin:0 0 12px}
-.fx-highlights .fx-espn-logo{width:25px;height:14px;border-radius:2px;object-fit:contain;background:none}
-.fx-hl-main b .fx-espn-link{flex-direction:row-reverse;justify-content:flex-end}
 .fx-win-axis{position:relative;display:block;height:16px}
 .fx-win-axis span{position:absolute;top:0;white-space:nowrap}
 .fx-win-plot:focus-visible{outline:2px solid #b75f41;outline-offset:4px;border-radius:4px}
@@ -316,3 +282,29 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-bars-day--proj{background:repeating-linear-gradient(135deg,#f3e8d6 0 4px,transparent 4px 9px);outline:1px dashed #c9b597;outline-offset:-1px}
 .fx-bars-day--proj b{font-style:italic;color:#75695b}
 .fx-players h4 .fx-manager{margin-left:2px!important;color:#75695b}
+
+/* Swings: one compact row per player, picture, name, team and coach, points, difference. */
+.fx-highlights{margin:18px 0 0;background:#fffaf2;border:1px solid #e4d6bd;border-radius:14px;padding:10px 14px 4px}
+.fx-highlights h3{margin:0 0 4px;font-size:15px;color:#201711}
+.fx-hl-list{list-style:none;margin:0;padding:0}
+.fx-hl-row{display:grid;grid-template-columns:36px minmax(0,1fr) auto 48px;align-items:center;gap:10px;padding:6px 0;border-top:1px solid #efe4d1}
+.fx-hl-row:first-child{border-top:0}
+.fx-hl-row>img{width:36px;height:27px;object-fit:cover;object-position:top;border-radius:5px;background:#efe4d1}
+.fx-hl-main{display:grid;min-width:0;line-height:1.25}
+.fx-hl-main b{display:flex;align-items:center;gap:4px;min-width:0;font-size:14px;font-weight:600;color:#201711}
+.fx-hl-main b a{min-height:0!important;color:inherit;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fx-hl-main b .fx-espn-link{flex-direction:row-reverse;justify-content:flex-end;gap:6px}
+.fx-hl-main small{display:flex;align-items:center;gap:0;min-width:0;font-size:12px;color:#75695b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fx-hl-main small a{color:inherit;text-decoration:none;overflow:hidden;text-overflow:ellipsis}
+.fx-hl-main small .fx-manager{margin:0;color:#5c4a3d}
+.fx-hl-main small .fx-manager::before,.fx-hl-how::before{content:'·';margin:0 5px;color:#b9a68d}
+.fx-hl-main small .fx-manager::after{content:none}
+.fx-hl-how{flex:none}
+.fx-hl-pts{display:grid;justify-items:end;font-size:14px;font-weight:600;color:#3d2f29;font-variant-numeric:tabular-nums;line-height:1.2}
+.fx-hl-pts small{font-size:11px;font-weight:400;color:#75695b}
+.fx-hl-row>strong{justify-self:end;min-width:40px;padding:2px 7px;border-radius:999px;text-align:center;font-size:13.5px;font-variant-numeric:tabular-nums}
+.fx-hl-up{background:#e1eee0;color:#3f7d4e}
+.fx-hl-down{background:#f6e3dc;color:#a1442b}
+.fx-flame{flex:none}
+.fx-highlights .fx-espn-logo{width:22px;height:12px;border-radius:2px;object-fit:contain}
+

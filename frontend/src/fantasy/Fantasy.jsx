@@ -8,7 +8,7 @@ import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
 import { fetchOwners, leagueLinks } from './claims.js';
-import { acquiredLabel, finished, highlights, matchupRead } from './analysis.js';
+import { acquiredLabel, finished, highlights, lowlights, matchupRead } from './analysis.js';
 import { Manager, OwnersContext, TeamLogo, WinChart, round, useNarrow, weekday, winPct } from './parts.jsx';
 import { LeagueLinksContext, MatchupLink, PlayerLink, TeamLinks } from './EspnLink.jsx';
 import { checkAdmin } from './admin.js';
@@ -51,34 +51,29 @@ function MatchupCard({ matchup, week, mine }) {
 
 const headshot = id => `https://a.espncdn.com/i/headshots/nba/players/full/${id}.png`;
 
-// This week's biggest outperformers, with how their manager got them.
-function Highlights({ rows }) {
+// This week's biggest swings against expected points: one compact row per player.
+function Swings({ title, rows }) {
   if (!rows.length) return null;
   return (
-    <section className="fx-highlights" aria-label="Outperformers this week">
-      <h3>Outperformers</h3>
-      <ul>
+    <section className="fx-highlights" aria-label={`${title} this week`}>
+      <h3>{title}</h3>
+      <ol className="fx-hl-list">
         {rows.map((row, index) => {
           const how = acquiredLabel(row.acquired);
+          const up = row.diff >= 0;
           return (
-            <li key={`${row.key}-${row.id}`}>
-              <div className="fx-hl-card">
-                <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer"
-                  onError={event => { event.currentTarget.hidden = true; event.currentTarget.parentElement.classList.add('fx-hl-no-photo'); }} />
-                <span className="fx-hl-main">
-                  <b>{index === 0 && <span className="fx-flame" aria-label="Top outperformer">🔥</span>}<PlayerLink id={row.id} name={row.name} badge /></b>
-                  <small><TeamLogo team={row.team} side={row.side} size={16} /><Link to={row.key}>{row.team.name}</Link><Manager team={row.team} /></small>
-                  {how && <span className="fx-hl-how">{how}</span>}
-                </span>
-                <span className="fx-hl-num">
-                  <strong>+{round(row.diff)}</strong>
-                  <small>{round(row.actual)} pts{row.games > 1 ? ` · ${row.games} games` : ''}</small>
-                </span>
-              </div>
+            <li key={`${row.key}-${row.id}`} className="fx-hl-row">
+              <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.visibility = 'hidden'; }} />
+              <span className="fx-hl-main">
+                <b>{up && index === 0 && <span className="fx-flame" aria-label="Top outperformer">🔥</span>}<PlayerLink id={row.id} name={row.name} badge /></b>
+                <small><Link to={row.key}>{row.team.name}</Link><Manager team={row.team} />{how && <span className="fx-hl-how">{how}</span>}</small>
+              </span>
+              <span className="fx-hl-pts">{round(row.actual)}<small>{row.games > 1 ? `${row.games} games` : 'pts'}</small></span>
+              <strong className={up ? 'fx-hl-up' : 'fx-hl-down'}>{up ? '+' : '−'}{Math.abs(round(row.diff))}</strong>
             </li>
           );
         })}
-      </ul>
+      </ol>
     </section>
   );
 }
@@ -114,7 +109,8 @@ function Hub({ data, apiUrl, onOwnersChange, progress, loading }) {
         const mine = matchup && isMine(matchup);
         return <div className="fx-matchup-card" key={slot.key}>{matchup ? <div className="fx-arrive" style={{ '--i': index }}><MatchupCard matchup={matchup} mine={mine} week={`${data.year}-${data.matchup.id}`} /><div className="fx-card-links"><MatchupLink matchup={matchup} />{mine && <TeamLinks teamId={links.team_id} />}</div></div> : <SkeletonCard failed={!loading} />}</div>;
       })}</div>
-      <Highlights rows={highlights(matchups)} />
+      <Swings title="Outperformers" rows={highlights(matchups)} />
+      <Swings title="Underperformers" rows={lowlights(matchups)} />
     </section>
     {data?.season && <div id="fx-race" className="fx-slot"><SeasonRace season={data.season} narrow={narrow} /></div>}
     {data && <div id="fx-team" className="fx-slot"><ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} /></div>}

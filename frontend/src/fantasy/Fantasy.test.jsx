@@ -30,8 +30,9 @@ describe('Fantasy pages', () => {
     view('/fantasy');
     const section = await screen.findByRole('region', { name: 'Outperformers this week' });
     expect(section.querySelector('.fx-hl-how').textContent).toBe('Round 11 · pick 130');
-    expect(section.querySelector('.fx-hl-num strong').textContent).toMatch(/^\+\d+$/);
-    expect(section.querySelector('.fx-hl-num small').textContent).toMatch(/^\d+ pts/);
+    expect(section.querySelector('.fx-hl-row > strong').textContent).toMatch(/^\+\d+$/);
+    expect(section.querySelector('.fx-hl-pts').textContent).toMatch(/^\d+/);
+    expect(section.querySelector('.fx-hl-main small').textContent).toContain('·');
     for (const filler of [/Matchup in ESPN/, /^Score$/, /^To win$/, /exp\./, /Up \d+/, /Down \d+/, /Projected to/, /since \w{3}$/, /Just for fun/, /chance to win from here/, /Uncalibrated/, /Locked/, /Big favorites/, /unlock after week 1/, /Assumes today/]) {
       expect(screen.queryByText(filler)).toBeNull();
     }
