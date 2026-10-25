@@ -64,6 +64,13 @@ describe('player swings', () => {
     expect(acquiredLabel(rows[1].acquired)).toBe('Round 11 · pick 130');
     expect(highlights([m], 1)).toHaveLength(1);
   });
+  it('keeps the latest known acquisition when a later day has none', () => {
+    const mixed = matchup(60, [1, 1], [
+      played([[{ id: 8, name: 'Tagged', points: 60, expected: 30, acquired: { how: 'add' } }], []]),
+      played([[{ id: 8, name: 'Tagged', points: 60, expected: 30, acquired: null }], []]),
+    ]);
+    expect(highlights([mixed])[0].acquired).toEqual({ how: 'add' });
+  });
   it('labels only well-formed acquisitions', () => {
     expect(acquiredLabel({ how: 'trade' })).toBe('Trade');
     expect(acquiredLabel({ how: 'draft', round: 2 })).toBeNull();
