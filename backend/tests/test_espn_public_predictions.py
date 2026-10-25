@@ -490,3 +490,21 @@ def test_v2_logo_size_and_probability_boundaries(client, snapshot_v2, total):
         PNG_SIGNATURE + b"x" * (MAX_LOGO_BYTES - len(PNG_SIGNATURE))).decode()
     snapshot_v2["season"]["modes"]["hot"][0]["place_pct"] = [50, 30, total - 80]
     assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
+
+
+@pytest.mark.parametrize("acquired", [
+    {"how": "draft", "round": 11, "pick": 130}, {"how": "add"}, {"how": "trade"}, None,
+])
+def test_v2_accepts_how_a_player_was_acquired(client, snapshot_v2, acquired):
+    snapshot_v2["matchups"][0]["days"][0]["players"][0][0]["acquired"] = acquired
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 200
+    assert client.get(PATH + "/latest").json() == snapshot_v2
+
+
+@pytest.mark.parametrize("acquired", [
+    {"how": "draft"}, {"how": "draft", "round": 0, "pick": 1}, {"how": "draft", "round": 1, "pick": 1.5},
+    {"how": "add", "round": 1}, {"how": "keeper"}, {"how": "add", "team_id": 4}, "draft",
+])
+def test_v2_rejects_malformed_acquisition(client, snapshot_v2, acquired):
+    snapshot_v2["matchups"][0]["days"][0]["players"][0][0]["acquired"] = acquired
+    assert client.post(PATH, json=snapshot_v2, headers=AUTH).status_code == 422

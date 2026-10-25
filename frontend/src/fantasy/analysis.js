@@ -41,6 +41,7 @@ export function playerSwings(matchup) {
       if (!Number.isFinite(player.points) || !Number.isFinite(player.expected)) return;
       const row = totals[side].get(player.id) || { id: player.id, name: player.name, actual: 0, expected: 0, games: 0 };
       row.actual += player.points; row.expected += player.expected; row.games += 1;
+      if (player.acquired !== undefined) row.acquired = player.acquired;  // latest day wins
       totals[side].set(player.id, row);
     }));
   }
@@ -56,47 +57,30 @@ export function notableSwings(rows, threshold = 15) {
   };
 }
 
-// The week in a few tagged lines: who is favored, what's close, who's cold and hot.
-export function weekNotes(matchups) {
-  const live = matchups.filter(m => !m.unavailable);
-  if (!live.length) return [];
-  const notes = [];
-  // Nothing is decided until the last game; big favorites keep their odds on show.
-  const done = live.filter(finished);
-  if (done.length) notes.push({ tone: 'final', tag: 'Final', text: done.map(m => matchupRead(m).headline).join(' · ') });
-  const big = live.filter(m => !finished(m) && (m.chance >= 90 || m.chance <= 10));
-  if (big.length) notes.push({ tone: 'fav', tag: 'Big favorites', text: big.map(m => matchupRead(m).headline).join(' · '), detail: 'Not over: upsets still happen' });
-  const open = live.filter(m => !done.includes(m) && !big.includes(m));
-  const closest = [...open].sort((a, b) => Math.abs(a.chance - 50) - Math.abs(b.chance - 50))[0];
-  if (closest) {
-    const read = matchupRead(closest);
-    notes.push({ tone: 'close', tag: Math.abs(closest.chance - 50) <= 10 ? 'Coin flip' : 'Closest', key: closest.key,
-      text: `${closest.home.name} vs ${closest.away.name}`, detail: `${read.headline} · ${read.facts.join(' · ')}` });
+// How a manager got the player, from the optional public `acquired` field; unknown shapes show nothing.
+export function acquiredLabel(acquired) {
+  if (acquired?.how === 'draft' && Number.isInteger(acquired.round) && Number.isInteger(acquired.pick)) {
+    return `Round ${acquired.round} · pick ${acquired.pick}`;
   }
-  const players = live.flatMap(m => playerSwings(m).flatMap((rows, side) => rows.map(row => ({ ...row, team: [m.home, m.away][side].name }))));
-  const cold = [...players].sort((a, b) => a.diff - b.diff)[0];
-  const hot = [...players].sort((a, b) => b.diff - a.diff)[0];
-  const games = row => (row.games > 1 ? ` in ${row.games} games` : '');
-  if (cold && cold.diff <= -20) {
-    const what = r(cold.actual) === 0 ? `Scored 0${games(cold)}, ${r(cold.expected)} expected` : `${r(cold.actual)} of ${r(cold.expected)} expected${games(cold)}`;
-    notes.push({ tone: 'cold', tag: 'Cold', text: cold.name, detail: `${what} · ${cold.team}` });
-  }
-  if (hot && hot.diff >= 20) notes.push({ tone: 'hot', tag: 'Hot', text: hot.name, detail: `${r(hot.actual)} vs ${r(hot.expected)} expected${games(hot)} · ${hot.team}` });
-  return notes;
+  return acquired?.how === 'add' ? 'Waiver pickup' : acquired?.how === 'trade' ? 'Trade' : null;
 }
 
-// Why the season favorite leads, plus short tags on how settled the race is.
+// The league's biggest outperformers this week, on finished games only.
+export function highlights(matchups, limit = 6, threshold = 15) {
+  return matchups.filter(m => !m.unavailable)
+    .flatMap(m => playerSwings(m).flatMap((rows, side) => rows.map(row => ({ ...row, team: [m.home, m.away][side], side, key: m.key }))))
+    .filter(row => row.diff >= threshold)
+    .sort((a, b) => b.diff - a.diff)
+    .slice(0, limit);
+}
+
+// Why the season favorite leads.
 export function seasonRead(rows) {
   if (!rows.length) return null;
   const leader = rows[0];
   const byWins = [...rows].sort((a, b) => b.expected_wins - a.expected_wins);
-  const played = rows.some(row => (row.record?.[0] || 0) + (row.record?.[1] || 0) + (row.record?.[2] || 0) > 0);
-  const best = Math.max(...rows.map(row => row.playoff_pct));
   const why = byWins[0].team.id === leader.team.id
     ? `Most projected wins (${leader.expected_wins})`
     : `Best playoff odds; ${byWins[0].team.name} projects more wins`;
-  const tags = [];
-  if (!played) tags.push('No games yet: roster strength only');
-  if (best < 60) tags.push(`Wide open: nobody above ${r(best)}%`);
-  return { leader: leader.team.name, why, tags };
+  return { leader: leader.team.name, why };
 }

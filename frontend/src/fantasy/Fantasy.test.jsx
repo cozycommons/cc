@@ -22,12 +22,19 @@ describe('Fantasy pages', () => {
     expect(link.getAttribute('href')).toBe('/fantasy/1-2');
   });
 
-  it('labels card percentages as the chance to win from here', async () => {
-    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+  it('shows outperformers instead of filler text, with how each was acquired', async () => {
+    const snap = structuredClone(SNAPSHOT_V2);
+    const final = snap.matchups.find(x => !x.unavailable).days.find(d => d.state === 'final');
+    Object.assign(final.players[0][0], { points: 90, expected: 30, acquired: { how: 'draft', round: 11, pick: 130 } });
+    vi.stubGlobal('fetch', respond(200, snap));
     view('/fantasy');
-    expect(await screen.findByText(/chance to win from here/)).toBeTruthy();
+    const section = await screen.findByRole('region', { name: 'Outperformers this week' });
+    expect(section.querySelector('.fx-hl-how').textContent).toBe('Round 11 · pick 130');
+    expect(section.querySelector('.fx-hl-num strong').textContent).toMatch(/^\+\d+$/);
     expect(document.querySelector('.fx-card-head').textContent).toBe('ScoreTo win');
-    expect(screen.queryByText('Locked')).toBeNull();
+    for (const filler of [/Just for fun/, /chance to win from here/, /Uncalibrated/, /Locked/, /Big favorites/, /unlock after week 1/, /Assumes today/]) {
+      expect(screen.queryByText(filler)).toBeNull();
+    }
   });
 
   it('never announces a 100% trend before the matchup is final', async () => {
@@ -39,16 +46,10 @@ describe('Fantasy pages', () => {
     expect((await screen.findByRole('img', { name: /^Home win chance/ })).getAttribute('aria-label')).toBe('Home win chance from 80% to >99%');
   });
 
-  it('says up front that the numbers are rough guesses', async () => {
-    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
-    view('/fantasy/1-2');
-    expect((await screen.findByText('Just for fun.')).closest('p').textContent).toMatch(/not tested against real results/);
-  });
-
   it('shows the form toggle only once a week is complete', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     const first = view('/fantasy');
-    await screen.findByText(/unlock after week 1/);
+    await screen.findByText('Race to the playoffs');
     expect(screen.queryByRole('group', { name: 'Form weighting' })).toBeNull();
     first.unmount();
     const active = structuredClone(SNAPSHOT_V2);
@@ -56,7 +57,6 @@ describe('Fantasy pages', () => {
     vi.stubGlobal('fetch', respond(200, active));
     view('/fantasy');
     expect(await screen.findByRole('group', { name: 'Form weighting' })).toBeTruthy();
-    expect(screen.queryByText(/unlock after week 1/)).toBeNull();
   });
 
   it('race rows show playoff and title odds and expand into labelled finishes', async () => {

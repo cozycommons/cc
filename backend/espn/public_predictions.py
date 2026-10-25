@@ -162,11 +162,22 @@ class PublicTeamV2(PublicModel):
         return value
 
 
+class DraftAcquired(PublicModel):
+    how: Literal["draft"]
+    round: Annotated[int, Field(ge=1, le=40)]
+    pick: Annotated[int, Field(ge=1, le=600)]
+
+
+class OtherAcquired(PublicModel):
+    how: Literal["add", "trade"]
+
+
 class PublicPlayer(PublicModel):
     id: NonnegativeInt
     name: str = Field(max_length=60)
     points: Number | None
     expected: Number | None = None
+    acquired: Annotated[DraftAcquired | OtherAcquired, Field(discriminator="how")] | None = None
 
 
 PlayerSide = Annotated[list[PublicPlayer], Field(max_length=15)]

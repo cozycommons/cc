@@ -29,7 +29,6 @@ export default function SeasonRace({ season, narrow }) {
           {available.map(([key, label]) => <button key={key} type="button" aria-pressed={mode === key} onClick={() => setMode(key)}>{label}</button>)}
         </div>
       )}
-      {!season.formActive && available.length > 1 && <p className="fx-small">Hot-hand and balanced views unlock after week 1.</p>}
       <div className="fx-key" aria-hidden="true"><span><i className="fx-key-title" />Win title</span><span><i className="fx-key-playoffs" />Make playoffs</span></div>
       <ol className="fx-race-list" aria-label="Playoff and title chances by team">
         {shown.map(row => {
@@ -53,7 +52,6 @@ export default function SeasonRace({ season, narrow }) {
         })}
       </ol>
       {shown.length < rows.length && <button type="button" className="fx-more" onClick={() => setAll(true)}>Show all {rows.length} teams</button>}
-      <p className="fx-small">Assumes today’s rosters.</p>
     </section>
   );
 }
@@ -63,7 +61,6 @@ function SeasonRead({ read }) {
   return (
     <div className="fx-read">
       <p className="fx-headline"><b>{read.leader}</b> leads. <span>{read.why}.</span></p>
-      {!!read.tags.length && <p className="fx-chips">{read.tags.map(tag => <span key={tag} className="fx-chip">{tag}</span>)}</p>}
     </div>
   );
 }
