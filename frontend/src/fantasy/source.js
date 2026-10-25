@@ -10,8 +10,14 @@ const numbers = (value, allowNull = false) => Array.isArray(value) && value.leng
   && value.every(v => finite(v) || (allowNull && v === null));
 const text = (value, max = 60) => typeof value === 'string' && value.length > 0 && value.length <= max;
 const pct = value => finite(value) && value >= 0 && value <= 100;
-const logo = value => (typeof value === 'string' && (/^https:\/\/g\.espncdn\.com\//.test(value) || /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value)))
-  ? value : null;
+const logo = (value, apiUrl) => {
+  if (typeof value !== 'string') return null;
+  if (/^https:\/\/g\.espncdn\.com\//.test(value) || /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value)) return value;
+  if (apiUrl && /^\/espn\/public\/logos\/[a-f0-9]{64}$/.test(value)) {
+    return `${apiUrl.replace(/\/$/, '')}${value}`;
+  }
+  return null;
+};
 const player = p => finite(p?.id) && text(p.name) && (p.points === null || finite(p.points));
 
 function day(value) {
@@ -63,14 +69,14 @@ function season(value, teams) {
 }
 
 // Validates public-v1 or public-v2 into one renderable shape; malformed matchups become "not available".
-export function cleanSnapshot(data) {
+export function cleanSnapshot(data, apiUrl) {
   if (!['public-v1', 'public-v2'].includes(data?.version) || !Array.isArray(data.matchups) || typeof data.generated_at !== 'string'
     || !Number.isInteger(data.matchup?.id) || typeof data.matchup?.ends !== 'string') return null;
   let teams, raw = data.matchups;
   if (data.version === 'public-v2') {
     if (!Array.isArray(data.teams)) return null;
     teams = new Map(data.teams.filter(t => Number.isInteger(t?.id) && text(t.name))
-      .map(t => [t.id, { id: t.id, name: t.name, abbrev: typeof t.abbrev === 'string' ? t.abbrev : '', logo: logo(t.logo),
+      .map(t => [t.id, { id: t.id, name: t.name, abbrev: typeof t.abbrev === 'string' ? t.abbrev : '', logo: logo(t.logo, apiUrl),
         manager: typeof t.manager === 'string' && MANAGER.test(t.manager) ? t.manager : null }]));
   } else {
     // v1 named teams inline; give them synthetic ids so both versions render the same way.
@@ -99,7 +105,7 @@ const usable = data => data?.matchups.some(match => !match.unavailable);
 // Store only validated public payloads; revalidate on read across app releases.
 export function cachedSnapshot(apiUrl) {
   try {
-    const data = cleanSnapshot(JSON.parse(localStorage.getItem(cacheKey(apiUrl))));
+    const data = cleanSnapshot(JSON.parse(localStorage.getItem(cacheKey(apiUrl))), apiUrl);
     return usable(data) ? data : null;
   } catch { return null; }
 }
@@ -116,7 +122,7 @@ async function read(url, signal, apiUrl) {
       if (response.status === 404) return null;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.json();
-      const data = cleanSnapshot(raw);
+      const data = cleanSnapshot(raw, apiUrl);
       if (!usable(data)) return null;
       remember(apiUrl, raw);
       return data;
