@@ -84,11 +84,12 @@ function Highlights({ rows }) {
 // Phones: one row of jump tabs, and this week's matchups come first.
 const HUB_TABS = [['fx-week', 'This week'], ['fx-race', 'Playoff race'], ['fx-team', 'Your team'], ['fx-lineups', 'Lineups']];
 
-function HubTabs({ hasRace }) {
+// Only sections that actually render get a tab, so no tab jumps to an empty spot.
+export function HubTabs({ show }) {
   const jump = id => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   return (
     <nav className="fx-tabs" aria-label="Sections">
-      {HUB_TABS.filter(([id]) => hasRace || id !== 'fx-race').map(([id, label]) => (
+      {HUB_TABS.filter(([id]) => show[id]).map(([id, label]) => (
         <button key={id} type="button" onClick={() => jump(id)}>{label}</button>
       ))}
     </nav>
@@ -117,7 +118,7 @@ function Hub({ data, apiUrl, onOwnersChange }) {
   // Phones lead with this week's score cards; render order (not CSS order) so reading order matches.
   return (
     <div className="fx-hub">
-      {narrow && <HubTabs hasRace={!!data.season} />}
+      {narrow && <HubTabs show={{ 'fx-week': true, 'fx-race': !!data.season, 'fx-team': !!(data.linkable && apiUrl), 'fx-lineups': !!apiUrl }} />}
       {narrow && week}
       {data.season && <div id="fx-race" className="fx-slot"><SeasonRace season={data.season} narrow={narrow} /></div>}
       <div id="fx-team" className="fx-slot"><ClaimPanel apiUrl={data.linkable ? apiUrl : null} data={data} onChange={onOwnersChange} /></div>

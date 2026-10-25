@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import Fantasy from './Fantasy.jsx';
+import Fantasy, { HubTabs } from './Fantasy.jsx';
 import { SNAPSHOT_V2 } from './fixture.js';
 
 vi.mock('../api.js', () => ({ getUrl: () => 'https://api.example.test' }));
@@ -97,6 +97,11 @@ describe('Fantasy pages', () => {
     expect(scrolled).toEqual(['fx-race']);
     for (const id of ['fx-week', 'fx-race', 'fx-team', 'fx-lineups']) expect(document.getElementById(id)).toBeTruthy();
     spy.mockRestore();
+  });
+
+  it('only shows tabs for sections that render', () => {
+    render(<HubTabs show={{ 'fx-week': true, 'fx-race': true, 'fx-team': false, 'fx-lineups': false }} />);
+    expect(screen.getAllByRole('button').map(b => b.textContent)).toEqual(['This week', 'Playoff race']);
   });
 
   it('desktop has no section tabs', async () => {
