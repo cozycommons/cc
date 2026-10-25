@@ -48,7 +48,7 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   expect(dialog).toHaveTextContent('$198.18');
   expect(within(dialog).getByRole('link', { name: '@andsohn' })).toHaveAttribute('href', 'https://venmo.com/u/andsohn');
   expect(within(dialog).getByRole('button', { name: 'Copy amount' })).toBeInTheDocument();
-  expect(dialog).toHaveTextContent('not by Andrew. Check the name in Venmo.');
+  expect(dialog).not.toHaveTextContent('Added for them');
   // Opening Venmo is the main step; marking it paid only takes the lead once Venmo was opened.
   expect(within(dialog).getByRole('button', { name: 'Mark as paid' })).toHaveClass('cc-button--ghost');
   const link = within(dialog).getByRole('link', { name: /Open Venmo to pay/ });
@@ -94,7 +94,7 @@ it('offers request to the creditor, nothing to bystanders, and adds a missing us
   expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/venmo', 'PUT', { venmo_username: 'jason-k', revision: 4 }]);
   const still = screen.getByRole('dialog', { name: 'Request with Venmo' });
   expect(within(still).getByRole('link', { name: /Open Venmo to request/ })).toHaveAttribute('href', expect.stringContaining('/jason-k?txn=charge'));
-  expect(still).toHaveTextContent('Added by the trip creator, not by Jason.');
+  expect(still).not.toHaveTextContent('Added by the trip creator');
 });
 
 it('does not offer Venmo for non-dollar trips', async () => {
@@ -133,7 +133,7 @@ it('opens an unsaved prefilled expense from a link and keeps sections addressabl
   fireEvent.click(screen.getByRole('button', { name: 'Manage Andrew' }));
   const sheet = screen.getByRole('dialog', { name: 'Andrew' });
   expect(within(sheet).queryByRole('button', { name: /Venmo username/ })).not.toBeInTheDocument();
-  expect(sheet).toHaveTextContent('Andrew manages their own name and Venmo from their profile.');
+  expect(sheet).toHaveTextContent('Name and Venmo: Andrew’s profile.');
 });
 
 it('lets the trip creator set a username for someone who has not joined', async () => {

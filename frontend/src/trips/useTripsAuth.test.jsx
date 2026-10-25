@@ -28,6 +28,23 @@ function setup(initialSession = null, initialPromise) {
 const session = id => ({ user: { id, user_metadata: { full_name: id } } });
 const profile = id => ({ user_id: id, display_name: `Dice ${id}`, avatar_url: '/avatar.png', profile_source: 'dice' });
 
+it('persists an owner confirmation and restores it from the account on a new session', async () => {
+  const harness = setup(session('a'));
+  let saved = { ...profile('a'), venmo_username: 'test-handle', venmo_confirmed: false };
+  mocked.request.mockImplementation(async (_client, _path, method, payload) => {
+    if (method === 'PUT') saved = { ...saved, venmo_username: payload.venmo_username, venmo_confirmed: true };
+    return saved;
+  });
+  const first = renderHook(useTripsAuth);
+  await waitFor(() => expect(first.result.current.profile?.venmo_confirmed).toBe(false));
+  await act(() => first.result.current.saveVenmo('test-handle'));
+  expect(mocked.request).toHaveBeenCalledWith(harness.supabase, '/me', 'PUT', { venmo_username: 'test-handle' }, 'a');
+  expect(first.result.current.profile.venmo_confirmed).toBe(true);
+  first.unmount();
+  const next = renderHook(useTripsAuth);
+  await waitFor(() => expect(next.result.current.profile?.venmo_confirmed).toBe(true));
+});
+
 it('restores the shared session and canonical profile using the existing client', async () => {
   const harness = setup(session('a'));
   mocked.request.mockResolvedValue(profile('a'));

@@ -372,13 +372,25 @@ Trip members carry `venmo_username`, `venmo_confirmed` and `venmo_source`
 someone who hasn't joined, else null). Account usernames live in Supabase Auth
 `user_metadata.venmo_username`; a self-save writes `venmo_username_provenance`
 with `source: self` and `owner_confirmed: true`. Anything else, including the
-seeded values, is shown as unconfirmed. None of this is proof of Venmo account
+seeded values, remains unconfirmed until a self-save. None of this is proof of Venmo account
 ownership or used for authorization. Joining a trip drops the creator-entered
 username in favour of the account's own.
+
+When a linked member opens a trip with an unconfirmed account handle (or no
+handle), they first see **Confirm your Venmo**. The tappable handle opens
+`https://venmo.com/u/{handle}` to check the public name and photo. **Fix handle**
+edits the username; **Yes, that's my Venmo** saves it through `PUT /me` and stores
+the existing per-user `owner_confirmed` flag. Confirmation applies across trips
+and devices, including after signing in again. A previous self-save already
+counts as confirmation; creators never confirm someone else's handle. Cancel
+returns to the trip list without recording confirmation.
 
 From a suggested payment, the debtor gets Pay and the creditor gets Request.
 The UI prepares `https://venmo.com/{username}?txn=pay|charge&amount=12.34&note=…`,
 shows recipient, amount and note with copy buttons, and opens Venmo in a new tab.
+Query values use `encodeURIComponent`: spaces in notes are `%20`, and literal
+plus signs are `%2B`. Do not use form-style `+` encoding for spaces: the native
+Venmo app displays those plus signs literally.
 Venmo redirects that link to `account.venmo.com/payment-link` with the same
 recipient, amount, note and action (checked 2026-10-23, desktop and phone user
 agents). The person confirms in Venmo. Opening the link never writes to the trip.
