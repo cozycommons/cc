@@ -21,9 +21,16 @@ function day(value) {
   return (value.actual === null || numbers(value.actual, true)) && numbers(value.expected, open) && numbers(value.games, open) && players;
 }
 
-// Intraday points carry their capture time; daily points sit at noon local time.
+// Daily points are Los Angeles dates; place them at noon there (PST or PDT), whatever the viewer's timezone.
+const LA_HOUR = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hourCycle: 'h23' });
+export function laNoon(date) {
+  const pst = Date.parse(`${date}T20:00:00Z`);  // noon PST; one hour later in LA during daylight time
+  return Number(LA_HOUR.format(pst)) === 13 ? pst - 3600000 : pst;
+}
+
+// Intraday points carry their capture time; a missing or null `at` falls back to the daily anchor.
 const oddsHistory = points => points
-  .map(point => ({ ...point, time: point.at ? Date.parse(point.at) : Date.parse(`${point.date}T12:00:00`) }))
+  .map(point => ({ ...point, time: point.at ? Date.parse(point.at) : laNoon(point.date) }))
   .sort((a, b) => a.time - b.time);
 
 function matchup(value, teams) {
@@ -34,7 +41,7 @@ function matchup(value, teams) {
     && Array.isArray(value.days) && value.days.every(day)
     && value.days.every((d, i) => i === 0 || d.date > value.days[i - 1].date)
     && (value.odds_history ?? []).every(point => typeof point?.date === 'string' && pct(point.chance)
-      && (point.at === undefined || Number.isFinite(Date.parse(point.at))));
+      && (point.at == null || Number.isFinite(Date.parse(point.at))));
   return ok ? { ...value, ...base, odds_history: oddsHistory(value.odds_history ?? []) } : { ...base, unavailable: true };
 }
 

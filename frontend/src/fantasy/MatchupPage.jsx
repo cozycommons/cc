@@ -141,7 +141,7 @@ export default function MatchupPage({ data }) {
       <Swings matchup={matchup} teams={teams} />
 
       <div className="fx-panel">
-        <div className="fx-panel-head"><h3>Score so far and projected</h3><OddsTrend history={matchup.odds_history} wide /></div>
+        <div className="fx-panel-head"><h3>Score so far and projected</h3><OddsTrend history={matchup.odds_history} wide final={finished(matchup)} /></div>
         <ScorePath matchup={matchup} height={230} />
         <p className="fx-small">Likely final margin: {round(matchup.margin_80[0])} to {round(matchup.margin_80[1])}.</p>
       </div>

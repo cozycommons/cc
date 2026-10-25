@@ -30,6 +30,15 @@ describe('Fantasy pages', () => {
     expect(screen.queryByText('Locked')).toBeNull();
   });
 
+  it('never announces a 100% trend before the matchup is final', async () => {
+    const snap = structuredClone(SNAPSHOT_V2);
+    const m = snap.matchups.find(x => !x.unavailable && x.days.some(d => d.state === 'projected'));
+    m.odds_history = [{ date: '2026-10-21', chance: 80 }, { date: '2026-10-22', chance: 100 }];
+    vi.stubGlobal('fetch', respond(200, snap));
+    view(`/fantasy/${m.home}-${m.away}`);
+    expect((await screen.findByRole('img', { name: /^Home win chance/ })).getAttribute('aria-label')).toBe('Home win chance from 80% to >99%');
+  });
+
   it('says up front that the numbers are rough guesses', async () => {
     vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
     view('/fantasy/1-2');

@@ -40,7 +40,7 @@ function MatchupCard({ matchup, narrow }) {
       </div>
       <p className="fx-why" style={{ color: read.side == null ? undefined : COLORS[read.side] }}>{read.facts.join(' · ')}</p>
       {!narrow && <ScorePath matchup={matchup} height={120} />}
-      <div className="fx-meta"><OddsTrend history={matchup.odds_history} name={teams[0].name} /></div>
+      <div className="fx-meta"><OddsTrend history={matchup.odds_history} name={teams[0].name} final={finished(matchup)} /></div>
     </Link>
   );
 }

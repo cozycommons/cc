@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanSnapshot, FALLBACK_URL, loadSnapshot } from './source.js';
+import { cleanSnapshot, FALLBACK_URL, laNoon, loadSnapshot } from './source.js';
 import { SNAPSHOT_V2 } from './fixture.js';
 
 const copy = () => structuredClone(SNAPSHOT_V2);
@@ -38,6 +38,19 @@ describe('cleanSnapshot', () => {
     expect(cleanSnapshot(snap).matchups[0].odds_history.map(p => p.chance)).toEqual([40, 60]);
     snap.matchups[0].odds_history[0].at = 'soon';
     expect(cleanSnapshot(snap).matchups[0].unavailable).toBe(true);
+  });
+
+  it('anchors daily odds at Los Angeles noon and treats a null timestamp as daily', () => {
+    expect(new Date(laNoon('2026-10-23')).toISOString()).toBe('2026-10-23T19:00:00.000Z');  // PDT
+    expect(new Date(laNoon('2026-12-01')).toISOString()).toBe('2026-12-01T20:00:00.000Z');  // PST
+    const snap = copy();
+    snap.matchups[0].odds_history = [
+      { date: '2026-10-23', chance: 40, at: null },
+      { date: '2026-10-23', chance: 60, at: '2026-10-23T15:00:00Z' },
+    ];
+    const odds = cleanSnapshot(snap).matchups[0];
+    expect(odds.unavailable).toBeFalsy();
+    expect(odds.odds_history.map(p => p.chance)).toEqual([60, 40]);  // 8am PDT capture comes before the noon daily point
   });
 
   it('still renders older public-v1 snapshots', () => {
