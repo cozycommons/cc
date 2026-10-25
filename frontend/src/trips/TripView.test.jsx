@@ -150,6 +150,18 @@ it('lets the trip creator set a username for someone who has not joined', async 
   expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/venmo', 'PUT', { venmo_username: 'jason-k', revision: 4 }]);
 });
 
+it('gives the NITEHARTS trip its heart icon only while that trip is open', async () => {
+  open('/trips/trip-id', trip({ name: 'NITEHARTS 26' }));
+  await screen.findByRole('heading', { name: 'NITEHARTS 26' });
+  const icons = () => [...document.head.querySelectorAll('link[href^="/trips/niteharts/"]')].map((link) => `${link.rel} ${link.getAttribute('href')}`);
+  expect(icons()).toEqual(['icon /trips/niteharts/favicon.svg', 'icon /trips/niteharts/favicon-32.png', 'apple-touch-icon /trips/niteharts/apple-touch-icon.png']);
+  cleanup();
+  expect(icons()).toEqual([]);
+  open('/trips/trip-id');
+  await screen.findByRole('heading', { name: 'Tahoe & Reno' });
+  expect(icons()).toEqual([]);
+});
+
 const dinner = { id: 'dinner', description: 'Dinner', amount_minor: 3000, paid_by: 'me', split_mode: 'equal', date: '2026-10-20',
   created_at: '2026-10-20T19:00:00Z', created_by: 'user-me', updated_at: '2026-10-20T19:00:00Z', category: 'food', notes: '',
   shares: { me: 1500, andrew: 1500 } };
