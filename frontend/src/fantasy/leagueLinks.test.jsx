@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import Fantasy from './Fantasy.jsx';
 import { SNAPSHOT_V2 } from './fixture.js';
 
@@ -53,3 +53,7 @@ it('ignores a links response that arrives after sign-out', async () => {
   await act(async () => { auth.listener('SIGNED_OUT', null); resolve(json(links)); });
   expect(document.querySelector('a[href*="leagueId"]')).toBeNull();
 });
+
+// Simulate an OAuth return so the lazy auth facade initializes the mocked client.
+beforeEach(() => { window.history.replaceState({}, '', '/fantasy?code=synthetic'); });
+afterEach(() => { window.history.replaceState({}, '', '/'); });

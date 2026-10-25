@@ -185,7 +185,7 @@ function Fantasy() {
       if (active && request === generation) setAdminToken(admin?.is_admin === true ? token : null);
     };
     if (apiUrl) {
-      import('../supabase').then(async ({ auth }) => {
+      import('./auth.js').then(async ({ auth }) => {
         const result = await auth.onAuthStateChange((_event, session) => { refresh(session); });
         subscription = result.data.subscription;
         if (!active) return subscription.unsubscribe();

@@ -19,7 +19,7 @@ export async function fetchOwners(apiUrl, year, signal, fresh = false) {
 
 export async function signedInToken() {
   try {
-    const { auth } = await import('../supabase');
+    const { auth } = await import('./auth.js');
     return (await auth.getSession())?.access_token || null;
   } catch {
     return null;
@@ -27,7 +27,7 @@ export async function signedInToken() {
 }
 
 export async function signIn() {
-  const { auth } = await import('../supabase');
+  const { auth } = await import('./auth.js');
   await auth.signInWithGoogle(`${window.location.origin}${window.location.pathname}`);
 }
 

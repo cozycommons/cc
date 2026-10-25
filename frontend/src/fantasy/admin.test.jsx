@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import Fantasy from './Fantasy.jsx';
 import { SNAPSHOT_V2 } from './fixture.js';
 
@@ -71,3 +71,7 @@ it('shows a fixed error on a failed save', async () => {
   await screen.findByText('Could not save. Try again.');
   expect(screen.queryByText('Saved')).toBeNull();
 });
+
+// Simulate an OAuth return so the lazy auth facade initializes the mocked client.
+beforeEach(() => { window.history.replaceState({}, '', '/fantasy?code=synthetic'); });
+afterEach(() => { window.history.replaceState({}, '', '/'); });
