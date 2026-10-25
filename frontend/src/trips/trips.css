@@ -491,3 +491,4 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
 .trips-link-account { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .trips-link-account > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
 .trips-link-account small { font-size: 12px; }
+.trips-venmo-confirmation { max-width: 440px; padding: 24px 0; }

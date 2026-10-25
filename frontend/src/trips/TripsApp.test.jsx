@@ -40,6 +40,57 @@ function signedIn() {
   mocked.auth.profile = { user_id: 'user-a', display_name: 'Existing Dice name', avatar_url: '/avatar.png' };
 }
 
+const confirmationGroup = { id: 'trip-id', name: 'Synthetic trip', owner_id: 'user-a', currency: 'USD', revision: 1,
+  members: [{ id: 'me', user_id: 'user-a', name: 'Account name' }], expenses: [], repayments: [], activity: [],
+  balances: { me: 0 }, transfers: [], total_minor: 0 };
+
+it('asks a linked member once, then opens trips after the account confirmation is saved', async () => {
+  signedIn();
+  mocked.auth.profile = { ...mocked.auth.profile, venmo_username: 'test-handle', venmo_confirmed: false };
+  mocked.auth.saveVenmo = vi.fn().mockResolvedValue({});
+  mocked.request.mockResolvedValue(confirmationGroup);
+  const app = () => <MemoryRouter initialEntries={['/trips/trip-id']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><TripsApp /></MemoryRouter>;
+  const view = render(app());
+  expect(await screen.findByRole('heading', { name: 'Confirm your Venmo' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Add expense' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: "Yes, that's my Venmo" }));
+  await waitFor(() => expect(mocked.auth.saveVenmo).toHaveBeenCalledWith('test-handle'));
+  mocked.auth.profile = { ...mocked.auth.profile, venmo_confirmed: true };
+  view.rerender(app());
+  expect(await screen.findByRole('button', { name: 'Add expense' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Confirm your Venmo' })).not.toBeInTheDocument();
+  view.unmount();
+  render(app()); // A fresh opening uses persisted account state, not browser storage.
+  expect(await screen.findByRole('button', { name: 'Add expense' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Confirm your Venmo' })).not.toBeInTheDocument();
+});
+
+it('does not ask the creator to confirm another member’s Venmo', async () => {
+  signedIn();
+  mocked.auth.profile = { ...mocked.auth.profile, venmo_confirmed: true };
+  mocked.request.mockResolvedValue({ ...confirmationGroup, members: [...confirmationGroup.members,
+    { id: 'other', user_id: 'user-b', name: 'Other', venmo_username: 'other-handle', venmo_confirmed: false }] });
+  render(<MemoryRouter initialEntries={['/trips/trip-id']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><TripsApp /></MemoryRouter>);
+  expect(await screen.findByRole('button', { name: 'Add expense' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Confirm your Venmo' })).not.toBeInTheDocument();
+});
+
+it('waits for the caller’s profile before opening a linked trip or its deep-linked editor', async () => {
+  signedIn();
+  mocked.auth.profile = null;
+  mocked.request.mockResolvedValue(confirmationGroup);
+  const app = () => <MemoryRouter initialEntries={['/trips/trip-id?add=expense']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><TripsApp /></MemoryRouter>;
+  const view = render(app());
+  expect(await screen.findByRole('status')).toHaveTextContent('Loading');
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Loading your profile'));
+  expect(screen.queryByRole('button', { name: 'Add expense' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  mocked.auth.profile = { user_id: 'user-a', venmo_username: 'test-handle', venmo_confirmed: false };
+  view.rerender(app());
+  expect(screen.getByRole('heading', { name: 'Confirm your Venmo' })).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
 it('keeps the invitation secret before starting shared Google sign-in', async () => {
   open('/trips/join/trip-id#invite=one-use-secret');
   expect(sessionStorage.getItem('cozy-trips-invite:trip-id')).toBe('one-use-secret');

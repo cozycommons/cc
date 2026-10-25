@@ -52,7 +52,6 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onSaveH
       <strong>{role === 'pay' ? `Pay ${memberName(other)}` : `Request from ${memberName(other)}`}</strong>
       {username ? <a className="trips-handle" href={venmoProfile(username)} target="_blank" rel="noopener noreferrer">@{username}</a> : <span className="trips-muted">No Venmo username yet</span>}
     </div><strong className="trips-venmo-amount">{money(transfer.amount_minor, group.currency)}</strong></div>
-    {username && !other.venmo_confirmed && <p className="trips-note">{other.venmo_source === 'trip' ? 'Added by the trip creator' : 'Added for them'}, not by {firstName(other)}. Check the name in Venmo.</p>}
     {usd && username && <a className="cc-button cc-button--primary trips-venmo-open" href={venmoLink({ username, role, amountMinor: transfer.amount_minor, note })}
       target="_blank" rel="noopener noreferrer" onClick={() => setOpened(true)}><VenmoMark />{role === 'pay' ? 'Open Venmo to pay' : 'Open Venmo to request'}<ExternalLink size={14} aria-hidden="true" /></a>}
     {canAddHandle && <InlineHandle name={firstName(other)} onSave={onSaveHandle} />}

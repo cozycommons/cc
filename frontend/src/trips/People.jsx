@@ -95,7 +95,7 @@ export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemo
       <li><button type="button" className="trips-danger" disabled={busy} onClick={onRemove}><UserMinus size={16} aria-hidden="true" /><span>Remove from trip
         {busy && <small>On expenses or payments. Take {firstName(member)} off those first.</small>}</span></button></li>
     </ul>
-    {joined && <p className="trips-muted trips-small">{firstName(member)} manages their own name and Venmo from their profile.</p>}
+    {joined && <p className="trips-muted trips-small">Name and Venmo: {firstName(member)}’s profile.</p>}
   </div>;
 }
 

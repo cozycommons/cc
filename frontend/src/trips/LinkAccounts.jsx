@@ -37,7 +37,6 @@ export default function LinkAccounts({ group, request, onLink, onClose }) {
           : <>That account has no Venmo username yet.</>}</li>
         <li>Their pending invite link stops working. You can unlink later from their person menu.</li>
       </ul>
-      <p className="trips-muted trips-small">Matching names isn’t proof. Only link someone you’ve confirmed is this person.</p>
     </Form>;
   }
   return <div className="trips-link-accounts">

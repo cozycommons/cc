@@ -8,6 +8,7 @@ import { currencies, money } from './money.js';
 import { AvatarStack, Button, Field, Form, Modal } from './ui.jsx';
 import ImportTrip from './ImportTrip.jsx';
 import TripView from './TripView.jsx';
+import VenmoConfirmation from './VenmoConfirmation.jsx';
 import { VenmoForm } from './People.jsx';
 import { clearInvitation, readInvitation } from './invitation.js';
 import PlayerAvatar from '../dice/components/PlayerAvatar.jsx';
@@ -31,7 +32,7 @@ function ProfileDialog({ auth, profile, onClose, onSignOut }) {
   return <Modal title="Your profile" onClose={onClose}>
     <div className="trips-profile"><PlayerAvatar profile={profile} size={56} linkToProfile={false} /><div><strong>{profile.display_name}</strong><small>Name and photo come from your Cozy Commons profile.</small></div></div>
     {auth.profile
-      ? <VenmoForm initial={auth.profile.venmo_username} onCancel={onClose} hint="Shown to people on your trips so they can pay you. Venmo isn’t checked."
+      ? <VenmoForm initial={auth.profile.venmo_username} onCancel={onClose} hint="Shown to people on your trips so they can pay you."
         onSave={async (username) => { await auth.saveVenmo(username); onClose(); }} />
       : <p className="trips-muted">Your profile is still loading.</p>}
     <div className="trips-profile-signout"><Button variant="ghost" onClick={onSignOut}><LogOut size={14} aria-hidden="true" />Sign out</Button></div>
@@ -119,7 +120,7 @@ function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
     setLoading(true); setError('');
     load().catch((e) => alive.current && setError(e.message)).finally(() => alive.current && setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const venmo = auth.profile?.venmo_username;
+  const venmo = `${auth.profile?.venmo_username || ''}:${Boolean(auth.profile?.venmo_confirmed)}`;
   const firstVenmo = useRef(venmo);
   useEffect(() => { if (venmo !== firstVenmo.current) { firstVenmo.current = venmo; load().catch(() => {}); } }, [venmo]); // eslint-disable-line react-hooks/exhaustive-deps
   const displayName = auth.profile?.display_name || auth.user.user_metadata?.full_name || auth.user.email || 'Me';
@@ -132,7 +133,15 @@ function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
     }} />;
   if (loading) return <p className="trips-loading" role="status">Loading…</p>;
   if (error) return <div className="trips-empty"><p role="alert">{error}</p><Button onClick={async () => { setError(''); setLoading(true); try { await load(); } catch (e) { setError(e.message); } finally { setLoading(false); } }}>Try again</Button> <Link to="/trips">All trips</Link></div>;
-  if (tripId && group) return <TripView key={group.id} group={group} user={auth.user} profile={auth.profile} request={request} onUpdated={accept} onRefresh={load} onEditProfile={onEditProfile} />;
+  if (tripId && group) {
+    const linked = group.members.some((member) => member.user_id === auth.user.id);
+    if (linked && !auth.profile) return auth.error
+      ? <div className="trips-empty"><Button onClick={() => window.location.reload()}>Reload profile</Button></div>
+      : <p className="trips-loading" role="status">Loading your profile…</p>;
+    if (linked && auth.profile?.venmo_confirmed === false) return <VenmoConfirmation key={auth.user.id}
+      username={auth.profile.venmo_username} onConfirm={auth.saveVenmo} onCancel={() => navigate('/trips')} />;
+    return <TripView key={group.id} group={group} user={auth.user} profile={auth.profile} request={request} onUpdated={accept} onRefresh={load} onEditProfile={onEditProfile} />;
+  }
   return <>
     {deletedNotice && <p role="status" className="trips-notice">{deletedNotice}</p>}
     <section className="trips-heading trips-heading--home"><div><p className="trips-greeting">Hi {displayName.split(/\s+/)[0]}, where to next?</p><h1 tabIndex={-1}>Your trips</h1>
