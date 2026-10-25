@@ -67,8 +67,8 @@ export function ScorePath({ matchup, height = 150 }) {
       <ResponsiveContainer>
         <LineChart data={rows} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="#3d2f2914" vertical={false} />
-          <XAxis dataKey="date" tickFormatter={weekday} tick={{ fill: '#75695b', fontSize: 11 }} tickLine={false} axisLine={false} />
-          <YAxis width={38} tick={{ fill: '#75695b', fontSize: 11 }} tickLine={false} axisLine={false} />
+          <XAxis dataKey="date" tickFormatter={weekday} tick={{ fill: 'var(--fx-text)', fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis width={38} tick={{ fill: 'var(--fx-text)', fontSize: 11 }} tickLine={false} axisLine={false} />
           <Tooltip labelFormatter={longDay} contentStyle={tooltipStyle}
             formatter={(value, key) => [round(value), `${names[Number(key[1])]} ${key[0] === 'a' ? 'actual' : 'projected'}`]} />
           {[0, 1].map(side => (
@@ -85,6 +85,7 @@ export function ScorePath({ matchup, height = 150 }) {
 
 // Win chance over time, spaced by when each estimate was saved.
 export function OddsTrend({ history, name, wide = false, final = false }) {
+  const mask = React.useId().replace(/:/g, '');
   if (!history || history.length < 2) return null;
   const start = history[0].time, span = Math.max(1, history.at(-1).time - start);
   const points = history.map(point => `${((point.time - start) / span * 100).toFixed(1)},${(30 - point.chance * 0.3).toFixed(1)}`).join(' ');
@@ -92,7 +93,7 @@ export function OddsTrend({ history, name, wide = false, final = false }) {
   return (
     <span className={`fx-trend${wide ? ' fx-trend--wide' : ''}`}>
       <svg viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`Home win chance from ${winPct(history[0].chance)} to ${winPct(history.at(-1).chance, final)}`}>
-        <line x1="0" x2="100" y1="15" y2="15" /><polyline points={points} />
+        <defs><mask id={mask}><rect className="fx-draw" x="0" y="-5" width="110" height="40" fill="white" /></mask></defs><line x1="0" x2="100" y1="15" y2="15" /><polyline points={points} mask={`url(#${mask})`} />
       </svg>
       <span>{name ? `${name} odds ` : ''}{change > 0 ? '+' : ''}{Math.round(change)} since {weekday(history[0].date)}</span>
     </span>
