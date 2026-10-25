@@ -123,8 +123,10 @@ real Google/Trips smoke tests passed. See `cozy-trips-tests.md` for the evidence
 The SPA document must send `Cache-Control: no-cache`, including route fallbacks
 and conditional 304 responses. Otherwise browser heuristic freshness can retain
 old shelf navigation and bundle references across a deployment. CI checks that
-header on Commons, Dice and Trips document/deep-link routes. Hashed assets keep
-their existing behavior.
+header on Commons, Dice and Trips document/deep-link routes. Vite assets under
+`/assets/` send `Cache-Control: public, max-age=31536000, immutable`; missing
+hashes return 404 rather than the SPA document. The stock nginx image supports
+gzip (enabled for scripts and styles), but has no Brotli module.
 
 The initial Trips release used commit
 `efbaf35c91e61f59bba1f6777d16370ccc199c4f` for both resources:
