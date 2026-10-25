@@ -31,6 +31,11 @@ def test_lkg_survives_restart_and_two_parties_cannot_double_settle(local_api, mo
     group = api.post(base + '/join', headers=tokens['Alex'], json={'invite_token': invitation['invite_token']}).json()
     members = [m['id'] for m in group['members']]
     group = api.post(base + '/expenses', headers=tokens['Matt'], json={'id': str(uuid4()), 'description': 'Synthetic dinner', 'amount_minor': 2468, 'paid_by': members[0], 'participants': members, 'date': '2026-10-25', 'revision': group['revision']}).json()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda pair: api.post(base + '/settle/ready', headers=tokens[pair[0]], json={'member_id': pair[1], 'ready': True}), zip(['Matt', 'Alex'], members)))
+    assert all(r.status_code == 200 for r in responses)
+    group = api.get(base, headers=tokens['Matt']).json()
+    assert group['settle']['started'] and len(group['settle']['ready']) == 2
     obligation = group['obligations'][0]
     path = base + '/obligations/' + obligation['id']
     def settle(name):
@@ -49,4 +54,4 @@ def test_lkg_survives_restart_and_two_parties_cannot_double_settle(local_api, mo
     assert api.get(base, headers=tokens['Matt']).json()['repayments'] == settled['repayments']
     undone = api.post(path + '/undo', headers=tokens['Alex'], json={'cycle': 0}).json()
     assert {m: undone['balances'][m] for m in members} == group['balances'] and not undone['repayments']
-    assert api.post(path + '/settle', headers=tokens['Matt'], json={'cycle': 0}).status_code == 409
+    assert api.post(path + '/settle', headers=tokens['Matt'], json={'cycle': 0, 'amount_minor': obligation['amount_minor']}).status_code == 409

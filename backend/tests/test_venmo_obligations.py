@@ -8,6 +8,7 @@ from venmo.obligations import transition
 
 def owing_trip():
     row, _ = trip()
+    row['data'].pop('settle', None)
     row['data']['members'][1]['user_id'] = 'alex'
     row['member_user_ids'].append('alex')
     row, _ = apply_command(row, 'matt', 'add_expense', expense(row))
