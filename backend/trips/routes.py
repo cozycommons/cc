@@ -12,7 +12,7 @@ from postgrest.exceptions import APIError
 
 from dice.routes import ADMIN_EMAILS
 
-from .ledger import (CREATES, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
+from .ledger import (CREATES, INDEPENDENT, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
                      new_group, require_member)
 from .imports import ImportTrip, prepare_import, require_same_import
 from .matching import candidates_for, read_accounts, suggest
@@ -180,7 +180,7 @@ def already_restored(row, expense_id):
 
 def command(request, trip_id, user, kind, payload):
     # Creates are independent of other changes: when another write lands first, reread and add on top of it.
-    attempts = 5 if kind in CREATES or kind.startswith('obligation_') else 1
+    attempts = 5 if kind in INDEPENDENT or kind.startswith('obligation_') else 1
     try:
         for attempt in range(attempts):
             before = read_row(request, trip_id)
@@ -486,3 +486,18 @@ def change_obligation(trip_id: UUID, obligation_id: UUID, action: Literal['settl
     if action == 'settle' and payload.amount_minor is None:
         raise HTTPException(422, 'The payment amount is required.')
     return command(request, trip_id, user, 'obligation_' + action, {'id': str(obligation_id), **payload.model_dump()})
+
+
+class SettleReady(Input):
+    member_id: UUID
+    ready: Annotated[bool, Field(strict=True)]
+
+
+@router.post('/groups/{trip_id}/settle/ready')
+def settle_ready(trip_id: UUID, payload: SettleReady, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'settle_ready', payload.model_dump(mode='json'))
+
+
+@router.post('/groups/{trip_id}/settle/start')
+def settle_start(trip_id: UUID, payload: Input, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'settle_start', {})
