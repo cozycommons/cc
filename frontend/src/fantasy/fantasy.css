@@ -254,3 +254,10 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-home, .fx-header h1 a { display: inline-flex; align-items: center; min-height: var(--cc-tap-target); }
 
 .fx-highlights .fx-hl-main small a { display: block; min-width: var(--cc-tap-target); min-height: var(--cc-tap-target); line-height: var(--cc-tap-target); overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 600px) {
+  .fx-highlights .fx-hl-card { grid-template-columns: 56px minmax(0, 1fr); align-items: start; row-gap: var(--cc-space-2); }
+  .fx-hl-main b { white-space: normal; overflow: visible; }
+  .fx-hl-main .fx-espn-link { white-space: normal; }
+  .fx-hl-num { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cc-space-2); }
+}
+.fx-espn-badge { flex: 0 0 auto; }
