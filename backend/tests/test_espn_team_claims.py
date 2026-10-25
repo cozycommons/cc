@@ -20,9 +20,9 @@ SNAPSHOT = {
     "version": "public-v2", "season_year": 2027,
     "captured_at": "2026-10-23T11:00:00Z",
     "teams": [
-        {"id": 1, "name": "Home", "manager": "Matthew"},
+        {"id": 1, "name": "Home", "manager": "Jordan"},
         {"id": 2, "name": "Away", "manager": "Jason"},
-        {"id": 3, "name": "Matt's All Stars", "manager": None},
+        {"id": 3, "name": "Jord's All Stars", "manager": None},
         {"id": 4, "name": "Fourth", "manager": "Taylor"},
     ],
 }
@@ -100,10 +100,10 @@ class FakeSupabase:
         self.tables = {
             "espn_public_predictions": [{"received_at": "2026-10-23", "payload": deepcopy(SNAPSHOT)}],
             "espn_team_claims": [],
-            "dice_profiles": [{"user_id": "owner-id", "display_name": "Matt", "avatar_url": None}],
+            "dice_profiles": [{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}],
         }
         self.users = {
-            "owner": ("owner-id", "owner@example.test", {"full_name": "Matthew Ho"}),
+            "owner": ("owner-id", "owner@example.test", {"full_name": "Jordan Lee"}),
             "other": ("other-id", "other@example.test", {}),
             "admin": ("admin-id", "homatt999@gmail.com", {}),
             "jason-admin": ("jason-id", "jason.keungg@gmail.com", {}),
@@ -180,9 +180,9 @@ def test_claim_routes_require_cozy_auth(client, method, path, body, headers):
 
 
 @pytest.mark.parametrize("display_name,metadata", [
-    ("Matthew Ho", {}), ("Matt", {}),
-    ("Player", {"full_name": "Matthew Ho"}), ("Player", {"name": "Matthew Ho"}),
-    ("Player", {"given_name": "Matthew"}),
+    ("Jordan Lee", {}), ("Jord", {}),
+    ("Player", {"full_name": "Jordan Lee"}), ("Player", {"name": "Jordan Lee"}),
+    ("Player", {"given_name": "Jordan"}),
 ])
 def test_suggestions_rank_names_and_only_expose_public_fields(client, display_name, metadata):
     db = client.app.state.supabase
@@ -207,11 +207,11 @@ def test_suggestions_rank_names_and_only_expose_public_fields(client, display_na
 
 
 def test_normalized_token_matching_and_first_name_weight():
-    assert _similarity("MÁTThew Ho", "Matthew") >= 0.95
-    assert _similarity("Ho, Matthew", "Matthew Ho") == 1
+    assert _similarity("JÓRDan Lee", "Jordan") >= 0.95
+    assert _similarity("Lee, Jordan", "Jordan Lee") == 1
     assert _similarity("Anne-Marie O'Neil", "anne marie oneil") > 0.8
-    assert _similarity("Matt", "Matthew") > _similarity("Matt", "Jason")
-    assert _similarity("", "Matthew") == 0
+    assert _similarity("Jord", "Jordan") > _similarity("Jord", "Jason")
+    assert _similarity("", "Jordan") == 0
 
 
 def test_suggestions_without_profile_or_snapshot(client):
@@ -226,7 +226,7 @@ def test_suggestions_without_profile_or_snapshot(client):
     }
 
 
-def share_manager(db, team_id, name="Matthew"):
+def share_manager(db, team_id, name="Jordan"):
     for team in db.tables["espn_public_predictions"][0]["payload"]["teams"]:
         if team["id"] == team_id:
             team["manager"] = name
@@ -325,7 +325,7 @@ def test_public_list_joins_profiles_and_limits_output(client, avatar, expected):
     response = client.get("/espn/public/claims?season=2027")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "public, max-age=60"
-    assert response.json() == [{"team_id": 1, "display_name": "Matt", "avatar_url": expected}]
+    assert response.json() == [{"team_id": 1, "display_name": "Jord", "avatar_url": expected}]
     for secret in ("user_id", "email", "owner-id", "deleted-profile-id", "@"):
         assert secret not in response.text
 
@@ -355,9 +355,9 @@ def test_latest_snapshot_within_requested_season_and_isolated_claims(client):
     db = client.app.state.supabase
     old = deepcopy(SNAPSHOT)
     old.update(season_year=2026, captured_at="2025-10-23T11:00:00Z")
-    old["teams"] = [{"id": 8, "name": "Old team", "manager": "Matthew"}]
+    old["teams"] = [{"id": 8, "name": "Old team", "manager": "Jordan"}]
     newest = deepcopy(old)
-    newest["teams"] = [{"id": 9, "name": "Renamed team", "manager": "Matthew"}]
+    newest["teams"] = [{"id": 9, "name": "Renamed team", "manager": "Jordan"}]
     db.tables["espn_public_predictions"].extend([
         {"received_at": "2025-10-23", "payload": old},
         {"received_at": "2025-10-24", "payload": newest},

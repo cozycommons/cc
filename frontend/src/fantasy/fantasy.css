@@ -34,7 +34,7 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-days th,.fx-days td{padding:6px 4px;text-align:right;border-top:1px solid #efe4d1}
 .fx-days th:first-child{text-align:left}
 .fx-days thead th{font-weight:500;color:#75695b;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fx-days small{display:block;font-size:10.5px;color:#75695b;font-weight:400}
+.fx-days small{display:block;font-size:11px;color:#75695b;font-weight:400}
 .fx-day--projected td{color:#75695b;font-style:italic}
 .fx-status{color:#75695b}
 .fx-note{margin-top:20px;font-size:12px;color:#75695b}
@@ -116,19 +116,19 @@ body:has(.fx-page){background:#f7f0e4;margin:0}
 .fx-odds-playoffs{background:#dfa68e}.fx-odds-title{background:#b75f41}
 .fx-race-nums{text-align:right;line-height:1.1}
 .fx-race-nums b{display:block;font-size:15px;color:#201711;font-variant-numeric:tabular-nums}
-.fx-race-nums small{font-size:10.5px;color:#75695b}
+.fx-race-nums small{font-size:11px;color:#75695b}
 .fx-finish{display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 4px 6px}
 .fx-finish-col{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:0}
-.fx-finish-col small{font-size:10px;color:#5c4a3d;font-variant-numeric:tabular-nums}
+.fx-finish-col small{font-size:11px;color:#5c4a3d;font-variant-numeric:tabular-nums}
 .fx-finish-col i{width:70%;border-radius:3px 3px 0 0;background:#d9b8a8;margin-top:2px}
 .fx-finish-in i{background:#b75f41}
-.fx-finish-col b{font-size:10px;font-weight:500;color:#75695b;margin-top:4px}
+.fx-finish-col b{font-size:11px;font-weight:500;color:#75695b;margin-top:4px}
 .fx-finish-cut{flex:0 0 1px;align-self:stretch;background:repeating-linear-gradient(#c9b597 0 3px,transparent 3px 6px);margin:0 3px}
 @media(max-width:600px){
   .fx-race-row{grid-template-columns:minmax(0,1fr) 54px 46px;row-gap:6px}
   .fx-odds-bar{grid-column:1/-1;grid-row:2}
   .fx-finish{height:110px;gap:2px}
-  .fx-finish-col small,.fx-finish-col b{font-size:9px}
+  .fx-finish-col small,.fx-finish-col b{font-size:11px;letter-spacing:-.02em}
 }
 .fx-manager{display:inline-flex;align-items:center;gap:4px;margin-right:6px;color:#5c4a3d;font-weight:500}
 .fx-manager::after{content:'·';margin-left:6px;color:#b9a68d;font-weight:400}
@@ -179,7 +179,7 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 .fx-fold summary{min-height:36px;display:flex;align-items:center;cursor:pointer;font-size:13px;color:#75695b}
 .fx-trend--wide svg{width:160px;height:32px}
 .fx-card-head{padding:0 0 2px}
-.fx-card-head small{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#75695b;white-space:nowrap;text-align:right}
+.fx-card-head small{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#75695b;white-space:nowrap;text-align:right}
 
 .fx-highlights{margin:0 0 16px}
 .fx-highlights h3{margin:0 0 8px;font-size:14px;color:#201711}
@@ -202,3 +202,21 @@ p.fx-read b{font-family:var(--serif,Georgia,serif);font-size:20px;color:var(--fx
 .fx-matchup-card { min-width: 0; }
 .fx-matchup-card > .fx-card { display: block; }
 .fx-matchup-card > .fx-espn-link { margin-top: 8px; }
+/* Phone layout: compact masthead, one row of section tabs, matchups first. */
+.fx-hub{display:flex;flex-direction:column}
+.fx-slot{scroll-margin-top:64px}
+@media(max-width:600px){
+  .fx-page{padding-top:0}
+  .fx-header{margin-bottom:6px}
+  .fx-header .fx-home{display:inline-flex;align-items:center;min-height:44px;font-size:12px}
+  .fx-header h1{font-size:24px;margin:0 0 2px;line-height:1.15}
+  .fx-header p{font-size:12px}
+  .fx-tabs{position:sticky;top:0;z-index:5;display:flex;gap:6px;margin:0 -16px 4px;padding:8px 16px;overflow-x:auto;scrollbar-width:none;background:#f7f0e4;border-bottom:1px solid #e4d6bd}
+  .fx-tabs::-webkit-scrollbar{display:none}
+  .fx-tabs button{flex:none;min-height:44px;padding:0 14px;border:1px solid #d6c5a7;border-radius:999px;background:#fffaf2;color:#3d2f29;font:inherit;font-size:13px;cursor:pointer}
+  .fx-slot--week .fx-highlights{margin-top:16px}
+  .fx-slot--week .fx-section-head{margin-top:14px}
+}
+/* index.css sets overflow-x:hidden on body/#root, which makes them scroll containers and breaks the sticky
+   section tabs. clip keeps the no-sideways-scroll guarantee without creating a scroll container. */
+body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}

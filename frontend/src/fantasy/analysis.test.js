@@ -33,7 +33,7 @@ describe('season and week reads', () => {
   const data = cleanSnapshot(structuredClone(SNAPSHOT_V2));
   it('names the season leader and why', () => {
     const rows = [...data.season.modes.balanced].sort((a, b) => b.title_pct - a.title_pct);
-    expect(seasonRead(rows)).toMatchObject({ leader: 'Glass Cleaners' });
+    expect(seasonRead(rows)).toMatchObject({ leader: 'Harbor Hoopers' });
   });
 });
 

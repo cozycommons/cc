@@ -13,8 +13,8 @@ export const SNAPSHOT_V2 = {
  "teams": [
   {
    "id": 1,
-   "name": "Glass Cleaners",
-   "manager": "Matthew",
+   "name": "Harbor Hoopers",
+   "manager": "Jordan",
    "abbrev": "GC",
    "logo": "https://g.espncdn.com/lm-static/fba/images/default_logos/16.svg"
   },
