@@ -3,6 +3,10 @@
 import base64
 import binascii
 import hmac
+import hashlib
+import json
+import re
+from collections import OrderedDict
 import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal
@@ -332,13 +336,70 @@ def upload(request: Request, snapshot: Snapshot = Depends(_read_snapshot)):
     }
 
 
-@router.get("/public/predictions/latest")
-def latest(request: Request, response: Response):
-    # One fixed query: public callers cannot vary the shared cache key.
+# Content-addressed logos are separate from score data and bounded per worker.
+_logos = OrderedDict()
+
+
+def _public_payload(request):
     result = request.app.state.supabase.table("espn_public_predictions").select(
         "payload"
     ).order("received_at", desc=True).limit(1).execute()
-    if not result.data:
+    if result.data:
+        return result.data[0]["payload"]
+    # The existing public fallback is bounded, validated and cached.
+    from .team_claims import _fallback_snapshot
+    return _fallback_snapshot()
+
+
+def _external_logos(payload):
+    if not payload.get("teams"):
+        return payload
+    teams = []
+    for team in payload["teams"]:
+        logo = team.get("logo")
+        if isinstance(logo, str) and logo.startswith("data:image/png;base64,"):
+            body = base64.b64decode(logo.partition(",")[2], validate=True)
+            digest = hashlib.sha256(body).hexdigest()
+            _logos[digest] = body
+            _logos.move_to_end(digest)
+            while len(_logos) > 128:
+                _logos.popitem(last=False)
+            team = {**team, "logo": f"/espn/public/logos/{digest}"}
+        teams.append(team)
+    return {**payload, "teams": teams}
+
+
+def _matches_etag(request, etag):
+    return any(tag.strip() == "*" or tag.strip().removeprefix("W/") == etag.removeprefix("W/")
+               for tag in request.headers.get("if-none-match", "").split(","))
+
+
+@router.get("/public/logos/{digest}")
+def public_logo(digest: str, request: Request):
+    if not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise HTTPException(status_code=404, detail="logo not found")
+    if digest not in _logos:
+        payload = _public_payload(request)
+        if payload:
+            _external_logos(payload)
+    body = _logos.get(digest)
+    if body is None:
+        raise HTTPException(status_code=404, detail="logo not found")
+    headers = {"Cache-Control": "public, max-age=31536000, immutable", "ETag": f'"{digest}"',
+               "X-Content-Type-Options": "nosniff"}
+    if _matches_etag(request, headers["ETag"]):
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="image/png", headers=headers)
+
+
+@router.get("/public/predictions/latest")
+def latest(request: Request):
+    payload = _public_payload(request)
+    if payload is None:
         raise HTTPException(status_code=404, detail="no public predictions available")
-    response.headers["Cache-Control"] = "public, max-age=300"
-    return result.data[0]["payload"]
+    body = json.dumps(_external_logos(payload), separators=(",", ":"), ensure_ascii=False).encode()
+    etag = f'W/"{hashlib.sha256(body).hexdigest()}"'
+    headers = {"Cache-Control": "public, max-age=300", "ETag": etag, "Vary": "Accept-Encoding"}
+    if _matches_etag(request, etag):
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="application/json", headers=headers)
