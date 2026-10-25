@@ -512,7 +512,7 @@ badges, landscape and simulated safe areas passed. Screenshots are retained in
 `artifacts/mobile-spacing/` and attached to the delivery PR. No hosted trip data
 was changed.
 
-Node 22: all 545 frontend tests passed with one worker; lint, production build
+Node 22: all 551 frontend tests passed with one worker; lint, production build
 and bundle budget passed. Concurrent runs hit test timeouts; the serial run
 passed without changing test timeouts or application behavior. The baseline
 visual audit and independent visual review ran with `claude-opus-5-5`; the
