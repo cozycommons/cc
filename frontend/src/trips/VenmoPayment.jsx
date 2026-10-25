@@ -47,7 +47,6 @@ export function PaymentPrompt({ flow, group, onSettle }) {
       try { await onSettle(payment); flow.dismiss(); } catch (e) { setError(e.message); } finally { setBusy(false); }
     }}>{payment.role === 'pay' ? 'Sent' : 'Got it'}</Button>
     <Button type="button" variant="ghost" disabled={busy} onClick={flow.dismiss}>Not yet</Button>
-    <Button type="button" variant="ghost" aria-label="Dismiss payment prompt" disabled={busy} onClick={flow.dismiss}>Dismiss</Button>
     <CheckInVenmo username={payment.handle} />
     {error && <p role="alert">{error}</p>}
   </div>;

@@ -77,11 +77,11 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
 });
 
-it('offers request to the creditor, nothing to bystanders, and adds a missing username without leaving', async () => {
+it('offers request to the creditor, read-only rows to bystanders, and adds a missing username without leaving', async () => {
   open('/trips/trip-id?tab=balances');
   expect(await screen.findByRole('button', { name: 'Request from Jason with Venmo' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Aziz with Venmo/ })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Record payment from Jason to Aziz' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Record payment from Jason to Aziz' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Request from Jason with Venmo' }));
   const dialog = screen.getByRole('dialog', { name: 'Request from Jason' });
   expect(dialog).toHaveTextContent('No Venmo username yet');
@@ -375,13 +375,21 @@ it('shows a payment nudge when the payer opens the trip on Expenses', async () =
 
 const gated = (overrides = {}) => trip({ settle: { started: false, ready: { andrew: { by: 'andrew', at: '2026' } }, waiting: ['me', 'aziz'], ...overrides }, obligations: [] });
 
-it('shows Waiting on you only while another member is ready and posts Done adding', async () => {
+it('shows Finished adding all bills on Expenses and posts ready', async () => {
   open('/trips/trip-id?tab=expenses', gated());
-  expect(await screen.findByText('Waiting on you')).toBeInTheDocument();
+  expect(screen.queryByText('Waiting on you')).not.toBeInTheDocument();
   mocked.request.mockResolvedValue(gated({ ready: { me: { by: 'me' }, andrew: { by: 'andrew' } }, waiting: ['aziz'] }));
-  fireEvent.click(screen.getByRole('button', { name: 'Done adding' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Finished adding all bills' }));
   await waitFor(() => expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/settle/ready', 'POST', { member_id: 'me', ready: true }]));
-  await waitFor(() => expect(screen.queryByText('Waiting on you')).not.toBeInTheDocument());
+  expect(await screen.findByText("You're done adding")).toBeInTheDocument();
+});
+
+it('closes out a member from the Who\'s done table with a confirm', async () => {
+  open('/trips/trip-id?tab=expenses', gated());
+  fireEvent.click(await screen.findByRole('button', { name: 'Close out Aziz' }));
+  expect(screen.getByRole('dialog', { name: "Close out Aziz's expenses?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(writes()).toHaveLength(0);
 });
 
 it('confirms closing out a member and Cancel writes nothing', async () => {

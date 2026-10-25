@@ -1,6 +1,6 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
 import { BalancesPanel } from './Settle.jsx';
 
 afterEach(cleanup);
@@ -49,10 +49,11 @@ it('shows readiness, close-out provenance and creator Start now instead of payme
   const group = { id: 'g', owner_id: 'u-me', currency: 'USD', members, expenses: [], repayments: [], balances: { me: -1234, a: 1234 }, transfers: [{ from_member: 'me', to_member: 'a', amount_minor: 1234 }], settle: { started: false, ready: { a: { by: 'me' } }, waiting: ['me'] } };
   render(<BalancesPanel group={group} me={members[0]} />);
   expect(screen.getByText('You owe so far')).toBeInTheDocument();
-  expect(screen.getByText("Opens when everyone's done adding.")).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Finished adding all bills' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: "Who's done" })).toBeInTheDocument();
   expect(screen.getByText('Closed out by Matt')).toBeInTheDocument();
-  expect(screen.getByText('Waiting on Matt')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Done adding' })).toBeInTheDocument();
+  expect(screen.getByText('Still adding')).toBeInTheDocument();
+  expect(screen.queryByText(/Waiting on/)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Start now' })).toBeInTheDocument();
   expect(screen.queryByText('Pay')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Record a payment' })).toBeInTheDocument();
@@ -68,4 +69,32 @@ it('shows Updated and up to three late changes with an Activity link', () => {
   expect(screen.getByText('Expense 4 · $1.00')).toBeInTheDocument();
   expect(screen.queryByText('Expense 1 · $1.00')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: '+2 more' })).toBeInTheDocument();
+});
+
+it('shows a quiet done state with Not done yet once you are ready, and Close out for others', () => {
+  const members = [{ id: 'me', user_id: 'u-me', name: 'Matt' }, { id: 'a', user_id: 'u-a', name: 'Alex' }];
+  const group = { id: 'g', owner_id: 'u-a', currency: 'USD', members, expenses: [], repayments: [], balances: {}, transfers: [], settle: { started: false, ready: { me: { by: 'me' } }, waiting: ['a'] } };
+  const ready = vi.fn(), closeOut = vi.fn();
+  render(<BalancesPanel group={group} me={members[0]} onReady={ready} onCloseOut={closeOut} />);
+  expect(screen.queryByRole('button', { name: 'Finished adding all bills' })).not.toBeInTheDocument();
+  expect(screen.getByText("You're done adding")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Not done yet' }));
+  expect(ready).toHaveBeenCalledWith('me', false);
+  fireEvent.click(screen.getByRole('button', { name: 'Close out Alex' }));
+  expect(closeOut).toHaveBeenCalledWith(members[1]);
+  expect(screen.queryByRole('button', { name: 'Start now' })).not.toBeInTheDocument();
+});
+
+it('lists every payment in one table with actions only on your own rows', () => {
+  const members = [{ id: 'me', user_id: 'u-me', name: 'Matt' }, { id: 'a', name: 'Alex' }, { id: 'b', name: 'Jamie' }, { id: 'c', name: 'Sam' }];
+  const group = { id: 'g', currency: 'USD', members, expenses: [], repayments: [], balances: {},
+    transfers: [{ from_member: 'b', to_member: 'c', amount_minor: 700 }, { from_member: 'me', to_member: 'a', amount_minor: 1234 }] };
+  const venmo = vi.fn();
+  render(<BalancesPanel group={group} me={members[0]} onVenmo={venmo} onRecord={() => {}} />);
+  const rows = within(screen.getByRole('list', { name: 'Payments' })).getAllByRole('listitem');
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toHaveTextContent(/You.*Alex/);
+  expect(within(rows[1]).queryByRole('button')).not.toBeInTheDocument();
+  fireEvent.click(within(rows[0]).getByRole('button', { name: 'Pay Alex with Venmo' }));
+  expect(venmo).toHaveBeenCalledWith(group.transfers[1], 'pay');
 });
