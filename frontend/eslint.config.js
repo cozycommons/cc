@@ -15,6 +15,7 @@ export default [
       },
       globals: {
         ...globals.browser,
+        __APP_BUILD_ID__: 'readonly',
         ...globals.es2021,
         ...globals.node,
       },

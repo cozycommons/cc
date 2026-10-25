@@ -1,15 +1,16 @@
 import React from 'react';
+import { lazyWithRecovery } from './lazyWithRecovery.js';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { SupabaseProvider } from './contexts/SupabaseContext.jsx';
-import CozyWabiLanding from './design/CozyWabiLanding.jsx';
-const DiceApp = React.lazy(() => import('./dice/App.jsx'));
+const SupabaseProvider = lazyWithRecovery(() => import('./contexts/LazySupabaseProvider.jsx'));
+const CozyWabiLanding = lazyWithRecovery(() => import('./design/CozyWabiLanding.jsx'));
+const DiceApp = lazyWithRecovery(() => import('./dice/App.jsx'));
 
-const Crowdset = React.lazy(() => import('./crowdset/Crowdset.jsx'));
-const TripsApp = React.lazy(() => import('./trips/TripsApp.jsx'));
-const Fantasy = React.lazy(() => import('./fantasy/Fantasy.jsx'));
+const Crowdset = lazyWithRecovery(() => import('./crowdset/Crowdset.jsx'));
+const TripsApp = lazyWithRecovery(() => import('./trips/TripsApp.jsx'));
+const Fantasy = lazyWithRecovery(() => import('./fantasy/Fantasy.jsx'));
 
-const DesignIndex = React.lazy(() => import('./design/DesignIndex.jsx'));
-const DiceDesignApp = React.lazy(() => import('../../design/dice/App.jsx'));
+const DesignIndex = lazyWithRecovery(() => import('./design/DesignIndex.jsx'));
+const DiceDesignApp = lazyWithRecovery(() => import('../../design/dice/App.jsx'));
 
 function LegacyCrowdsetRedirect() {
   const { search, hash } = useLocation();
@@ -24,8 +25,8 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <Routes>
-        <Route path="/" element={<CozyWabiLanding />} />
-        <Route path="/trips/*" element={<SupabaseProvider><React.Suspense fallback={<TripsSplash />}><TripsApp /></React.Suspense></SupabaseProvider>} />
+        <Route path="/" element={<React.Suspense fallback={null}><CozyWabiLanding /></React.Suspense>} />
+        <Route path="/trips/*" element={<React.Suspense fallback={<TripsSplash />}><SupabaseProvider><TripsApp /></SupabaseProvider></React.Suspense>} />
         <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
         <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
         <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
@@ -34,9 +35,9 @@ export default function App() {
         <Route
           path="/dice/*"
           element={(
-            <SupabaseProvider>
-              <React.Suspense fallback={<p>Opening Dice…</p>}><DiceApp /></React.Suspense>
-            </SupabaseProvider>
+            <React.Suspense fallback={<p>Opening Dice…</p>}>
+              <SupabaseProvider><DiceApp /></SupabaseProvider>
+            </React.Suspense>
           )}
         />
         <Route path="*" element={<Navigate replace to="/" />} />
