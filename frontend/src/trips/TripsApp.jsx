@@ -9,7 +9,6 @@ import { AvatarStack, Button, Field, Form, Modal } from './ui.jsx';
 import ImportTrip from './ImportTrip.jsx';
 import TripView from './TripView.jsx';
 import VenmoConfirmation from './VenmoConfirmation.jsx';
-import { VenmoForm } from './People.jsx';
 import { clearInvitation, readInvitation } from './invitation.js';
 import PlayerAvatar from '../dice/components/PlayerAvatar.jsx';
 import SiteHeader from '../components/SiteHeader.jsx';
@@ -31,10 +30,10 @@ function CreateTrip({ displayName, onSave, onCancel }) {
 
 function ProfileDialog({ auth, profile, onClose, onSignOut }) {
   return <Modal title="Your profile" onClose={onClose}>
-    <div className="trips-profile"><PlayerAvatar profile={profile} size={56} linkToProfile={false} /><div><strong>{profile.display_name}</strong><small>Name and photo come from your Cozy Commons profile.</small></div></div>
+    <div className="trips-profile"><PlayerAvatar profile={profile} size={56} linkToProfile={false} /><div><strong>{profile.display_name}</strong></div></div>
     {auth.profile
-      ? <VenmoForm initial={auth.profile.venmo_username} onCancel={onClose} hint="Shown to people on your trips so they can pay you."
-        onSave={async (username) => { await auth.saveVenmo(username); onClose(); }} />
+      ? <VenmoConfirmation username={auth.profile.venmo_username} confirmed={auth.profile.venmo_confirmed} request={(...args) => tripRequest(auth.supabase, ...args)} onCancel={onClose}
+        onConfirm={async (username) => { await auth.saveVenmo(username, true); onClose(); }} />
       : <p className="trips-muted">Your profile is still loading.</p>}
     <div className="trips-profile-signout"><Button variant="ghost" onClick={onSignOut}><LogOut size={14} aria-hidden="true" />Sign out</Button></div>
   </Modal>;
@@ -140,7 +139,7 @@ function Workspace({ auth, tripId, joinId, invitation, onEditProfile }) {
       ? <div className="trips-empty"><Button onClick={() => window.location.reload()}>Reload profile</Button></div>
       : <p className="trips-loading" role="status">Loading your profile…</p>;
     if (linked && auth.profile?.venmo_confirmed === false) return <VenmoConfirmation key={auth.user.id}
-      request={request} username={auth.profile.venmo_username} onConfirm={auth.saveVenmo} onCancel={() => navigate('/trips')} />;
+      request={request} username={auth.profile.venmo_username} onConfirm={username => auth.saveVenmo(username, true)} onCancel={() => navigate('/trips')} />;
     return <TripView key={group.id} group={group} user={auth.user} profile={auth.profile} request={request} onUpdated={accept} onRefresh={load} onEditProfile={onEditProfile} />;
   }
   return <>

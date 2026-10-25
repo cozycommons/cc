@@ -18,18 +18,20 @@ it('shows loading then name and photo, with initials if the photo fails', async 
 it.each([{ found: false }, { ...profile, active: false }])('keeps a friendly fallback for missing or inactive profiles', async result => {
   render(<VenmoProfile handle="alex-rivera" request={vi.fn().mockResolvedValue(result)} />);
   await waitFor(() => expect(screen.getByRole('status')).not.toHaveTextContent('Finding'));
-  expect(screen.getByRole('status').textContent).toBe(result.found ? 'This profile isn’t active. Check the handle.' : '');
+  expect(screen.getByRole('status').textContent).toBe(result.found ? 'Inactive profile' : '');
   expect(screen.getByRole('link')).toBeInTheDocument();
 });
 it('debounces edits and saves the normalized handle', async () => {
   const request = vi.fn().mockResolvedValue(profile);
   const save = vi.fn();
   render(<VenmoConfirmation username="alex-rivera" request={request} onConfirm={save} onCancel={() => {}} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Change handle' }));
+  fireEvent.click(screen.getByRole('button', { name: "No, it's not" }));
   fireEvent.change(screen.getByLabelText('Your Venmo username'), { target: { value: '@jamie-rivera' } });
   expect(request).not.toHaveBeenCalled();
   await waitFor(() => expect(request).toHaveBeenCalledWith('/venmo/profile?handle=jamie-rivera'));
-  fireEvent.click(screen.getByRole('button', { name: "Save handle" }));
+  fireEvent.click(screen.getByRole('button', { name: 'Review handle' }));
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', { name: "Yes, that's me" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith('jamie-rivera'));
 });
 it('ignores stale responses after a handle change', async () => {
@@ -49,4 +51,26 @@ it('does not request a missing handle', async () => {
   await new Promise(resolve => setTimeout(resolve, 20));
   expect(request).not.toHaveBeenCalled();
   expect(container).toBeEmptyDOMElement();
+});
+
+it('labels a confirmed card and explains who confirmed it on tap, hover and keyboard focus', async () => {
+  render(<VenmoProfile handle="alex-rivera" confirmed request={vi.fn().mockResolvedValue(profile)} />);
+  await screen.findByText('Alex Rivera');
+  expect(screen.getByText('Confirmed Venmo')).toBeInTheDocument();
+  expect(screen.getByText('Confirmed Venmo').querySelector('svg')).toBeNull();
+  expect(document.querySelectorAll('.trips-venmo-confirmed')).toHaveLength(1);
+  const badge = screen.getByRole('button', { name: 'About confirmed Venmo' });
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  fireEvent.click(badge);
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Alex confirmed this is their Venmo.');
+  fireEvent.keyDown(badge, { key: 'Escape' });
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  fireEvent.mouseEnter(badge.parentElement);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  fireEvent.mouseLeave(badge.parentElement);
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  fireEvent.focus(badge);
+  expect(screen.getByRole('tooltip')).toBeInTheDocument();
+  fireEvent.blur(badge);
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 });

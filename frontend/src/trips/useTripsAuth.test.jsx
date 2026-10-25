@@ -37,8 +37,8 @@ it('persists an owner confirmation and restores it from the account on a new ses
   });
   const first = renderHook(useTripsAuth);
   await waitFor(() => expect(first.result.current.profile?.venmo_confirmed).toBe(false));
-  await act(() => first.result.current.saveVenmo('test-handle'));
-  expect(mocked.request).toHaveBeenCalledWith(harness.supabase, '/me', 'PUT', { venmo_username: 'test-handle' }, 'a');
+  await act(() => first.result.current.saveVenmo('test-handle', true));
+  expect(mocked.request).toHaveBeenCalledWith(harness.supabase, '/me', 'PUT', { venmo_username: 'test-handle', owner_confirmed: true }, 'a');
   expect(first.result.current.profile.venmo_confirmed).toBe(true);
   first.unmount();
   const next = renderHook(useTripsAuth);

@@ -2,10 +2,12 @@ import VenmoProfile from './VenmoProfile.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Trash2 } from 'lucide-react';
 import { decimal, money, shortDate, today, toMinor } from './money.js';
-import { Avatar, Button, CopyButton, Field, Form, VenmoMark } from './ui.jsx';
+import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
 import { findMember, firstName, memberName } from './people.js';
 import { normalizeUsername, settlementRole, tripNote, venmoLink, venmoProfile } from './venmo.js';
 import { balanceBreakdown } from './balances.js';
+
+const CheckInVenmo = ({ username }) => <a className="cc-button cc-button--ghost trips-venmo-check" href={venmoProfile(username)} target="_blank" rel="noopener noreferrer">Check in Venmo<ExternalLink size={15} aria-hidden="true" /></a>;
 
 const SquareStamp = () => <span className="trips-square-stamp" aria-hidden="true">All square</span>;
 
@@ -66,7 +68,7 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onSaveH
   const { pending, returned, opened, open, dismiss } = useVenmoReturn(payment, username);
   const note = [tripNote(group.name), obligation?.reference].filter(Boolean).join(' · ');
   const settle = () => {
-    if ((opened && !pending) || (group.obligations && !obligation)) throw new Error('This payment changed. Close and review the latest amounts.');
+    if ((opened && !pending) || (group.obligations && !obligation)) throw new Error('Payment changed. Refresh to settle.');
     return obligation && onSettle ? onSettle(pending?.obligation || obligation) : onRecord({ id, from_member: transfer.from_member, to_member: transfer.to_member, amount_minor: transfer.amount_minor, date: today(), notes: 'Venmo', revision: group.revision });
   };
   const amount = decimal(transfer.amount_minor);
@@ -74,14 +76,11 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onSaveH
   const canAddHandle = usd && !username && onSaveHandle && !other?.user_id;
   return <Form name="venmo" submit={role === 'pay' ? 'Sent' : 'Got it'} submitVariant="primary"
     onCancel={onCancel} onSubmit={settle}>
-    <div className="trips-venmo-who">{!username && <Avatar member={other} size={44} />}<div>
-      <strong>{role === 'pay' ? `Pay ${memberName(other)}` : `Request from ${memberName(other)}`}</strong>
-      {!username && <span className="trips-muted">No Venmo username yet</span>}
-    </div></div>
-    <VenmoProfile handle={username} request={request} confirmedName={other?.venmo_confirmed_name} />
+    {!username && <p className="trips-muted">No Venmo username yet</p>}
+    <VenmoProfile handle={username} request={request} confirmedName={other?.venmo_confirmed_name} confirmed={other?.venmo_confirmed} />
     <strong className="trips-venmo-amount">{money(transfer.amount_minor, group.currency)}</strong>
     {usd && username && <a className="cc-button cc-button--primary trips-venmo-open" href={venmoLink({ username, role, amountMinor: transfer.amount_minor, note })}
-      target="_blank" rel="noopener noreferrer" onClick={open}><VenmoMark />{role === 'pay' ? `Pay @${username} ${money(transfer.amount_minor, group.currency)}` : `Request ${money(transfer.amount_minor, group.currency)} from @${username}`} <ExternalLink size={14} aria-hidden="true" /></a>}
+      target="_blank" rel="noopener noreferrer" onClick={open}>{role === 'pay' ? `Pay ${money(transfer.amount_minor, group.currency)} in Venmo` : `Request ${money(transfer.amount_minor, group.currency)} in Venmo`} <ExternalLink size={14} aria-hidden="true" /></a>}
     {canAddHandle && <InlineHandle name={firstName(other)} onSave={onSaveHandle} />}
     {usd && !username && !canAddHandle && <p className="trips-muted">{firstName(other)} hasn’t added a Venmo username. {other?.user_id ? `Ask ${firstName(other)} to add it in their profile, or` : 'Ask the trip creator to add it, or'} pay with the details below.</p>}
     {!usd && <p className="trips-muted">Venmo only sends US dollars. Use the details below with another app.</p>}
@@ -91,11 +90,11 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onSaveH
       <div><dt>Note</dt><dd>{note}</dd><CopyButton value={note} label="note" /></div>
     </dl>
     {returned && <div className="trips-return-prompt" role="status">
-      <strong>{role === 'pay' ? `Did you send ${money(transfer.amount_minor, group.currency)} to @${username}?` : `Did ${money(transfer.amount_minor, group.currency)} from @${username} come in?`}</strong>
+      <strong>{role === 'pay' ? `Sent ${money(transfer.amount_minor, group.currency)} to ${firstName(other)}?` : `Got ${money(transfer.amount_minor, group.currency)} from ${firstName(other)}?`}</strong>
       <Button type="button" variant="ghost" onClick={dismiss}>Not yet</Button>
       <Button type="button" variant="ghost" aria-label="Dismiss payment prompt" onClick={dismiss}>Dismiss</Button>
     </div>}
-    {username && <a href={venmoProfile(username)} target="_blank" rel="noopener noreferrer">Check in Venmo</a>}
+    {username && <CheckInVenmo username={username} />}
   </Form>;
 }
 
@@ -139,19 +138,19 @@ function TransferRow({ group, transfer, meId, onVenmo, onRecord, onSettle, onNud
   };
   const label = (m) => (m?.id === meId ? 'You' : memberName(m));
   return <li className={`trips-transfer${role ? ' trips-transfer--mine' : ''}`}>
-    <span className="trips-transfer-people"><Avatar member={from} size={30} /><ArrowRight size={14} aria-hidden="true" /><Avatar member={to} size={30} />
-      <span><strong>{label(from)}</strong> {role === 'pay' ? 'pay' : 'pays'} <strong>{to?.id === meId ? 'you' : memberName(to)}</strong></span></span>
-    {role === 'request' && other?.venmo_username && <VenmoProfile handle={other.venmo_username} request={request} confirmedName={other.venmo_confirmed_name} />}
+    {!(role === 'request' && other?.venmo_username) && <span className="trips-transfer-people"><Avatar member={from} size={30} /><ArrowRight size={14} aria-hidden="true" /><Avatar member={to} size={30} />
+      <span><strong>{label(from)}</strong> {role === 'pay' ? 'pay' : 'pays'} <strong>{to?.id === meId ? 'you' : memberName(to)}</strong></span></span>}
+    {role === 'request' && other?.venmo_username && <VenmoProfile handle={other.venmo_username} request={request} confirmedName={other.venmo_confirmed_name} confirmed={other.venmo_confirmed} />}
     <strong className="trips-transfer-amount">{money(transfer.amount_minor, group.currency)}</strong>
     <span className="trips-transfer-actions">
       {role === 'request' && group.currency === 'USD' && other?.venmo_username && obligation
         ? <a className="cc-button cc-button--secondary" href={venmoLink({ username: other.venmo_username, role, amountMinor: transfer.amount_minor, note: tripNote(group.name), reference: obligation.reference })}
-          target="_blank" rel="noopener noreferrer" onClick={open} aria-label={`Request ${money(transfer.amount_minor, group.currency)} from @${other.venmo_username}`}><VenmoMark />Request</a>
+          target="_blank" rel="noopener noreferrer" onClick={open} aria-label={`Request ${money(transfer.amount_minor, group.currency)} from @${other.venmo_username}`}>Request</a>
         : role && group.currency === 'USD' && <Button variant={role === 'pay' ? 'primary' : 'secondary'} onClick={() => onVenmo(transfer, role)}
-          aria-label={`${role === 'pay' ? 'Pay' : 'Request from'} ${memberName(role === 'pay' ? to : from)} with Venmo`}><VenmoMark />{role === 'pay' ? 'Pay' : 'Request'}</Button>}
+          aria-label={`${role === 'pay' ? 'Pay' : 'Request from'} ${memberName(role === 'pay' ? to : from)} with Venmo`}>{role === 'pay' ? 'Pay' : 'Request'}</Button>}
       <Button variant="ghost" disabled={busy} onClick={() => obligation && role && onSettle ? settle(obligation) : onRecord(transfer)} aria-label={`Record payment from ${memberName(from)} to ${memberName(to)}`}><Check size={15} aria-hidden="true" />{role === 'request' ? 'Received' : role === 'pay' ? 'Paid' : 'Record'}</Button>
-      {role && (role === 'pay' ? to : from)?.venmo_username && <a href={venmoProfile((role === 'pay' ? to : from).venmo_username)} target="_blank" rel="noopener noreferrer">Check in Venmo</a>}
-      {prompt && <div className="trips-return-prompt" role="status"><strong>Did {money(pending?.obligation.amount_minor, group.currency)} from @{pending?.handle} come in?</strong><Button disabled={busy} onClick={() => pending && settle(pending.obligation)}>Got it</Button><Button variant="ghost" onClick={dismiss}>Not yet</Button><Button variant="ghost" aria-label="Dismiss payment prompt" onClick={dismiss}>Dismiss</Button><a href={venmoProfile(other?.venmo_username)} target="_blank" rel="noopener noreferrer">Check in Venmo</a></div>}
+      {role && (role === 'pay' ? to : from)?.venmo_username && <CheckInVenmo username={(role === 'pay' ? to : from).venmo_username} />}
+      {prompt && <div className="trips-return-prompt" role="status"><strong>Got {money(pending?.obligation.amount_minor, group.currency)} from {firstName(other)}?</strong><Button disabled={busy} onClick={() => pending && settle(pending.obligation)}>Got it</Button><Button variant="ghost" onClick={dismiss}>Not yet</Button><Button variant="ghost" aria-label="Dismiss payment prompt" onClick={dismiss}>Dismiss</Button><CheckInVenmo username={other?.venmo_username} /></div>}
       {error && <p role="alert">{error}</p>}
       {role === 'request' && obligation && Date.now() - Date.parse(obligation.created_at) >= 3 * 86400000 && (!obligation.nudged_at || Date.now() - Date.parse(obligation.nudged_at) >= 48 * 3600000) && <Button variant="ghost" onClick={() => onNudge?.(obligation)}>Nudge</Button>}
     </span>
@@ -184,7 +183,7 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
     {me && <section className={`trips-hero trips-hero--${myBalance < 0 ? 'owe' : myBalance > 0 ? 'owed' : 'even'}${celebrate ? ' trips-hero--celebrate' : ''}`} aria-label="Your balance">
       <span>{myBalance < 0 ? 'You owe' : myBalance > 0 ? 'You’re owed' : 'You’re all square'}</span>
       {myBalance !== 0 ? <strong>{money(Math.abs(myBalance), group.currency)}</strong> : <SquareStamp />}
-      {owedWithoutHandle && <button type="button" className="trips-text-button" onClick={onEditProfile}><VenmoMark />Add your Venmo to get paid</button>}
+      {owedWithoutHandle && <button type="button" className="trips-text-button" onClick={onEditProfile}>Add your Venmo to get paid</button>}
     </section>}
 
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2></div>

@@ -259,7 +259,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
   const addedLinks = useRef([]);
   const modalName = modal?.member ? memberName(modal.member) : '';
   const titles = { expense: modal?.expense ? 'Edit expense' : 'Add expense', expense_detail: modal?.item?.description, repayment: 'Record a payment',
-    venmo: modal?.role === 'request' ? 'Request with Venmo' : 'Pay with Venmo', people: 'Add people', invites: 'Invite links', invite: `Invite ${modalName}`,
+    venmo: `${modal?.role === 'request' ? 'Request from' : 'Pay'} ${firstName(findMember(group, modal?.role === 'request' ? modal?.transfer?.from_member : modal?.transfer?.to_member))}`, people: 'Add people', invites: 'Invite links', invite: `Invite ${modalName}`,
     member_venmo: `Venmo for ${modalName}`, person: modalName, rename_member: `Rename ${modalName}`, remove_member: `Remove ${modalName}?`,
     link_accounts: 'Link people to accounts', unlink_member: `Unlink ${modalName}?`, trip_settings: 'Trip settings', delete_trip: 'Delete this trip?', delete_expense: 'Delete this expense?', delete_repayment: 'Remove this payment?' };
   const myBalance = group.balances[me?.id] || 0;
@@ -286,7 +286,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
       try { await undo(); } catch (e) { setNotice({ message: e.message }); }
     }}>Undo</button>}</>}</div>
 
-    {group.obligations?.filter(o => o.status === 'open' && o.from_member === me?.id && o.nudged_at).map(o => <p className="trips-nudge-banner" role="status" key={o.id}>{memberName(findMember(group, o.to_member))} nudged you about {money(o.amount_minor, group.currency)}.</p>)}
+    {group.obligations?.filter(o => o.status === 'open' && o.from_member === me?.id && o.nudged_at).map(o => <p className="trips-nudge-banner" role="status" key={o.id}>{memberName(findMember(group, o.to_member))} nudged you · {money(o.amount_minor, group.currency)}</p>)}
     <nav className="trips-tabs" role="tablist" aria-label="Trip sections">{tabs.map(({ key, label, icon: Icon }) => <button key={key} role="tab" id={`trips-tab-${key}`} aria-controls="trips-panel" aria-selected={tab === key} onClick={() => setTab(key)}>
       <Icon size={18} aria-hidden="true" /><span>{label}</span>{key === 'expenses' && <span className="trips-count">{group.expenses.length}</span>}</button>)}</nav>
 
