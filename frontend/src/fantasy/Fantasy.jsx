@@ -7,8 +7,8 @@ import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
 import { fetchOwners } from './claims.js';
-import { matchupRead, weekNotes } from './analysis.js';
-import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, pct, round, useNarrow } from './parts.jsx';
+import { finished, matchupRead, weekNotes } from './analysis.js';
+import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay, round, useNarrow, winPct } from './parts.jsx';
 import './fantasy.css';
 
 function MatchupCard({ matchup, narrow }) {
@@ -26,12 +26,13 @@ function MatchupCard({ matchup, narrow }) {
   const read = matchupRead(matchup);
   return (
     <Link className="fx-card fx-card--link" to={matchup.key} aria-label={`${teams[0].name} vs ${teams[1].name}: open matchup`}>
+      <div className="fx-team fx-card-head" aria-hidden="true"><span /><span /><small>Score</small><small>To win</small></div>
       {teams.map((team, side) => (
         <div className={`fx-team${fav === side ? ' fx-team--fav' : ''}`} key={side}>
           <TeamLogo team={team} side={side} />
           <span className="fx-name"><span>{team.name}</span><small><Manager team={team} />proj. {round(matchup.projected_totals[side])}</small></span>
           <b>{round(matchup.scores[side])}</b>
-          <span className="fx-odds">{pct(odds[side])}</span>
+          <span className="fx-odds">{winPct(odds[side], finished(matchup))}</span>
         </div>
       ))}
       <div className="fx-bar" aria-hidden="true">
@@ -39,7 +40,7 @@ function MatchupCard({ matchup, narrow }) {
       </div>
       <p className="fx-why" style={{ color: read.side == null ? undefined : COLORS[read.side] }}>{read.facts.join(' · ')}</p>
       {!narrow && <ScorePath matchup={matchup} height={120} />}
-      <div className="fx-meta"><OddsTrend history={matchup.odds_history} name={teams[0].name} /></div>
+      <div className="fx-meta"><OddsTrend history={matchup.odds_history} name={teams[0].name} final={finished(matchup)} /></div>
     </Link>
   );
 }
@@ -67,6 +68,7 @@ function Hub({ data, apiUrl, onOwnersChange }) {
           <h2>This week</h2>
           <span>Ends {longDay(data.matchup.ends)}</span>
         </div>
+        <p className="fx-small fx-explain">Percentages are each team’s chance to win from here, given the score so far and the games left. Nothing is decided until the last game.</p>
         <WeekNotes notes={weekNotes(data.matchups)} />
         <div className="fx-grid">{orderMatchups(data.matchups).map(matchup => <MatchupCard key={matchup.key} matchup={matchup} narrow={narrow} />)}</div>
       </section>

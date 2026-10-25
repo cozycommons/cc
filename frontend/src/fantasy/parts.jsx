@@ -4,7 +4,9 @@ import { scorePath } from './paths.js';
 
 export const COLORS = ['#b75f41', '#2a78d6'];
 export const round = value => (Number.isFinite(value) ? Math.round(value) : '—');
-export const pct = value => (Number.isFinite(value) ? `${value > 0 && value < 1 ? '<1' : Math.round(value)}%` : '—');
+export const pct = value => (Number.isFinite(value) ? `${value > 0 && value < 1 ? '<1' : value > 99 && value < 100 ? '>99' : Math.round(value)}%` : '—');
+// A matchup's win chance never reads 0% or 100% before the last game: upsets still happen.
+export const winPct = (value, final = false) => (!final && Number.isFinite(value) && (value > 99 || value < 1) ? (value > 99 ? '>99%' : '<1%') : pct(value));
 export const weekday = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short' });
 export const longDay = value => new Date(`${value}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 const NARROW = '(max-width: 600px)';
@@ -76,14 +78,14 @@ export function ScorePath({ matchup, height = 150 }) {
 }
 
 // Win chance over time, spaced by when each estimate was saved.
-export function OddsTrend({ history, name, wide = false }) {
+export function OddsTrend({ history, name, wide = false, final = false }) {
   if (!history || history.length < 2) return null;
   const start = history[0].time, span = Math.max(1, history.at(-1).time - start);
   const points = history.map(point => `${((point.time - start) / span * 100).toFixed(1)},${(30 - point.chance * 0.3).toFixed(1)}`).join(' ');
   const change = history.at(-1).chance - history[0].chance;
   return (
     <span className={`fx-trend${wide ? ' fx-trend--wide' : ''}`}>
-      <svg viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`Home win chance from ${pct(history[0].chance)} to ${pct(history.at(-1).chance)}`}>
+      <svg viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label={`Home win chance from ${winPct(history[0].chance)} to ${winPct(history.at(-1).chance, final)}`}>
         <line x1="0" x2="100" y1="15" y2="15" /><polyline points={points} />
       </svg>
       <span>{name ? `${name} odds ` : ''}{change > 0 ? '+' : ''}{Math.round(change)} since {weekday(history[0].date)}</span>
