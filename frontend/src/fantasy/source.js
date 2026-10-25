@@ -1,3 +1,5 @@
+import { orderMatchups } from './paths.js';
+
 // Interim snapshot host until the Cozy upload route is configured in production.
 export const FALLBACK_URL = 'https://gist.githubusercontent.com/homatthew/a417a860db31c1a9e5c13b08338b7a65/raw/fantasy-latest.json';
 
@@ -119,7 +121,7 @@ function progress(data, onProgress, done, extra = {}) {
   if (!onProgress) return;
   const { matchups, ...meta } = data;
   onProgress({ meta: { ...meta, totalMatchups: matchups.length,
-    slots: matchups.map(({ key, home, away }) => ({ key, home: home.id, away: away.id })),
+    slots: orderMatchups(matchups).map(({ key, home, away }) => ({ key, home: home.id, away: away.id })),
     seasonAvailable: !!data.season, ...extra }, matchups, done, error: null });
 }
 

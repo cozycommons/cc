@@ -83,6 +83,13 @@ describe('cleanSnapshot', () => {
 describe('loadSnapshot', () => {
   afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
+  it('keeps closest-matchup slot order when the server returns ordinary JSON', async () => {
+    const events = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => copy() }));
+    await loadSnapshot(null, undefined, event => events.push(event));
+    expect(events.at(-1).meta.slots.map(slot => slot.key)).toEqual(['3-4', '1-2']);
+  });
+
   it('keeps the last good public payload across failed and empty loads', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => copy() }));
     await loadSnapshot('https://cache.example.test');
