@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { favorite } from './paths.js';
-import { matchupRead, notableSwings, playerSwings } from './analysis.js';
-import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, pct, round, weekday } from './parts.jsx';
+import { finished, matchupRead, notableSwings, playerSwings } from './analysis.js';
+import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, round, weekday, winPct } from './parts.jsx';
 
 const observed = day => day.state !== 'projected' && Array.isArray(day.actual) && day.actual.some(Number.isFinite);
 
@@ -130,7 +130,7 @@ export default function MatchupPage({ data }) {
             <h2>{team.name}</h2>
             <Manager team={team} />
             <strong style={{ color: COLORS[side] }}>{round(matchup.scores[side])}</strong>
-            <span>{pct(odds[side])} to win · proj. {round(matchup.projected_totals[side])}</span>
+            <span>{winPct(odds[side], finished(matchup))} to win from here · proj. {round(matchup.projected_totals[side])}</span>
           </div>
         ))}
       </div>
