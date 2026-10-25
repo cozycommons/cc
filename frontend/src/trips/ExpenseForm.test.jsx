@@ -133,7 +133,10 @@ it('records several payers and a percentage split, sending percentages as basis 
   fireEvent.click(screen.getByRole('radio', { name: 'By percent' }));
   fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Matt' }), { target: { value: '50' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Alex' }), { target: { value: '25' } });
-  expect(screen.getByText('25% left to assign')).toBeInTheDocument();
+  // Jamie's blank field takes the remaining 25%; typing too much shows the overshoot.
+  expect(screen.getByRole('textbox', { name: 'Percent for Jamie' })).toHaveAttribute('placeholder', '25');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Jamie' }), { target: { value: '40' } });
+  expect(screen.getByText('15% over')).toBeInTheDocument();
   fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Jamie' }), { target: { value: '25' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
@@ -151,4 +154,17 @@ it('refuses to drop a payer amount it cannot read', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Check the amount Matt paid.');
   expect(save).not.toHaveBeenCalled();
+});
+
+it('starts a percent split even and rebalances the blank fields as you type', async () => {
+  const save = form();
+  fill('Cabin', '90');
+  fireEvent.click(screen.getByRole('radio', { name: 'By percent' }));
+  expect(screen.getByText('Adds up.')).toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Percent for Alex' })).toHaveAttribute('placeholder', '33.33');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Percent for Matt' }), { target: { value: '50' } });
+  expect(screen.getByRole('textbox', { name: 'Percent for Alex' })).toHaveAttribute('placeholder', '25');
+  fireEvent.click(screen.getByRole('button', { name: 'Save expense' }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0][0]).toMatchObject({ split_mode: 'percent', shares: { matt: 5000, alex: 2500, jamie: 2500 } });
 });
