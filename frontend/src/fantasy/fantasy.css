@@ -307,3 +307,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-matchup>.fx-espn-link{margin:0 0 12px}
 .fx-highlights .fx-espn-logo{width:25px;height:14px;border-radius:2px;object-fit:contain;background:none}
 .fx-hl-main b .fx-espn-link{flex-direction:row-reverse;justify-content:flex-end}
+.fx-win-axis{position:relative;display:block;height:16px}
+.fx-win-axis span{position:absolute;top:0;white-space:nowrap}
+.fx-win-plot:focus-visible{outline:2px solid #b75f41;outline-offset:4px;border-radius:4px}

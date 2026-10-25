@@ -99,6 +99,13 @@ export function WinChart({ history, final = false, big = false }) {
   const now = [shown.chance, 100 - shown.chance];
   const moved = [shown.chance - history[0].chance, history[0].chance - shown.chance];
   const days = big ? [...new Map(history.map(point => [point.date, point])).values()] : [];
+  const step = event => {
+    const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+    if (!(event.key in moves)) return;
+    event.preventDefault();
+    const index = history.indexOf(cursor ?? history.at(-1)) + moves[event.key];
+    setCursor(history[Math.min(history.length - 1, Math.max(0, Number.isFinite(index) ? index : moves[event.key] < 0 ? 0 : history.length - 1))]);
+  };
   const scrub = event => {
     if (!big) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -107,7 +114,8 @@ export function WinChart({ history, final = false, big = false }) {
   };
   return (
     <div className={`fx-win${big ? ' fx-win--big' : ''}`}>
-      <div className="fx-win-plot" onPointerMove={scrub} onPointerDown={scrub} onPointerLeave={() => setCursor(null)}>
+      <div className="fx-win-plot" onPointerMove={scrub} onPointerDown={scrub} onPointerLeave={() => setCursor(null)}
+        {...(big && { tabIndex: 0, onKeyDown: step, onBlur: () => setCursor(null), 'aria-label': 'Win odds over time; use arrow keys to step through' })}>
         <div className="fx-win-area">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
           aria-label={`Win odds since ${weekday(history[0].date)}: ${winPct(now[0], final)} to ${winPct(now[1], final)}`}>
@@ -118,9 +126,9 @@ export function WinChart({ history, final = false, big = false }) {
         </svg>
         {big && [[0, '100%'], [50, '50%'], [100, '0%']].map(([top, label]) => <span key={label} className="fx-win-y" style={{ top: `${top}%` }}>{label}</span>)}
         </div>
-        {big && <div className="fx-win-axis">{days.map(point => <span key={point.date}>{weekday(point.date)}</span>)}</div>}
+        {big && <div className="fx-win-axis">{days.map(point => <span key={point.date} style={{ left: `${x(point)}%`, transform: `translateX(-${x(point)}%)` }}>{weekday(point.date)}</span>)}</div>}
       </div>
-      <div className="fx-win-labels">
+      <div className="fx-win-labels" aria-live={big ? 'polite' : undefined}>
         {[0, 1].map(side => <span key={side} style={{ color: TEXT_COLORS[side] }}><b>{winPct(now[side], final)}</b>{change(moved[side])}</span>)}
       </div>
     </div>
