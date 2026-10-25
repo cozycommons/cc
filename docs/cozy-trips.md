@@ -256,7 +256,7 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 
 | Endpoint | Operation |
 | --- | --- |
-| GET /me | Caller's display profile plus `venmo_username` / `venmo_confirmed` |
+| GET /me | Caller's display profile plus `venmo_username` / `venmo_confirmed` and `is_admin` |
 | PUT /me | Set or clear (`null`/empty) the caller's own `venmo_username` |
 | GET /groups | List the caller's trips |
 | POST /imports/preview | Validate a Splitwise snapshot and preview the reconciled trip |
@@ -271,6 +271,9 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 | POST /groups/{id}/members/{member}/invite | Creator rotates that person's invite |
 | PUT /groups/{id}/members/{member}/venmo | Creator sets/clears a username for someone who hasn't joined |
 | POST /groups/{id}/invite-preview | Before joining: trip name, inviter, the invited place's name and balance, or `already_member` |
+| POST /groups/{id}/members/{member}/link | Admin creator links an unlinked person to an existing account (`user_id`) |
+| POST /groups/{id}/members/{member}/unlink | Admin creator undoes a link; returns a fresh invite |
+| GET /admin/groups/{id}/link-suggestions | Admin creator reviews name-match suggestions; read-only, `no-store` |
 | POST /groups/{id}/join | Claim an invitation with invite_token |
 | POST /groups/{id}/expenses | Create an expense |
 | PUT /groups/{id}/expenses/{expense} | Edit an expense |
@@ -278,6 +281,30 @@ are relative to the backend `/trips` prefix. The UI uses these same commands.
 | POST /groups/{id}/expenses/{expense}/restore | Bring back the most recently deleted version of an expense |
 | POST /groups/{id}/repayments | Record an outside repayment |
 | DELETE /groups/{id}/repayments/{repayment} | Undo a repayment record |
+
+Linking is an explicit, one-person-at-a-time confirmation, for example after
+reviewing an imported trip. Only a Cozy Commons admin (the verified emails Dice
+already trusts) who also created the trip can link, unlink or see suggestions; an
+ordinary creator could otherwise enrol any account and read its profile and Venmo
+username. A link gives that account full trip membership, exactly as if they had
+accepted an invitation: they can read and edit the ledger, the place's pending
+invitation stops working, and Pay/Request switch to the account's own Venmo
+username. Linking refuses an already-linked place, an account already on the
+trip, and an ID with no account.
+
+Unlinking corrects a wrong link: the account loses access, the place keeps its
+name and history, and a fresh one-use invite lets the right person claim it. The
+creator's own place can't be unlinked. Both actions appear in activity and in an
+untrimmed `account_links` audit (actor, member, account, time) kept in the trip row
+and left out of the members' view.
+
+Suggestions compare unlinked members with account and Dice display names (case,
+accents, nicknames, last initials) and return candidates with their Venmo
+usernames. They flag ambiguous matches, scores below 0.9, and any lone first name,
+even an exact one. A name match is never proof: the People tab's **Link people to
+accounts** review spells out the access and Venmo change before each link. The
+endpoint returns no emails or other metadata, is never cached, and writes nothing.
+An agent may prepare the review; the admin confirms each link.
 
 Every mutation to an existing trip except joining includes the `revision` the
 caller last reviewed. Edits, deletes and trip/people changes require the current

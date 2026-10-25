@@ -4,15 +4,18 @@ from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gotrue.errors import AuthApiError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from postgrest.exceptions import APIError
 
+from dice.routes import ADMIN_EMAILS
+
 from .ledger import (CREATES, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
                      new_group, require_member)
 from .imports import ImportTrip, prepare_import, require_same_import
+from .matching import read_accounts, suggest
 from .profiles import current_profile, render_group, render_groups
 from .venmo import normalize_username
 
@@ -79,6 +82,10 @@ class MemberVenmo(Revision, VenmoUsername):
     pass
 
 
+class MemberAccount(Revision):
+    user_id: UUID
+
+
 class Repayment(Revision):
     id: UUID
     from_member: UUID
@@ -102,6 +109,20 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials | N
     if not user:
         raise HTTPException(401, 'Sign in to use Cozy Trips.')
     return user
+
+
+def is_admin(user):
+    """The Commons admins Dice already trusts, and only with a verified email."""
+    return bool(user.email and user.email_confirmed_at and user.email.lower() in ADMIN_EMAILS)
+
+
+def my_profile(request, user):
+    return {**current_profile(client(request), user), 'is_admin': is_admin(user)}
+
+
+def require_admin(user):
+    if not is_admin(user):
+        raise HTTPException(403, 'Only Cozy Commons admins can link people to accounts.')
 
 
 def read_row(request, trip_id):
@@ -218,7 +239,7 @@ def list_trips(request: Request, user=Depends(current_user)):
 
 @router.get('/me')
 def get_my_profile(request: Request, user=Depends(current_user)):
-    return current_profile(client(request), user)
+    return my_profile(request, user)
 
 
 @router.put('/me')
@@ -234,7 +255,7 @@ def update_my_profile(payload: VenmoUsername, request: Request, user=Depends(cur
         raise HTTPException(503, 'Could not save your Venmo username. Try again.')
     if not updated or updated.id != user.id:
         raise HTTPException(503, 'Could not confirm your Venmo username was saved. Reload to check.')
-    return current_profile(client(request), updated)
+    return my_profile(request, updated)
 
 
 @router.post('/groups', status_code=201)
@@ -334,6 +355,42 @@ def remove_member(trip_id: UUID, member_id: UUID, payload: Revision, request: Re
 @router.put('/groups/{trip_id}/members/{member_id}/venmo')
 def set_member_venmo(trip_id: UUID, member_id: UUID, payload: MemberVenmo, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'set_member_venmo', {**payload.model_dump(), 'member_id': str(member_id)})
+
+
+@router.post('/groups/{trip_id}/members/{member_id}/link')
+def link_member(trip_id: UUID, member_id: UUID, payload: MemberAccount, request: Request, user=Depends(current_user)):
+    # Admin and creator: an ordinary creator could otherwise enrol any account and read its profile.
+    require_admin(user)
+    try:
+        account = client(request).auth.admin.get_user_by_id(str(payload.user_id)).user
+    except AuthApiError as error:
+        if error.status != 404:
+            raise HTTPException(503, 'Could not check that account. Try again.')
+        account = None
+    if not account or account.id != str(payload.user_id):
+        raise HTTPException(404, 'No Commons account has that ID.')
+    return command(request, trip_id, user, 'link_member', {**payload.model_dump(mode='json'), 'member_id': str(member_id)})
+
+
+@router.post('/groups/{trip_id}/members/{member_id}/unlink')
+def unlink_member(trip_id: UUID, member_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
+    require_admin(user)
+    return command(request, trip_id, user, 'unlink_member', {**payload.model_dump(), 'member_id': str(member_id)})
+
+
+@router.get('/admin/groups/{trip_id}/link-suggestions')
+def link_suggestions(trip_id: UUID, request: Request, response: Response, user=Depends(current_user)):
+    """Read-only name-match suggestions for the creator to review one by one. Never stored or cached."""
+    require_admin(user)
+    try:
+        row = read_row(request, trip_id)
+        require_member(row, user.id)
+        if row['owner_id'] != user.id:
+            raise LedgerError('Only the trip creator can review account links.', 403)
+    except LedgerError as error:
+        raise HTTPException(error.status, str(error))
+    response.headers['Cache-Control'] = 'no-store'
+    return suggest(row['data']['members'], read_accounts(client(request)))
 
 
 @router.post('/groups/{trip_id}/join')
