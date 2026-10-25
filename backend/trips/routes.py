@@ -10,7 +10,8 @@ from gotrue.errors import AuthApiError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from postgrest.exceptions import APIError
 
-from .ledger import LedgerError, apply_command, claim_invite, new_group, require_member
+from .ledger import (CREATES, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
+                     new_group, require_member)
 from .imports import ImportTrip, prepare_import, require_same_import
 from .profiles import current_profile, render_group, render_groups
 from .venmo import normalize_username
@@ -39,6 +40,10 @@ class Revision(Input):
 
 
 class AddMember(Revision):
+    name: Name
+
+
+class Rename(Revision):
     name: Name
 
 
@@ -134,15 +139,37 @@ def already_saved(row, user_id, kind, payload):
     raise LedgerError('This item was already saved with different details. Refresh to see it.', 409)
 
 
+def already_restored(row, expense_id):
+    """True only when the expense now on the trip is the deleted version; a different record with that ID conflicts."""
+    current = next((e for e in row['data']['expenses'] if e['id'] == expense_id), None)
+    if current is None:
+        return False
+    snapshot = deleted_expense(row['data'], expense_id)
+    ignored = {'updated_at', 'updated_by'}
+    if snapshot and {k: v for k, v in current.items() if k not in ignored} == {k: v for k, v in snapshot.items() if k not in ignored}:
+        return True
+    raise LedgerError('A different expense is already saved with this ID. Refresh to see it.', 409)
+
+
 def command(request, trip_id, user, kind, payload):
+    # Creates are independent of other changes: when another write lands first, reread and add on top of it.
+    attempts = 5 if kind in CREATES else 1
     try:
-        before = read_row(request, trip_id)
-        require_member(before, user.id)
-        if already_saved(before, user.id, kind, payload):
-            return render_group(client(request), before)
-        after, invitation = apply_command(before, user.id, kind, payload)
-        group = save_revision(request, before, after)
-        return {'group': group, 'invite_token': invitation} if invitation else group
+        for attempt in range(attempts):
+            before = read_row(request, trip_id)
+            require_member(before, user.id)
+            if already_saved(before, user.id, kind, payload):
+                return render_group(client(request), before)
+            if kind == 'restore_expense' and already_restored(before, payload['id']):
+                return render_group(client(request), before)  # A retried restore whose first response was lost.
+            after, invitation = apply_command(before, user.id, kind, payload)
+            try:
+                group = save_revision(request, before, after)
+            except LedgerError as error:
+                if error.status == 409 and attempt + 1 < attempts:
+                    continue
+                raise
+            return {'group': group, 'invite_token': invitation} if invitation else group
     except LedgerError as error:
         raise HTTPException(error.status, str(error))
 
@@ -240,6 +267,48 @@ def get_trip(trip_id: UUID, request: Request, user=Depends(current_user)):
         raise HTTPException(error.status, str(error))
 
 
+@router.put('/groups/{trip_id}')
+def rename_trip(trip_id: UUID, payload: Rename, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'rename_trip', payload.model_dump())
+
+
+@router.delete('/groups/{trip_id}')
+def delete_trip(trip_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
+    try:
+        row = read_row(request, trip_id)
+        require_member(row, user.id)
+    except LedgerError as error:
+        raise HTTPException(error.status, str(error))
+    if row['owner_id'] != user.id:
+        raise HTTPException(403, 'Only the trip creator can delete the trip.')
+    if payload.revision != row['revision']:
+        raise HTTPException(409, 'Someone changed this trip. Review the latest version before deleting it.')
+    deleted = (client(request).table('trips_groups').delete()
+               .eq('id', row['id']).eq('revision', row['revision']).execute().data)
+    if not deleted:
+        raise HTTPException(409, 'Someone changed this trip. Review the latest version before deleting it.')
+    return {'deleted': row['id']}
+
+
+@router.post('/groups/{trip_id}/invite-preview')
+def preview_invite(trip_id: UUID, payload: JoinTrip, request: Request, user=Depends(current_user)):
+    """What an invitation leads to, shown before joining. The one-use token is the only credential."""
+    try:
+        row = read_row(request, trip_id)
+    except LedgerError:
+        raise HTTPException(404, 'This invitation is invalid or has already been used.')
+    if user.id in row['member_user_ids']:
+        return {'already_member': True, 'trip_name': row['data']['name']}
+    slot = invite_slot(row, payload.invite_token)
+    if not slot or slot.get('user_id'):
+        raise HTTPException(404, 'This invitation is invalid or has already been used.')
+    group = render_group(client(request), row)
+    owner = next((m for m in group['members'] if m.get('user_id') == row['owner_id']), None)
+    return {'already_member': False, 'trip_name': row['data']['name'], 'currency': row['data']['currency'],
+            'inviter': owner['display_name'] if owner else None, 'member_name': slot['name'],
+            'member_count': len(row['data']['members']), 'balance_minor': balances(row['data'])[slot['id']]}
+
+
 @router.post('/groups/{trip_id}/members', status_code=201)
 def add_member(trip_id: UUID, payload: AddMember, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'add_member', payload.model_dump(mode='json'))
@@ -248,6 +317,16 @@ def add_member(trip_id: UUID, payload: AddMember, request: Request, user=Depends
 @router.post('/groups/{trip_id}/members/{member_id}/invite')
 def invite_member(trip_id: UUID, member_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'invite_member', {**payload.model_dump(), 'member_id': str(member_id)})
+
+
+@router.put('/groups/{trip_id}/members/{member_id}')
+def rename_member(trip_id: UUID, member_id: UUID, payload: Rename, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'rename_member', {**payload.model_dump(), 'member_id': str(member_id)})
+
+
+@router.delete('/groups/{trip_id}/members/{member_id}')
+def remove_member(trip_id: UUID, member_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'remove_member', {**payload.model_dump(), 'member_id': str(member_id)})
 
 
 @router.put('/groups/{trip_id}/members/{member_id}/venmo')
@@ -283,6 +362,11 @@ def edit_expense(trip_id: UUID, expense_id: UUID, payload: Expense, request: Req
 @router.delete('/groups/{trip_id}/expenses/{expense_id}')
 def delete_expense(trip_id: UUID, expense_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'delete_expense', {**payload.model_dump(), 'id': str(expense_id)})
+
+
+@router.post('/groups/{trip_id}/expenses/{expense_id}/restore', status_code=201)
+def restore_expense(trip_id: UUID, expense_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
+    return command(request, trip_id, user, 'restore_expense', {**payload.model_dump(), 'id': str(expense_id)})
 
 
 @router.post('/groups/{trip_id}/repayments', status_code=201)

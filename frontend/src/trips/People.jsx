@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
-import { Link2, Pencil, Share2, UserPlus, UsersRound } from 'lucide-react';
+import { Link2, MoreHorizontal, Pencil, Settings, Share2, Trash2, UserMinus, UserPlus, UsersRound } from 'lucide-react';
 import { money } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
-import { memberName } from './people.js';
+import { firstName, isInvolved, memberName } from './people.js';
 import { normalizeUsername, venmoProfile } from './venmo.js';
 
 export const splitNames = (text) => [...new Map(text.split(/[\n,]+/).map((name) => name.trim()).filter(Boolean).map((name) => [name.toLowerCase(), name])).values()];
@@ -19,13 +19,20 @@ export function AddPeopleForm({ onSave, onCancel }) {
   </Form>;
 }
 
-export function InviteLinks({ links, onClose }) {
+export const inviteMessage = ({ inviter, tripName, name, link }) =>
+  `${inviter ? `${firstName({ name: inviter })} added you` : 'You’re invited'} to ${tripName} on Cozy Trips, as ${name}. This link is just for you: ${link}`;
+
+export function InviteLinks({ links, tripName, inviter, onClose }) {
   return <div className="trips-invites">
-    <p className="trips-muted">One link per person. Each works once.</p>
-    <ul>{links.map(({ name, link }) => <li key={link}>
-      <strong>{name}</strong><input readOnly aria-label={`Invite link for ${name}`} value={link} onFocus={(e) => e.target.select()} />
-      <span>{navigator.share && <Button variant="ghost" onClick={() => navigator.share({ title: 'Join my trip', url: link }).catch(() => {})}><Share2 size={14} aria-hidden="true" />Share</Button>}<CopyButton value={link} label={`invite link for ${name}`} /></span>
-    </li>)}</ul>
+    <p className="trips-muted">Send each person their own link. Each works once.</p>
+    <ul>{links.map(({ name, link }) => {
+      const message = inviteMessage({ inviter, tripName, name, link });
+      return <li key={link}>
+        <strong>{name}</strong><input readOnly aria-label={`Invite link for ${name}`} value={link} onFocus={(e) => e.target.select()} />
+        <span>{navigator.share && <Button variant="ghost" onClick={() => navigator.share({ title: `Join ${tripName}`, text: message.replace(link, '').trim(), url: link }).catch(() => {})}><Share2 size={14} aria-hidden="true" />Share</Button>}
+          <CopyButton value={message} label={`invite message for ${name}`}>Copy message</CopyButton><CopyButton value={link} label={`invite link for ${name}`}>Copy link</CopyButton></span>
+      </li>;
+    })}</ul>
     <div className="trips-form-actions"><Button variant="primary" onClick={onClose}>Done</Button></div>
   </div>;
 }
@@ -45,7 +52,7 @@ export function VenmoForm({ initial, onSave, onCancel, hint }) {
   </Form>;
 }
 
-export function PeoplePanel({ group, user, onAdd, onInvite, onEditVenmo, onEditProfile }) {
+export function PeoplePanel({ group, user, onAdd, onManage, onSettings, onEditProfile }) {
   const owner = group.owner_id === user.id;
   return <>
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><UsersRound size={16} aria-hidden="true" />People</h2>
@@ -62,13 +69,47 @@ export function PeoplePanel({ group, user, onAdd, onInvite, onEditVenmo, onEditP
               aria-label={`${memberName(m)} on Venmo, @${m.venmo_username}`}>@{m.venmo_username}</a></>}</small>
         </div>
         <span className={`trips-person-balance ${balance < 0 ? 'trips-owe' : balance > 0 ? 'trips-positive' : ''}`}>{balance ? `${balance < 0 ? 'owes' : 'gets'} ${money(Math.abs(balance), group.currency)}` : 'square'}</span>
-        <span className="trips-person-actions">
-          {you && <Button variant="ghost" onClick={onEditProfile} aria-label="Edit your Venmo username"><Pencil size={14} aria-hidden="true" />Venmo</Button>}
-          {owner && !m.user_id && <Button variant="ghost" onClick={() => onEditVenmo(m)} aria-label={`Set Venmo for ${memberName(m)}`}><Pencil size={14} aria-hidden="true" />Venmo</Button>}
-          {owner && !m.user_id && <Button onClick={() => onInvite(m)} aria-label={`Invite ${memberName(m)}`}><Link2 size={14} aria-hidden="true" />Invite</Button>}
-        </span>
+        {you ? <Button variant="ghost" className="trips-person-action" onClick={onEditProfile} aria-label="Edit your Venmo username"><Pencil size={14} aria-hidden="true" />Venmo</Button>
+          : owner && <Button variant="ghost" className="trips-person-action" onClick={() => onManage(m)} aria-label={`Manage ${memberName(m)}`}><MoreHorizontal size={18} aria-hidden="true" /></Button>}
       </li>;
     })}</ul>
     <p className="trips-muted trips-small">Anyone on the trip can add and edit expenses.</p>
+    {owner && <button type="button" className="trips-text-button" onClick={onSettings}><Settings size={14} aria-hidden="true" />Trip settings</button>}
   </>;
+}
+
+// The creator's options for one person. Each choice opens its own small, reviewable step.
+export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemove }) {
+  const joined = Boolean(member.user_id);
+  const busy = isInvolved(group, member.id);
+  return <div className="trips-person-sheet">
+    <div className="trips-venmo-who"><Avatar member={member} size={44} />
+      <span className="trips-muted">{joined ? 'Joined' : 'Hasn’t joined'}{member.venmo_username ? ` · @${member.venmo_username}` : ''}</span></div>
+    <ul className="trips-menu">
+      {!joined && <li><button type="button" onClick={onInvite}><Link2 size={16} aria-hidden="true" /><span>New invite link<small>Older links for {firstName(member)} stop working.</small></span></button></li>}
+      {!joined && <li><button type="button" onClick={onVenmo}><Pencil size={16} aria-hidden="true" /><span>{member.venmo_username ? 'Change Venmo username' : 'Add Venmo username'}<small>Until {firstName(member)} joins and adds their own.</small></span></button></li>}
+      {!joined && <li><button type="button" onClick={onRename}><Pencil size={16} aria-hidden="true" /><span>Rename</span></button></li>}
+      <li><button type="button" className="trips-danger" disabled={busy} onClick={onRemove}><UserMinus size={16} aria-hidden="true" /><span>Remove from trip
+        {busy && <small>On expenses or payments. Take {firstName(member)} off those first.</small>}</span></button></li>
+    </ul>
+    {joined && <p className="trips-muted trips-small">{firstName(member)} manages their own name and Venmo from their profile.</p>}
+  </div>;
+}
+
+export function RenameForm({ label, initial, onSave, onCancel, aside = null, children = null }) {
+  const [value, setValue] = useState(initial);
+  return <Form name="rename" submit="Save name" aside={aside} onCancel={onCancel} onSubmit={() => {
+    if (!value.trim()) throw new Error('Enter a name.');
+    return onSave(value.trim());
+  }}>
+    <Field label={label}><input name="name" autoFocus required maxLength={80} autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} /></Field>
+    {children}
+  </Form>;
+}
+
+export function TripSettings({ group, onRename, onDelete, onCancel }) {
+  return <RenameForm label="Trip name" initial={group.name} onSave={onRename} onCancel={onCancel}
+    aside={<button type="button" className="trips-text-button trips-danger" onClick={onDelete}><Trash2 size={14} aria-hidden="true" />Delete trip</button>}>
+    <p className="trips-muted trips-small">Deleting removes the trip, its expenses and its payments for everyone.</p>
+  </RenameForm>;
 }

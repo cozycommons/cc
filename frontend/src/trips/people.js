@@ -12,3 +12,7 @@ export const memberName = (member) => member?.display_name || member?.name || 'U
 export const firstName = (member) => memberName(member).split(/\s+/)[0];
 export const findMember = (group, id) => group.members.find((member) => member.id === id);
 export const myMember = (group, userId) => group.members.find((member) => member.user_id === userId);
+
+// Mirrors ledger.involved: people on an expense or payment can't be removed without rewriting history.
+export const isInvolved = (group, memberId) => group.expenses.some((e) => e.paid_by === memberId || e.shares[memberId] !== undefined)
+  || group.repayments.some((p) => p.from_member === memberId || p.to_member === memberId);

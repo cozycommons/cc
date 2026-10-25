@@ -1,5 +1,7 @@
 """Allowlisted public league estimates, uploaded without contacting ESPN."""
 
+import base64
+import binascii
 import hmac
 import os
 from datetime import date, datetime, timedelta, timezone
@@ -8,7 +10,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import (
-    AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, field_validator,
+    AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError, field_validator,
     model_validator,
 )
 
@@ -17,6 +19,11 @@ Number = Annotated[float, Field(allow_inf_nan=False)]
 Chance = Annotated[Number, Field(ge=0, le=100)]
 MatchupId = Annotated[int, Field(ge=-(2**63), le=2**63 - 1)]
 Games = Annotated[int, Field(ge=0, le=20)]
+NonnegativeInt = Annotated[int, Field(ge=0)]
+SeasonYear = Annotated[int, Field(ge=2000, le=2100)]
+SeasonMode = Literal["projections", "balanced", "hot"]
+MAX_LOGO_BYTES = 24 * 1024
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MAX_CLOCK_SKEW = timedelta(minutes=10)
 
 
@@ -113,6 +120,148 @@ class PublicSnapshot(PublicModel):
         return self
 
 
+class PublicTeamV2(PublicModel):
+    id: int
+    name: str = Field(max_length=60)
+    abbrev: str = Field(max_length=12)
+    logo: str | None
+    manager: str | None = Field(default=None, max_length=40, pattern=r"^[A-Za-z][A-Za-z '\-.]*$")
+
+    @field_validator("logo")
+    @classmethod
+    def public_logo(cls, value):
+        if value is None:
+            return value
+        prefix = "data:image/png;base64,"
+        if value.startswith(prefix):
+            payload = value[len(prefix):]
+            if len(payload) > 4 * ((MAX_LOGO_BYTES + 2) // 3):
+                raise ValueError("logo is too large")
+            try:
+                decoded = base64.b64decode(payload, validate=True)
+            except (ValueError, binascii.Error):
+                raise ValueError("logo must contain base64 PNG data")
+            if len(decoded) > MAX_LOGO_BYTES or not decoded.startswith(PNG_SIGNATURE):
+                raise ValueError("logo must be a PNG of at most 24 KiB")
+        else:
+            if len(value) > 300:
+                raise ValueError("logo URL is too long")
+            url = HttpUrl(value)
+            if url.scheme != "https" or url.host != "g.espncdn.com":
+                raise ValueError("logo URL must use ESPN's HTTPS CDN")
+        return value
+
+
+class PublicPlayer(PublicModel):
+    id: NonnegativeInt
+    name: str = Field(max_length=60)
+    points: Number | None
+    expected: Number | None = None
+
+
+PlayerSide = Annotated[list[PublicPlayer], Field(max_length=15)]
+
+
+class PublicDayV2(PublicDay):
+    players: tuple[PlayerSide, PlayerSide] | None = None
+
+    @model_validator(mode="after")
+    def observed_players_only(self):
+        if self.state == "projected" and self.players is not None:
+            raise ValueError("projected days cannot include players")
+        return self
+
+
+class PublicPredictionV2(PublicPrediction):
+    home: int
+    away: int
+    days: list[PublicDayV2] = Field(max_length=14)
+
+
+class UnavailablePredictionV2(UnavailablePrediction):
+    home: int
+    away: int
+
+
+class PublicSeasonTeam(PublicModel):
+    team: int
+    record: tuple[NonnegativeInt, NonnegativeInt, NonnegativeInt]
+    expected_wins: Number = Field(ge=0)
+    playoff_pct: Chance
+    title_pct: Chance
+    place_pct: list[Chance] = Field(max_length=20)
+
+    @field_validator("place_pct")
+    @classmethod
+    def total_probability(cls, value):
+        if abs(sum(value) - 100) > 0.5:
+            raise ValueError("place percentages must sum to 100 within 0.5")
+        return value
+
+
+class PublicSeasonPoint(PublicModel):
+    date: date
+    playoff_pct: Chance
+
+
+class PublicSeason(PublicModel):
+    weeks_remaining: NonnegativeInt
+    playoff_teams: int = Field(ge=1)
+    trials: int = Field(ge=1, le=100000)
+    modes: dict[SeasonMode, Annotated[list[PublicSeasonTeam], Field(max_length=20)]]
+    history: dict[SeasonMode, dict[str, Annotated[list[PublicSeasonPoint], Field(max_length=60)]]]
+    form_active: bool
+
+    @model_validator(mode="after")
+    def history_dates_increase(self):
+        for teams in self.history.values():
+            for points in teams.values():
+                dates = [point.date for point in points]
+                if any(later <= earlier for earlier, later in zip(dates, dates[1:])):
+                    raise ValueError("season history must have unique, increasing dates")
+        return self
+
+
+class PublicSnapshotV2(PublicSnapshot):
+    version: Literal["public-v2"]
+    teams: list[PublicTeamV2] = Field(max_length=20)
+    matchups: list[PublicPredictionV2 | UnavailablePredictionV2] = Field(max_length=20)
+    season: PublicSeason | None = None
+    season_year: SeasonYear | None = None
+
+    @model_validator(mode="after")
+    def known_teams(self):
+        team_ids = {team.id for team in self.teams}
+        if len(team_ids) != len(self.teams):
+            raise ValueError("team ids must be unique")
+        matched = set()
+        for matchup in self.matchups:
+            for team in (matchup.home, matchup.away):
+                if team not in team_ids or team in matched:
+                    raise ValueError("matchup teams must be known and unique")
+                matched.add(team)
+        if self.season is not None:
+            if self.season.playoff_teams > len(team_ids):
+                raise ValueError("playoff teams cannot exceed the number of teams")
+            for standings in self.season.modes.values():
+                seen = set()
+                for standing in standings:
+                    if standing.team not in team_ids or standing.team in seen:
+                        raise ValueError("season teams must be known and unique")
+                    seen.add(standing.team)
+                    if len(standing.place_pct) != len(team_ids):
+                        raise ValueError("place percentages must cover every place")
+            known_keys = {str(team) for team in team_ids}
+            for history in self.season.history.values():
+                if not history.keys() <= known_keys:
+                    raise ValueError("season history teams must be known")
+        return self
+
+
+Snapshot = Annotated[PublicSnapshot | PublicSnapshotV2, Field(discriminator="version")]
+_snapshot_adapter = TypeAdapter(Snapshot)
+
+
 router = APIRouter()
 _bearer = HTTPBearer(auto_error=False)
 
@@ -129,7 +278,7 @@ def _upload_auth(
         raise HTTPException(status_code=401, detail="invalid bearer token")
 
 
-async def _read_snapshot(request: Request, _auth=Depends(_upload_auth)) -> PublicSnapshot:
+async def _read_snapshot(request: Request, _auth=Depends(_upload_auth)) -> Snapshot:
     # Bound the actual stream before parsing, including chunked/undeclared bodies.
     raw = bytearray()
     async for chunk in request.stream():
@@ -137,14 +286,14 @@ async def _read_snapshot(request: Request, _auth=Depends(_upload_auth)) -> Publi
             raise HTTPException(status_code=413, detail="snapshot exceeds 256 KiB")
         raw.extend(chunk)
     try:
-        return PublicSnapshot.model_validate_json(raw)
+        return _snapshot_adapter.validate_json(raw)
     except ValidationError:
         # Do not echo rejected private fields or non-finite JSON values in errors.
-        raise HTTPException(status_code=422, detail="invalid public-v1 snapshot")
+        raise HTTPException(status_code=422, detail="invalid public snapshot")
 
 
 @router.post("/public/predictions")
-def upload(request: Request, snapshot: PublicSnapshot = Depends(_read_snapshot)):
+def upload(request: Request, snapshot: Snapshot = Depends(_read_snapshot)):
     generated_at = snapshot.generated_at.astimezone(timezone.utc).isoformat()
     result = request.app.state.supabase.table("espn_public_predictions").upsert(
         {

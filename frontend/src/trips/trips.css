@@ -51,13 +51,13 @@ body.trips-body { margin: 0; min-width: 320px; background: var(--paper); color: 
 img.trips-avatar { display: block; object-fit: cover; background: var(--paper-deep); }
 .trips-avatar--ring { box-shadow: 0 0 0 2px var(--paper); }
 .trips-avatar-stack { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; }
-.trips-avatar-stack > * + * { margin-left: -7px; }
+.trips-avatar-stack > * + * { margin-left: -4px; }
 .trips-avatar--more { width: 24px; height: 24px; color: var(--ink); background: var(--paper-deep); font: 10px var(--sans); }
 .trips-you { margin-left: 7px; padding: 2px 6px; border-radius: 99px; background: var(--paper-deep); color: var(--ink-soft); font-size: 11px; font-weight: 500; vertical-align: 2px; }
 .trips-handle { color: #2f73b8; }
 
 /* Home */
-.trips-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0 12px; }
+.trips-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 16px; padding: 14px 0 12px; }
 .trips-heading--home { padding: 28px 0 18px; }
 .trips-greeting { margin: 0 0 4px; color: var(--clay); font-size: 14px; font-weight: 600; }
 .trips-home-actions { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -88,13 +88,16 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
 .trips-balance-pill--even { color: var(--ink); background: var(--paper-deep); }
 .trips-notice { display: flex; align-items: center; gap: 10px; min-height: 0; color: var(--moss-dark); font-size: 13px; }
 .trips-notice:not(:empty) { margin-bottom: 10px; padding: 6px 12px; border-radius: 8px; background: color-mix(in srgb, var(--moss) 14%, var(--paper-light)); }
+/* Stay in view (with its Undo) wherever the person is in the list. */
+.trips-trip .trips-notice:not(:empty) { position: sticky; top: 8px; z-index: 15; background: color-mix(in srgb, var(--moss) 14%, var(--paper-light)); box-shadow: var(--soft-shadow); }
 .trips-notice .trips-text-button { color: var(--moss-dark); font-weight: 600; text-decoration: underline; }
 .trips-tabs { display: flex; gap: 22px; border-bottom: var(--hairline); margin-bottom: 18px; }
 .trips-tabs button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 2px; border: 0; border-bottom: 2px solid transparent; background: none; font-size: 14px; color: var(--ink-soft); cursor: pointer; }
 .trips-tabs button[aria-selected="true"] { border-bottom-color: var(--clay); color: var(--espresso); font-weight: 600; }
 .trips-tabs button[aria-selected="true"] svg { color: var(--clay); }
 .trips-count { padding: 2px 6px; border-radius: 99px; background: var(--paper-deep); font: 11px var(--sans); color: var(--ink-soft); }
-.trips-heading-actions { display: flex; align-items: center; gap: 10px; }
+.trips-heading-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+.trips-heading-actions > * { flex-shrink: 0; }
 .trips-columns { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 32px; align-items: start; animation: trips-reveal 140ms ease-out; }
 .trips-ledger { min-width: 0; }
 .trips-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin: 0 0 8px; }
@@ -176,13 +179,12 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
 .trips-venmo-open .trips-venmo-mark { background: #fff; color: #3d95ce; }
 
 /* People */
-.trips-person { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 12px 0; border-bottom: var(--hairline); }
-.trips-person > div { flex: 1 1 160px; min-width: 0; }
+.trips-person { display: flex; gap: 10px; align-items: center; padding: 12px 0; border-bottom: var(--hairline); }
+.trips-person > div { flex: 1 1 auto; min-width: 0; }
 .trips-person strong { display: block; overflow-wrap: anywhere; font-size: 15px; font-weight: 600; }
 .trips-person small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--ink-soft); }
 .trips-person-balance { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.trips-person-actions { display: flex; gap: 6px; }
-.trips-person-actions:empty { display: none; }
+.trips-person-action { flex: 0 0 auto; min-width: 44px; min-height: 44px !important; }
 .trips-invites ul { list-style: none; margin: 0; padding: 0; }
 .trips-invites li { display: grid; gap: 6px; padding: 10px 0; border-bottom: var(--hairline); }
 .trips-invites input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--paper); font: 13px var(--mono); }
@@ -289,6 +291,10 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
   .trips-heading { align-items: flex-start; flex-direction: column; gap: 10px; padding-top: 8px; }
   .trips-heading--home { padding-top: 22px; }
   .trips h1 { font-size: 25px; }
+  /* Long trip names shouldn't push the ledger below the fold. */
+  .trips-trip .trips-heading h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 22px; }
+  .trips-trip .trips-heading { gap: 8px; padding-bottom: 8px; }
+  .trips-trip .trips-trip-meta { margin-top: 4px; }
   .trips-home-actions { width: 100%; }
   .trips-home-actions .cc-button { flex: 1; }
   .trips-tabs { position: fixed; z-index: 20; left: 10px; right: 10px; bottom: calc(8px + env(safe-area-inset-bottom)); justify-content: space-around; gap: 0; margin: 0; padding: 4px 6px; border: var(--hairline); border-radius: 22px; background: color-mix(in srgb, var(--paper-light) 94%, transparent); box-shadow: var(--soft-shadow); backdrop-filter: blur(10px); }
@@ -305,7 +311,6 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
   .trips-trip-row > svg, .trips-trip-icon { display: none; }
   .trips-transfer--mine .trips-transfer-actions { width: 100%; }
   .trips-transfer--mine .trips-transfer-actions .cc-button { flex: 1; min-height: 46px; }
-  .trips-person-actions { width: 100%; justify-content: flex-end; }
   .trips-modal { inset: auto 0 0; width: 100%; max-width: none; max-height: calc(100dvh - 24px); margin: 0; padding: 16px 16px 0; border-radius: 18px 18px 0 0; border-bottom: 0; }
   .trips-modal[open] { animation: trips-sheet 200ms ease-out; }
   .trips-form-grid, .trips-form-grid--lead { grid-template-columns: minmax(0, 1fr); }
@@ -313,6 +318,7 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
   .trips-form-actions:has(.trips-form-aside) { grid-template-columns: auto 1fr 1fr; }
   .trips-split-row > input { flex-basis: 92px; width: 92px; }
   .trips-venmo-details > div { grid-template-columns: 52px minmax(0, 1fr) auto; }
+  .trips-invites .trips-form-actions { grid-template-columns: 1fr; }
 }
 @keyframes trips-sheet { from { transform: translateY(24px); opacity: .5; } to { transform: translateY(0); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .trips, .trips *, .trips *::before, .trips *::after, .trips-modal, .trips-modal *, .trips-modal *::before, .trips-modal *::after { scroll-behavior: auto; transition: none !important; animation: none !important; } }
@@ -332,7 +338,8 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
 .trips-trip-row { border-radius: var(--radius-card); box-shadow: inset 5px 0 0 var(--cover, var(--clay)); padding-left: 20px; }
 .trips-trip-row:hover { box-shadow: inset 5px 0 0 var(--cover, var(--clay)), var(--paper-shadow); }
 .trips-trip-row:hover .trips-stamp { transform: rotate(-7deg); }
-.trips-trip-title { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.trips-trip-title { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1 1 340px; }
+.trips-trip-title > div { min-width: 0; }
 .trips-trip-title .trips-stamp { margin: 4px; }
 
 .trips-category { color: var(--ink); --fill: color-mix(in srgb, var(--chip) 45%, var(--paper-light)); background: color-mix(in srgb, var(--chip) 18%, var(--paper-light));
@@ -371,6 +378,8 @@ span.trips-avatar { box-shadow: 0 0 0 2px var(--paper-light), 0 0 0 3.5px var(--
     border-radius: 60% 40% 55% 45% / 50% 60% 40% 50%; background: color-mix(in srgb, var(--butter) 70%, transparent); }
   .trips-tabs button[aria-selected="true"] svg { color: var(--espresso); }
   .trips-add { border-radius: var(--radius-card) !important; box-shadow: var(--key-shadow), 0 10px 22px rgba(70, 47, 32, .24) !important; }
+  /* The heading is a column here, so the title's 340px row basis would become its height. */
+  .trips-trip-title { flex: 0 0 auto; }
   .trips-trip-title .trips-stamp { width: 44px !important; height: 44px !important; }
   .trips-trip-row { flex-wrap: wrap; row-gap: 10px; }
   .trips-trip-row-main { flex: 1 1 calc(100% - 64px); }
@@ -417,9 +426,49 @@ html:has(body.trips-body), body.trips-body { overscroll-behavior-x: none; }
 body.trips-body .trips, .trips-modal { touch-action: pan-y pinch-zoom; }
 a.trips-handle { color: #2f73b8; text-decoration: none; }
 a.trips-handle:hover, a.trips-handle:focus-visible { text-decoration: underline; }
-.trips-copy-big { width: 100%; min-height: 48px !important; margin: 0 0 12px; font-size: 15px !important; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .trips-search input { font-size: 16px; } }
 
 /* Keep focused fields and errors clear of the sticky Save/Cancel bar when the browser scrolls them into view. */
 .trips-modal { scroll-padding-bottom: 110px; scroll-padding-top: 16px; }
 .trips-modal .trips-error { scroll-margin-bottom: 110px; }
+
+/* Expense detail, payments in the feed, activity rows */
+.trips-detail-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.trips-detail-head strong { display: block; font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.trips-detail-head small { color: var(--ink-soft); font-size: 13px; }
+.trips-detail-paid { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; }
+.trips-detail-shares { list-style: none; margin: 0 0 12px; padding: 0; }
+.trips-detail-shares li { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 44px; border-bottom: var(--hairline); font-size: 14px; }
+.trips-detail-shares li > span { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.trips-detail-shares small { color: var(--ink-soft); font-size: 12px; }
+.trips-detail-shares strong { font-variant-numeric: tabular-nums; font-weight: 600; }
+.trips-detail-me { font-weight: 600; }
+.trips-category--payment { --chip: var(--moss); }
+.trips-expense--payment .trips-expense-detail strong { font-weight: 500; }
+.trips-activity li { flex-wrap: wrap; align-items: center; }
+.trips-activity-row { display: flex; flex: 1 1 auto; gap: 12px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+button.trips-activity-row { cursor: pointer; border-radius: 8px; }
+button.trips-activity-row:hover strong { text-decoration: underline; }
+.trips-activity-row > div { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.trips-activity-amount { flex: 0 0 auto; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.trips-activity-restore { margin-left: 40px; color: var(--clay) !important; }
+
+/* Person sheet, trip settings, inline Venmo, join */
+.trips-menu { list-style: none; margin: 0 0 12px; padding: 0; }
+.trips-menu button { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-height: 52px; padding: 12px 4px; border: 0; border-bottom: var(--hairline); background: none; color: var(--ink); font-size: 15px; text-align: left; cursor: pointer; }
+.trips-menu button:hover:not(:disabled) { background: var(--paper); }
+.trips-menu button:disabled { opacity: .55; cursor: default; }
+.trips-menu button > svg { flex: 0 0 auto; margin-top: 2px; }
+.trips-menu small { display: block; margin-top: 3px; color: var(--ink-soft); font-size: 12px; }
+.trips-inline-handle { margin: 0 0 14px; padding: 12px; border: 1px dashed var(--line-strong); border-radius: 10px; }
+.trips-inline-handle label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.trips-inline-handle > div { display: flex; gap: 8px; }
+.trips-inline-handle input { flex: 1; min-width: 0; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: #fbf6ec; font: 16px var(--sans); }
+.trips-inline-handle small { display: block; margin-top: 6px; color: var(--ink-soft); font-size: 12px; }
+.trips-inline-handle .trips-error { margin: 8px 0 0; }
+.trips-venmo-open { margin-bottom: 12px; }
+.trips-settle-note { margin: 0 0 4px; }
+.trips-join-card { margin: 14px 0 4px; padding: 14px 16px; border-radius: var(--radius-small, 10px); background: var(--paper-light); box-shadow: var(--paper-shadow); font-size: 15px; line-height: 1.5; }
+.trips-join-card p { margin: 4px 0; }
+.trips-overall { margin: 6px 0 0; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.trips-invites li > span { flex-wrap: wrap; }
