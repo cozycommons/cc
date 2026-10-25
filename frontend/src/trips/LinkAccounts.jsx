@@ -4,7 +4,7 @@ import { Avatar, Button, Form } from './ui.jsx';
 const FLAGS = { weak: 'Weak match', ambiguous: 'Several close matches', 'same account suggested twice': 'Also suggested for someone else' };
 const candidates = (row) => (row.status === 'suggested' ? [row, ...row.alternatives] : row.alternatives);
 const AccountChip = ({ candidate }) => <span className="trips-link-account"><Avatar member={{ avatar_url: candidate.avatar_url, name: candidate.account_name }} size={28} />
-  <span>{candidate.account_name}{candidate.venmo_username && <> · @{candidate.venmo_username}</>}</span></span>;
+  <span>{candidate.account_name}{candidate.venmo_username && <span className="trips-link-handle">@{candidate.venmo_username}</span>}</span></span>;
 
 // Admin-only review of name-match suggestions. Names only suggest; each link is its own explicit, explained step.
 export default function LinkAccounts({ group, request, onLink, onClose }) {

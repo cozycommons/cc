@@ -496,3 +496,27 @@ runs with the command above. The required `backend` check always runs and fails
 if that job fails or is skipped. The local container release check uses a fresh
 owned database scaffold, matching CI, because regression tests intentionally
 exercise invalid data/schema states.
+
+### Mobile spacing — 2026-10-25
+
+Shared spacing tokens cover Trips and Fantasy page gutters, sheet padding,
+safe-area insets, 44px controls and readable labels. The Venmo confirmation
+uses the app font, a Venmo badge and separated profile/edit actions; its footer
+matches the page. People rows, expense metadata, split controls, account links,
+activity and Fantasy grids/charts fit narrow screens.
+
+Synthetic browser checks covered 320, 360, 390, 430 and 1280px; all Trips tabs,
+confirmation, expense entry, person/account sheets, settlement, profile,
+settings, creation/import and Fantasy hub/matchup. Long names, 12-expense
+badges, landscape and simulated safe areas passed. Screenshots are retained in
+`artifacts/mobile-spacing/` and attached to the delivery PR. No hosted trip data
+was changed.
+
+Node 22: all 551 frontend tests passed with one worker; lint, production build
+and bundle budget passed. Concurrent runs hit test timeouts; the serial run
+passed without changing test timeouts or application behavior. The baseline
+visual audit and independent visual review ran with `claude-opus-5-5`; the
+independent correctness review ran with `gpt-6.1-sol`. Their findings were
+addressed. WebKit checks passed for page/sheet gutters at eight widths, the
+balance disclosure, onboarding checkbox and simulated safe-area footer.
+Computed padding assertions and screenshots are retained with the evidence.

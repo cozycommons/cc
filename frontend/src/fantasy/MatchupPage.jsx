@@ -132,7 +132,7 @@ export default function MatchupPage({ data }) {
             <h2>{team.name}</h2>
             <Manager team={team} /><TeamLinks teamId={team.id} />
             <strong style={{ color: COLORS[side] }}>{round(matchup.scores[side])}</strong>
-            <span>{winPct(odds[side], finished(matchup))} to win from here · proj. {round(matchup.projected_totals[side])}</span>
+            <span className="fx-hero-facts"><span>{winPct(odds[side], finished(matchup))} to win</span><span>Proj. {round(matchup.projected_totals[side])}</span></span>
           </div>
         ))}
       </div>

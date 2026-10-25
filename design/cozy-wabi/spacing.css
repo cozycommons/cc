@@ -1,0 +1,18 @@
+/* Shared layout rhythm for Trips and Fantasy. */
+:root {
+  --cc-space-1: 4px;
+  --cc-space-2: 8px;
+  --cc-space-3: 12px;
+  --cc-space-4: 16px;
+  --cc-space-6: 24px;
+  --cc-tap-target: 44px;
+  --cc-text-min: 11px;
+  --cc-page-gutter: clamp(16px, 4vw, 24px);
+  --cc-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --cc-safe-top: env(safe-area-inset-top, 0px);
+}
+
+:root, .trips, .trips-modal, .fx-page {
+  --cc-safe-left: max(var(--cc-page-gutter), env(safe-area-inset-left, 0px));
+  --cc-safe-right: max(var(--cc-page-gutter), env(safe-area-inset-right, 0px));
+}

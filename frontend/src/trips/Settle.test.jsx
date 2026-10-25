@@ -12,8 +12,8 @@ it.each(['fewest', 'greedy', undefined])('describes only the guarantee for %s se
     transfers: [{ from_member: 'debtor', to_member: 'creditor', amount_minor: 500 }] };
   render(<BalancesPanel group={group} onRecord={() => {}} />);
   const note = settlement === 'fewest'
-    ? 'The fewest payments to square everyone. You might pay someone other than who covered you.'
-    : 'These square everyone with the least money changing hands. You might pay someone other than who covered you.';
+    ? 'The fewest payments to square everyone.'
+    : 'These square everyone with the least money changing hands.';
   expect(screen.getByText(note)).toBeInTheDocument();
   if (settlement !== 'fewest') expect(screen.queryByText(/fewest payments/)).not.toBeInTheDocument();
 });

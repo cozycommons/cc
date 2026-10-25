@@ -2,14 +2,13 @@ import VenmoProfile from './VenmoProfile.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Trash2 } from 'lucide-react';
 import { decimal, money, shortDate, today, toMinor } from './money.js';
-import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
+import { Avatar, Button, CopyButton, Field, Form, VenmoMark } from './ui.jsx';
 import { findMember, firstName, memberName } from './people.js';
 import { normalizeUsername, settlementRole, tripNote, venmoLink } from './venmo.js';
 import { balanceBreakdown } from './balances.js';
 
 const SquareStamp = () => <span className="trips-square-stamp" aria-hidden="true">All square</span>;
 
-const VenmoMark = () => <span className="trips-venmo-mark" aria-hidden="true">V</span>;
 
 export function RepaymentForm({ group, meId, suggestion, onSave, onCancel }) {
   const [id] = useState(() => crypto.randomUUID());
@@ -144,8 +143,8 @@ export function BalancesPanel({ group, me, profile, onVenmo, onRecord, onRemoveR
 
     <div className="trips-panel-heading"><h2 className="trips-section-heading"><HandCoins size={16} aria-hidden="true" />Settle up</h2></div>
     {!!group.transfers.length && <p className="trips-muted trips-small trips-settle-note">{group.settlement === 'fewest'
-      ? 'The fewest payments to square everyone. You might pay someone other than who covered you.'
-      : 'These square everyone with the least money changing hands. You might pay someone other than who covered you.'}</p>}
+      ? 'The fewest payments to square everyone.'
+      : 'These square everyone with the least money changing hands.'}</p>}
     {!group.transfers.length ? <div className="trips-empty trips-empty--square">{!me && <SquareStamp />}<p>All square. Nobody owes anybody.</p></div> : <>
       {!!mine.length && <ul className="trips-transfers">{mine.map((t) => <TransferRow key={`${t.from_member}-${t.to_member}`} group={group} transfer={t} meId={me?.id} onVenmo={onVenmo} onRecord={onRecord} />)}</ul>}
       {!!others.length && <>{!!mine.length && <h3 className="trips-subheading">Between others</h3>}
