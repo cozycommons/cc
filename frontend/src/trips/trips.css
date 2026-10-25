@@ -594,3 +594,33 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
 .trips-return-prompt { margin-block: var(--cc-space-3); }
 .trips-return-prompt > strong, .trips-return-prompt > small { flex-basis: 100%; }
 .trips-late-changes li { margin-block: var(--cc-space-2); font-size: 13px; }
+
+/* Ready to settle: one big button and a who's-done table. */
+.trips-ready { margin-block: var(--cc-space-4); }
+.trips .cc-button.trips-ready-button { width: 100%; min-height: 56px; gap: 10px; border-radius: 12px; font-size: 16px; font-weight: 600; }
+.trips-ready-mine { display: flex; align-items: center; justify-content: space-between; gap: var(--cc-space-3); padding: 12px 14px; border: var(--hairline); border-radius: 12px; background: var(--paper-light); }
+.trips-ready-mine > span { display: inline-flex; align-items: center; gap: 8px; color: var(--owed); font-weight: 600; }
+.trips-ready .trips-subheading { margin-top: 20px; }
+.trips-ready-table, .trips-payments { list-style: none; margin: 0; padding: 0; border: var(--hairline); border-radius: 12px; background: var(--paper-light); overflow: hidden; }
+.trips-ready-table li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 52px; padding: 6px 12px; font-size: 14px; }
+.trips-ready-table li + li, .trips-payments li + li { border-top: var(--hairline); }
+.trips-ready-table strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.trips-ready-status { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-soft); font-size: 13px; white-space: nowrap; }
+.trips-ready-row--done .trips-ready-status { color: var(--owed); }
+
+/* Payments: one row per payment, read like a table. */
+.trips-payment { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who amount" "status actions"; align-items: center; gap: 4px 12px; padding: 10px 12px; font-size: 14px; }
+.trips-payment-who { grid-area: who; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+button.trips-payment-who { cursor: pointer; min-height: var(--cc-tap-target); }
+.trips-payment-names { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.trips-payment-names > svg { flex: none; color: var(--ink-soft); }
+.trips-payment-name { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.trips-payment-name strong { font-weight: 500; overflow-wrap: anywhere; }
+.trips-payment-name .trips-venmo-confirmed { flex: none; width: 16px; height: 16px; }
+.trips-payment-amount { grid-area: amount; justify-self: end; font-size: 16px; font-variant-numeric: tabular-nums; }
+.trips-payment-status { grid-area: status; display: inline-flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 12px; }
+.trips-payment-actions { grid-area: actions; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.trips .trips-payment-actions .cc-button { min-width: 84px; }
+.trips-payment--mine { background: color-mix(in srgb, var(--butter) 14%, var(--paper-light)); }
+.trips-payment--paid .trips-payment-status { color: var(--owed); }
+.trips-payment--paid .trips-payment-amount { color: var(--ink-soft); }

@@ -13,7 +13,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 it('requests the exact debtor and amount from each row without mutating the ledger', async () => {
   const settle = vi.fn();
   render(<BalancesPanel group={group} me={members[0]} request={request} onSettle={settle} />);
-  expect(screen.getByRole('heading', { name: 'Who owes you' })).toBeInTheDocument();
+  expect(screen.getByRole('list', { name: 'Payments' })).toBeInTheDocument();
   const first = screen.getByRole('link', { name: 'Request $12.34 from @alex-rivera' });
   expect(first).toHaveAttribute('href', 'https://venmo.com/alex-rivera?txn=charge&amount=12.34&note=Cozy%20Trips%20%C2%B7%20Cabin%20%C2%B7%20CZ-000000');
   expect(screen.getByRole('link', { name: 'Request $56.78 from @jamie-rivera' })).toHaveAttribute('href', 'https://venmo.com/jamie-rivera?txn=charge&amount=56.78&note=Cozy%20Trips%20%C2%B7%20Cabin%20%C2%B7%20CZ-000001');
@@ -31,7 +31,8 @@ it('requests the exact debtor and amount from each row without mutating the ledg
   expect(settle.mock.calls[0][0]).toMatchObject(obligations[0]);
 });
 
-it.each(['Not yet', 'Dismiss payment prompt'])('leaves a payer obligation open after %s and navigation away', async label => {
+it('leaves a payer obligation open after Not yet and navigation away', async () => {
+  const label = 'Not yet';
   const settle = vi.fn(), record = vi.fn();
   const view = render(<VenmoReview group={group} transfer={transfers[0]} role="pay" obligation={obligations[0]} request={request} onSettle={settle} onRecord={record} />);
   const link = screen.getByRole('link', { name: 'Pay $12.34 in Venmo' });
@@ -106,7 +107,7 @@ it.each([true, false])('shows a Pay sheet checkmark only for a confirmed payee: 
   expect(Boolean(screen.queryByRole('img', { name: 'Confirmed Venmo' }))).toBe(confirmed);
 });
 
-it('shows confirmed badges in Who owes you and the person menu', async () => {
+it('shows confirmed badges in the payments table and the person menu', async () => {
   const { PersonSheet } = await import('./People.jsx');
   const confirmedMembers = members.map(m => ({ ...m, venmo_confirmed: m.id === 'a' }));
   const view = render(<BalancesPanel group={{ ...group, members: confirmedMembers }} me={members[0]} request={request} />);
@@ -138,4 +139,18 @@ it('follows the current pair amount before opening and shows Close if the pair i
   expect(screen.getByText('This payment changed.')).toBeInTheDocument();
   expect(screen.getAllByRole('button')).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+});
+
+it('keeps another pair\'s opened payment out of this Pay sheet', async () => {
+  const settle = vi.fn().mockResolvedValue({});
+  const payGroup = { ...group, transfers: [{ from_member: 'a', to_member: 'me', amount_minor: 1234 }, { from_member: 'a', to_member: 'b', amount_minor: 4500 }] };
+  const toJamie = { ...payGroup.transfers[1], id: 'o9', reference: 'CZ-000009', status: 'open', created_at: '2026-01-01T00:00:00+00:00', cycle: 0 };
+  const withJamie = { ...payGroup, obligations: [obligations[0], toJamie] };
+  const flow = { opened: { ...obligations[0], role: 'pay', handle: 'matt-rivera' }, pending: { ...obligations[0], role: 'pay', handle: 'matt-rivera' }, returned: true, item: obligations[0], open: vi.fn(), dismiss: vi.fn() };
+  render(<VenmoReview group={withJamie} transfer={payGroup.transfers[1]} role="pay" obligation={toJamie} request={request} onSettle={settle} paymentFlow={flow} />);
+  const link = screen.getByRole('link', { name: 'Pay $45.00 in Venmo' });
+  expect(link).toHaveAttribute('href', 'https://venmo.com/jamie-rivera?txn=pay&amount=45.00&note=Cozy%20Trips%20%C2%B7%20Cabin%20%C2%B7%20CZ-000009');
+  expect(screen.queryByText('Sent $12.34 to Matt?')).not.toBeInTheDocument();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Sent' })));
+  expect(settle).toHaveBeenCalledExactlyOnceWith(toJamie);
 });

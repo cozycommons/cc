@@ -7,7 +7,7 @@ import { Bowl, Tent, TripStamp, isNiteharts } from './doodles.jsx';
 import { findMember, firstName, memberName, myMember } from './people.js';
 import { ExpenseDetail, ExpenseForm, categoryOf, payerLabel, savedSummary } from './ExpenseForm.jsx';
 import { paidAmounts, payersOf } from './balances.js';
-import { BalancesPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
+import { BalancesPanel, ReadyPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
 import { PaymentPrompt, useVenmoPayment } from './VenmoPayment.jsx';
 import { AddPeopleForm, InviteLinks, PeoplePanel, PersonSheet, RenameForm, TripSettings, VenmoForm } from './People.jsx';
 import LinkAccounts from './LinkAccounts.jsx';
@@ -297,13 +297,14 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
     <div className={`trips-columns trips-columns--${tab}`}>
       <section className="trips-ledger" id="trips-panel" role="tabpanel" aria-labelledby={`trips-tab-${tab}`}>
         {tab === 'expenses' && <>
-          {group.settle?.started === false && me?.user_id && group.settle.waiting.includes(me.id) && Object.keys(group.settle.ready).some(id => id !== me.id) && <div className="trips-settle-banner" role="status"><strong>Waiting on you</strong><Button onClick={() => settleReady(me.id, true).catch(e => setNotice({ message: e.message }))}>Done adding</Button></div>}
+          {group.settle?.started === false && <ReadyPanel group={group} me={me} onReady={(id, ready) => settleReady(id, ready).catch(e => setNotice({ message: e.message }))}
+            onStart={() => settleStart().catch(e => setNotice({ message: e.message }))} onCloseOut={(member) => setModal({ type: 'close_out', member })} />}
           <div className="trips-panel-heading"><h2 className="trips-section-heading"><ReceiptText size={16} aria-hidden="true" />Expenses</h2>
             {hasHistory && <label className="trips-search"><Search size={15} aria-hidden="true" /><input type="search" name="search" aria-label="Search expenses" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} /></label>}</div>
           <Feed group={group} me={me} query={query} fresh={fresh} onOpenExpense={openExpense} onOpenPayment={(item) => setModal({ type: 'delete_repayment', item })} />
         </>}
         {tab === 'balances' && modal?.type !== 'venmo' && <PaymentPrompt flow={paymentFlow} group={group} onSettle={o => obligationAction(o, 'settle')} />}
-        {tab === 'balances' && <BalancesPanel request={request} group={group} me={me} profile={profile} paymentFlow={paymentFlow} onReady={(id, ready) => settleReady(id, ready).catch(e => setNotice({ message: e.message }))} onStart={() => settleStart().catch(e => setNotice({ message: e.message }))} onActivity={() => setTab('activity')} onEditProfile={onEditProfile}
+        {tab === 'balances' && <BalancesPanel request={request} group={group} me={me} profile={profile} paymentFlow={paymentFlow} onReady={(id, ready) => settleReady(id, ready).catch(e => setNotice({ message: e.message }))} onStart={() => settleStart().catch(e => setNotice({ message: e.message }))} onCloseOut={(member) => setModal({ type: 'close_out', member })} onActivity={() => setTab('activity')} onEditProfile={onEditProfile}
           onVenmo={(transfer, role) => setModal({ type: 'venmo', transfer, role })}
           onSettle={o => obligationAction(o, 'settle')} onUndo={o => obligationAction(o, 'undo').catch(() => {})} onNudge={o => obligationAction(o, 'nudge').catch(() => {})}
           onRecord={(suggestion) => setModal({ type: 'repayment', suggestion })}

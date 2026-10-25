@@ -13,15 +13,15 @@ phone was not tested.
 | 3 | Photos | **PASS.** Both list images loaded from authenticated Cozy `/venmo/photo` URLs. A fixture with an unapproved photo host returned `found: false`; no request reached that host. Host, type, size, normalization and signature-expiry tests pass. |
 | 4 | Gentleness | **PASS.** Forty profile requests produced five upstream failures; after a two-second pause, a different user's uncached probe still produced no upstream call. Cached and link-only views remained usable. Clock-controlled tests cover bucket refill, jitter and single half-open probes. |
 | 5 | Pay | **PASS.** The payer sheet displayed the payee card above the amount, with the blue confirmation badge only for an owner-confirmed payee. Its URL used `txn=pay`, the exact $12.34 amount, percent-encoded spaces, the trip note and the obligation reference. |
-| 6 | Request | **PASS.** “Who owes you” displayed separate debtor cards for $12.34 and $56.78. Each row's Request opens the exact `txn=charge` URL for that person and amount. After settling one, the remaining debtor becomes the next row. |
+| 6 | Request | **PASS.** One Payments table lists every payment in the trip, your rows first. Each of your request rows opens the exact `txn=charge` URL for that person and amount; other people's rows are read-only. Paid rows stay in the table with Undo. |
 | 7 | Return prompt | **PASS.** The trip owns the opened ID, cycle, amount and handle. A $30 request followed by a refresh to $45 still asks “Got $30.00 from Alex?” with “Amounts changed.” Got it records the opened $30; the remaining $15 becomes a new debt. Not yet, dismissal and navigation never settle. A missing record, changed cycle or handle invalidates the prompt; another party settling it shows who marked it. |
 | 8 | Either party settles | **PASS.** Got it by the person owed and Sent by the payer each produced one repayment through the existing ledger command. The other account read the settled state and updated balances without a confirmation. Concurrent-party database coverage proves one repayment, not two. |
 | 9 | Undo | **PASS.** Row Undo and toast Undo each reopened the obligation and restored the original balances. Cycle guards reject a delayed Sent retry after Undo. A third member’s legacy DELETE of an obligation-linked repayment returns 403 and preserves balances; either party can undo. |
 | 10 | Check in Venmo | **PASS (web link).** Rows and prompts use exactly `https://venmo.com/u/{handle}`. Physical-phone app opening remains unverified. |
 | 11 | Nudge | **PASS.** Aging only the synthetic obligations by four days exposed Nudge. A repeat request returned 422 inside 48 hours. The payer saw the banner on opening Expenses as well as Balances. |
 | 12 | Regression | **PASS.** Created a synthetic trip through the UI, added an expense, exercised unequal splits and settle-up, and reopened `/dice` with its seeded matches/standings. Full backend and frontend suites, lint, production build and migration checks pass. |
-| 13 | Ready-to-settle gate | **PASS.** New synthetic trips show balances “so far” and no Pay/Request before the gate starts. Done adding and Not done yet work before the start; placeholders are ignored. The last joined member becoming ready starts settling automatically. A legacy synthetic trip without state remains started. |
-| 14 | Close out | **PASS.** Alex, a non-creator, opens Jamie's sheet and sees the confirm. Cancel changes nothing; Close out records Alex and shows “Closed out by Alex”. The “Waiting on you” banner appears on Alex's Expenses tab while another member is ready. |
+| 13 | Ready-to-settle gate | **PASS.** New synthetic trips show balances “so far” and no Pay/Request before the gate starts. “Finished adding all bills” and Not done yet work before the start, and a Who's done table shows each joined member; placeholders are ignored. The last joined member becoming ready starts settling automatically. A legacy synthetic trip without state remains started. |
+| 14 | Close out | **PASS.** Alex, a non-creator, opens Jamie's sheet and sees the confirm. Cancel changes nothing; Close out records Alex and shows “Closed out by Alex”. Close out is also offered on each Still adding row of the Who's done table. |
 | 15 | Creator Start now | **PASS.** On a second synthetic trip, Matt starts while both joined members are still Adding. The API records the creator member as `started_by`; repeating is a no-op. Other members cannot start. |
 | 16 | Late expense after settling | **PASS.** Both debts were settled to All square. Adding $3 coffee through the expense form leaves all settled payments intact and creates two $1 obligations tagged Updated. Changed since settling lists the new expense. Removing an earlier expense creates ordinary reverse/refund obligations in backend tests. Undo of an old payment after the late change shows “Undone.” and restores its amount. |
 | 17 | In-flight payment during a change | **PASS.** Opened the exact $30 Request URL, added a $15 expense while away, and returned to the captured $30 question. The old ID/ref/amount remain `replaced`; Got it writes exactly that ID and $30 through the ledger, leaving $15. Component coverage also removes the original row entirely and preserves the trip-level prompt. |
@@ -89,7 +89,7 @@ keeps the approved re-optimization rather than pinning a payment graph.
 
 ![Synthetic confirmation question without a badge](images/venmo/confirm.png)
 
-![Individual debtor cards and requests](images/venmo/who-owes-you.png)
+![Payments table](images/venmo/who-owes-you.png)
 
 ![Pay sheet with confirmed payee badge](images/venmo/pay-sheet.png)
 
@@ -101,7 +101,9 @@ keeps the approved re-optimization rather than pinning a payment graph.
 
 ![Ready-to-settle gate](images/venmo/settle-gate.png)
 
-![Waiting on you banner](images/venmo/gate-banner.png)
+![Finished adding all bills and Who's done](images/venmo/gate-banner.png)
+
+![Done adding](images/venmo/ready-done.png)
 
 ![Close-out confirmation](images/venmo/close-out-confirm.png)
 
