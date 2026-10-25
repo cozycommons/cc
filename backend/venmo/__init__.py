@@ -1,1 +1,1 @@
-"""Shared public Venmo profiles and payment helpers."""
+"""Shared public Venmo profiles, payment links, and friend obligations."""
