@@ -215,6 +215,6 @@ describe('own Venmo username', () => {
     await expect(result.current.saveVenmo('alex-v')).rejects.toThrow('Your account changed');
     // The write itself is bound to the account the dialog was opened for (checked against the token it sends).
     const put = mocked.request.mock.calls.find((call) => call[2] === 'PUT');
-    expect(put.slice(1)).toEqual(['/me', 'PUT', { venmo_username: 'alex-v' }, 'user-a']);
+    expect(put.slice(1)).toEqual(['/me', 'PUT', { venmo_username: 'alex-v', owner_confirmed: false }, 'user-a']);
   });
 });

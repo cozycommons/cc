@@ -562,4 +562,25 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
 .trips-return-prompt, .trips-nudge-banner { padding: 12px; background: var(--trips-paper, #fff9e9); border-radius: 12px; }
 .trips-return-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .trips-transfer-actions { flex-wrap: wrap; }
-.trips-transfer-actions > a { font-size: 12px; }
+/* Anchors use the same button typography as the adjacent native buttons. */
+.trips .cc-button, .trips-modal .cc-button { font-family: var(--sans); line-height: 1.5; letter-spacing: 0; }
+.trips-transfer > .trips-venmo-preview { width: 100%; }
+.trips-venmo-preview .trips-venmo-card { width: 100%; box-sizing: border-box; }
+.trips .trips-transfer-actions > .cc-button.trips-venmo-check { flex: 0 0 100%; order: 1; }
+.trips-venmo-check { white-space: nowrap; }
+.trips-venmo-confirmation .trips-form-actions { border-top: 0; }
+
+.trips-venmo-name { display: inline-flex; align-items: center; gap: 6px; }
+.trips-venmo-confirmed { flex: 0 0 20px; vertical-align: middle; }
+.trips-venmo-confirmation .trips-venmo-card { flex-direction: column; text-align: center; padding: 28px 20px; }
+.trips-venmo-confirmation .trips-venmo-avatar { flex-basis: 112px; width: 112px; height: 112px; font-size: 42px; }
+.trips-venmo-confirmation .trips-venmo-identity { align-items: center; gap: 8px; }
+.trips-venmo-confirmation .trips-venmo-name { font-size: 28px; }
+
+.trips-venmo-name > a { color: inherit; text-decoration: none; }
+.trips-venmo-name > a:hover { text-decoration: underline; }
+.trips-confirmation-info { position: relative; display: inline-flex; align-items: center; }
+.trips-confirmation-trigger { display: inline-flex; align-items: center; justify-content: center; padding: 2px; border: 0; background: none; color: #1689e8; cursor: pointer; }
+.trips-confirmation-trigger:focus-visible { outline: 2px solid #1689e8; outline-offset: 2px; border-radius: 4px; }
+.trips-confirmation-tooltip { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; width: 210px; padding: 10px 12px; border: var(--hairline); border-radius: 8px; background: var(--paper-light); color: var(--ink); box-shadow: var(--soft-shadow); font: 13px/1.5 var(--sans); text-align: left; }
+.trips-confirmation-label { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-soft); font: 12px/1.5 var(--sans); }

@@ -85,7 +85,7 @@ export function PersonSheet({ group, member, onInvite, onVenmo, onRename, onRemo
   const joined = Boolean(member.user_id);
   const busy = isInvolved(group, member.id);
   return <div className="trips-person-sheet">
-    <VenmoProfile handle={member.venmo_username} request={request} />
+    <VenmoProfile handle={member.venmo_username} confirmed={member.venmo_confirmed} request={request} />
     <div className="trips-venmo-who">{!member.venmo_username && <Avatar member={member} size={44} />}
       <span className="trips-muted">{joined ? 'Joined' : 'Hasn’t joined'}</span></div>
     <ul className="trips-menu">

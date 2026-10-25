@@ -78,6 +78,10 @@ class VenmoUsername(Input):
         return normalize_username(value)
 
 
+class AccountVenmo(VenmoUsername):
+    owner_confirmed: bool = False
+
+
 class MemberVenmo(Revision, VenmoUsername):
     pass
 
@@ -243,12 +247,12 @@ def get_my_profile(request: Request, user=Depends(current_user)):
 
 
 @router.put('/me')
-def update_my_profile(payload: VenmoUsername, request: Request, user=Depends(current_user)):
+def update_my_profile(payload: AccountVenmo, request: Request, user=Depends(current_user)):
     # Only the caller's own account is writable. GoTrue merges these keys into existing metadata.
     username = payload.venmo_username
     provenance = {'source': 'self', 'provided_by_user_id': user.id,
-                  'provided_at': datetime.now(timezone.utc).isoformat(), 'owner_confirmed': True} if username else None
-    if username:
+                  'provided_at': datetime.now(timezone.utc).isoformat(), 'owner_confirmed': payload.owner_confirmed, 'handle': username.lower()} if username else None
+    if username and payload.owner_confirmed:
         from venmo.profiles import lookup
         try:
             preview = lookup.load(client(request), username.lower()) or {}

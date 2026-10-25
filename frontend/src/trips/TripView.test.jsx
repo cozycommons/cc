@@ -43,7 +43,7 @@ const writes = () => mocked.request.mock.calls.filter((call) => call[2]);
 it('prepares a Venmo payment for review without changing the ledger, then records it once', async () => {
   open('/trips/trip-id?tab=balances');
   fireEvent.click(await screen.findByRole('button', { name: 'Pay Andrew with Venmo' }));
-  const dialog = screen.getByRole('dialog', { name: 'Pay with Venmo' });
+  const dialog = screen.getByRole('dialog', { name: 'Pay Andrew' });
   expect(dialog).toHaveTextContent('@andsohn');
   expect(dialog).toHaveTextContent('$198.18');
   expect(within(dialog).getByRole('link', { name: '@andsohn, opens Venmo profile' })).toHaveAttribute('href', 'https://venmo.com/u/andsohn');
@@ -51,7 +51,7 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   expect(dialog).not.toHaveTextContent('Added for them');
   // Opening Venmo is the main step; marking it paid only takes the lead once Venmo was opened.
   expect(within(dialog).getByRole('button', { name: 'Sent' })).toHaveClass('cc-button--primary');
-  const link = within(dialog).getByRole('link', { name: /Pay @andsohn/ });
+  const link = within(dialog).getByRole('link', { name: 'Pay $198.18 in Venmo' });
   const url = new URL(link.getAttribute('href'));
   expect([url.pathname, url.searchParams.get('txn'), url.searchParams.get('amount'), url.searchParams.get('note')])
     .toEqual(['/andsohn', 'pay', '198.18', 'Cozy Trips · Tahoe & Reno']);
@@ -60,7 +60,7 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   fireEvent.click(link);
   expect(writes()).toEqual([]);
   fireEvent.focus(window);
-  expect(dialog).toHaveTextContent('Did you send $198.18 to @andsohn?');
+  expect(dialog).toHaveTextContent('Sent $198.18 to Andrew?');
   expect(within(dialog).getByRole('button', { name: 'Sent' })).toHaveClass('cc-button--primary');
 
   const failure = Object.assign(new Error('Could not confirm this saved.'), { uncertain: true });
@@ -83,7 +83,7 @@ it('offers request to the creditor, nothing to bystanders, and adds a missing us
   expect(screen.queryByRole('button', { name: /Aziz with Venmo/ })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Record payment from Jason to Aziz' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Request from Jason with Venmo' }));
-  const dialog = screen.getByRole('dialog', { name: 'Request with Venmo' });
+  const dialog = screen.getByRole('dialog', { name: 'Request from Jason' });
   expect(dialog).toHaveTextContent('No Venmo username yet');
   expect(within(dialog).queryByRole('link')).not.toBeInTheDocument();
   expect(within(dialog).getByRole('button', { name: 'Copy amount' })).toBeInTheDocument();
@@ -93,8 +93,8 @@ it('offers request to the creditor, nothing to bystanders, and adds a missing us
   fireEvent.change(within(dialog).getByLabelText('Jason’s Venmo username'), { target: { value: '@jason-k' } });
   await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Add' })));
   expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/venmo', 'PUT', { venmo_username: 'jason-k', revision: 4 }]);
-  const still = screen.getByRole('dialog', { name: 'Request with Venmo' });
-  expect(within(still).getByRole('link', { name: /Request .* from @jason-k/ })).toHaveAttribute('href', expect.stringContaining('/jason-k?txn=charge'));
+  const still = screen.getByRole('dialog', { name: 'Request from Jason' });
+  expect(within(still).getByRole('link', { name: /Request .* in Venmo/ })).toHaveAttribute('href', expect.stringContaining('/jason-k?txn=charge'));
   expect(still).not.toHaveTextContent('Added by the trip creator');
 });
 
@@ -370,5 +370,5 @@ it('refreshes the review instead of linking when the trip changed since the sugg
 
 it('shows a payment nudge when the payer opens the trip on Expenses', async () => {
   open('/trips/trip-id?tab=expenses', trip({ obligations: [{ id: 'nudge', status: 'open', from_member: 'me', to_member: 'andrew', amount_minor: 19818, nudged_at: '2026-10-25T00:00:00+00:00' }] }));
-  expect(await screen.findByText('Andrew nudged you about $198.18.')).toBeInTheDocument();
+  expect(await screen.findByText('Andrew nudged you · $198.18')).toBeInTheDocument();
 });
