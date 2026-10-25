@@ -12,6 +12,7 @@ import VenmoConfirmation from './VenmoConfirmation.jsx';
 import { VenmoForm } from './People.jsx';
 import { clearInvitation, readInvitation } from './invitation.js';
 import PlayerAvatar from '../dice/components/PlayerAvatar.jsx';
+import SiteHeader from '../components/SiteHeader.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './trips.css';
 
@@ -181,18 +182,14 @@ export default function TripsApp() {
   const signIn = async (name) => { setError(''); setSigningIn(true); try { if (name) await auth.signInLocal(name); else await auth.signIn(); } catch (e) { setError(e.message); } finally { setSigningIn(false); } };
   const signOut = async () => { try { setProfileOpen(false); await auth.signOut(); } catch (e) { setError(e.message); } };
   return <div className="cc-page trips"><a href="#trips-main" className="trips-skip">Skip to trip</a>
-    <header className="trips-navbar">
-      <Link to="/" className="trips-home-link" aria-label="Cozy Commons home"><span className="trips-commons-mark" aria-hidden="true"><span>cozy</span><small>commons</small></span></Link>
-      <Link to="/trips" className="trips-wordmark"><span className="trips-logo" aria-hidden="true"><Suitcase size={22} /></span>Cozy Trips</Link>
-      <div className="trips-account">
-        {localDemo && <span className="trips-demo-badge">LOCAL</span>}
-        {auth.user && <>
-          <button className="trips-account-identity" aria-label={`Signed in as ${headerProfile.display_name}. Open profile`} onClick={() => setProfileOpen(true)}>
-            <PlayerAvatar profile={headerProfile} size={32} linkToProfile={false} /><span className="trips-account-name">{headerProfile.display_name}</span></button>
-          <Button variant="ghost" className="trips-signout" aria-label="Sign out" onClick={signOut}><LogOut size={14} aria-hidden="true" /><span>Sign out</span></Button>
-        </>}
-      </div>
-    </header>
+    <SiteHeader product="Cozy Trips" to="/trips" icon={<Suitcase size={22} />}>
+      {localDemo && <span className="trips-demo-badge">LOCAL</span>}
+      {auth.user && <>
+        <button className="trips-account-identity" aria-label={`Signed in as ${headerProfile.display_name}. Open profile`} onClick={() => setProfileOpen(true)}>
+          <PlayerAvatar profile={headerProfile} size={32} linkToProfile={false} /><span className="trips-account-name">{headerProfile.display_name}</span></button>
+        <Button variant="ghost" className="trips-signout" aria-label="Sign out" onClick={signOut}><LogOut size={14} aria-hidden="true" /><span>Sign out</span></Button>
+      </>}
+    </SiteHeader>
     {(error || auth.error) && <p className="trips-error" role="alert">{error || auth.error}</p>}
     <main id="trips-main">{auth.loading ? <p className="trips-loading" role="status">Loading…</p> : auth.user
       ? <Workspace key={workspaceKey} auth={auth} tripId={tripId} joinId={joinId} invitation={invitation.current} onEditProfile={() => setProfileOpen(true)} />

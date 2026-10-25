@@ -36,7 +36,11 @@ it('hides the entry from non-admins and unauthenticated visitors', async () => {
 });
 it('loads, saves, verifies and clears settings on sign-out', async () => {
   setup((_url, options) => response(options.method === 'PUT' ? { saved: true } : { espn_league_id: '111' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Admin' }));
+  const entry = await screen.findByRole('button', { name: 'Admin' });
+  expect(entry).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByLabelText('ESPN league ID')).toBeNull();
+  fireEvent.click(entry);
+  expect(entry).toHaveAttribute('aria-expanded', 'true');
   const field = await screen.findByLabelText('ESPN league ID');
   await waitFor(() => expect(field.value).toBe('111'));
   fireEvent.change(field, { target: { value: '222' } });

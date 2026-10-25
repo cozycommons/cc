@@ -3,18 +3,18 @@ import './AdminPanel.css';
 
 const seasonOption = entry => (typeof entry === 'object' ? entry : { value: entry, label: String(entry) });
 
-// Small header button that opens the admin settings; render it for admins only.
-export function AdminEntry({ open, onClick, controls = 'fx-admin-panel' }) {
+// Quiet icon in the site header that opens the admin settings; render it for admins only.
+export const AdminEntry = React.forwardRef(function AdminEntry({ open, onClick, controls = 'fx-admin-panel' }, ref) {
   return (
-    <button type="button" className="fx-admin-entry" aria-expanded={!!open} aria-controls={controls} onClick={onClick}>
-      <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+    <button ref={ref} type="button" className="cc-sitebar-icon fx-admin-entry" aria-label="Admin" title="Admin"
+      aria-expanded={!!open} aria-controls={open ? controls : undefined} onClick={onClick}>
+      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
         <path d="M3 6h9M15 6h2M3 14h2M8 14h9" />
         <circle cx="13.5" cy="6" r="1.8" /><circle cx="6.5" cy="14" r="1.8" />
       </svg>
-      Admin
     </button>
   );
-}
+});
 
 // Admin settings: presentational only. The parent owns data, auth, and saving.
 // `children` renders extra <fieldset className="fx-admin-group"> sections below League.
@@ -68,9 +68,9 @@ export default function AdminPanel({
             </label>
           </div>
           <div className="fx-admin-actions">
-            <button type="submit" className="fx-admin-save" disabled={busy}>{saving ? 'Saving…' : 'Save'}</button>
+            <button type="submit" className="cc-button cc-button--primary fx-admin-save" disabled={busy}>{saving ? 'Saving…' : 'Save'}</button>
             {leagueUrl && (
-              <a className="fx-admin-open" href={leagueUrl} target="_blank" rel="noopener noreferrer">
+              <a className="cc-button cc-button--ghost fx-admin-open" href={leagueUrl} target="_blank" rel="noopener noreferrer">
                 <span className="fx-espn-badge" aria-hidden="true">ESPN</span>
                 Open league
                 <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="M8 4h8v8M16 4L6 14" /></svg>

@@ -1,0 +1,29 @@
+@import "../../../design/cozy-wabi/tokens.css";
+
+/* Same proportions as the Trips navbar so products read as one site. */
+.cc-sitebar { display: flex; align-items: center; gap: 20px; min-height: 64px; border-bottom: var(--hairline); color: var(--ink); font-family: var(--sans); }
+.cc-sitebar a { color: inherit; }
+.cc-sitebar :focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.cc-sitebar-home { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; text-decoration: none; }
+.cc-sitebar-mark { display: inline-flex; flex-direction: column; align-items: center; line-height: .9; }
+.cc-sitebar-mark > span { font: italic 25px/.9 var(--serif); letter-spacing: -.07em; color: var(--espresso); }
+.cc-sitebar-mark > small { margin-top: 3px; font: 6px var(--mono); letter-spacing: .17em; text-transform: uppercase; color: var(--clay); }
+.cc-sitebar-wordmark { display: inline-flex; align-items: center; gap: 8px; min-width: 0; min-height: 44px; font-size: 18px; font-weight: 600; letter-spacing: -.03em; text-decoration: none; white-space: nowrap; }
+.cc-sitebar-logo { display: inline-grid; flex: none; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: var(--paper-light); background: linear-gradient(145deg, var(--clay), var(--amber)); transition: transform 160ms ease; }
+.cc-sitebar-wordmark:hover .cc-sitebar-logo { transform: rotate(-6deg); }
+.cc-sitebar-end { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: auto; font-size: 13px; }
+
+/* Quiet icon control for the right-hand slot. */
+.cc-sitebar-icon { display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 999px; background: none; color: var(--ink-soft); cursor: pointer; }
+.cc-sitebar-icon:hover { border-color: var(--line); background: var(--paper-light); color: var(--ink); }
+.cc-sitebar-icon[aria-expanded=true] { border-color: var(--line); background: var(--paper-light); color: var(--espresso); }
+.cc-sitebar-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+
+@media (prefers-reduced-motion: reduce) { .cc-sitebar-logo { transition: none; } }
+
+@media (max-width: 640px) {
+  .cc-sitebar { gap: 10px; min-height: 56px; }
+  .cc-sitebar-mark > span { font-size: 21px; }
+  .cc-sitebar-wordmark { font-size: 16px; }
+  .cc-sitebar-logo { width: 26px; height: 26px; }
+}

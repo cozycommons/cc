@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, Route, Routes } from 'react-router-dom';
+import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
-import { loadSnapshot } from './source.js';
+import { cachedSnapshot, loadSnapshot } from './source.js';
 import { favorite, orderMatchups } from './paths.js';
 import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
@@ -13,6 +14,9 @@ import { COLORS, Manager, OddsTrend, OwnersContext, ScorePath, TeamLogo, longDay
 import { LeagueLinksContext, MatchupLink, PlayerLink } from './EspnLink.jsx';
 import { checkAdmin } from './admin.js';
 import FantasyAdmin from './FantasyAdmin.jsx';
+import { AdminEntry } from './AdminPanel.jsx';
+import Basketball from './Basketball.jsx';
+import '../../../design/cozy-wabi/components.css';
 import './fantasy.css';
 
 function MatchupCard({ matchup, narrow }) {
@@ -131,13 +135,18 @@ function Hub({ data, apiUrl, onOwnersChange }) {
 }
 
 function Fantasy() {
-  const [state, setState] = useState({ status: 'loading' });
+  const [apiUrl] = useState(() => { try { return getUrl(); } catch { return null; } });
+  const [state, setState] = useState(() => {
+    const data = cachedSnapshot(apiUrl);
+    return data ? { status: 'ready', data } : { status: 'loading' };
+  });
   const [links, setLinks] = useState(null);
   const [adminToken, setAdminToken] = useState(null);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const adminEntry = useRef(null);
   const [viewer, setViewer] = useState(null);
   const [revision, setRevision] = useState(0);
   const [owners, setOwners] = useState(() => new Map());
-  const [apiUrl] = useState(() => { try { return getUrl(); } catch { return null; } });
   useEffect(() => {
     const controller = new AbortController();
     loadSnapshot(apiUrl, controller.signal)
@@ -185,28 +194,35 @@ function Fantasy() {
     setRevision(value => value + 1);
     return fetchOwners(apiUrl, data?.year, undefined, true).then(setOwners);
   };
+  useEffect(() => { setAdminOpen(false); }, [adminToken]);
+  const closeAdmin = () => { setAdminOpen(false); adminEntry.current?.focus(); };
   return (
-    <main className="fx-page">
-      <header className="fx-header">
-        <Link to="/" className="fx-home">Cozy Commons</Link>
-        <h1><Link to="/fantasy">Fantasy basketball</Link></h1>
-        {data && <p>Matchup {data.matchup.id} · updated {new Date(data.generatedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
-      </header>
-      {adminToken && <FantasyAdmin key={adminToken} apiUrl={apiUrl} token={adminToken} initialSeason={data?.year} onSaved={() => setRevision(value => value + 1)} />}
-      {status === 'loading' && <p className="fx-status" role="status">Loading…</p>}
-      {status === 'empty' && <p className="fx-status">No predictions yet.</p>}
-      {status === 'error' && <p className="fx-status" role="alert">Predictions unavailable.</p>}
-      {data && (
-        <>
-          <OwnersContext.Provider value={owners}><LeagueLinksContext.Provider value={links?.season === data.year ? links : null}>
-            <Routes>
-              <Route index element={<Hub data={data} apiUrl={apiUrl} onOwnersChange={reloadOwners} />} />
-              <Route path=":key" element={<MatchupPage data={data} />} />
-            </Routes>
-          </LeagueLinksContext.Provider></OwnersContext.Provider>
-        </>
-      )}
-    </main>
+    <div className="fx-page">
+      <SiteHeader product="Fantasy" to="/fantasy" icon={<Basketball />}>
+        {adminToken && <AdminEntry ref={adminEntry} open={adminOpen} onClick={() => adminOpen ? closeAdmin() : setAdminOpen(true)} />}
+      </SiteHeader>
+      {adminToken && adminOpen && <FantasyAdmin key={adminToken} apiUrl={apiUrl} token={adminToken} initialSeason={data?.year}
+        onSaved={() => setRevision(value => value + 1)} onClose={closeAdmin} />}
+      <main className="fx-main">
+        <div className="fx-header">
+          <h1>{data ? `Matchup ${data.matchup.id}` : 'Fantasy basketball'}</h1>
+          {data && <p>Updated {new Date(data.generatedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</p>}
+        </div>
+        {status === 'loading' && <div className="fx-status fx-loading" role="status"><span className="fx-loading-ball"><Basketball size={28} /></span><span>Loading…</span></div>}
+        {status === 'empty' && <p className="fx-status">No predictions yet.</p>}
+        {status === 'error' && <p className="fx-status" role="alert">Predictions unavailable.</p>}
+        {data && (
+          <>
+            <OwnersContext.Provider value={owners}><LeagueLinksContext.Provider value={links?.season === data.year ? links : null}>
+              <Routes>
+                <Route index element={<Hub data={data} apiUrl={apiUrl} onOwnersChange={reloadOwners} />} />
+                <Route path=":key" element={<MatchupPage data={data} />} />
+              </Routes>
+            </LeagueLinksContext.Provider></OwnersContext.Provider>
+          </>
+        )}
+      </main>
+    </div>
   );
 }
 

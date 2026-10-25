@@ -1,65 +1,43 @@
-/* Admin entry: a quiet pill pinned to the header's top-right corner. */
-.fx-header:has(> .fx-admin-entry){position:relative;padding-right:96px}
-.fx-header > .fx-admin-entry{position:absolute;top:0;right:0}
-.fx-admin-entry{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border:1px solid #d6c5a7;border-radius:999px;background:#fffaf2;color:#5c4a3d;font:inherit;font-size:13px;cursor:pointer}
-.fx-admin-entry svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
-.fx-admin-entry svg circle{fill:#fffaf2}
-.fx-admin-entry:hover{color:#201711;border-color:#c9b597}
-.fx-admin-entry[aria-expanded=true]{background:#efe4d1;color:#201711}
-.fx-admin-entry[aria-expanded=true] svg circle{fill:#efe4d1}
-.fx-admin-entry:focus-visible,.fx-admin button:focus-visible,.fx-admin a:focus-visible{outline:2px solid #b75f41;outline-offset:2px}
-
-/* Panel: same paper card as the other fantasy panels. */
-.fx-admin{box-sizing:border-box;min-width:0;max-width:100%;margin:0 0 18px;padding:6px 18px 16px;background:#fffaf2;border:1px solid #e4d6bd;border-radius:14px;box-shadow:0 6px 18px rgba(106,69,47,.08);color:#3d2f29}
+/* Panel: opens under the site header from the admin icon; same paper card as the other fantasy panels. */
+.fx-admin{box-sizing:border-box;min-width:0;max-width:100%;margin:16px 0 0;padding:6px 18px 16px;background:#fffaf2;border:1px solid #e4d6bd;border-radius:14px;box-shadow:0 6px 18px rgba(106,69,47,.08);color:var(--ink)}
+.fx-admin :focus-visible{outline:var(--focus-ring);outline-offset:2px}
 .fx-admin-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.fx-admin-head h2{margin:0;font-family:var(--serif,Georgia,serif);font-size:20px;font-weight:600;color:#201711;outline:none}
-.fx-admin-close{display:grid;place-items:center;width:44px;height:44px;margin-right:-10px;padding:0;border:0;border-radius:10px;background:transparent;color:#75695b;cursor:pointer}
-.fx-admin-close:hover{background:#f3e8d6;color:#201711}
+.fx-admin-head h2{margin:0;font-family:var(--sans);font-size:16px;font-weight:600;letter-spacing:-.02em;color:var(--espresso);outline:none}
+.fx-admin-close{display:grid;place-items:center;width:44px;height:44px;margin-right:-10px;padding:0;border:0;border-radius:999px;background:transparent;color:var(--ink-soft);cursor:pointer}
+.fx-admin-close:hover{background:var(--paper-light);color:var(--ink)}
 .fx-admin-close svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
 .fx-admin form{display:flex;flex-direction:column;min-width:0}
 
-/* Groups: one fieldset per settings area, separated by a hairline. */
-.fx-admin-group{min-width:0;margin:6px 0 0;padding:12px 0 0;border:0;border-top:1px solid #efe4d1}
-.fx-admin-group legend{float:left;width:100%;margin:0 0 10px;padding:0;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#75695b}
+/* Fields match the site form (Trips) look. */
+.fx-admin-group{min-width:0;margin:6px 0 0;padding:12px 0 0;border:0;border-top:var(--hairline)}
+.fx-admin-group legend{float:left;width:100%;margin:0 0 10px;padding:0;font-size:12px;font-weight:600;color:var(--ink-soft)}
 .fx-admin-group legend + *{clear:left}
-.fx-admin-fields{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px}
-.fx-admin-field{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:13px;color:#3d2f29}
-.fx-admin-field input,.fx-admin-field select{box-sizing:border-box;width:100%;min-width:0;min-height:44px;padding:0 12px;border:1px solid #d6c5a7;border-radius:8px;background:#fff;color:#201711;font:inherit;font-size:16px;font-variant-numeric:tabular-nums}
-.fx-admin-field input:focus,.fx-admin-field select:focus{outline:none;border-color:#b75f41;box-shadow:0 0 0 3px rgba(183,95,65,.18)}
-.fx-admin-field input[aria-invalid=true]{border-color:#a1442b}
-.fx-admin-group:disabled .fx-admin-field input,.fx-admin-group:disabled .fx-admin-field select{background:#f7f0e4;color:#75695b}
+.fx-admin-fields{display:grid;grid-template-columns:120px minmax(0,1fr);gap:14px}
+.fx-admin-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}
+.fx-admin-field > span{font-weight:600;color:var(--ink)}
+.fx-admin-field input,.fx-admin-field select{box-sizing:border-box;display:block;width:100%;min-width:0;min-height:46px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:10px;background:#fbf6ec;color:var(--ink);font:16px/1.4 var(--sans);font-variant-numeric:tabular-nums}
+.fx-admin-field input[aria-invalid=true]{border-color:#963f34}
+.fx-admin-group:disabled{opacity:.6}
 
 .fx-admin-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}
-.fx-admin-save{min-height:44px;min-width:96px;padding:0 18px;border:1px solid #b75f41;border-radius:8px;background:#b75f41;color:#fff;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
-.fx-admin-save:hover:not(:disabled){background:#a5533a}
-.fx-admin-save:disabled{opacity:.55;cursor:default}
-.fx-admin-open{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 12px;white-space:nowrap;border:1px solid #d6c5a7;border-radius:8px;color:#3d2f29;font-size:14px;text-decoration:none}
-.fx-admin-open:hover{background:#f7efe2}
-.fx-admin-open svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:#75695b}
+.fx-admin-save{min-width:96px}
+.fx-admin-open .fx-espn-badge{font-size:10px}
+.fx-admin-open svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
-/* State line: neutral for loading/saving, green for saved, rust for errors. */
-.fx-admin-status{display:flex;align-items:center;gap:6px;min-height:20px;margin:12px 0 0;font-size:13px;color:#75695b}
+/* State line: neutral for loading/saving, moss for saved, rust for errors. */
+.fx-admin-status{display:flex;align-items:center;gap:6px;min-height:20px;margin:12px 0 0;font-size:13px;color:var(--ink-soft)}
 .fx-admin-status:empty{min-height:0;margin:0}
-.fx-admin-status--ok{color:#3f7d4e}
-.fx-admin-status--ok::before{content:'';width:8px;height:8px;border-radius:50%;background:#3f7d4e}
-.fx-admin[aria-busy=true] .fx-admin-status::before{content:'';width:10px;height:10px;border:2px solid #d6c5a7;border-top-color:#b75f41;border-radius:50%;animation:fx-admin-spin .8s linear infinite}
-.fx-admin-error{margin:12px 0 0;padding:10px 12px;border-radius:8px;background:#f6e3dc;color:#a1442b;font-size:13px;overflow-wrap:anywhere}
+.fx-admin-status--ok{color:var(--moss-dark)}
+.fx-admin-status--ok::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--moss-dark)}
+.fx-admin[aria-busy=true] .fx-admin-status::before{content:'';width:10px;height:10px;border:2px solid var(--line);border-top-color:var(--clay);border-radius:50%;animation:fx-admin-spin .8s linear infinite}
+.fx-admin-error{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#f6e3dc;color:#963f34;font-size:13px;overflow-wrap:anywhere}
 @keyframes fx-admin-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.fx-admin[aria-busy=true] .fx-admin-status::before{animation:none}}
 
 @media(max-width:600px){
-  .fx-header:has(> .fx-admin-entry){padding-right:0}
-  .fx-header > .fx-admin-entry{top:0;min-height:44px;padding:0 12px;font-size:12px}
-  .fx-admin{padding:4px 12px 14px;margin-bottom:12px}
-  .fx-admin-head h2{font-size:18px}
+  .fx-admin{padding:4px 12px 14px;margin-top:12px}
   .fx-admin-fields{grid-template-columns:1fr;gap:10px}
   .fx-admin-actions{display:grid;grid-template-columns:1fr 1fr}
   .fx-admin-actions > :only-child{grid-column:1/-1}
-  .fx-admin-save,.fx-admin-open{width:100%;justify-content:center;box-sizing:border-box}
+  .fx-admin-actions .cc-button{width:100%}
 }
-
-/* The data controller sits below the header; its entry shares the header's top row. */
-.fx-page:has(.fx-admin-slot){position:relative}
-.fx-admin-slot > div:first-child{position:absolute;top:24px;right:clamp(16px,4vw,40px)}
-
-@media(max-width:600px){.fx-admin-slot > div:first-child{top:0}}
