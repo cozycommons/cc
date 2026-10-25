@@ -120,8 +120,12 @@ class FakeSupabase:
 
 @pytest.fixture
 def client(monkeypatch):
+    from espn import team_claims
+    monkeypatch.setattr(team_claims, "_fallback_snapshot", lambda: None)
     monkeypatch.setenv("ESPN_PUBLIC_PREDICTIONS_TOKEN", "upload-secret")
+    from espn.public_compression import PublicPredictionsCompression
     app = FastAPI()
+    app.add_middleware(PublicPredictionsCompression)
     app.include_router(routes.router, prefix="/espn")
     app.state.supabase = FakeSupabase()
     with TestClient(app) as client:
@@ -516,3 +520,137 @@ def test_server_league_id_never_reaches_public_predictions(client, monkeypatch):
     response = client.get(PATH + "/latest")
     assert response.status_code == 200 and "918273645" not in response.text
     assert "leagueId" not in response.text and "league_id" not in response.text
+
+
+def test_latest_fallback_only_when_database_empty(client, monkeypatch, snapshot_v2):
+    from espn import team_claims
+    calls = []
+    monkeypatch.setattr(team_claims, "_fallback_snapshot", lambda: calls.append(True) or snapshot_v2)
+    assert client.get(PATH + "/latest").json() == snapshot_v2
+    assert len(calls) == 1
+    client.post(PATH, json=SNAPSHOT, headers=AUTH)
+    assert client.get(PATH + "/latest").json() == SNAPSHOT
+    assert len(calls) == 1
+
+
+def test_ndjson_records_reconstruct_and_preserve_metadata(client, snapshot_v2):
+    from espn.public_predictions import _snapshot_records
+    body = snapshot_v2
+    body["teams"].append({"id": 4, "name": "Fourth", "abbrev": "F", "logo": None})
+    body["matchups"].append({"home": 3, "away": 4, "unavailable": True})
+    body["season"] = None
+    body["season_year"] = 2027
+    body["teams"][0]["manager"] = "Jordan"
+    close = copy.deepcopy(body["matchups"][0])
+    close.update(home=4, away=3, chance=49)
+    # Exercise ordering independently: validated snapshots use each team once.
+    records = list(_snapshot_records(dict(body, matchups=[*body["matchups"], close])))
+    assert [r["type"] for r in records] == ["meta", "matchup", "matchup", "matchup", "history", "done"]
+    assert records[1]["matchup"]["chance"] == 49
+    assert records[3]["matchup"]["unavailable"] is True
+    assert records[0]["slots"] == [{"key": f"{r['matchup']['home']}-{r['matchup']['away']}",
+                                     "home": r["matchup"]["home"], "away": r["matchup"]["away"]}
+                                    for r in records[1:4]]
+    assert records[0]["snapshot"]["teams"][0]["manager"] == "Jordan"
+    assert all("logo" not in t for t in records[0]["snapshot"]["teams"])
+    assert records[0]["season_available"] is False
+    client.post(PATH, json=body, headers=AUTH)
+    response = client.get(PATH + "/latest", headers={"Accept": "application/x-ndjson", "Accept-Encoding": "identity"})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/x-ndjson"
+    assert response.headers["x-accel-buffering"] == "no"
+    lines = [json.loads(line) for line in response.iter_lines()]
+    assembled = lines[0]["snapshot"]
+    teams = {t["id"]: t for t in assembled["teams"]}
+    assembled["matchups"] = []
+    for record in lines[1:]:
+        if record["type"] == "matchup":
+            assembled["matchups"].append(record["matchup"])
+            teams.update({t["id"]: t for t in record["teams"]})
+        elif record["type"] == "history":
+            for history in record["matchups"]:
+                next(m for m in assembled["matchups"] if m["home"] == history["home"]
+                     and m["away"] == history["away"])["odds_history"] = history["odds_history"]
+    assembled["teams"] = list(teams.values())
+    assembled["season"] = None
+    assert assembled == body
+    assert lines[-1] == {"type": "done"}
+
+
+def test_gzip_stream_flushes_every_record(snapshot_v2):
+    import zlib
+    from espn.public_predictions import _snapshot_records, _snapshot_stream
+    records = list(_snapshot_records(snapshot_v2))
+    chunks = list(_snapshot_stream(snapshot_v2, gzip=True))
+    decompressor = zlib.decompressobj(wbits=31)
+    assert len(chunks) == len(records) + 1
+    for chunk, expected in zip(chunks, records):
+        line = decompressor.decompress(chunk)
+        assert line.endswith(b"\n") and line.count(b"\n") == 1
+        assert json.loads(line) == expected
+    assert decompressor.decompress(chunks[-1]) == b""
+    assert decompressor.eof
+    assert [r["type"] for r in records] == ["meta", "matchup", "season", "history", "done"]
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "identity", "gzip;q=0"])
+def test_representation_etags_and_middleware(client, snapshot_v2, encoding):
+    client.post(PATH, json=snapshot_v2, headers=AUTH)
+    headers = {"Accept": "application/x-ndjson", "Accept-Encoding": encoding}
+    stream = client.get(PATH + "/latest", headers=headers)
+    assert stream.headers["content-encoding"] == ("gzip" if encoding == "gzip" else "identity")
+    assert json.loads(stream.text.splitlines()[-1]) == {"type": "done"}
+    etag = stream.headers["etag"]
+    for validator in [etag, etag[2:], f'"other", {etag}', "*"]:
+        cached = client.get(PATH + "/latest", headers={**headers, "If-None-Match": validator})
+        assert cached.status_code == 304 and cached.content == b""
+        assert cached.headers["etag"] == etag
+        assert cached.headers["cache-control"] == "public, max-age=300"
+        assert {v.strip() for v in cached.headers["vary"].split(",")} == {"Accept", "Accept-Encoding"}
+    plain = client.get(PATH + "/latest", headers={"Accept-Encoding": "identity"})
+    assert plain.headers["etag"] != etag and plain.json() == snapshot_v2
+    compressed = client.get(PATH + "/latest", headers={"Accept-Encoding": "gzip"})
+    assert compressed.headers["content-encoding"] == "gzip" and compressed.json() == snapshot_v2
+    assert compressed.headers["etag"] == plain.headers["etag"]
+    snapshot_v2["label"] = "Changed public label"
+    client.app.state.supabase.rows[0]["payload"] = snapshot_v2
+    changed = client.get(PATH + "/latest", headers={**headers, "If-None-Match": etag})
+    assert changed.status_code == 200 and changed.headers["etag"] != etag
+
+
+def test_v1_and_refused_ndjson_keep_json(client, snapshot_v2):
+    client.post(PATH, json=SNAPSHOT, headers=AUTH)
+    assert client.get(PATH + "/latest", headers={"Accept": "application/x-ndjson"}).json() == SNAPSHOT
+    client.app.state.supabase.rows[0]["payload"] = snapshot_v2
+    assert client.get(PATH + "/latest", headers={"Accept": "application/x-ndjson;q=0"}).json() == snapshot_v2
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "identity"])
+def test_middleware_delivers_each_stream_record_without_buffering(client, snapshot_v2, encoding):
+    import asyncio
+    import zlib
+    from espn.public_predictions import _snapshot_records
+    client.app.state.supabase.rows.append({"payload": snapshot_v2, "received_at": "2026-10-23"})
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    asyncio.run(client.app({
+        "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "http_version": "1.1", "method": "GET", "scheme": "http",
+        "path": PATH + "/latest", "raw_path": (PATH + "/latest").encode(), "query_string": b"",
+        "root_path": "", "server": ("testserver", 80), "client": ("testclient", 123),
+        "headers": [(b"accept", b"application/x-ndjson"), (b"accept-encoding", encoding.encode())],
+    }, receive, send))
+    chunks = [message["body"] for message in messages if message["type"] == "http.response.body" and message["body"]]
+    records = list(_snapshot_records(snapshot_v2))
+    decompressor = zlib.decompressobj(wbits=31) if encoding == "gzip" else None
+    assert len(chunks) == len(records) + (1 if decompressor else 0)
+    for chunk, record in zip(chunks, records):
+        assert json.loads(decompressor.decompress(chunk) if decompressor else chunk) == record
+    if decompressor:
+        assert decompressor.decompress(chunks[-1]) == b"" and decompressor.eof

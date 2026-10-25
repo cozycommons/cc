@@ -3,11 +3,15 @@
 import base64
 import binascii
 import hmac
+import hashlib
+import json
+import zlib
 import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from starlette.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import (
     AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError, field_validator,
@@ -332,13 +336,85 @@ def upload(request: Request, snapshot: Snapshot = Depends(_read_snapshot)):
     }
 
 
+def _accepts(header: str, media_type: str) -> bool:
+    """Honor explicit quality values, including an explicit gzip refusal."""
+    for entry in header.lower().split(","):
+        name, *parameters = entry.strip().split(";")
+        if name.strip() != media_type:
+            continue
+        quality = 1.0
+        for parameter in parameters:
+            key, _, value = parameter.strip().partition("=")
+            if key == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0
+        return quality > 0
+    return False
+
+
+def _snapshot_records(payload):
+    matchups = sorted(payload["matchups"], key=lambda m: (
+        bool(m.get("unavailable")), abs(m.get("chance", 50) - 50)))
+    teams = {team["id"]: team for team in payload["teams"]}
+    snapshot = {key: value for key, value in payload.items() if key not in ("matchups", "season")}
+    snapshot["teams"] = [{key: value for key, value in team.items() if key != "logo"}
+                         for team in payload["teams"]]
+    yield {"type": "meta", "total_matchups": len(matchups),
+           "updated_at": payload["generated_at"], "season_available": payload.get("season") is not None,
+           "snapshot": snapshot,
+           "slots": [{"key": f"{m['home']}-{m['away']}", "home": m["home"], "away": m["away"]}
+                     for m in matchups]}
+    for matchup in matchups:
+        yield {"type": "matchup",
+               "matchup": {key: value for key, value in matchup.items() if key != "odds_history"},
+               "teams": [teams[matchup["home"]], teams[matchup["away"]]]}
+    if payload.get("season") is not None:
+        yield {"type": "season", "season": payload["season"]}
+    yield {"type": "history", "matchups": [
+        {"home": m["home"], "away": m["away"], "odds_history": m["odds_history"]}
+        for m in matchups if "odds_history" in m]}
+    yield {"type": "done"}
+
+
+def _snapshot_stream(payload, gzip=False):
+    compressor = zlib.compressobj(level=5, wbits=31) if gzip else None
+    for record in _snapshot_records(payload):
+        line = (json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+        yield compressor.compress(line) + compressor.flush(zlib.Z_SYNC_FLUSH) if compressor else line
+    if compressor:
+        yield compressor.flush(zlib.Z_FINISH)
+
+
 @router.get("/public/predictions/latest")
 def latest(request: Request, response: Response):
     # One fixed query: public callers cannot vary the shared cache key.
     result = request.app.state.supabase.table("espn_public_predictions").select(
         "payload"
     ).order("received_at", desc=True).limit(1).execute()
-    if not result.data:
+    if result.data:
+        payload = result.data[0]["payload"]
+    else:
+        # Local import avoids the team-claims model dependency cycle. This helper
+        # bounds, validates and caches the existing public fallback.
+        from .team_claims import _fallback_snapshot
+        payload = _fallback_snapshot()
+    if payload is None:
         raise HTTPException(status_code=404, detail="no public predictions available")
-    response.headers["Cache-Control"] = "public, max-age=300"
-    return result.data[0]["payload"]
+    streaming = payload.get("version") == "public-v2" and _accepts(
+        request.headers.get("accept", ""), "application/x-ndjson")
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    digest = hashlib.sha256(canonical).hexdigest()
+    etag = f'W/"{digest}-{"ndjson" if streaming else "json"}"'
+    headers = {"Cache-Control": "public, max-age=300", "Vary": "Accept, Accept-Encoding", "ETag": etag}
+    validators = request.headers.get("if-none-match", "").split(",")
+    if any(value.strip() == "*" or value.strip().removeprefix("W/") == etag[2:]
+           for value in validators):
+        return Response(status_code=304, headers=headers)
+    if streaming:
+        gzip = _accepts(request.headers.get("accept-encoding", ""), "gzip")
+        headers.update({"X-Accel-Buffering": "no", "Content-Encoding": "gzip" if gzip else "identity"})
+        return StreamingResponse(_snapshot_stream(payload, gzip), media_type="application/x-ndjson", headers=headers)
+    response.headers.update(headers)
+    return payload
