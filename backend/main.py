@@ -109,6 +109,9 @@ def root():
 
 
 app.include_router(health_router)
+from venmo.routes import router as venmo_router
+app.state.venmo_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+app.include_router(venmo_router, prefix="/venmo")
 app.include_router(trips_router, prefix="/trips")
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")

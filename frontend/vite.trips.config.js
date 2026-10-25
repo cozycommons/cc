@@ -13,7 +13,7 @@ export default defineConfig((environment) => {
       allowedHosts: ['localhost', '127.0.0.1', 'desktop-r5cm15p.tail9170c8.ts.net'],
       headers: { 'Referrer-Policy': 'no-referrer' },
       proxy: {
-        '^/api/(trips|dice)(?:/|$)': {
+        '^/api/(trips|dice|venmo)(?:/|$)': {
           target: 'http://127.0.0.1:8011',
           rewrite: (url) => url.replace(/^\/api/, ''),
         },

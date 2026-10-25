@@ -248,6 +248,14 @@ def update_my_profile(payload: VenmoUsername, request: Request, user=Depends(cur
     username = payload.venmo_username
     provenance = {'source': 'self', 'provided_by_user_id': user.id,
                   'provided_at': datetime.now(timezone.utc).isoformat(), 'owner_confirmed': True} if username else None
+    if username:
+        from venmo.profiles import lookup
+        try:
+            preview = lookup.load(client(request), username.lower()) or {}
+        except Exception:
+            preview = {}
+        if preview.get('found'):
+            provenance['display_name'] = preview['displayName']
     try:
         updated = client(request).auth.admin.update_user_by_id(
             user.id, {'user_metadata': {'venmo_username': username, 'venmo_username_provenance': provenance}}).user
@@ -462,10 +470,3 @@ def add_repayment(trip_id: UUID, payload: Repayment, request: Request, user=Depe
 @router.delete('/groups/{trip_id}/repayments/{repayment_id}')
 def delete_repayment(trip_id: UUID, repayment_id: UUID, payload: Revision, request: Request, user=Depends(current_user)):
     return command(request, trip_id, user, 'delete_repayment', {**payload.model_dump(), 'id': str(repayment_id)})
-
-
-@router.get('/venmo/profile')
-def venmo_profile(response: Response, handle: str, user=Depends(current_user)):
-    from .venmo_profile import lookup
-    response.headers['Cache-Control'] = 'no-store'
-    return lookup.lookup(handle, user.id)

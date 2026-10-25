@@ -7,7 +7,7 @@ export async function tripRequest(supabase, path, method = 'GET', payload, expec
   if (expectedUserId && data.session.user?.id !== expectedUserId) throw new Error('Your account changed. Reload to continue.');
   let response;
   try {
-    response = await fetch(`${getUrl()}/trips${path}`, {
+    response = await fetch(`${getUrl()}${path.startsWith('/venmo/') ? '' : '/trips'}${path}`, {
       method,
       headers: { Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' },
       ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
