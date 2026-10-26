@@ -81,7 +81,8 @@ def test_real_runner_fresh_existing_retry_and_checksum_rejection(tmp_path):
         assert again.returncode == 0,again.stdout+again.stderr
         assert "Applying " not in again.stdout
         # A bad Commons receipt must prevent even a pending Dice migration.
-        assert sql("delete from dice_schema_migrations where version=80; update commons_schema_migrations set checksum='corrupt' where version=12;",url).returncode == 0
+        latest = int((migration_runner.ROOT / "migrations/DICE_SCHEMA_CONTRACT_VERSION").read_text())
+        assert sql(f"create table test_pending_dice_receipt as select * from dice_schema_migrations where version={latest}; delete from dice_schema_migrations where version={latest}; update commons_schema_migrations set checksum='corrupt' where version=12;",url).returncode == 0
         cross_family = sql(driver,url)
         assert cross_family.returncode != 0 and "Migration checksum changed in commons" in cross_family.stderr
         assert "Applying " not in cross_family.stdout
@@ -90,6 +91,8 @@ def test_real_runner_fresh_existing_retry_and_checksum_rejection(tmp_path):
         commons_file = next((migration_runner.ROOT / "commons/migrations").glob("0012_*.sql"))
         digest = hashlib.sha256(commons_file.read_bytes()).hexdigest()
         assert sql(f"update commons_schema_migrations set checksum='{digest}' where version=12;",url).returncode == 0
+        # Restore the removed receipt: its additive schema is still present.
+        assert sql("insert into dice_schema_migrations select * from test_pending_dice_receipt; drop table test_pending_dice_receipt;",url).returncode == 0
         assert sql(driver,url).returncode == 0
         # A damaged checksum fails before any reapplication.
         assert sql("update dice_schema_migrations set checksum='corrupt' where version=79;",url).returncode == 0

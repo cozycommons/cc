@@ -1,8 +1,10 @@
 import React from 'react';
 import { lazyWithRecovery } from './lazyWithRecovery.js';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+const RouteAnalytics = React.lazy(() => import('./analytics/RouteAnalytics.jsx'));
 const SupabaseProvider = lazyWithRecovery(() => import('./contexts/LazySupabaseProvider.jsx'));
 const CozyWabiLanding = lazyWithRecovery(() => import('./design/CozyWabiLanding.jsx'));
+const Admin = React.lazy(() => import('./admin/Admin.jsx'));
 const DiceApp = lazyWithRecovery(() => import('./dice/App.jsx'));
 
 const Crowdset = lazyWithRecovery(() => import('./crowdset/Crowdset.jsx'));
@@ -24,7 +26,9 @@ const TripsSplash = () => <p role="status" style={{ boxSizing: 'border-box', min
 export default function App() {
   return (
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+      <React.Suspense fallback={null}><RouteAnalytics /></React.Suspense>
       <Routes>
+        <Route path="/admin/*" element={<React.Suspense fallback={<p>Loading…</p>}><Admin /></React.Suspense>} />
         <Route path="/" element={<React.Suspense fallback={null}><CozyWabiLanding /></React.Suspense>} />
         <Route path="/trips/*" element={<React.Suspense fallback={<TripsSplash />}><SupabaseProvider><TripsApp /></SupabaseProvider></React.Suspense>} />
         <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />

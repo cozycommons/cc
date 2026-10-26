@@ -16,7 +16,10 @@ create schema if not exists auth;
 grant usage on schema auth to anon, authenticated, service_role;
 create table if not exists auth.users (
   id uuid primary key,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  raw_user_meta_data jsonb not null default '{}',
+  last_sign_in_at timestamptz,
+  is_anonymous boolean not null default false
 );
 create or replace function auth.uid() returns uuid language sql stable as $$
   select coalesce(

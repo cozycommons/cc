@@ -14,7 +14,7 @@ contract="$(tr -d '[:space:]' < "$repo_dir/backend/migrations/DICE_SCHEMA_CONTRA
 }
 
 latest="$(find "$repo_dir/backend/migrations" -maxdepth 1 -type f \
-  -name '[0-9][0-9][0-9][0-9]_dice_*.sql' -exec basename {} \; \
+  \( -name '[0-9][0-9][0-9][0-9]_dice_*.sql' -o -name '[0-9][0-9][0-9][0-9]_analytics_*.sql' \) -exec basename {} \; \
   | sed -E 's/^([0-9]{4}).*/\1/' | sort -n | tail -1)"
 [[ "$latest" =~ ^[0-9]{4}$ ]] || {
   echo 'No Dice migrations found.' >&2

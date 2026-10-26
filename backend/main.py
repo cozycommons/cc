@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import Client, create_client
 
 from analytics import router as analytics_router
+from admin.routes import router as admin_router
 from ig_logger.routes import router as ig_logger_router
 from ig_logger.sinks.beli.mcp_server import mcp as beli_mcp
 from ig_logger.sinks.beli.routes import router as beli_router
@@ -86,6 +87,14 @@ app.state.trips_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_
 
 
 @app.middleware("http")
+async def private_admin_responses(request, call_next):
+    response = await call_next(request)
+    if request.url.path == '/admin' or request.url.path.startswith('/admin/'):
+        response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
+@app.middleware("http")
 async def log_dice_live_commands(request, call_next):
     tags = dice_live_request_tags(request.url.path, request.headers)
     if not tags:
@@ -115,6 +124,7 @@ app.include_router(venmo_router, prefix="/venmo")
 app.include_router(trips_router, prefix="/trips")
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")
+app.include_router(admin_router, prefix="/admin")
 app.include_router(ig_logger_router, prefix="/ig-logger")
 app.include_router(beli_router, prefix="/beli")
 app.mount("/beli/mcp", beli_mcp.streamable_http_app())

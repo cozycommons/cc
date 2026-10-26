@@ -339,3 +339,12 @@ begin
   end loop;
 end
 $$;
+
+DO $$ BEGIN
+ IF to_regclass('public.analytics_saved_queries') IS NULL
+ OR to_regclass('analytics.events') IS NULL
+ OR to_regclass('analytics.users') IS NULL
+ OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='analytics_events' AND column_name='identity_status') THEN
+  RAISE EXCEPTION 'Analytics workspace schema missing';
+ END IF;
+END $$;

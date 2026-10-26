@@ -47,14 +47,14 @@ describe('Cozy Commons design system', () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole('button', { name: 'confirm locally' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm locally' }));
     expect(screen.getByText('A few small details need your attention.')).toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/your name/), 'Mina');
     await user.type(screen.getByLabelText('email required', { exact: true }), 'mina@example.com');
     await user.selectOptions(screen.getByLabelText(/record type/), 'round');
     await user.click(screen.getByLabelText('I understand this is demo data.'));
-    await user.click(screen.getByRole('button', { name: 'confirm locally' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm locally' }));
 
     expect(screen.getByText('Confirmed locally — demo record ready; nothing was sent.')).toBeInTheDocument();
   });
@@ -63,9 +63,9 @@ describe('Cozy Commons design system', () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(screen.getByRole('button', { name: 'open dialog' }));
+    await user.click(screen.getByRole('button', { name: 'Open dialog' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'not now' }));
+    await user.click(screen.getByRole('button', { name: 'Not now' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
