@@ -8,83 +8,91 @@ const ART = {
       '................................',
       'zzzz............................',
       '...z........AAAAAA..............',
-      '..z.......BBDEEDCCCAAA..........',
-      '.z.......BDEEDDCCCCCCCAA........',
-      'zzzz....BDEDDCCCCCCCCCCCAA......',
-      '.......BDDDCCCCCCCCCaaCCCCA.....',
-      '.......BDDCCCCCCCCCCCCaaCCCA....',
-      '......BDDCCCCCCCCCCCCCCaaCCA....',
-      '.....OyyyyyyyyYYYYYYYYYOaaAOOOO.',
-      '.....OYYYYYYYYYYYYYYYYGOaAOQQPPO',
-      '....hjjjjjjjjjjjjjjjjjjjJ.OQPPPO',
-      '...hhHIIHhhhhhhhhhhhHhhhhJOPPPpO',
-      '...hHHHHhhjhhhhhhhjhhhhhhJOPPppO',
-      '...JHhhjsssssjhjsssssjhhhJ.OOOO.',
+      '..z.......aaDEEDCCCAAA..........',
+      '.z.......aDEEDDCCCCCCCAA........',
+      'zzzz....aDEDDCCCCCCCCCCCAA......',
+      '.......aDDDCCCCCCCCCaaCCCCA.....',
+      '.......aDDCCCCCCCCCCCCaaCCCA....',
+      '......aDDCCCCCCCCCCCCCCaaCCA....',
+      '.....hyyyyyyyyYYYYYYYYYhaaAhhhh.',
+      '.....hYYYYYcccccccYYYYGhaAhQQPPh',
+      '....hjjjjjjjjjjjjjjjjjjjJ.hQPPPh',
+      '...hhHGGHhhhhhhhhhhhHhhhhJhPPPph',
+      '...hHHHHhhjhhhhhhhjhhhhhhJhPPpph',
+      '...JHhhjsssssjhjsssssjhhhJ.hhhh.',
       '...JHhjsssssssjsssssssjhhJ......',
-      '...JHjsseeeessssseeeestjhJ......',
-      '...JHjseiQiisssssiQiietjhJ......',
-      '...JHjssillisssssillistjhJ......',
-      '....JjssrrssssMssssrrttjJ.......',
-      '......TtssssssssssssssT.........',
-      '.......TTTTTTTTTTTTTTT..........',
-      '........NmmggggggggnN...........',
-      '.......NmgggAAAAAgggnN..........',
-      '.......NmggADhhhCAAgnN..........',
-      '.......NmggADCCCaAgAnN..........',
-      '.......NmgSsDCCCaAAnnN..........',
-      '.......NggstaCaaaSsnnN..........',
-      '.......NggnnAAAAAtnnnN..........',
+      '...JHjssttttssssstttttstjhJ.....',
+      '...JHjseeeeesssssseeeeetjhJ.....',
+      '...JHjsshQhhssssshQhhstjhJ......',
+      '....JVssrrssssTssssrrttVJ.......',
+      '......TtsscccccccccsstT.........',
+      '.......TTTTTTuuuTTTTTT..........',
+      '........NmgoWWWWWWonN...........',
+      '.......NmgLLLLLLLLLLnN..........',
+      '.......NmgLuvvvvvvvLUN..........',
+      '.......NmgLvvvvvvvVLUN..........',
+      '.......NggLvCvvvvVVLUN..........',
+      '.......NgnLLLLLLLLLLLN..........',
+      '.......NguuuuuuuuuuuuN..........',
       '........NnnnnnnnnnnnN...........',
-      '........BDCANNNNNBDCA...........',
+      '........aDCANNNNNaDCA...........',
       '........AAAA.....AAAA...........',
     ],
-    // Closed lids laid over the open eyes for the blink, starting at row 16.
-    shut: [
-      '........ssss.....ssss...........',
-      '........esse.....esse...........',
-      '........sees.....sees...........',
-    ],
+    // Closed lids laid over the open eyes for the blink.
+    shut: {
+      top: 17,
+      rows: [
+        '.......sssss.....sssss..........',
+        '........eeee.....eeee...........',
+      ],
+    },
+    // The screen edge pixel where the text cursor blinks.
+    cursor: [20, 25],
   },
   // Favicon cut: same character redrawn for 16px, not a downscale.
   16: {
     grid: [
       'zzz.............',
       '..z....AAAA.....',
-      '.z...BDECCAA....',
-      'zzz.BDECCCCCA...',
-      '...BDCCCCCCaAOO.',
-      '..OyyYYYYYYYOQPO',
-      '.hhIHhhhhhhhJPpO',
-      '.hhhsshhsshhJOO.',
+      '.z...aDECCAA....',
+      'zzz.aDECCCCCA...',
+      '...aDCCCCCCaAhh.',
+      '..hyyYYYYYYYhQPh',
+      '.hhGHhhhhhhhJPph',
+      '.hhhsshhsshhJhh.',
       '.JheeesseeehJ...',
-      '.JsiQissiQisJ...',
+      '.JssQhssQhssJ...',
       '.JsrssssssrsJ...',
-      '..TtsssMsstT....',
-      '..NmgAAAgnN.....',
-      '..NmsDCaAnN.....',
-      '..NgsAAAnnN.....',
-      '...NNNNNNNN.....',
+      '..TtsssTsstT....',
+      '..NoWWWWWWoN....',
+      '..NLvvvvvLUN....',
+      '..NLuvvVVLUN....',
+      '..NLLLLLLLLN....',
     ],
   },
 };
 
-// Cozy-wabi tokens, warmed for the sprite. Outlines are darker shades of each fill; B is the lit
-// outline on the cap's top-left. Cap: A B C D E a. Cuff: O Y y G. Pompom: P p Q. Hair: J h H I j.
-// Skin: T s t S r M. Eyes: e i l Q. Hoodie: N g m n.
+// Cozy-wabi tokens, warmed for the sprite. Outlines are darker shades of each fill, lighter where
+// light hits. Cap: A a C D E. Cuff: Y y G. Pompom: P p Q. Hair and its outline: J h H j.
+// Skin: T s t r. Eyes: e (lids), h (iris), Q (glint). Hoodie: N g m n. Laptop lid: L v V u.
+// Screen glow, cool against the warm palette: W and o spill over the lid, c lights the face and
+// the brim's underside, u the chin edge, V the hair tips. U is the dark editor on the screen edge.
 const LIGHT = {
   z: '#694b36',
-  A: '#6a2b1c', B: '#a2502f', J: '#3e2419', O: '#6b4630', N: '#33412c', T: '#a85d43',
-  C: '#c4673f', a: '#93492d', D: '#e08a5c', E: '#f8c08f',
+  A: '#6a2b1c', a: '#93492d', C: '#c4673f', D: '#e08a5c', E: '#f8c08f',
   Y: '#f0c477', y: '#fbe3a6', G: '#d39155',
   P: '#f2eadb', p: '#d6c5a7', Q: '#fffaf0',
-  h: '#6b4532', j: '#4a2c20', H: '#8f5e3d', I: '#c48a5a',
-  s: '#fbd9b8', t: '#eab18c', S: '#fff0dc', r: '#f0907a', M: '#b5543f',
-  e: '#3e2419', i: '#6b3a28', l: '#a0603a',
-  g: '#6f8a5a', n: '#4f6544', m: '#93ab74',
+  J: '#3e2419', h: '#6b4532', H: '#8f5e3d', j: '#4a2c20',
+  T: '#a85d43', s: '#fbd9b8', t: '#eab18c', r: '#f0907a', e: '#3e2419',
+  N: '#33412c', g: '#6f8a5a', n: '#4f6544', m: '#93ab74',
+  L: '#3f4652', v: '#7c8a99', V: '#5f6b7b', u: '#a7b4c2',
+  U: '#3d5f8f', W: '#dff3ff', o: '#a8d4d4', c: '#e2dbe8',
 };
+const CURSOR = '#ffffff';
 // On dark grounds the hair and hoodie edge lift so the silhouette holds, and the z turns butter.
 const DARK = { z: '#f0c477', J: '#64392a', h: '#84563b', H: '#ab744c', j: '#5e3a29', N: '#4a5e3e' };
-const BODY = Object.keys(LIGHT).filter((k) => k !== 'z');
+// Any paint order gives the same pixels; this one, found by search, keeps the paths shortest.
+const BODY = [...'JhAaDEYyPpQHGjeTtsrNgnmLvCVuUoWc'];
 const DARK_KEYS = Object.keys(DARK);
 
 // One stroked path per colour: 1px horizontal runs, each stretched over pixels painted later.
@@ -126,7 +134,8 @@ function encode(art, tone) {
   return {
     box: art.grid.length,
     body: runs(art.grid, BODY).map(paint),
-    shut: art.shut ? runs(art.shut, BODY, 16).map(paint) : [],
+    shut: art.shut ? runs(art.shut.rows, BODY, art.shut.top).map(paint) : [],
+    cursor: art.cursor && { d: `M${art.cursor[0]} ${art.cursor[1]}.5h1`, stroke: CURSOR },
     z: paint(runs(art.grid, ['z'])[0]),
     // Dark-scheme overrides for tone="auto", keyed by class so one sprite serves both surfaces.
     css: auto ? `@media(prefers-color-scheme:dark){${DARK_KEYS.map((k, i) => `.cc-m${i}{stroke:${DARK[k]}}`).join('')}}` : '',
@@ -138,7 +147,7 @@ export function mascotSvg({ size = 32, tone = 'auto' } = {}) {
   const p = parts(size, tone);
   const path = ({ d, stroke, cls }) => `<path${cls ? ` class="${cls}"` : ''} stroke="${stroke}" d="${d}"/>`;
   const style = p.css ? `<style>${p.css}</style>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${p.box} ${p.box}" width="${size}" height="${size}" shape-rendering="crispEdges">${style}${p.body.map(path).join('')}${path(p.z)}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${p.box} ${p.box}" width="${size}" height="${size}" shape-rendering="crispEdges">${style}${p.body.map(path).join('')}${p.cursor ? path(p.cursor) : ''}${path(p.z)}</svg>`;
 }
 
 // Sleepy nightcap mascot holding a mug. `animated` adds a slow blink and drifting z;
@@ -151,6 +160,7 @@ export default function CozyMascot({ size = 32, tone = 'auto', animated = false,
     <svg className={classes} viewBox={`0 0 ${p.box} ${p.box}`} width={size} height={size} shapeRendering="crispEdges" aria-hidden="true" focusable="false">
       {p.css && <style>{p.css}</style>}
       {p.body.map(path)}
+      {p.cursor && <path className="cc-mascot-cursor" stroke={p.cursor.stroke} d={p.cursor.d} />}
       {animated && p.shut.length > 0 && <g className="cc-mascot-blink">{p.shut.map(path)}</g>}
       <path className={['cc-mascot-z', p.z.cls].filter(Boolean).join(' ')} stroke={p.z.stroke} d={p.z.d} />
     </svg>
