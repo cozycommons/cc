@@ -9,6 +9,7 @@ live negative probe on 2026-10-25, correlation ids aside).
 import email.message
 import io
 import json
+import logging
 import os
 import urllib.error
 
@@ -150,6 +151,29 @@ def test_login_bad_password_is_invalid_credentials_one_attempt(disney):
         disney_login.login("user@example.com", PASSWORD)
     assert len(_login_calls(calls)) == 1
     assert PASSWORD not in str(excinfo.value)
+
+
+def test_login_failure_logs_disney_code_but_never_secrets(disney, caplog):
+    _, handlers = disney
+    handlers["login"] = _http_error(400, BAD_CREDENTIALS_BODY)
+    with caplog.at_level(logging.INFO, logger="espn.disney_login"):
+        with pytest.raises(disney_login.InvalidCredentialsError):
+            disney_login.login("user@example.com", PASSWORD)
+    assert "AUTHORIZATION_CREDENTIALS" in caplog.text
+    assert "InvalidCredentialsError" in caplog.text
+    assert PASSWORD not in caplog.text
+    assert "KEY-123" not in caplog.text
+
+
+def test_login_success_logs_no_cookie_values(disney, caplog):
+    _, handlers = disney
+    handlers["login"] = _ok_login_response()
+    with caplog.at_level(logging.INFO, logger="espn.disney_login"):
+        disney_login.login("user@example.com", PASSWORD)
+    assert "guest/login ok" in caplog.text
+    assert "s2-from-disney" not in caplog.text
+    assert "SWID-FROM-DISNEY" not in caplog.text
+    assert PASSWORD not in caplog.text
 
 
 def test_login_account_not_found(disney):
