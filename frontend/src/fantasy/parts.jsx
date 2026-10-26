@@ -83,21 +83,22 @@ export function ScorePath({ matchup, height = 150 }) {
   );
 }
 
-// Readable text shades of the two team colors.
-export const TEXT_COLORS = ['#a0502f', '#2066b8'];
+const change = value => { const size = Math.round(Math.abs(value)); return size ? `${value > 0 ? '▲' : '▼'}${size}%` : ''; };
 
-const change = value => { const size = Math.round(Math.abs(value)); return `${size && value > 0 ? '▲' : size ? '▼' : ''}${size}%`; };
-
-// Win odds over time, one line per team, spaced by when each estimate was saved.
+// Win odds over time as one line (the second team is always 100 minus the first): the top team's logo
+// marks the top of the right edge and the other team's the bottom, so the line ends beside whoever is winning.
+// The chart stays neutral; green and red only mean the leader's odds went up or down.
 export function WinChart({ history, teams, final = false, big = false }) {
   const [cursor, setCursor] = React.useState(null);
   if (!history || history.length < 2) return null;
   const start = history[0].time, span = Math.max(1, history.at(-1).time - start);
   const x = point => (point.time - start) / span * 100;
-  const line = side => history.map(point => `${x(point).toFixed(2)},${(side ? point.chance : 100 - point.chance).toFixed(2)}`).join(' ');
+  const y = point => 100 - point.chance;
+  const points = history.map(point => `${x(point).toFixed(2)},${y(point).toFixed(2)}`).join(' ');
   const shown = cursor ?? history.at(-1);
-  const now = [shown.chance, 100 - shown.chance];
-  const moved = [shown.chance - history[0].chance, history[0].chance - shown.chance];
+  const leader = shown.chance >= 50 ? 0 : 1;
+  const odds = side => (side ? 100 - shown.chance : shown.chance);
+  const moved = (leader ? -1 : 1) * (shown.chance - history[0].chance);
   const days = big ? [...new Map(history.map(point => [point.date, point])).values()] : [];
   const step = event => {
     const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
@@ -112,29 +113,33 @@ export function WinChart({ history, teams, final = false, big = false }) {
     const at = start + Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)) * span;
     setCursor(history.reduce((best, point) => (Math.abs(point.time - at) < Math.abs(best.time - at) ? point : best)));
   };
+  const name = side => teams?.[side]?.name ?? (side ? 'Away' : 'Home');
   return (
     <div className={`fx-win${big ? ' fx-win--big' : ''}`}>
-      <div className="fx-win-plot" onPointerMove={scrub} onPointerDown={scrub} onPointerLeave={() => setCursor(null)}
-        {...(big && { tabIndex: 0, onKeyDown: step, onBlur: () => setCursor(null), 'aria-label': 'Win odds over time; use arrow keys to step through' })}>
-        <div className="fx-win-area">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
-          aria-label={`Win odds since ${weekday(history[0].date)}: ${winPct(now[0], final)} to ${winPct(now[1], final)}`}>
-          {big && [0, 100].map(y => <line key={y} className="fx-win-grid" x1="0" x2="100" y1={y} y2={y} />)}
-          <line className="fx-win-mid" x1="0" x2="100" y1="50" y2="50" />
-          {cursor && <line className="fx-win-cursor" x1={x(cursor)} x2={x(cursor)} y1="0" y2="100" />}
-          {[0, 1].map(side => <polyline key={side} points={line(side)} stroke={COLORS[side]} />)}
-        </svg>
-        {big && [[0, '100%'], [50, '50%'], [100, '0%']].map(([top, label]) => <span key={label} className="fx-win-y" style={{ top: `${top}%` }}>{label}</span>)}
+      <p className="fx-win-head" aria-live={big ? 'polite' : undefined}>
+        {teams && <TeamLogo team={teams[leader]} side={leader} size={18} />}
+        {big && <span className="fx-win-name">{name(leader)}</span>}
+        <b>{winPct(odds(leader), final)}</b>
+        {change(moved) && <span className={moved > 0 ? 'fx-up' : 'fx-down'}>{change(moved)}</span>}
+        <small>{cursor ? weekday(cursor.date) : `since ${weekday(history[0].date)}`}</small>
+      </p>
+      <div className="fx-win-body">
+        <div className="fx-win-plot" onPointerMove={scrub} onPointerDown={scrub} onPointerLeave={() => setCursor(null)}
+          {...(big && { tabIndex: 0, onKeyDown: step, onBlur: () => setCursor(null), 'aria-label': 'Win odds over time; use arrow keys to step through' })}>
+          <div className="fx-win-area">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
+              aria-label={`${name(leader)} ${winPct(odds(leader), final)} to win; ${name(0)} at the top, ${name(1)} at the bottom`}>
+              {big && [0, 100].map(edge => <line key={edge} className="fx-win-grid" x1="0" x2="100" y1={edge} y2={edge} />)}
+              <polygon className="fx-win-fill" points={`0,50 ${points} 100,50`} />
+              <line className="fx-win-mid" x1="0" x2="100" y1="50" y2="50" />
+              {cursor && <line className="fx-win-cursor" x1={x(cursor)} x2={x(cursor)} y1="0" y2="100" />}
+              <polyline points={points} />
+            </svg>
+            <i className="fx-win-dot" style={{ left: `${x(shown)}%`, top: `${y(shown)}%` }} />
+          </div>
+          {big && <div className="fx-win-axis">{days.map(point => <span key={point.date} style={{ left: `${x(point)}%`, transform: `translateX(-${x(point)}%)` }}>{weekday(point.date)}</span>)}</div>}
         </div>
-        {big && <div className="fx-win-axis">{days.map(point => <span key={point.date} style={{ left: `${x(point)}%`, transform: `translateX(-${x(point)}%)` }}>{weekday(point.date)}</span>)}</div>}
-      </div>
-      <div className="fx-win-labels" aria-live={big ? 'polite' : undefined}>
-        {/* Labels stack like the line ends, higher odds on top; the change shows once, on the side that gained. */}
-        {(now[0] >= now[1] ? [0, 1] : [1, 0]).map(side => (
-          <span key={side} style={{ color: TEXT_COLORS[side] }}>
-            {teams && <TeamLogo team={teams[side]} side={side} size={16} />}<b>{winPct(now[side], final)}</b>{moved[side] > 0 && Math.round(moved[side]) > 0 && change(moved[side])}
-          </span>
-        ))}
+        {teams && <span className="fx-win-ends" aria-hidden="true"><TeamLogo team={teams[0]} side={0} size={18} /><TeamLogo team={teams[1]} side={1} size={18} /></span>}
       </div>
     </div>
   );
