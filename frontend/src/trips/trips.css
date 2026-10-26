@@ -484,7 +484,9 @@ button.trips-activity-row:hover strong { text-decoration: underline; }
 
 .trips-venmo-card { display: flex; align-items: center; gap: var(--cc-space-4, 16px); padding: var(--cc-space-6, 24px); border: 1px solid var(--line); border-radius: 18px; background: var(--paper-light); color: inherit; text-decoration: none; min-width: 0; }
 .trips-venmo-avatar { display: grid; place-items: center; flex: 0 0 76px; width: 76px; height: 76px; border-radius: 50%; background: #e6f3fc; color: #0879bc; font-size: 30px; overflow: hidden; }
-.trips-venmo-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.trips-venmo-avatar > * { grid-area: 1 / 1; }
+.trips-venmo-avatar img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 160ms ease; }
+.trips-venmo-avatar img.is-loaded { opacity: 1; }
 .trips-venmo-identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .trips-venmo-identity strong { font-size: 22px; line-height: 1.2; }
 .trips-venmo-badge { color: #0879bc; font-size: 11px; font-weight: 700; }

@@ -74,3 +74,14 @@ it('labels a confirmed card and explains who confirmed it on tap, hover and keyb
   fireEvent.blur(badge);
   expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 });
+
+it('shows initials right away and keeps them under the photo until it loads', async () => {
+  const request = vi.fn().mockResolvedValue({ found: true, handle: 'alex-rivera', displayName: 'Alex Rivera', initials: 'AR', photoUrl: '/venmo/photo?handle=alex-rivera&v=1' });
+  const { container } = render(<VenmoProfile handle="alex-rivera" request={request} />);
+  expect(container.querySelector('.trips-venmo-avatar')).toHaveTextContent('A');
+  const img = await waitFor(() => { const el = container.querySelector('.trips-venmo-avatar img'); if (!el) throw new Error('no img'); return el; });
+  expect(container.querySelector('.trips-venmo-avatar')).toHaveTextContent('AR');
+  expect(img).not.toHaveClass('is-loaded');
+  fireEvent.load(img);
+  expect(img).toHaveClass('is-loaded');
+});
