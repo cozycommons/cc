@@ -45,6 +45,7 @@ to 401 — the detail tells the user to re-onboard.
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 
@@ -63,6 +64,8 @@ from .public_predictions import router as public_predictions_router
 from .scoreboard import ScoreboardClient
 from .team_claims import router as team_claims_router
 from .fantasy_admin import router as fantasy_admin_router
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 router.include_router(public_predictions_router)
@@ -285,12 +288,16 @@ def onboard_login(body: OnboardLoginBody, request: Request):
     try:
         cookies = disney_login.login(body.email, body.password)
     except disney_login.InvalidCredentialsError:
+        logger.warning("espn onboard/login failed: outcome=invalid_credentials")
         raise HTTPException(status_code=401, detail="invalid_credentials")
     except disney_login.AccountNotFoundError:
+        logger.warning("espn onboard/login failed: outcome=account_not_found")
         raise HTTPException(status_code=404, detail="account_not_found")
     except disney_login.ChallengeRequiredError:
+        logger.warning("espn onboard/login failed: outcome=challenge_required")
         raise HTTPException(status_code=403, detail="challenge_required")
     except disney_login.DisneyLoginError:
+        logger.warning("espn onboard/login failed: outcome=disney_unavailable")
         raise HTTPException(status_code=502, detail="disney_unavailable")
     espn_s2, swid = cookies["espn_s2"], cookies["swid"]
 
@@ -302,11 +309,19 @@ def onboard_login(body: OnboardLoginBody, request: Request):
                 espn_s2, swid, season
             )
         except disney_login.DisneyLoginError:
+            logger.warning(
+                "espn onboard/login failed: outcome=league_discovery_failed"
+            )
             raise HTTPException(status_code=502, detail="league_discovery_failed")
         if not leagues:
+            logger.warning("espn onboard/login failed: outcome=no_league_found")
             raise HTTPException(status_code=400, detail="no_league_found")
         if len(leagues) > 1:
             # Create nothing yet — the client asks the user to pick.
+            logger.info(
+                "espn onboard/login: league selection required (%d leagues)",
+                len(leagues),
+            )
             return {
                 "status": "league_selection_required",
                 "season": season,
@@ -343,6 +358,12 @@ def onboard_login(body: OnboardLoginBody, request: Request):
             )
         except Exception:
             automation = False
+    logger.info(
+        "espn onboard/login ok: account=%s league=%s automation=%s",
+        created.get("id"),
+        league_id,
+        automation,
+    )
     return {
         **created,
         "lineup_automation_enabled": automation,
