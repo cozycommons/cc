@@ -27,13 +27,13 @@ const ART = {
       '....JVssrrssssTssssrrttVJ.......',
       '......TtscssssssssscstT.........',
       '.......TTTTTTTuTTTTTTT..........',
-      '........hmGGGGGGGGGnh...........',
-      '.......hmGGGGGoGGGGGnh..........',
-      '.......hmGGGooWooGGGnh..........',
-      '.......hmGLUUUUUUULGnh..........',
-      '.......hGsLvVQVVVVLsnh..........',
-      '.......hGtLVVVVVVVLtnh..........',
-      '.......hGLuuuuuuuuuLnh..........',
+      '........hmgggggggggnh...........',
+      '.......hmgggggogggggnh..........',
+      '.......hmgggooWoogggnh..........',
+      '.......hmgLUUUUUUULgnh..........',
+      '.......hgsLvVQVVVVLsnh..........',
+      '.......hgtLVVVVVVVLtnh..........',
+      '.......hgLuuuuuuuuuLnh..........',
       '........LvvvvvvvvvvvL...........',
       '........aDCAhhhhhaDCA...........',
       '........AAAA.....AAAA...........',
@@ -64,9 +64,9 @@ const ART = {
       '.JssQhssQhssJ...',
       '.JsrssssssrsJ...',
       '..TtsssTsstT....',
-      '..hmGGGGGGnh....',
-      '..hGLUUUULnh....',
-      '..hGLVQVVLnh....',
+      '..hmggggggnh....',
+      '..hgLUUUULnh....',
+      '..hgLVQVVLnh....',
       '..hLvvvvvvLh....',
     ],
   },
@@ -74,7 +74,7 @@ const ART = {
 
 // Cozy-wabi tokens, warmed for the sprite. Outlines are darker shades of each fill, lighter where
 // light hits. Cap: A a C D E. Cuff: Y y G. Pompom: P p Q. Hair and its outline: J h H j.
-// Skin: T s t r. Eyes: e (lids), h (iris), Q (glint). Amber hoodie: h G m n.
+// Skin: T s t r. Eyes: e (lids), h (iris), Q (glint). Moss hoodie: h g m n.
 // Laptop: L outline, V lid back, v base edge, u hinge.
 // Screen glow, a few cool pixels against the warm palette: W and o spill over the lid, c lights the
 // cheeks and the brim's underside, u the chin, V the hair tips. U is the screen peeking over the lid.
@@ -85,7 +85,7 @@ const LIGHT = {
   P: '#f2eadb', p: '#d6c5a7', Q: '#fffaf0',
   J: '#3e2419', h: '#6b4532', H: '#8f5e3d', j: '#4a2c20',
   T: '#a85d43', s: '#fbd9b8', t: '#eab18c', r: '#f0907a', e: '#3e2419',
-  n: '#b0723f', m: '#e8b273',
+  g: '#69755a', n: '#465243', m: '#8e9b78',
   L: '#3f4652', v: '#7c8a99', V: '#5f6b7b', u: '#a7b4c2',
   U: '#3d5f8f', W: '#e6f6ff', o: '#bcd6dc', c: '#e2dbe8',
 };
@@ -93,7 +93,7 @@ const CURSOR = '#ffffff';
 // On dark grounds the hair and hoodie edge lift so the silhouette holds, and the z turns butter.
 const DARK = { z: '#f0c477', J: '#64392a', h: '#84563b', H: '#ab744c', j: '#5e3a29' };
 // Any paint order gives the same pixels; this one, found by search, keeps the paths shortest.
-const BODY = [...'JChAaDEYyPpHGjeTtsrnmLvVQuUoWc'];
+const BODY = [...'JChAaDEYyPpHGjeTtsrgnmLvVQuUoWc'];
 const DARK_KEYS = Object.keys(DARK);
 
 // One stroked path per colour: 1px horizontal runs, each stretched over pixels painted later.
