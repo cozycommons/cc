@@ -145,7 +145,9 @@ function Fantasy() {
   const [attempt, setAttempt] = useState(0);
   const [links, setLinks] = useState(null);
   const [adminToken, setAdminToken] = useState(null);
-  const [adminOpen, setAdminOpen] = useState(false);
+  // Open belongs to the token it was opened with, so a token change closes it without a racing effect.
+  const [adminOpenFor, setAdminOpenFor] = useState(null);
+  const adminOpen = Boolean(adminToken) && adminOpenFor === adminToken;
   const adminEntry = useRef(null);
   const [viewer, setViewer] = useState(null);
   const [revision, setRevision] = useState(0);
@@ -204,12 +206,11 @@ function Fantasy() {
     setRevision(value => value + 1);
     return fetchOwners(apiUrl, data?.year, undefined, true).then(setOwners);
   };
-  useEffect(() => { setAdminOpen(false); }, [adminToken]);
-  const closeAdmin = () => { setAdminOpen(false); adminEntry.current?.focus(); };
+  const closeAdmin = () => { setAdminOpenFor(null); adminEntry.current?.focus(); };
   return (
     <div className="fx-page">
       <SiteHeader product="Fantasy" to="/fantasy" icon={<Basketball />}>
-        {adminToken && <AdminEntry ref={adminEntry} open={adminOpen} onClick={() => adminOpen ? closeAdmin() : setAdminOpen(true)} />}
+        {adminToken && <AdminEntry ref={adminEntry} open={adminOpen} onClick={() => adminOpen ? closeAdmin() : setAdminOpenFor(adminToken)} />}
       </SiteHeader>
       {adminToken && adminOpen && <FantasyAdmin key={adminToken} apiUrl={apiUrl} token={adminToken} initialSeason={data?.year}
         onSaved={() => setRevision(value => value + 1)} onClose={closeAdmin} />}
