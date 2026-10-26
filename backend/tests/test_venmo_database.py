@@ -55,3 +55,64 @@ def test_lkg_survives_restart_and_two_parties_cannot_double_settle(local_api, mo
     undone = api.post(path + '/undo', headers=tokens['Alex'], json={'cycle': 0}).json()
     assert {m: undone['balances'][m] for m in members} == group['balances'] and not undone['repayments']
     assert api.post(path + '/settle', headers=tokens['Matt'], json={'cycle': 0, 'amount_minor': obligation['amount_minor']}).status_code == 409
+
+
+def test_photo_survives_restart_in_guarded_postgres(monkeypatch):
+    import json
+    import os
+    import subprocess
+    from types import SimpleNamespace
+    import pytest
+    from tests.dice_test_database import is_isolated_dice_test_database
+    from venmo import photos
+    if not is_isolated_dice_test_database(os.environ):
+        pytest.skip('Requires guarded loopback Postgres')
+
+    def literal(value):
+        return "'" + value.replace("'", "''") + "'"
+
+    def sql(statement):
+        return subprocess.check_output(['psql', os.environ['DB_URL'], '-XAt', '-v', 'ON_ERROR_STOP=1', '-c', statement], text=True).strip()
+
+    class PhotoQuery:
+        def __init__(self, table):
+            assert table == 'venmo_photos'
+            self.filters = {}
+            self.row = None
+        def select(self, columns):
+            return self
+        def eq(self, key, value):
+            assert key in {'handle', 'photo_url'}
+            self.filters[key] = value
+            return self
+        def upsert(self, row):
+            self.row = row
+            return self
+        def execute(self):
+            if self.row:
+                columns = ('handle', 'photo_url', 'body', 'content_type')
+                sql('insert into public.venmo_photos (' + ','.join(columns) + ') values (' + ','.join(literal(self.row[k]) for k in columns) + ') on conflict (handle,photo_url) do update set body=excluded.body, content_type=excluded.content_type')
+                return SimpleNamespace(data=[])
+            where = ' and '.join(k + '=' + literal(v) for k, v in self.filters.items())
+            data = sql("select coalesce(json_agg(p), '[]'::json) from (select body,content_type from public.venmo_photos where " + where + ') p')
+            return SimpleNamespace(data=json.loads(data))
+
+    handle = 'qa-' + uuid4().hex[:16]
+    profile = dict(handle=handle, found=True, photoUrl='https://pics-v3.venmo.com/synthetic')
+    db = SimpleNamespace(table=PhotoQuery)
+    sql("insert into public.venmo_profiles values (" + literal(handle) + ", 'Synthetic', 'https://pics-v3.venmo.com/synthetic', 'S', true, 'live', now())")
+    from unittest.mock import Mock
+    fetch = Mock(return_value=(b'synthetic-photo', 'image/png'))
+    monkeypatch.setattr(venmo_client, 'fetch', fetch)
+    try:
+        photos.cache.clear()
+        assert photos.thumbnail(profile, db) == (b'synthetic-photo', 'image/png')
+        photos.cache.clear()
+        fetch.side_effect = AssertionError('No upstream after restart')
+        assert photos.thumbnail(profile, db) == (b'synthetic-photo', 'image/png')
+        assert fetch.call_count == 1
+        assert sql("select has_table_privilege('anon', 'public.venmo_photos', 'select')") == 'f'
+        assert sql("select has_table_privilege('authenticated', 'public.venmo_photos', 'insert')") == 'f'
+    finally:
+        photos.cache.clear()
+        sql('delete from public.venmo_profiles where handle=' + literal(handle))
