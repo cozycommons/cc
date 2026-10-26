@@ -36,7 +36,7 @@ def test_public_predictions_append_only_privileges_and_contract():
     assert "from public, anon, authenticated" in migration
     assert "grant select, insert on public.espn_public_predictions to service_role" in migration
     assert "revoke update, delete, truncate" in migration
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "12"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "13"
     contract = (directory / "beli_schema_contract.sql").read_text()
     for column in ("id", "matchup_id", "generated_at", "received_at", "payload"):
         assert f"espn_public_predictions.{column}" in contract
@@ -65,6 +65,17 @@ def test_team_claims_schema_privileges_atomic_move_and_contract():
     for column in ("id", "season", "team_id", "user_id", "created_at"):
         assert f"espn_team_claims.{column}" in contract
     assert "to_regprocedure('public.espn_claim_team(integer,integer,uuid)')" in contract
+
+
+def test_account_delete_grant_and_contract_version():
+    directory = migration_runner.ROOT / "migrations"
+    migration = (directory / "0013_beli_espn_account_delete.sql").read_text()
+    # 0006 granted service_role select/insert/update only; self-service
+    # deletion needs the delete privilege on the accounts table itself.
+    # Dependents (espn_snapshots, espn_lineup_runs) cascade per 0007/0008.
+    assert "grant delete on public.espn_accounts to service_role" in migration
+    assert "Applying 0013_beli_espn_account_delete.sql" in migration_runner.render(["beli"])
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "13"
 
 
 def test_seeded_claims_are_guarded_and_never_override_links():

@@ -171,6 +171,23 @@ def make_client_for_account(account: dict) -> EspnClient:
     )
 
 
+def delete_account(supabase, account_id) -> str:
+    """Delete one account row (self-service disconnect).
+
+    The caller's token resolved to this account, so an account can only
+    ever delete itself. Everything attached to the row goes with it:
+    espn_snapshots and espn_lineup_runs declare
+    ``account_id ... references espn_accounts(id) on delete cascade``
+    (migrations 0007/0008), so Postgres removes the account's snapshot
+    history and lineup run log as part of the same delete. The
+    service-role delete grant on espn_accounts itself is migration 0013.
+    Once the row is gone the token hash is gone too, so the token
+    resolves to nothing and every later request with it is a 401.
+    """
+    supabase.table("espn_accounts").delete().eq("id", account_id).execute()
+    return account_id
+
+
 # --- lineup automation opt-in -------------------------------------------------
 
 

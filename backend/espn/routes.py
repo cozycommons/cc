@@ -14,6 +14,7 @@ Endpoints:
   POST /espn/automation/lineup  opt in/out of daily lineup automation
   POST /espn/lineup/run       set today's lineup now (or dry-run a plan)
   GET  /espn/lineup/runs      past lineup runs + their conflicts
+  DELETE /espn/account        delete the caller's account (+ cascaded history)
 
 There is deliberately no /matchups endpoint in v1.
 
@@ -382,6 +383,23 @@ def me(account: dict = Depends(_account)):  # noqa: B008
             account.get("lineup_automation_enabled")
         ),
     }
+
+
+@router.delete("/account")
+def delete_account(
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """Delete the caller's own account (self-service disconnect).
+
+    The bearer token resolved to exactly this account, so a token can
+    only ever delete its own account. The stored ESPN cookies, the
+    token itself, the snapshot history and the lineup run log all go
+    with the row (snapshots/runs cascade; see accounts.delete_account).
+    """
+    accounts.delete_account(_supabase(request), account["id"])
+    logger.info("espn account deleted: account=%s", account.get("id"))
+    return {"deleted": True, "id": account.get("id")}
 
 
 @router.get("/league")

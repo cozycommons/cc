@@ -214,6 +214,61 @@ def test_matchups_route_does_not_exist(client):
 # --- onboarding ------------------------------------------------------------------
 
 
+# --- account deletion ------------------------------------------------------
+
+
+@pytest.fixture()
+def deleted_ids(app, monkeypatch):
+    calls = []
+
+    def fake_delete(supabase, account_id):
+        calls.append(account_id)
+        return account_id
+
+    monkeypatch.setattr(routes.accounts, "delete_account", fake_delete)
+    return calls
+
+
+def test_delete_account_no_token_is_401(client, deleted_ids):
+    r = client.delete("/espn/account")
+    assert r.status_code == 401
+    assert deleted_ids == []
+
+
+def test_delete_account_bad_token_is_401(client, deleted_ids):
+    r = client.delete("/espn/account", headers=auth("bogus-token"))
+    assert r.status_code == 401
+    assert deleted_ids == []
+
+
+def test_delete_account_deletes_own_account(client, deleted_ids):
+    r = client.delete("/espn/account", headers=auth())
+    assert r.status_code == 200
+    assert r.json() == {"deleted": True, "id": "acc-1"}
+    assert deleted_ids == ["acc-1"]
+
+
+def test_delete_account_cannot_delete_another_account(
+    client, monkeypatch, deleted_ids
+):
+    accounts_by_token = {
+        "token-a": dict(FAKE_ACCOUNT, id="acc-a"),
+        "token-b": dict(FAKE_ACCOUNT, id="acc-b"),
+    }
+
+    def get_account(supabase, token):
+        if token in accounts_by_token:
+            return accounts_by_token[token]
+        raise AccountError("invalid token")
+
+    monkeypatch.setattr(routes.accounts, "get_account_by_token", get_account)
+    r = client.delete("/espn/account", headers=auth("token-b"))
+    assert r.status_code == 200
+    assert r.json() == {"deleted": True, "id": "acc-b"}
+    # token-b deleted only its own account; acc-a was never touched
+    assert deleted_ids == ["acc-b"]
+
+
 def test_onboard_returns_token_once(client, monkeypatch):
     def fake_create(supabase, label, league_id, season, espn_s2, swid):
         assert league_id == 123456
