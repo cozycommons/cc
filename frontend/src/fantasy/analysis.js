@@ -20,12 +20,11 @@ export function matchupRead(matchup) {
     return { side, headline: `${names[side]} wins`, facts: ['Final', `${Math.max(h, a)}–${Math.min(h, a)}`] };
   }
   const side = matchup.chance >= 50 ? 0 : 1, other = 1 - side;
-  const lead = r(matchup.scores[side] - matchup.scores[other]);
   const left = gamesLeft(matchup);
-  const facts = [lead > 0 ? `Up ${lead}` : lead < 0 ? `Down ${-lead}` : 'Tied'];
-  // The projected finish is the real reason for the odds, most of all when the favorite trails.
+  const facts = [];
+  // The projected finish is the real reason for the odds; the scores already show the current lead.
   const finish = r((matchup.projected_totals?.[side] ?? NaN) - (matchup.projected_totals?.[other] ?? NaN));
-  if (Number.isFinite(finish)) facts.push(finish > 0 ? `Projected to win by ${finish}` : finish < 0 ? `Projected to lose by ${-finish}` : 'Projected even');
+  if (Number.isFinite(finish)) facts.push(finish > 0 ? `${names[side]} by ${finish}` : finish < 0 ? `${names[other]} by ${-finish}` : 'Even');
   if (!left[side] && !left[other]) facts.push('Last games in progress');
   else if (left[side] === left[other]) facts.push(`${left[side]} games left each`);
   else facts.push(`${left[side]} games left vs ${left[other]}`);
@@ -66,13 +65,17 @@ export function acquiredLabel(acquired) {
 }
 
 // The league's biggest outperformers this week, on finished games only.
-export function highlights(matchups, limit = 6, threshold = 15) {
+export function highlights(matchups, limit = 8, threshold = 10, under = false) {
+  const sign = under ? -1 : 1;
   return matchups.filter(m => !m.unavailable)
     .flatMap(m => playerSwings(m).flatMap((rows, side) => rows.map(row => ({ ...row, team: [m.home, m.away][side], side, key: m.key }))))
-    .filter(row => row.diff >= threshold)
-    .sort((a, b) => b.diff - a.diff)
+    .filter(row => sign * row.diff >= threshold)
+    .sort((a, b) => sign * (b.diff - a.diff))
     .slice(0, limit);
 }
+
+// This week's biggest misses against expected points.
+export const lowlights = (matchups, limit, threshold) => highlights(matchups, limit, threshold, true);
 
 // Why the season favorite leads.
 export function seasonRead(rows) {

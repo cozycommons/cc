@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import Fantasy from './Fantasy.jsx';
 import { SNAPSHOT_V2 } from './fixture.js';
 
@@ -41,7 +41,7 @@ it('loads, saves, verifies and clears settings on sign-out', async () => {
   expect(screen.queryByLabelText('ESPN league ID')).toBeNull();
   fireEvent.click(entry);
   expect(entry).toHaveAttribute('aria-expanded', 'true');
-  const field = await screen.findByLabelText('ESPN league ID');
+  const field = await screen.findByLabelText('ESPN league ID', {}, { timeout: 5000 });
   await waitFor(() => expect(field.value).toBe('111'));
   fireEvent.change(field, { target: { value: '222' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -59,15 +59,19 @@ it('ignores a season response that arrives after changing season', async () => {
   await waitFor(() => expect(resolveOld).toBeTypeOf('function'));
   // Programmatic change exercises the race even though fields disable during load.
   fireEvent.change(screen.getByLabelText('Season'), { target: { value: '2028' } });
-  await waitFor(() => expect(screen.getByLabelText('ESPN league ID').value).toBe('222'));
+  await waitFor(() => expect(screen.getByLabelText('ESPN league ID').value).toBe('222'), { timeout: 5000 });
   await act(async () => resolveOld(response({ espn_league_id: '111' })));
   expect(screen.getByLabelText('ESPN league ID').value).toBe('222');
 });
 it('shows a fixed error on a failed save', async () => {
   setup((_url, options) => response({ espn_league_id: '111' }, options.method !== 'PUT'));
   fireEvent.click(await screen.findByRole('button', { name: 'Admin' }));
-  await waitFor(() => expect(screen.getByLabelText('ESPN league ID').value).toBe('111'));
+  await waitFor(() => expect(screen.getByLabelText('ESPN league ID').value).toBe('111'), { timeout: 5000 });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await screen.findByText('Could not save. Try again.');
   expect(screen.queryByText('Saved')).toBeNull();
 });
+
+// Simulate an OAuth return so the lazy auth facade initializes the mocked client.
+beforeEach(() => { window.history.replaceState({}, '', '/fantasy?code=synthetic'); });
+afterEach(() => { window.history.replaceState({}, '', '/'); });

@@ -7,7 +7,8 @@ import { Bowl, Tent, TripStamp } from './doodles.jsx';
 import { findMember, firstName, memberName, myMember } from './people.js';
 import { ExpenseDetail, ExpenseForm, categoryOf, payerLabel, savedSummary } from './ExpenseForm.jsx';
 import { paidAmounts, payersOf } from './balances.js';
-import { BalancesPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
+import { BalancesPanel, ReadyPanel, RepaymentForm, VenmoReview } from './Settle.jsx';
+import { PaymentPrompt, useVenmoPayment } from './VenmoPayment.jsx';
 import { AddPeopleForm, InviteLinks, PeoplePanel, PersonSheet, RenameForm, TripSettings, VenmoForm } from './People.jsx';
 import LinkAccounts from './LinkAccounts.jsx';
 
@@ -113,6 +114,7 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
   const tab = tabs.find((t) => t.key === params.get('tab'))?.key || 'expenses';
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState(null);
+  const paymentFlow = useVenmoPayment(group, message => setNotice({ message }));
   const [refreshing, setRefreshing] = useState(false);
   // Every dialog keeps the revision it was opened from, so a background refresh never silently rebases a draft.
   // Agents and shortcuts can open a prefilled, unsaved expense: ?add=expense&description=Dinner&amount=42.50
@@ -192,6 +194,15 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
   const recordPayment = (payload) => update('/repayments', 'POST', payload,
     `Recorded ${memberName(findMember(group, payload.from_member))} → ${memberName(findMember(group, payload.to_member))}, ${money(payload.amount_minor, group.currency)}.`,
     () => update(`/repayments/${payload.id}`, 'DELETE', { revision: latest.current.revision }, 'Payment removed.', null, { keepModal: true }));
+  const obligationAction = async (obligation, action) => {
+    try {
+      return await update(`/obligations/${obligation.id}/${action}`, 'POST', { cycle: obligation.cycle || 0, ...(action === 'settle' ? { amount_minor: obligation.amount_minor } : {}) },
+        action === 'settle' ? 'Payment settled.' : action === 'undo' ? 'Undone.' : 'Nudge sent.',
+        action === 'settle' ? () => obligationAction(obligation, 'undo') : null, { keepModal: action === 'undo' });
+    } catch (error) { setNotice({ message: error.message }); throw error; }
+  };
+  const settleReady = (memberId, ready) => update('/settle/ready', 'POST', { member_id: memberId, ready }, ready ? 'Done adding.' : 'Not done yet.');
+  const settleStart = () => update('/settle/start', 'POST', {}, 'Settling started.');
   const restore = (expense, options) => update(`/expenses/${expense.id}/restore`, 'POST', { revision: latest.current.revision }, `Restored ${expense.description}.`, null, options);
   // Adding a missing Venmo username from the pay dialog keeps the dialog open.
   const saveHandle = async (member, username) => {
@@ -241,8 +252,8 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
   const addedLinks = useRef([]);
   const modalName = modal?.member ? memberName(modal.member) : '';
   const titles = { expense: modal?.expense ? 'Edit expense' : 'Add expense', expense_detail: modal?.item?.description, repayment: 'Record a payment',
-    venmo: modal?.role === 'request' ? 'Request with Venmo' : 'Pay with Venmo', people: 'Add people', invites: 'Invite links', invite: `Invite ${modalName}`,
-    member_venmo: `Venmo for ${modalName}`, person: modalName, rename_member: `Rename ${modalName}`, remove_member: `Remove ${modalName}?`,
+    venmo: `${modal?.role === 'request' ? 'Request from' : 'Pay'} ${firstName(findMember(group, modal?.role === 'request' ? modal?.transfer?.from_member : modal?.transfer?.to_member))}`, people: 'Add people', invites: 'Invite links', invite: `Invite ${modalName}`,
+    close_out: `Close out ${firstName(modal?.member)}'s expenses?`, member_venmo: `Venmo for ${modalName}`, person: modalName, rename_member: `Rename ${modalName}`, remove_member: `Remove ${modalName}?`,
     link_accounts: 'Link people to accounts', unlink_member: `Unlink ${modalName}?`, trip_settings: 'Trip settings', delete_trip: 'Delete this trip?', delete_expense: 'Delete this expense?', delete_repayment: 'Remove this payment?' };
   const myBalance = group.balances[me?.id] || 0;
   const hasHistory = group.expenses.length + group.repayments.length > 0;
@@ -268,18 +279,23 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
       try { await undo(); } catch (e) { setNotice({ message: e.message }); }
     }}>Undo</button>}</>}</div>
 
+    {group.obligations?.filter(o => o.status === 'open' && o.from_member === me?.id && o.nudged_at).map(o => <p className="trips-nudge-banner" role="status" key={o.id}>{memberName(findMember(group, o.to_member))} nudged you · {money(o.amount_minor, group.currency)}</p>)}
     <nav className="trips-tabs" role="tablist" aria-label="Trip sections">{tabs.map(({ key, label, icon: Icon }) => <button key={key} role="tab" id={`trips-tab-${key}`} aria-controls="trips-panel" aria-selected={tab === key} onClick={() => setTab(key)}>
       <Icon size={18} aria-hidden="true" /><span>{label}</span>{key === 'expenses' && <span className="trips-count">{group.expenses.length}</span>}</button>)}</nav>
 
     <div className={`trips-columns trips-columns--${tab}`}>
       <section className="trips-ledger" id="trips-panel" role="tabpanel" aria-labelledby={`trips-tab-${tab}`}>
         {tab === 'expenses' && <>
+          {group.settle?.started === false && <ReadyPanel group={group} me={me} onReady={(id, ready) => settleReady(id, ready).catch(e => setNotice({ message: e.message }))}
+            onStart={() => settleStart().catch(e => setNotice({ message: e.message }))} onCloseOut={(member) => setModal({ type: 'close_out', member })} />}
           <div className="trips-panel-heading"><h2 className="trips-section-heading"><ReceiptText size={16} aria-hidden="true" />Expenses</h2>
             {hasHistory && <label className="trips-search"><Search size={15} aria-hidden="true" /><input type="search" name="search" aria-label="Search expenses" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} /></label>}</div>
           <Feed group={group} me={me} query={query} fresh={fresh} onOpenExpense={openExpense} onOpenPayment={(item) => setModal({ type: 'delete_repayment', item })} />
         </>}
-        {tab === 'balances' && <BalancesPanel group={group} me={me} profile={profile} onEditProfile={onEditProfile}
+        {tab === 'balances' && modal?.type !== 'venmo' && <PaymentPrompt flow={paymentFlow} group={group} onSettle={o => obligationAction(o, 'settle')} />}
+        {tab === 'balances' && <BalancesPanel request={request} group={group} me={me} profile={profile} paymentFlow={paymentFlow} onReady={(id, ready) => settleReady(id, ready).catch(e => setNotice({ message: e.message }))} onStart={() => settleStart().catch(e => setNotice({ message: e.message }))} onCloseOut={(member) => setModal({ type: 'close_out', member })} onActivity={() => setTab('activity')} onEditProfile={onEditProfile}
           onVenmo={(transfer, role) => setModal({ type: 'venmo', transfer, role })}
+          onSettle={o => obligationAction(o, 'settle')} onUndo={o => obligationAction(o, 'undo').catch(() => {})} onNudge={o => obligationAction(o, 'nudge').catch(() => {})}
           onRecord={(suggestion) => setModal({ type: 'repayment', suggestion })}
           onRemoveRepayment={(item) => setModal({ type: 'delete_repayment', item })} />}
         {tab === 'people' && <PeoplePanel group={group} user={user} onEditProfile={onEditProfile} onAdd={() => { addedLinks.current = []; setModal({ type: 'people' }); }}
@@ -312,13 +328,17 @@ export default function TripView({ group, user, profile, request, onUpdated, onR
           if (!modal.expense && alive.current) setFresh(payload.id);
         }} />}
       {modal.type === 'repayment' && <RepaymentForm group={formGroup} meId={me?.id} suggestion={modal.suggestion} onCancel={close} onSave={recordPayment} />}
-      {modal.type === 'venmo' && <VenmoReview request={request} group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
+      {modal.type === 'venmo' && <VenmoReview key={`${modal.transfer.from_member}-${modal.transfer.to_member}`} request={request}
+        obligation={group.obligations?.find(o => o.status === 'open' && o.from_member === modal.transfer.from_member && o.to_member === modal.transfer.to_member)}
+        paymentFlow={paymentFlow} onSettle={o => obligationAction(o, 'settle')} group={formGroup} transfer={modal.transfer} role={modal.role} onCancel={close} onRecord={recordPayment}
         onSaveHandle={owner ? (username) => saveHandle(findMember(group, modal.role === 'pay' ? modal.transfer.to_member : modal.transfer.from_member), username) : null} />}
+      {modal.type === 'close_out' && <Form submit="Close out" onCancel={back} onSubmit={() => settleReady(modal.member.id, true)} />}
       {modal.type === 'people' && <AddPeopleForm onCancel={close} onSave={addPeople} />}
       {modal.type === 'invites' && <InviteLinks links={modal.links} tripName={group.name} inviter={ownerName} onClose={close} />}
-      {modal.type === 'person' && <PersonSheet request={request} group={group} member={findMember(group, modal.member.id) || modal.member}
+      {modal.type === 'person' && <PersonSheet manage={owner} request={request} group={group} member={findMember(group, modal.member.id) || modal.member}
         onInvite={person('invite')} onVenmo={person('member_venmo')} onRename={person('rename_member')} onRemove={person('remove_member')}
-        onUnlink={admin ? person('unlink_member') : null} />}
+        onUnlink={admin ? person('unlink_member') : null}
+        onCloseOut={group.settle?.started === false && modal.member.user_id && modal.member.id !== me?.id && !group.settle.ready[modal.member.id] ? person('close_out') : null} />}
       {modal.type === 'link_accounts' && <LinkAccounts group={group} request={request} onClose={close}
         onLink={(memberId, userId, revision, message) => update(`/members/${memberId}/link`, 'POST', { revision, user_id: userId }, message, null, { keepModal: true })} />}
       {modal.type === 'unlink_member' && <Form destructive submit="Unlink" onCancel={back} onSubmit={async () => {

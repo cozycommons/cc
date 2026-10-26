@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Confetti, MotionLink, OddsBar, Score, sharedName } from './motion.jsx';
 import { favorite } from './paths.js';
 import { finished, matchupRead, notableSwings, playerSwings } from './analysis.js';
-import { COLORS, Manager, OddsTrend, ScorePath, TeamLogo, longDay, round, weekday, winPct } from './parts.jsx';
+import { COLORS, Manager, ScorePath, TeamLogo, WinChart, longDay, round, weekday, winPct } from './parts.jsx';
 
 import { PlayerLink, MatchupLink, TeamLinks } from './EspnLink.jsx';
 
@@ -16,7 +17,7 @@ function DayBars({ matchup, selected, onSelect }) {
       {matchup.days.map(day => {
         const values = value(day) || [null, null], projected = !observed(day);
         return (
-          <button type="button" key={day.date} className="fx-bars-day" aria-pressed={selected === day.date}
+          <button type="button" key={day.date} className={`fx-bars-day${projected ? ' fx-bars-day--proj' : ''}`} aria-pressed={selected === day.date}
             disabled={projected} onClick={() => onSelect(day.date)}
             aria-label={`${longDay(day.date)}: ${values.map(round).join(' to ')}${projected ? ' projected' : ''}`}>
             <span className="fx-bars-pair">
@@ -28,7 +29,7 @@ function DayBars({ matchup, selected, onSelect }) {
                 </span>
               ))}
             </span>
-            <small>{weekday(day.date)}{projected ? ' · proj.' : day.state === 'live' ? ' · live' : ''}</small>
+            <small>{weekday(day.date)}{day.state === 'live' && <span className="fx-live" role="img" aria-label="live" />}</small>
           </button>
         );
       })}
@@ -45,7 +46,7 @@ function Players({ matchup, date }) {
         const rows = [...day.players[side]].sort((a, b) => (b.points ?? -Infinity) - (a.points ?? -Infinity));
         return (
           <div key={side} className="fx-players-team">
-            <h4><TeamLogo team={team} side={side} size={22} />{team.name}<span>{round(day.actual?.[side])}</span></h4>
+            <h4><TeamLogo team={team} side={side} size={22} />{team.name}<Manager team={team} /><span>{round(day.actual?.[side])}</span></h4>
             {rows.length ? <ol>{rows.map(player => (
               <li key={player.id}>
                 <img src={headshot(player.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
@@ -76,7 +77,7 @@ function SwingRow({ row }) {
   return (
     <li className={`fx-swing fx-swing--${tone}`}>
       <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={hideBroken} />
-      <span><PlayerLink id={row.id} name={row.name} /><small>{round(row.actual)} of {round(row.expected)} expected{row.games > 1 ? ` · ${row.games} games` : ''}</small></span>
+      <span><PlayerLink id={row.id} name={row.name} /><small>{round(row.actual)} pts{row.games > 1 ? ` · ${row.games} games` : ''}</small></span>
       <b>{row.diff >= 0 ? '+' : '−'}{Math.abs(round(row.diff))}</b>
     </li>
   );
@@ -88,7 +89,7 @@ function Swings({ matchup, teams }) {
   if (!sides.some(rows => rows.length)) return null;
   return (
     <div className="fx-panel">
-      <div className="fx-panel-head"><h3>Who’s swinging it</h3><span className="fx-small">Finished games vs expected</span></div>
+      <div className="fx-panel-head"><h3>Who’s swinging it</h3></div>
       <div className="fx-swing-teams">
         {sides.map((rows, side) => {
           const { cold, hot } = notableSwings(rows);
@@ -96,7 +97,7 @@ function Swings({ matchup, teams }) {
           const rest = [...rows].sort((a, b) => a.diff - b.diff).filter(row => !named.includes(row));
           return (
             <div key={side}>
-              <h4><TeamLogo team={teams[side]} side={side} size={22} />{teams[side].name}</h4>
+              <h4><TeamLogo team={teams[side]} side={side} size={22} />{teams[side].name}<Manager team={teams[side]} /></h4>
               {named.length ? <ul>{named.map(row => <SwingRow key={row.id} row={row} />)}</ul>
                 : <p className="fx-small">Everyone close to expected.</p>}
               {!!rest.length && (
@@ -119,34 +120,37 @@ export default function MatchupPage({ data }) {
   const lastObserved = matchup?.days?.filter(observed).at(-1)?.date;
   const [selected, setSelected] = useState(lastObserved);
   if (!matchup || matchup.unavailable) {
-    return <section className="fx-matchup"><Link className="fx-back" to="..">← All matchups</Link><p className="fx-status">This matchup isn't available.</p></section>;
+    return <section className="fx-matchup"><MotionLink className="fx-back" to="..">← All matchups</MotionLink><p className="fx-status">This matchup isn't available.</p></section>;
   }
   const teams = [matchup.home, matchup.away], odds = [matchup.chance, 100 - matchup.chance], fav = favorite(matchup);
   return (
     <section className="fx-matchup" aria-label={`${teams[0].name} vs ${teams[1].name}`}>
-      <Link className="fx-back" to="..">← All matchups</Link>
+      <MotionLink className="fx-back" to="..">← All matchups</MotionLink>
       <div className="fx-hero">
         {teams.map((team, side) => (
           <div key={side} className={`fx-hero-team${fav === side ? ' fx-team--fav' : ''}`}>
-            <TeamLogo team={team} side={side} size={64} />
+            <span style={{ viewTransitionName: sharedName(matchup, side, 'jersey') }}><TeamLogo team={team} side={side} size={64} /></span>
             <h2>{team.name}</h2>
             <Manager team={team} /><TeamLinks teamId={team.id} />
-            <strong style={{ color: COLORS[side] }}>{round(matchup.scores[side])}</strong>
+            <strong style={{ color: COLORS[side] }}><Score value={matchup.scores[side]} side={side} name={sharedName(matchup, side, 'score')} /><Confetti matchup={matchup} side={side} week={`${data.year}-${data.matchup.id}`} /></strong>
             <span className="fx-hero-facts"><span>{winPct(odds[side], finished(matchup))} to win</span><span>Proj. {round(matchup.projected_totals[side])}</span></span>
           </div>
         ))}
       </div>
-      <div className="fx-bar fx-bar--big" aria-hidden="true">
-        {odds.map((value, side) => <i key={side} style={{ flex: `${value} 0 0`, background: COLORS[side], opacity: fav === side ? 1 : 0.35 }} />)}
-      </div>
-      <MatchupLink matchup={matchup} />
+      <OddsBar chance={matchup.chance} big />
       <Read read={matchupRead(matchup)} />
+      <MatchupLink matchup={matchup} />
       <Swings matchup={matchup} teams={teams} />
 
+      {matchup.odds_history?.length > 1 && <div className="fx-panel">
+        <div className="fx-panel-head"><h3>Win odds</h3></div>
+        <WinChart history={matchup.odds_history} final={finished(matchup)} big />
+      </div>}
+
       <div className="fx-panel">
-        <div className="fx-panel-head"><h3>Score so far and projected</h3><OddsTrend history={matchup.odds_history} wide final={finished(matchup)} /></div>
+        <div className="fx-panel-head"><h3>Score so far and projected</h3></div>
         <ScorePath matchup={matchup} height={230} />
-        <p className="fx-small">Likely final margin: {round(matchup.margin_80[0])} to {round(matchup.margin_80[1])}.</p>
+        
       </div>
 
       <div className="fx-panel">

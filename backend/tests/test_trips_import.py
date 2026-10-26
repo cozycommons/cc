@@ -146,3 +146,11 @@ def test_real_supabase_import_preview_atomicity_retry_and_edit_preservation(loca
     changed['snapshot']['expenses'][0]['notes'] = 'Changed upstream'
     assert api.post('/trips/imports', json=changed, headers=tokens['Matt']).status_code == 409
     assert len(admin.table('trips_groups').select('id').eq('id', group_id).execute().data) == 1
+
+
+def test_import_starts_gated(snapshot):
+    from trips.ledger import public_group
+    row, _ = prepare_import(snapshot, 'user-a', 'a')
+    assert row['data']['settle'] == {'started_at': None, 'started_by': None, 'ready': {}}
+    assert not public_group(row)['obligations']
+    assert public_group(row)['transfers']

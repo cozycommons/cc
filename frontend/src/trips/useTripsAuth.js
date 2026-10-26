@@ -41,9 +41,9 @@ export function useTripsAuth() {
     signIn: () => auth.signInWithGoogle(`${window.location.origin}${window.location.pathname}${window.location.search}`),
     signOut: () => auth.signOut(),
     // Writes only the caller's own account. A response for an account that has since signed out is dropped.
-    saveVenmo: async (username) => {
+    saveVenmo: async (username, ownerConfirmed = false) => {
       if (!userId) throw new Error('Please sign in again to continue.');
-      const saved = await tripRequest(supabase, '/me', 'PUT', { venmo_username: username }, userId);
+      const saved = await tripRequest(supabase, '/me', 'PUT', { venmo_username: username, owner_confirmed: ownerConfirmed }, userId);
       if (saved.user_id !== userId) throw new Error('Your account changed. Reload to continue.');
       setIdentity((current) => (current.userId === saved.user_id ? { ...current, profile: saved, error: '' } : current));
       return saved;

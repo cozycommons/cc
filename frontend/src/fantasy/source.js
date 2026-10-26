@@ -1,8 +1,11 @@
+import { orderMatchups } from './paths.js';
+
 // Interim snapshot host until the Cozy upload route is configured in production.
 export const FALLBACK_URL = 'https://gist.githubusercontent.com/homatthew/a417a860db31c1a9e5c13b08338b7a65/raw/fantasy-latest.json';
 
-// Allow slow mobile connections time to receive and decode the snapshot.
-const TIMEOUT_MS = 60000;
+// Active downloads have no total deadline. Only a missing response or stalled body expires.
+const HEADER_TIMEOUT_MS = 30000;
+const IDLE_TIMEOUT_MS = 20000;
 const MODES = ['projections', 'balanced', 'hot'];
 const MANAGER = /^[A-Za-z][A-Za-z '\-.]{0,39}$/;
 const finite = value => Number.isFinite(value);
@@ -94,7 +97,7 @@ export function cleanSnapshot(data, apiUrl) {
   return {
     // Only v2 carries real ESPN team ids, which is what Dice links are keyed by.
     linkable: data.version === 'public-v2',
-    generatedAt: data.generated_at, matchup: data.matchup, year: Number.isInteger(data.season_year) ? data.season_year : null, label: typeof data.label === 'string' ? data.label : '',
+    generatedAt: data.generated_at, capturedAt: data.captured_at ?? data.generated_at, matchup: data.matchup, year: Number.isInteger(data.season_year) ? data.season_year : null, label: typeof data.label === 'string' ? data.label : '',
     teams, matchups: raw.map(m => matchup(m, teams)).filter(Boolean), season: season(data.season, teams),
   };
 }
@@ -114,32 +117,154 @@ function remember(apiUrl, raw) {
   try { localStorage.setItem(cacheKey(apiUrl), JSON.stringify(raw)); } catch { /* Storage may be full or disabled. */ }
 }
 
-async function read(url, signal, apiUrl) {
+function progress(data, onProgress, done, extra = {}) {
+  if (!onProgress) return;
+  const { matchups, ...meta } = data;
+  onProgress({ meta: { ...meta, totalMatchups: matchups.length,
+    slots: orderMatchups(matchups).map(({ key, home, away }) => ({ key, home: home.id, away: away.id })),
+    seasonAvailable: !!data.season, ...extra }, matchups, done, error: null });
+}
+
+function streamSnapshot(onProgress, apiUrl) {
+  let raw, extra, ended = false;
+  const seen = new Set();
+  const publish = () => {
+    const data = cleanSnapshot(raw, apiUrl);
+    if (!data) throw new Error('Invalid predictions stream');
+    progress(data, onProgress, false, extra);
+  };
+  return {
+    line(text) {
+      if (!text.trim()) return;
+      const line = JSON.parse(text);
+      if (ended) throw new Error('Data after stream completion');
+      if (line.type === 'meta' && !raw) {
+        if (!Number.isInteger(line.total_matchups) || line.total_matchups < 0
+          || !Array.isArray(line.slots) || line.slots.length !== line.total_matchups) throw new Error('Invalid stream metadata');
+        raw = { ...line.snapshot, matchups: [] };
+        extra = { totalMatchups: line.total_matchups, slots: line.slots, seasonAvailable: line.season_available === true };
+      } else if (!raw) throw new Error('Missing stream metadata');
+      else if (line.type === 'matchup') {
+        const key = `${line.matchup?.home}-${line.matchup?.away}`;
+        if (seen.has(key) || !extra.slots.some(slot => slot.key === key)) throw new Error('Invalid stream matchup');
+        seen.add(key);
+        if (Array.isArray(line.teams)) {
+          const teams = new Map(raw.teams.map(team => [team.id, team]));
+          line.teams.forEach(team => teams.set(team.id, team));
+          raw.teams = [...teams.values()];
+        }
+        raw.matchups.push(line.matchup);
+      } else if (line.type === 'season') raw.season = line.season;
+      else if (line.type === 'history') {
+        for (const match of line.matchups) {
+          const target = raw.matchups.find(row => row.home === match.home && row.away === match.away);
+          if (!target) throw new Error('Invalid stream history');
+          target.odds_history = match.odds_history;
+        }
+      } else if (line.type === 'done') {
+        if (seen.size !== extra.totalMatchups) throw new Error('Incomplete predictions stream');
+        ended = true;
+      } else throw new Error('Invalid predictions record');
+      publish();
+    },
+    finish() {
+      if (!ended) throw new Error('Incomplete predictions stream');
+      return raw;
+    },
+  };
+}
+
+async function read(url, signal, apiUrl, onProgress) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    const controller = new AbortController();
+    let timer, reader, complete = false;
+    const cancel = () => controller.abort(signal.reason);
+    if (signal?.aborted) controller.abort(signal.reason);
+    else signal?.addEventListener('abort', cancel, { once: true });
+    const wait = promise => new Promise((resolve, reject) => {
+      const onAbort = () => { controller.signal.removeEventListener('abort', onAbort); reject(controller.signal.reason); };
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      Promise.resolve(promise).then(value => {
+        controller.signal.removeEventListener('abort', onAbort); resolve(value);
+      }, error => {
+        controller.signal.removeEventListener('abort', onAbort); reject(error);
+      });
+      if (controller.signal.aborted) onAbort();
+    });
+    const arm = milliseconds => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(new DOMException('Download stalled', 'TimeoutError')), milliseconds);
+    };
     try {
-      const response = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+      arm(HEADER_TIMEOUT_MS);
+      const response = await wait(fetch(url, { signal: controller.signal,
+        ...(apiUrl && url !== FALLBACK_URL && { headers: { Accept: typeof ReadableStream === 'function' && typeof TextDecoder === 'function'
+          ? 'application/x-ndjson, application/json' : 'application/json' } }) }));
+      clearTimeout(timer);
       if (response.status === 404) return null;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const raw = await response.json();
+      arm(IDLE_TIMEOUT_MS);
+      let raw;
+      if (!response.body?.getReader) raw = await wait(response.json());
+      else {
+        reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        const ndjson = response.headers.get('content-type')?.includes('application/x-ndjson');
+        const records = ndjson ? streamSnapshot(onProgress, apiUrl) : null;
+        let buffer = '';
+        const consume = text => {
+          buffer += text;
+          if (records) {
+            let end;
+            while ((end = buffer.indexOf('\n')) !== -1) {
+              records.line(buffer.slice(0, end));
+              buffer = buffer.slice(end + 1);
+            }
+          }
+        };
+        while (true) {
+          const { value, done } = await wait(reader.read());
+          if (done) break;
+          if (value.byteLength) {
+            arm(IDLE_TIMEOUT_MS);
+            consume(decoder.decode(value, { stream: true }));
+          }
+        }
+        consume(decoder.decode());
+        if (records) {
+          if (buffer.trim()) records.line(buffer);
+          raw = records.finish();
+        } else raw = JSON.parse(buffer);
+      }
+      clearTimeout(timer);
       const data = cleanSnapshot(raw, apiUrl);
       if (!usable(data)) return null;
       remember(apiUrl, raw);
+      complete = true;
+      progress(data, onProgress, true);
       return data;
     } catch (error) {
-      // Keep the loading state during one quiet retry, including body timeouts.
-      if (signal?.aborted || attempt === 1 || (!timeout.aborted && error.name !== 'TimeoutError')) throw error;
+      if (signal?.aborted || attempt === 1 || error.name !== 'TimeoutError') throw error;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      if (!complete) controller.abort();
+      if (reader) {
+        if (!complete) reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
     }
   }
 }
 
 // Cozy API first; the interim host only when the API has nothing to serve.
-export async function loadSnapshot(apiUrl, signal) {
-  let failed = false;
+export async function loadSnapshot(apiUrl, signal, onProgress) {
+  let failed = false, latest;
+  const emit = event => { latest = event; onProgress?.(event); };
   const urls = apiUrl ? [`${apiUrl}/espn/public/predictions/latest`, FALLBACK_URL] : [FALLBACK_URL];
   for (const url of urls) {
     try {
-      const data = await read(url, signal, apiUrl);
+      const data = await read(url, signal, apiUrl, emit);
       if (data) return data;
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -147,7 +272,11 @@ export async function loadSnapshot(apiUrl, signal) {
     }
   }
   const saved = cachedSnapshot(apiUrl);
-  if (saved) return saved;
-  if (failed) throw new Error('Predictions unavailable');
+  if (saved) { progress(saved, emit, true); return saved; }
+  if (failed) {
+    const error = new Error('Predictions unavailable');
+    onProgress?.({ meta: latest?.meta ?? null, matchups: latest?.matchups ?? [], done: true, error });
+    throw error;
+  }
   return null;
 }

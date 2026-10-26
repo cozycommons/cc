@@ -123,10 +123,14 @@ real Google/Trips smoke tests passed. See `cozy-trips-tests.md` for the evidence
 The SPA document must send `Cache-Control: no-cache`, including route fallbacks
 and conditional 304 responses. Otherwise browser heuristic freshness can retain
 old shelf navigation and bundle references across a deployment. CI checks that
-header on Commons, Dice and Trips document/deep-link routes. Vite assets under
-`/assets/` send `Cache-Control: public, max-age=31536000, immutable`; missing
-hashes return 404 rather than the SPA document. The stock nginx image supports
-gzip (enabled for scripts and styles), but has no Brotli module.
+header on Commons, Dice and Trips document/deep-link routes. Content-hashed Vite
+scripts, styles, fonts and images under `/assets/` send
+`Cache-Control: public, max-age=31536000, immutable`; HTML, manifests and unhashed
+files revalidate. Missing hashes return 404 rather than the SPA document. A failed
+lazy chunk import triggers at most one full reload per build, guarded in
+`sessionStorage`; a persistent failure shows an error instead of looping.
+The stock nginx image supports
+gzip (level 6 for scripts and styles), but has no Brotli module.
 
 The initial Trips release used commit
 `efbaf35c91e61f59bba1f6777d16370ccc199c4f` for both resources:
@@ -318,3 +322,21 @@ If a rollout fails:
 4. Never reverse a production migration by editing migration history. Restore
    application compatibility or add a new forward migration.
 5. Repeat the readiness and smoke checks before resuming automatic deployment.
+
+### Venmo previews
+
+Venmo previews persist only public display fields in migration
+`0081_venmo_profiles.sql`. The release migration runner applies the `venmo`
+family automatically. Outbound requests share a process bucket (default one per
+second, burst five; `VENMO_REQUEST_RATE` / `VENMO_REQUEST_BURST`) and a ten-minute
+breaker after five failures. Thumbnail signatures use `VENMO_PHOTO_SIGNING_KEY`
+(or the backend service key); keep that key consistent across replicas. Run one API worker for a deployment-wide limit;
+multiple workers each have their own bucket and breaker. Hits expire in about
+24 hours and misses in about one hour, with 10% jitter. Durable previews serve
+immediately while one background revalidation runs per handle. Thumbnail bytes
+are authenticated, bounded, and privately cached for one day.
+
+Friend obligations live alongside their host ledger and are saved in the same
+compare-and-swap revision. Trips supplies its existing settle-up suggestions to
+the generic Venmo obligation module; an explicit settle writes the existing
+repayment command, and Undo removes that repayment. Opening links never settles.

@@ -158,6 +158,7 @@ export function ExpenseForm({ group, user, expense, initial = {}, conflict, onSa
       await onSave({ id, description: description.trim(), amount_minor: amountMinor, paid_by: several ? payerEntries[0][0] : paidBy, payers, date, category, notes,
         split_mode: mode, participants: selected.map((m) => m.id), shares, revision: group.revision });
     }}>
+    {group.settle?.started && group.settle.started_at && <p className="trips-muted trips-small">Settling started. Saving changes who owes what.</p>}
     {conflict && expense && <div className="trips-note" role="status">{conflict.latest ? <>
       <strong>Someone else saved this first:</strong>
       <ul className="trips-conflict">{savedSummary(conflict.latest, group).map((line) => <li key={line}>{line}</li>)}</ul>

@@ -43,30 +43,31 @@ const writes = () => mocked.request.mock.calls.filter((call) => call[2]);
 it('prepares a Venmo payment for review without changing the ledger, then records it once', async () => {
   open('/trips/trip-id?tab=balances');
   fireEvent.click(await screen.findByRole('button', { name: 'Pay Andrew with Venmo' }));
-  const dialog = screen.getByRole('dialog', { name: 'Pay with Venmo' });
+  const dialog = screen.getByRole('dialog', { name: 'Pay Andrew' });
   expect(dialog).toHaveTextContent('@andsohn');
   expect(dialog).toHaveTextContent('$198.18');
   expect(within(dialog).getByRole('link', { name: '@andsohn, opens Venmo profile' })).toHaveAttribute('href', 'https://venmo.com/u/andsohn');
   expect(within(dialog).getByRole('button', { name: 'Copy amount' })).toBeInTheDocument();
   expect(dialog).not.toHaveTextContent('Added for them');
   // Opening Venmo is the main step; marking it paid only takes the lead once Venmo was opened.
-  expect(within(dialog).getByRole('button', { name: 'Mark as paid' })).toHaveClass('cc-button--ghost');
-  const link = within(dialog).getByRole('link', { name: /Open Venmo to pay/ });
+  expect(within(dialog).getByRole('button', { name: 'Sent' })).toHaveClass('cc-button--primary');
+  const link = within(dialog).getByRole('link', { name: 'Pay $198.18 in Venmo' });
   const url = new URL(link.getAttribute('href'));
   expect([url.pathname, url.searchParams.get('txn'), url.searchParams.get('amount'), url.searchParams.get('note')])
-    .toEqual(['/andsohn', 'pay', '198.18', 'Tahoe & Reno · Cozy Trips']);
+    .toEqual(['/andsohn', 'pay', '198.18', 'Cozy Trips · Tahoe & Reno']);
   expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   link.addEventListener('click', (event) => event.preventDefault());
   fireEvent.click(link);
   expect(writes()).toEqual([]);
-  expect(dialog).toHaveTextContent('After you pay in Venmo, mark it here.');
-  expect(within(dialog).getByRole('button', { name: 'Mark as paid' })).toHaveClass('cc-button--primary');
+  fireEvent.focus(window);
+  expect(dialog).toHaveTextContent('Sent $198.18 to Andrew?');
+  expect(within(dialog).getByRole('button', { name: 'Sent' })).toHaveClass('cc-button--primary');
 
   const failure = Object.assign(new Error('Could not confirm this saved.'), { uncertain: true });
   mocked.request.mockRejectedValueOnce(failure).mockResolvedValueOnce(trip({ revision: 5 }));
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Mark as paid' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Sent' }));
   expect(await within(dialog).findByRole('alert')).toHaveTextContent('Could not confirm');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Mark as paid' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Sent' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   const [first, retry] = writes();
   expect(first[1]).toBe('/groups/trip-id/repayments');
@@ -76,24 +77,24 @@ it('prepares a Venmo payment for review without changing the ledger, then record
   expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
 });
 
-it('offers request to the creditor, nothing to bystanders, and adds a missing username without leaving', async () => {
+it('offers request to the creditor, read-only rows to bystanders, and adds a missing username without leaving', async () => {
   open('/trips/trip-id?tab=balances');
   expect(await screen.findByRole('button', { name: 'Request from Jason with Venmo' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Aziz with Venmo/ })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Record payment from Jason to Aziz' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Record payment from Jason to Aziz' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Request from Jason with Venmo' }));
-  const dialog = screen.getByRole('dialog', { name: 'Request with Venmo' });
+  const dialog = screen.getByRole('dialog', { name: 'Request from Jason' });
   expect(dialog).toHaveTextContent('No Venmo username yet');
   expect(within(dialog).queryByRole('link')).not.toBeInTheDocument();
   expect(within(dialog).getByRole('button', { name: 'Copy amount' })).toBeInTheDocument();
-  expect(within(dialog).getByRole('button', { name: 'Mark as received' })).toHaveClass('cc-button--secondary');
+  expect(within(dialog).getByRole('button', { name: 'Got it' })).toHaveClass('cc-button--primary');
   const named = trip({ revision: 5, members: trip().members.map((m) => (m.id === 'jason' ? { ...m, venmo_username: 'jason-k', venmo_source: 'trip' } : m)) });
   mocked.request.mockResolvedValueOnce(named);
   fireEvent.change(within(dialog).getByLabelText('Jason’s Venmo username'), { target: { value: '@jason-k' } });
   await act(async () => fireEvent.click(within(dialog).getByRole('button', { name: 'Add' })));
   expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/members/jason/venmo', 'PUT', { venmo_username: 'jason-k', revision: 4 }]);
-  const still = screen.getByRole('dialog', { name: 'Request with Venmo' });
-  expect(within(still).getByRole('link', { name: /Open Venmo to request/ })).toHaveAttribute('href', expect.stringContaining('/jason-k?txn=charge'));
+  const still = screen.getByRole('dialog', { name: 'Request from Jason' });
+  expect(within(still).getByRole('link', { name: /Request .* in Venmo/ })).toHaveAttribute('href', expect.stringContaining('/jason-k?txn=charge'));
   expect(still).not.toHaveTextContent('Added by the trip creator');
 });
 
@@ -367,4 +368,70 @@ it('refreshes the review instead of linking when the trip changed since the sugg
   expect(await within(dialog).findByRole('alert')).toHaveTextContent('review again');
   expect(reviews).toBe(2);
   expect(within(dialog).getByRole('button', { name: 'Review linking Jason to Jason Keung' })).toBeInTheDocument();
+});
+
+it('shows a payment nudge when the payer opens the trip on Expenses', async () => {
+  open('/trips/trip-id?tab=expenses', trip({ obligations: [{ id: 'nudge', status: 'open', from_member: 'me', to_member: 'andrew', amount_minor: 19818, nudged_at: '2026-10-25T00:00:00+00:00' }] }));
+  expect(await screen.findByText('Andrew nudged you · $198.18')).toBeInTheDocument();
+});
+
+const gated = (overrides = {}) => trip({ settle: { started: false, ready: { andrew: { by: 'andrew', at: '2026' } }, waiting: ['me', 'aziz'], ...overrides }, obligations: [] });
+
+it('shows Finished adding all bills on Expenses and posts ready', async () => {
+  open('/trips/trip-id?tab=expenses', gated());
+  expect(screen.queryByText('Waiting on you')).not.toBeInTheDocument();
+  mocked.request.mockResolvedValue(gated({ ready: { me: { by: 'me' }, andrew: { by: 'andrew' } }, waiting: ['aziz'] }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Finished adding all bills' }));
+  await waitFor(() => expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/settle/ready', 'POST', { member_id: 'me', ready: true }]));
+  expect(await screen.findByText("You're done adding")).toBeInTheDocument();
+});
+
+it('closes out a member from the Who\'s done table with a confirm', async () => {
+  open('/trips/trip-id?tab=expenses', gated());
+  fireEvent.click(await screen.findByRole('button', { name: 'Close out Aziz' }));
+  expect(screen.getByRole('dialog', { name: "Close out Aziz's expenses?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(writes()).toHaveLength(0);
+});
+
+it('confirms closing out a member and Cancel writes nothing', async () => {
+  open('/trips/trip-id?tab=people', gated());
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage Aziz' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close out' }));
+  expect(screen.getByRole('dialog', { name: "Close out Aziz's expenses?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(writes()).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Close out' }));
+  mocked.request.mockResolvedValue(gated());
+  fireEvent.click(screen.getByRole('button', { name: 'Close out' }));
+  await waitFor(() => expect(writes()[0].slice(1)).toEqual(['/groups/trip-id/settle/ready', 'POST', { member_id: 'aziz', ready: true }]));
+});
+
+it('lets a joined non-creator close someone out without exposing creator actions', async () => {
+  open('/trips/trip-id?tab=people', { ...gated(), owner_id: 'user-andrew' });
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage Aziz' }));
+  expect(screen.getByRole('button', { name: 'Close out' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Remove from trip/ })).not.toBeInTheDocument();
+});
+
+it('reports the other party settling an opened payment and keeps exact opened state across refresh', async () => {
+  const item = { id: 'opened', from_member: 'me', to_member: 'andrew', amount_minor: 19818, cycle: 0, status: 'open' };
+  open('/trips/trip-id?tab=balances', trip({ obligations: [item] }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Pay Andrew with Venmo' }));
+  const link = screen.getByRole('link', { name: 'Pay $198.18 in Venmo' });
+  link.addEventListener('click', e => e.preventDefault()); fireEvent.click(link);
+  mocked.request.mockResolvedValue(trip({ obligations: [{ ...item, status: 'settled', settled_by: 'andrew' }] }));
+  fireEvent.focus(window);
+  expect(await screen.findByText('Andrew already marked it.')).toBeInTheDocument();
+  expect(screen.queryByText('Sent $198.18 to Andrew?')).not.toBeInTheDocument();
+});
+
+it('uses Undone. after undoing an old settled payment', async () => {
+  const item = { id: 'paid', from_member: 'me', to_member: 'andrew', amount_minor: 19818, cycle: 0, status: 'settled', settled_by: 'me' };
+  open('/trips/trip-id?tab=balances', trip({ obligations: [item], repayments: [{ ...item, date: '2026-10-25' }] }));
+  const button = await screen.findByRole('button', { name: /Undo payment from Matt to Andrew/ });
+  mocked.request.mockResolvedValue(trip({ obligations: [{ ...item, status: 'replaced', cycle: 1 }] }));
+  fireEvent.click(button);
+  expect(await screen.findByText('Undone.')).toBeInTheDocument();
+  expect(writes()[0][1]).toBe('/groups/trip-id/obligations/paid/undo');
 });

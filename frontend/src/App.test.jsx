@@ -25,12 +25,12 @@ describe('top-level routes', () => {
 
   afterEach(cleanup);
 
-  it('serves the Wabi project picker home page with a Dice project card', () => {
+  it('serves the Wabi project picker home page with a Dice project card', async () => {
     const { container } = render(<App />);
 
+    expect(await screen.findByRole('main')).toBeInTheDocument();
     expect(container).not.toBeEmptyDOMElement();
-    expect(screen.getByRole('main')).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Projects' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Dice beer die records and stats' })).toHaveAttribute('href', '/dice');
     expect(screen.getByRole('link', { name: 'Open Crowdset concert videos' })).toHaveAttribute('href', '/crowdset');
     expect(screen.getByRole('link', { name: 'Open Cozy Trips shared trip expenses' })).toHaveAttribute('href', '/trips');
@@ -69,7 +69,7 @@ describe('top-level routes', () => {
     render(<App />);
 
     await waitFor(() => expect(window.location.pathname).toBe('/'));
-    expect(screen.getByRole('region', { name: 'Projects' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Projects' })).toBeInTheDocument();
   });
 
   it('serves Dice and initializes Supabase under /dice', async () => {

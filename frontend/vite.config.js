@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import fs from 'fs'
+import { createHash } from 'node:crypto'
 import { resolveCodespacesSandbox } from './sandboxConfig.js'
 import { DICE_SAME_ORIGIN } from './sandboxConstants.js'
 
@@ -73,6 +74,24 @@ export default defineConfig(({ mode }) => {
     }
   }
 
+  // Deterministic deployment identity for the one-reload-per-build budget.
+  const buildHash = createHash('sha256');
+  function hashSources(directory) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const filename = path.join(directory, entry.name);
+      if (entry.isDirectory()) hashSources(filename);
+      else {
+        buildHash.update(path.relative(__dirname, filename));
+        buildHash.update(fs.readFileSync(filename));
+      }
+    }
+  }
+  hashSources(path.resolve(__dirname, 'src'));
+  hashSources(path.resolve(__dirname, '../design'));
+  for (const filename of ['index.html', 'vite.config.js', 'package-lock.json']) buildHash.update(fs.readFileSync(path.resolve(__dirname, filename)));
+  buildHash.update(JSON.stringify([mode, apiUrl, supabaseUrl, supabaseKey, localHarness]));
+  const buildId = buildHash.digest('hex').slice(0, 16);
+
   return {
     plugins: [react()],
     resolve: {
@@ -88,12 +107,14 @@ export default defineConfig(({ mode }) => {
       exclude: ['e2e/**', 'node_modules/**'],
     },
     build: {
+      manifest: true,
       rollupOptions: {
         output: {
-          manualChunks: {
-            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-            'supabase-vendor': ['@supabase/supabase-js'],
-            recharts: ['recharts'],
+          manualChunks(id) {
+            // Shared CJS helpers must not make the entry preload Supabase.
+            if (id.includes('commonjsHelpers') || id.includes('vite/preload-helper') || /node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) return 'react-vendor';
+            if (id.includes('/node_modules/@supabase/')) return 'supabase-vendor';
+            if (id.includes('/node_modules/recharts/')) return 'recharts';
           },
         },
       },
@@ -123,6 +144,7 @@ export default defineConfig(({ mode }) => {
         : undefined,
     },
     define: {
+      __APP_BUILD_ID__: JSON.stringify(buildId),
       // Make environment variables available to the client via import.meta.env
       'import.meta.env.VITE_API_URL': JSON.stringify(apiUrl),
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
