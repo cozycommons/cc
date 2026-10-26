@@ -33,7 +33,7 @@ describe('Fantasy pages', () => {
     expect(section.querySelector('.fx-hl-row > strong').textContent).toMatch(/^\+\d+$/);
     expect(section.querySelector('.fx-hl-pts').textContent).toMatch(/^\d+/);
     expect(section.querySelector('.fx-hl-main small').textContent).toContain('·');
-    for (const filler of [/Matchup in ESPN/, /^Score$/, /^To win$/, /exp\./, /Up \d+/, /Down \d+/, /Projected to/, /since \w{3}$/, /Just for fun/, /chance to win from here/, /Uncalibrated/, /Locked/, /Big favorites/, /unlock after week 1/, /Assumes today/]) {
+    for (const filler of [/Matchup in ESPN/, /^Score$/, /^To win$/, /exp\./, /Up \d+/, /Down \d+/, /Projected to/, /odds [+-]?\d+ since/, /Just for fun/, /chance to win from here/, /Uncalibrated/, /Locked/, /Big favorites/, /unlock after week 1/, /Assumes today/]) {
       expect(screen.queryByText(filler)).toBeNull();
     }
   });
@@ -44,9 +44,26 @@ describe('Fantasy pages', () => {
     m.odds_history = [{ date: '2026-10-21', chance: 80 }, { date: '2026-10-22', chance: 100 }];
     vi.stubGlobal('fetch', respond(200, snap));
     view(`/fantasy/${m.home}-${m.away}`);
-    expect((await screen.findByRole('img', { name: /^Win odds since/ })).getAttribute('aria-label')).toBe('Win odds since Wed: >99% to <1%');
-    const labels = [...document.querySelectorAll('.fx-win--big .fx-win-labels > span')].map(span => span.textContent);
-    expect(labels.map(label => label.replace(/^[A-Z]{1,2}/, ''))).toEqual(['>99%▲20%', '<1%']);
+    const chart = await screen.findByRole('img', { name: / to win, .* <1%$/ });
+    expect(chart.getAttribute('aria-label')).toMatch(/ >99% to win, /);
+    const head = document.querySelector('.fx-win--big .fx-win-head');
+    expect(head.querySelector('b').textContent).toBe('>99%');
+    expect(head.querySelector('.fx-up').textContent).toBe('▲20%');
+    expect(document.body.textContent).not.toMatch(/(^|[^>])100%/);
+  });
+
+  it('marks a slipping leader in red and keeps the chart itself neutral', async () => {
+    const snap = structuredClone(SNAPSHOT_V2);
+    const m = snap.matchups.find(x => !x.unavailable && x.days.some(d => d.state === 'projected'));
+    m.odds_history = [{ date: '2026-10-21', chance: 80 }, { date: '2026-10-22', chance: 70 }];
+    vi.stubGlobal('fetch', respond(200, snap));
+    view(`/fantasy/${m.home}-${m.away}`);
+    await screen.findByRole('img', { name: / to win, / });
+    const head = document.querySelector('.fx-win--big .fx-win-head');
+    expect(head.querySelector('b').textContent).toBe('70%');
+    expect(head.querySelector('.fx-down').textContent).toBe('▼10%');
+    expect(document.querySelectorAll('.fx-win--big polyline')).toHaveLength(2);
+    expect(document.querySelectorAll('.fx-win--big .fx-win-end')).toHaveLength(2);
   });
 
   it('shows the form toggle only once a week is complete', async () => {
