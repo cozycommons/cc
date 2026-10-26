@@ -5,7 +5,7 @@ import shutil
 
 import pytest
 
-from tests.migration_harness import REPO, checkout_release, migration_database
+from tests.migration_harness import REPO, checkout_release, migration_database, reconciliation_release
 
 
 PRE_ANALYTICS_RELEASE = "c63264dcadb77ce05183cb49a3119fc2c496387b"
@@ -59,13 +59,16 @@ def test_upgrade_from_previous_release(migration_database, tmp_path):
     assert "Applying " not in migration_database.release().stdout
 
 
-def test_adopted_baseline_without_analytics(adopted_database, shipped_release):
+def test_adopted_baseline_without_analytics(adopted_database, shipped_release, reconciliation_release):
     database = adopted_database
     # The shipped runner reproduces the deployment error on this starting state.
     failure = database.release(shipped_release, check=False)
     assert failure.returncode != 0 and 'relation "public.analytics_events" does not exist' in failure.stderr
     assert database.sql("SELECT to_regtype('public.analytics_event_type') IS NULL;").stdout.strip() == "t"
-    result = database.release()
+    blocked = database.release(check=False)
+    assert blocked.returncode != 0 and 'Migration history gap in dice' in blocked.stderr
+    result = database.release(reconciliation_release)
+    assert 'Applying ' not in database.release().stdout
     assert "Preparing prerequisite for " + ANALYTICS_MIGRATION in result.stdout
     assert database.sql("SELECT display_name FROM public.dice_profiles;").stdout.strip() == "Upgrade fixture"
     assert database.sql("SELECT count(*) FROM public.analytics_saved_queries;").stdout.strip() == "4"
@@ -123,8 +126,10 @@ def test_prerequisite_checksum_is_checked_before_any_migrations(migration_databa
     assert database.sql("SELECT count(*) FROM public.commons_schema_migrations WHERE version=12;").stdout.strip() == "0"
 
 
-def test_prerequisite_and_receipt_rollback_together(adopted_database, candidate_release):
-    database = adopted_database
+def test_prerequisite_and_receipt_rollback_together(migration_database, old_release, candidate_release):
+    database = migration_database
+    database.release(old_release)
+    database.sql('DROP TABLE public.analytics_events;')
     backend = candidate_release
     migration = backend / "migrations" / ANALYTICS_MIGRATION
     migration.write_text(migration.read_text() + "\nSELECT 1/0;\n")

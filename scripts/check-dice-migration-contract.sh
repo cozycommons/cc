@@ -2,12 +2,7 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-baseline="$(tr -d '[:space:]' < "$repo_dir/backend/migrations/PRODUCTION_SCHEMA_VERSION")"
 contract="$(tr -d '[:space:]' < "$repo_dir/backend/migrations/DICE_SCHEMA_CONTRACT_VERSION")"
-[[ "$baseline" =~ ^[0-9]+$ ]] || {
-  echo "Invalid production migration baseline: $baseline" >&2
-  exit 1
-}
 [[ "$contract" =~ ^[0-9]+$ ]] || {
   echo "Invalid Dice schema contract version: $contract" >&2
   exit 1
@@ -21,13 +16,8 @@ latest="$(find "$repo_dir/backend/migrations" -maxdepth 1 -type f \
   exit 1
 }
 
-baseline_number="$((10#$baseline))"
 latest_number="$((10#$latest))"
 contract_number="$((10#$contract))"
-if (( latest_number < baseline_number )); then
-  echo "Migration baseline $baseline has no matching repository history (latest is $latest)." >&2
-  exit 1
-fi
 
 # Every numbered SQL migration must belong to a runner-owned family. This makes
 # adding a new family an explicit change instead of silently omitting it in CI.
@@ -55,8 +45,4 @@ if (( contract_number != latest_number )); then
   exit 1
 fi
 
-if (( latest_number > baseline_number )); then
-  echo "Incoming releases apply migrations after baseline $baseline before starting HTTP (latest: $latest)."
-else
-  echo "Migration baseline and repository history are aligned at $baseline."
-fi
+echo "Incoming releases require individual migration receipts and apply pending files before HTTP (latest: $latest)."

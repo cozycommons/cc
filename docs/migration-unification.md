@@ -37,15 +37,18 @@ Reconciled entries include the source hash, reconciliation version and reason.
 Their deferred reference to receipt 0084 commits atomically with that receipt.
 Existing records are never relabeled as executed or assigned invented dates.
 
-## Retiring the numeric baseline
+## One migration history
 
-Deploy and verify reconciliation before removing the runner's `0042` skip rule
-and history-gap exemption. The subsequent release uses the same per-file receipt
-check for every migration, regardless of provenance. It removes the active
-`PRODUCTION_SCHEMA_VERSION` configuration. Historical Git releases remain usable
-as regression starting points.
+The runner uses the same per-file receipt check for every migration, regardless
+of provenance. There is no numeric skip rule, history-gap exemption, or active
+`PRODUCTION_SCHEMA_VERSION` configuration. Missing early receipts block startup
+before any pending SQL runs. Historical Git releases remain usable as regression
+starting points.
 
-This ordering prevents an unreconciled database from attempting old one-time
+The reconciliation release is commit `d3e5b3b520ab52c31d5f4cd0977b2c28e13870b2`
+([PR #153](https://github.com/cozycommons/cc/pull/153)). Run that release
+once for an old imported database before using this runner. This ordering
+prevents an unreconciled database from attempting old one-time
 operations against current tables. An unreconciled import must pass through the
 reconciliation release once. It must never receive fabricated execution records
 or replay the old migration chain against existing data.
@@ -84,6 +87,11 @@ CI requires these database tests. Local resets also use the production release
 runner before loading synthetic seed data.
 
 After deployment, read the hosted catalog and migration receipts, compare them
-with a disposable fresh database, and check public readiness before retiring the
-baseline. Only schema metadata and migration receipts are needed; account and
+with a disposable fresh database, and check public readiness. Only schema
+metadata and migration receipts are needed; account and
 application data are not exported.
+
+Production verification on 2026-10-26 after PR #153 found zero differences
+across 1,084 catalog entries. All 65 pre-existing receipts retained their values;
+13 missing Dice entries were recorded as reconciled by 0084. Both health and
+readiness passed before the numeric skip rule was removed.

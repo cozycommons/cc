@@ -16,6 +16,7 @@ from tests.dice_test_database import is_isolated_dice_test_database
 
 
 REPO = Path(__file__).resolve().parents[2]
+RECONCILIATION_RELEASE = "d3e5b3b520ab52c31d5f4cd0977b2c28e13870b2"
 
 
 def checkout_release(ref, destination):
@@ -80,3 +81,8 @@ def disposable_migration_database():
 def migration_database():
     with disposable_migration_database() as database:
         yield database
+
+
+@pytest.fixture(scope="module")
+def reconciliation_release(tmp_path_factory):
+    return checkout_release(RECONCILIATION_RELEASE, tmp_path_factory.mktemp("reconciliation") / "release")

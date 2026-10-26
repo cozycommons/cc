@@ -1,7 +1,7 @@
 """Verify fresh and imported histories converge before removing adoption rules."""
 import pytest
 
-from tests.migration_harness import REPO, checkout_release, disposable_migration_database, migration_database
+from tests.migration_harness import checkout_release, disposable_migration_database, migration_database, reconciliation_release
 
 
 @pytest.fixture(scope="module")
@@ -56,10 +56,11 @@ def test_fresh_schema_without_legacy_supabase_default_grants(migration_database,
         assert denied.returncode != 0 and 'permission denied' in denied.stderr
 
 
-def test_imported_and_fresh_schemas_are_identical(imported_database, canonical_catalog):
+def test_imported_and_fresh_schemas_are_identical(imported_database, canonical_catalog, reconciliation_release):
     database = imported_database
     receipts_before = database.sql("SELECT version,applied_at,checksum FROM public.dice_schema_migrations ORDER BY version;").stdout
     profile_before = database.sql("SELECT to_jsonb(p) FROM public.dice_profiles p;").stdout
+    database.release(reconciliation_release)
     database.release()
     assert database.sql("SELECT version,applied_at,checksum FROM public.dice_schema_migrations WHERE version>=42 AND version<84 ORDER BY version;").stdout == receipts_before
     assert database.sql("SELECT to_jsonb(p) FROM public.dice_profiles p;").stdout == profile_before
@@ -81,10 +82,10 @@ def test_imported_and_fresh_schemas_are_identical(imported_database, canonical_c
     "GRANT SELECT(enabled) ON public.dice_feature_access TO anon;",
     "ALTER DEFAULT PRIVILEGES GRANT SELECT ON TABLES TO anon;",
 ])
-def test_unreviewed_drift_prevents_reconciling_history(imported_database, drift):
+def test_unreviewed_drift_prevents_reconciling_history(imported_database, drift, reconciliation_release):
     database = imported_database
     database.sql(drift)
-    result = database.release(check=False)
+    result = database.release(reconciliation_release, check=False)
     assert result.returncode != 0 and 'schema convergence mismatch' in result.stderr
     assert database.sql("SELECT count(*) FROM public.dice_schema_migrations WHERE version IN (20,25,35,84);").stdout.strip() == '0'
     assert database.sql("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='dice_schema_migrations' AND column_name='reconciled_by';").stdout.strip() == '0'
@@ -112,3 +113,24 @@ def test_catalog_excludes_physical_runtime_state(migration_database):
     before = database.catalog()
     database.sql("SELECT setval('public.analytics_events_id_seq',9999);")
     assert catalog_difference(before, database.catalog()) == []
+
+
+@pytest.mark.parametrize('version', [20, 25, 42])
+def test_missing_early_receipt_blocks_every_release(migration_database, version):
+    database = migration_database
+    database.release()
+    database.sql(f"DELETE FROM public.dice_schema_migrations WHERE version={version};")
+    before = database.catalog()
+    result = database.release(check=False)
+    assert result.returncode != 0 and 'Migration history gap in dice' in result.stderr
+    assert 'Applying ' not in result.stdout
+    assert catalog_difference(before, database.catalog()) == []
+
+
+def test_reconciled_checksum_is_verified(imported_database, reconciliation_release):
+    database = imported_database
+    database.release(reconciliation_release)
+    database.sql("UPDATE public.dice_schema_migrations SET checksum=repeat('0',64) WHERE version=20;")
+    result = database.release(check=False)
+    assert result.returncode != 0 and 'Migration checksum changed in dice history' in result.stderr
+    assert 'Applying ' not in result.stdout

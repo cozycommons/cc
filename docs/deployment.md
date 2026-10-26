@@ -234,6 +234,9 @@ Before smoke testing the deployment:
 1. Let the incoming backend apply all checked-in migration families. For an
    existing database, reconcile its real schema and migration ledger first;
    never fabricate baseline receipts or replay historical SQL blindly.
+   Every checked-in version requires its own receipt. Historical imports missing
+   early Dice receipts must pass through the reconciliation release documented
+   in `docs/migration-unification.md` before using the current runner.
 2. Create the `dice-profile-photos` and `dice-comment-photos` storage buckets
    and verify their policies.
 3. Configure the frontend URL in Supabase Auth URL configuration and in any
