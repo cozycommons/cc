@@ -167,8 +167,8 @@ def test_fixture_is_loaded_after_the_canonical_schema():
     ).read_text(encoding="utf-8")
 
     assert "psql \"$DB_URL\" --set ON_ERROR_STOP=1 --file supabase/dice-seed.sql" in reset_script
-    assert '--single-transaction --file "$migration"' in reset_script
-    assert reset_script.index("done\npsql") < reset_script.index("supabase/dice-seed.sql")
+    assert 'backend/migration_runner.py --family all' in reset_script
+    assert reset_script.index("backend/migration_runner.py") < reset_script.index("supabase/dice-seed.sql")
 
 
 def test_synthetic_referee_can_open_the_seeded_tournament_bankroll():

@@ -25,6 +25,7 @@ def test_family_rendering_and_receipt_guards():
 
 
 def test_orphaned_prerequisite_is_rejected(tmp_path, monkeypatch):
+    (tmp_path / "schema_catalog_v1.sql").write_text("")
     directory = tmp_path / "migrations/prerequisites"
     directory.mkdir(parents=True)
     (directory / "9999_dice_missing.sql").write_text("SELECT 1;")

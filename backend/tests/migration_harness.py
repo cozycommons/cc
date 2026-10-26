@@ -1,6 +1,8 @@
 """Rehearse release upgrades in disposable databases on the allowlisted test server."""
 import io
+import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import subprocess
 import sys
@@ -21,8 +23,7 @@ def checkout_release(ref, destination):
         ["git", "rev-parse", "--verify", "--end-of-options", ref + "^{commit}"], cwd=REPO, text=True
     ).strip()
     archive = subprocess.check_output([
-        "git", "archive", commit, "backend/migration_runner.py", "backend/migrations",
-        "backend/commons/migrations", "backend/trips/migrations",
+        "git", "archive", commit, "backend",
     ], cwd=REPO)
     destination.mkdir()
     with tarfile.open(fileobj=io.BytesIO(archive)) as source:
@@ -36,12 +37,17 @@ class MigrationDatabase:
 
     def sql(self, statement, *, check=True):
         result = subprocess.run(
-            ["psql", self.url, "-X", "-v", "ON_ERROR_STOP=1", "-At"],
+            ["psql", self.url, "-X", "-v", "ON_ERROR_STOP=1", "-Atq"],
             input=statement, text=True, capture_output=True, timeout=120,
         )
         if check:
             assert result.returncode == 0, result.stdout + result.stderr
         return result
+
+    def catalog(self):
+        source = (REPO / "backend/schema_catalog_v1.sql").read_text()
+        result = self.sql(source + "\nSELECT jsonb_agg(to_jsonb(c) ORDER BY kind COLLATE \"C\",key COLLATE \"C\") FROM pg_temp.cozy_schema_catalog_v1() c;")
+        return json.loads(result.stdout)
 
     def release(self, backend=REPO / "backend", *, check=True):
         result = subprocess.run(
@@ -54,8 +60,8 @@ class MigrationDatabase:
         return result
 
 
-@pytest.fixture
-def migration_database():
+@contextmanager
+def disposable_migration_database():
     if not is_isolated_dice_test_database(os.environ):
         pytest.skip("allowlisted isolated DB_URL required for migration rehearsals")
     parsed = urlparse(os.environ["DB_URL"])
@@ -68,3 +74,9 @@ def migration_database():
         yield database
     finally:
         admin.sql(f'DROP DATABASE "{name}" WITH (FORCE);')
+
+
+@pytest.fixture
+def migration_database():
+    with disposable_migration_database() as database:
+        yield database

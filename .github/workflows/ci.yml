@@ -380,6 +380,7 @@ jobs:
         run: >-
           docker run --rm cozy-commons-backend-ci sh -c
           'test -f /app/release.py && test -f /app/migration_runner.py &&
+          test -f /app/schema_catalog_v1.sql &&
           test -f /app/migrations/prerequisites/0083_analytics_workspace.sql &&
           test -x /app/apply-shared-migrations.sh &&
           test -f /app/trips/migrations/0002_trips_release_readiness.sql &&
