@@ -86,7 +86,7 @@ describe('top-level routes', () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: /A small kit.*close at hand\./ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Cozy Commons.*Design system\./ })).toBeInTheDocument());
     expect(screen.getByRole('link', { name: 'homepage' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('heading', { name: /Raised keys.*soft landing\./ })).toBeInTheDocument();
   });

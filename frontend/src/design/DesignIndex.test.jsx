@@ -21,6 +21,28 @@ describe('Cozy Commons design system', () => {
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Dice keeps the friendly arguments.');
   });
 
+  it('changes the comparison with native keyboard selection', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const week = screen.getByRole('radio', { name: 'Week' });
+    week.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('radio', { name: 'Month' })).toBeChecked();
+    expect(screen.getByRole('group', { name: 'Schedule completion' })).toHaveTextContent('64 played');
+    expect(screen.getByRole('group', { name: 'Schedule completion' })).toHaveTextContent('28 remaining');
+  });
+
+  it('keeps the previous total visible throughout a refresh', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: 'Preview refresh' }));
+    expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled();
+    expect(screen.getByText('24 games')).toBeVisible();
+    expect(screen.getByText('Loading sample activity')).toBeInTheDocument();
+    expect(await screen.findByText('Sample updated just now.', {}, { timeout: 2500 })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Preview refresh' })).toBeEnabled();
+  });
+
   it('keeps the demo form local and validates required fields', async () => {
     const user = userEvent.setup();
     renderPage();

@@ -72,3 +72,27 @@ The room, counts, times, player names, and Dice records are explicitly labeled a
 - Focus rings are visible, native controls remain recognizable, and interactive targets use a 44px minimum.
 - The layout is designed down to 360px and avoids horizontal overflow. `prefers-reduced-motion` removes transitions, spinner motion, and smooth scrolling.
 - The room artwork is decorative except for its concise room label and its lamp button. The existing CSS scene remains image-free and portable.
+
+## Data and interaction patterns
+
+The `/design` page includes interactive data specimens. Import React primitives
+from `frontend/src/design/system/DataPatterns.jsx`; this also loads
+`data-patterns.css`. They depend on the shared material tokens, with optional
+`--data-surface` and `--data-duration` overrides.
+
+- `SegmentedControl({ label, options, value, onChange })`: controlled native radio
+  group with an animated selection surface. Options use `{ value, label }`;
+  provide a nonempty list and a value from that list. Arrow keys select natively.
+  Use this for filtering a view; use the existing tabs for tab panels.
+- `DataRow({ title, subtitle, value, children })`: native details/summary row.
+  Put supporting content in children; keep nested controls out of its summary.
+- `ComparisonBar({ label, value, total, leftLabel, rightLabel })`: part-to-whole
+  comparison. Both labels must include their quantities. Geometry is decorative;
+  text communicates the values. Zero totals render an empty bar.
+- `Skeleton({ label })`: decorative first-load placeholder with an accessible
+  loading message. Keep existing totals visible during subsequent refreshes.
+
+Motion uses short local transitions and honors reduced-motion preferences. All
+showcase figures are synthetic. The refresh demo uses a local timer and sends
+no requests. The static component sheet also demonstrates data rows and comparison
+bars; the React showcase contains the stateful selection and refresh examples.
