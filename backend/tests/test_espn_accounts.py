@@ -46,9 +46,21 @@ class FakeTable:
             r.update(values)
         return self
 
+    def delete(self):
+        self._deleting = True
+        self._rows = list(self._store)
+        return self
+
     def execute(self):
+        if getattr(self, "_deleting", False):
+            doomed = {id(r) for r in (self._rows or [])}
+            self._store[:] = [r for r in self._store if id(r) not in doomed]
+            rows = []
+        else:
+            rows = self._rows
+
         class R:
-            data = self._rows
+            data = rows
 
         return R()
 
@@ -223,6 +235,26 @@ def test_token_resolves_exactly_one_account(fernet_key, monkeypatch):
         accounts.get_account_by_token(db, "cce_wrong")
     with pytest.raises(accounts.AccountError):
         accounts.get_account_by_token(db, "ccp_not-espn")
+
+
+def test_delete_account_removes_row_and_kills_token(fernet_key, monkeypatch):
+    db = FakeSupabase()
+    a = _make_account(
+        db, monkeypatch, label="alice", espn_s2="s2-a", swid="{SWID-A}"
+    )
+    b = _make_account(
+        db, monkeypatch, label="bob", espn_s2="s2-b", swid="{SWID-B}"
+    )
+    assert accounts.delete_account(db, a["id"]) == a["id"]
+    assert [r["label"] for r in db._store] == ["bob"]
+    # the deleted account's token resolves to nothing
+    with pytest.raises(accounts.AccountError):
+        accounts.get_account_by_token(db, a["token"])
+    # the other account is untouched
+    got_b = accounts.get_account_by_token(db, b["token"])
+    assert got_b["label"] == "bob"
+    assert got_b["espn_s2"] == "s2-b"
+    assert got_b["swid"] == "{SWID-B}"
 
 
 def test_make_client_for_account_passes_account_fields(fernet_key, monkeypatch):
