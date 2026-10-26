@@ -22,11 +22,13 @@
 .cc-sitebar-icon[aria-expanded=true] { border-color: var(--line); background: var(--paper-light); color: var(--espresso); }
 .cc-sitebar-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 
-/* Mascot idles: closed lids flash over the eyes every 6s and the z drifts. Opacity and a 1px
-   nudge only, so they stay on under reduced motion by design. */
+/* Mascot idles: closed lids flash over the eyes every 6s, the screen cursor blinks every 1s and
+   the z drifts. Opacity and a 1px nudge only, so they stay on under reduced motion by design. */
 .cc-mascot--animated .cc-mascot-blink { opacity: 0; animation: cc-mascot-shut 6s step-end infinite; }
+.cc-mascot--animated .cc-mascot-cursor { animation: cc-mascot-cursor 1s step-end infinite; }
 .cc-mascot--animated .cc-mascot-z { animation: cc-mascot-fade 3.6s ease-in-out infinite, cc-mascot-rise 3.6s step-end infinite; }
 @keyframes cc-mascot-shut { 0%, 100% { opacity: 0; } 94% { opacity: 1; } 97% { opacity: 0; } }
+@keyframes cc-mascot-cursor { 50% { opacity: 0; } }
 @keyframes cc-mascot-fade { 0%, 100% { opacity: .9; } 50% { opacity: .45; } }
 /* Whole-pixel hops keep the z crisp; an eased sub-pixel slide would blur it. */
 @keyframes cc-mascot-rise { 0%, 90%, 100% { transform: translate(0, 0); } 40% { transform: translate(1px, -1px); } }
