@@ -51,3 +51,5 @@ existing rows and does not mark skipped historical migrations as applied.
 Ordinary schema changes should still use a new numbered forward migration.
 
 See [migration testing](migration-testing.md) for the automated upgrade rehearsals.
+The [migration unification plan](migration-unification.md) describes schema
+convergence and the staged retirement of the historical numeric baseline.

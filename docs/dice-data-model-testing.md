@@ -20,8 +20,8 @@ exercise a new invariant; do not turn it into a production snapshot.
    `backend/migrations/NNNN_dice_description.sql`.
 2. Never edit or rename a migration that may already have run in production.
    Correct it with a later forward migration.
-3. Keep `_dice_` in the filename. `scripts/reset-local-dice-db.sh` intentionally
-   discovers only that explicit Dice migration family.
+3. Keep `_dice_` in the filename for Dice changes. Local resets and deployments
+   use the same shared release runner and its explicitly owned migration families.
 4. Keep collection, scoring, and other application rules out of a migration
    unless the database must enforce the invariant for every writer.
 5. For destructive or irreversible operations, explain why they are necessary,

@@ -342,9 +342,17 @@ $$;
 
 DO $$ BEGIN
  IF to_regclass('public.analytics_saved_queries') IS NULL
- OR to_regclass('analytics.events') IS NULL
- OR to_regclass('analytics.users') IS NULL
+ OR NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='analytics' AND c.relname='events' AND c.relkind='v')
+ OR NOT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='analytics' AND c.relname='users' AND c.relkind='v')
  OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='analytics_events' AND column_name='identity_status') THEN
   RAISE EXCEPTION 'Analytics workspace schema missing';
+ END IF;
+END $$;
+
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT FROM public.dice_schema_migrations WHERE version=84)
+ OR EXISTS(SELECT 1 FROM (VALUES (20),(25),(31),(32),(33),(34),(35),(36),(37),(38),(39),(40),(41),(42)) expected(version)
+ WHERE NOT EXISTS(SELECT FROM public.dice_schema_migrations applied WHERE applied.version=expected.version)) THEN
+  RAISE EXCEPTION 'Dice migration history reconciliation missing';
  END IF;
 END $$;

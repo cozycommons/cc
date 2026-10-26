@@ -27,6 +27,7 @@ def sql_literal(value):
 
 def render(families):
     chunks = ["SET lock_timeout = '60s';", "SELECT pg_advisory_lock(hashtextextended('cozycommons:migrations', 0));"]
+    chunks += [(ROOT / "schema_catalog_v1.sql").read_text()]
     application_chunks = []
     for family in families:
         directory = ROOT / ("commons/migrations" if family == "commons" else "trips/migrations" if family == "trips" else "migrations")
@@ -76,8 +77,9 @@ END IF; END $$;""",
             f"CREATE TABLE IF NOT EXISTS public.{ledger} (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());",
             f"ALTER TABLE public.{ledger} ADD COLUMN IF NOT EXISTS checksum text;",
             f"ALTER TABLE public.{ledger} ADD COLUMN IF NOT EXISTS prerequisite_checksum text;",
+            f"ALTER TABLE public.{ledger} ADD COLUMN IF NOT EXISTS recorded_via text NOT NULL DEFAULT 'legacy' CHECK (recorded_via IN ('legacy','executed','reconciled'));",
             f"ALTER TABLE public.{ledger} ENABLE ROW LEVEL SECURITY;",
-            f"REVOKE ALL ON public.{ledger} FROM PUBLIC, anon, authenticated;",
+            f"REVOKE ALL ON public.{ledger} FROM PUBLIC, anon, authenticated, service_role;",
             f"GRANT SELECT ON public.{ledger} TO service_role;"]
         if family == "dice":
             baseline = int((directory / "PRODUCTION_SCHEMA_VERSION").read_text())
@@ -126,8 +128,8 @@ END IF; END $$;"""]
             if prerequisite_hash:
                 chunks += [f"\\echo Preparing prerequisite for {path.name}", prerequisites[path].read_text()]
             chunks += [path.read_text(),
-                       f"INSERT INTO public.{ledger}(version,checksum,prerequisite_checksum) VALUES "
-                       f"({version},'{digest}',{sql_literal(prerequisite_hash) if prerequisite_hash else 'NULL'});",
+                       f"INSERT INTO public.{ledger}(version,checksum,prerequisite_checksum,recorded_via) VALUES "
+                       f"({version},'{digest}',{sql_literal(prerequisite_hash) if prerequisite_hash else 'NULL'},'executed');",
                        "COMMIT;", "\\endif"]
             if family == "dice" and version <= baseline:
                 chunks += ["\\endif"]

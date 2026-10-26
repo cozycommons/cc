@@ -22,8 +22,8 @@ the database tests to run. It does not reset the shared sandbox or load hosted d
 
 ## CI coverage
 
-The shared backend suite includes `test_migration_runner.py` and
-`test_migration_upgrades.py`. CI fetches history and uses the PR base, merge-group
+The shared backend suite includes `test_migration_runner.py`,
+`test_migration_upgrades.py`, and `test_migration_convergence.py`. CI fetches history and uses the PR base, merge-group
 base, or push's previous commit as `MIGRATION_BASE_REF`. Unexpectedly skipped
 migration tests fail the required backend gate.
 
@@ -37,6 +37,10 @@ The scenarios cover:
 - Prerequisite checksum changes/removal rejected before pending migrations run.
 - Failure after prerequisite SQL rolling back its schema and receipt together.
 - Readiness, service-role ingestion, and denial of browser-role table reads.
+- Fresh/imported schema convergence, including exact function definitions,
+  columns, constraints, indexes, views, policies, RLS, sequences, table/column/type/
+  function/schema grants, and schema/global default privileges.
+- Unreviewed structural or permission drift preventing history reconciliation.
 
 `tests/migration_harness.py` provides `checkout_release`, `MigrationDatabase`,
 and the `migration_database` fixture. Add an upgrade case by checking out a prior

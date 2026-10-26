@@ -22,4 +22,5 @@ export DB_URL="postgresql://postgres:postgres@127.0.0.1:54322/$test_db_name"
 export DICE_TEST_DATABASE=1 DICE_REQUIRE_DATABASE_TESTS=1
 export PYTHONPATH="$repo_dir/backend"
 "$backend_python" -m pytest "$repo_dir/backend/tests/test_migration_runner.py" \
-  "$repo_dir/backend/tests/test_migration_upgrades.py" -q "$@"
+  "$repo_dir/backend/tests/test_migration_upgrades.py" \
+  "$repo_dir/backend/tests/test_migration_convergence.py" -q "$@"

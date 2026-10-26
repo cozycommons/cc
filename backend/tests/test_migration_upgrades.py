@@ -28,6 +28,7 @@ def candidate_release(tmp_path):
     for directory in ("migrations", "commons/migrations", "trips/migrations"):
         shutil.copytree(REPO / "backend" / directory, backend / directory)
     shutil.copy(REPO / "backend/migration_runner.py", backend)
+    shutil.copy(REPO / "backend/schema_catalog_v1.sql", backend)
     return backend
 
 
@@ -68,7 +69,7 @@ def test_adopted_baseline_without_analytics(adopted_database, shipped_release):
     assert "Preparing prerequisite for " + ANALYTICS_MIGRATION in result.stdout
     assert database.sql("SELECT display_name FROM public.dice_profiles;").stdout.strip() == "Upgrade fixture"
     assert database.sql("SELECT count(*) FROM public.analytics_saved_queries;").stdout.strip() == "4"
-    assert database.sql("SELECT count(*) FROM public.dice_schema_migrations WHERE version IN (20,35);").stdout.strip() == "0"
+    assert database.sql("SELECT count(*) FROM public.dice_schema_migrations WHERE version IN (20,35) AND recorded_via='reconciled' AND reconciled_by=84;").stdout.strip() == "2"
     digest = hashlib.sha256((REPO / "backend/migrations/prerequisites" / ANALYTICS_MIGRATION).read_bytes()).hexdigest()
     assert database.sql("SELECT prerequisite_checksum FROM public.dice_schema_migrations WHERE version=83;").stdout.strip() == digest
     assert database.sql("SELECT public.dice_release_readiness();").stdout.strip() == "t"

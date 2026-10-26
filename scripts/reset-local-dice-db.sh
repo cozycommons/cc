@@ -15,10 +15,8 @@ fi
 
 "$repo_dir/scripts/dice-supabase.sh" db reset --local --no-seed
 
-for migration in backend/migrations/*_dice_*.sql; do
-  printf 'Applying %s\n' "$migration"
-  psql "$DB_URL" --set ON_ERROR_STOP=1 --single-transaction --file "$migration"
-done
+backend_python="${BACKEND_VENV_DIR:-$repo_dir/backend/.venv}/bin/python"
+SUPABASE_DB_URL="$DB_URL" "$backend_python" backend/migration_runner.py --family all
 psql "$DB_URL" --set ON_ERROR_STOP=1 --file supabase/dice-seed.sql
 
 psql "$DB_URL" --set ON_ERROR_STOP=1 --file supabase/dice-local-grants.sql
