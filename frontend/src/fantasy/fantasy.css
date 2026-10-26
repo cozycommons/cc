@@ -309,7 +309,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-hl-main{display:grid;min-width:0;line-height:1.25}
 .fx-hl-main b{display:flex;align-items:center;gap:4px;min-width:0;font-size:14px;font-weight:600;color:#201711}
 .fx-hl-main b a{min-height:0!important;color:inherit;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fx-hl-main b .fx-espn-link{flex-direction:row-reverse;justify-content:flex-end;gap:6px}
 .fx-hl-main small{display:flex;align-items:center;gap:0;min-width:0;font-size:12px;color:#75695b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fx-hl-main small a{color:inherit;text-decoration:none;overflow:hidden;text-overflow:ellipsis}
 .fx-hl-main small .fx-manager{margin:0;color:#5c4a3d}
@@ -322,7 +321,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-hl-up{background:#e1eee0;color:#3f7d4e}
 .fx-hl-down{background:#f6e3dc;color:#a1442b}
 .fx-flame{flex:none}
-.fx-highlights .fx-espn-logo{width:22px;height:12px;border-radius:2px;object-fit:contain}
 
 /* Compact rows: the team name gives way first; the coach name always shows. */
 .fx-hl-main small a{flex:0 1 auto;min-width:0}

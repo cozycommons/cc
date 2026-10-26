@@ -66,7 +66,7 @@ function Swings({ title, rows }) {
             <li key={`${row.key}-${row.id}`} className="fx-hl-row">
               <img src={headshot(row.id)} alt="" loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.visibility = 'hidden'; }} />
               <span className="fx-hl-main">
-                <b>{up && index === 0 && <span className="fx-flame" aria-label="Top outperformer">🔥</span>}<PlayerLink id={row.id} name={row.name} badge /></b>
+                <b>{up && index === 0 && <span className="fx-flame" aria-label="Top outperformer">🔥</span>}<PlayerLink id={row.id} name={row.name} /></b>
                 <small><Link to={row.key}>{row.team.name}</Link><Manager team={row.team} />{how && <span className="fx-hl-how">{how}</span>}</small>
               </span>
               <span className="fx-hl-pts">{round(row.actual)}<small>{row.games > 1 ? `${row.games} games` : 'pts'}</small></span>
@@ -119,7 +119,7 @@ function Hub({ data, apiUrl, onOwnersChange, progress, loading }) {
       <div className="fx-grid">{slots.map((slot, index) => {
         const matchup = ready.get(slot.key);
         const mine = matchup && isMine(matchup);
-        return <div className="fx-matchup-card" key={slot.key}>{matchup ? <div className="fx-arrive" style={{ '--i': index }}><MatchupCard matchup={matchup} mine={mine} week={`${data.year}-${data.matchup.id}`} /><div className="fx-card-links"><MatchupLink matchup={matchup} />{mine && <TeamLinks teamId={links.team_id} />}</div></div> : <SkeletonCard failed={!loading} />}</div>;
+        return <div className="fx-matchup-card" key={slot.key}>{matchup ? <div className="fx-arrive" style={{ '--i': index }}><MatchupCard matchup={matchup} mine={mine} week={`${data.year}-${data.matchup.id}`} />{mine && <div className="fx-card-links"><MatchupLink matchup={matchup} /><TeamLinks teamId={links.team_id} /></div>}</div> : <SkeletonCard failed={!loading} />}</div>;
       })}</div>
       <Swings title="Outperformers" rows={highlights(matchups)} />
       <Swings title="Underperformers" rows={lowlights(matchups)} />
