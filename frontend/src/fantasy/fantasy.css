@@ -215,7 +215,7 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 
 
 /* Site header, loading and arrival. Transforms and opacity only. */
-.fx-page .cc-sitebar{color:#3d2f29}
+.fx-page .cc-sitebar{color:var(--ink)}
 .fx-page .cc-sitebar :is(a,small,span){color:inherit}
 .fx-page .cc-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:var(--cc-tap-target);padding:var(--cc-space-2) 14px;border-radius:8px;box-shadow:none;font:13px var(--sans);text-transform:none;letter-spacing:0;color:#3d2f29}
 .fx-header,.fx-slot--week>.fx-section-head{position:relative}
