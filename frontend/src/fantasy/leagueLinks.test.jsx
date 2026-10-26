@@ -26,7 +26,8 @@ function view(handler = async () => json(links)) {
     if (url.endsWith('/claims/links')) return handler(options);
     return { ok: false, json: async () => ({}) };
   }));
-  render(<MemoryRouter initialEntries={['/fantasy']}><Routes><Route path="/fantasy/*" element={<Fantasy />} /></Routes></MemoryRouter>);
+  // League links live on the viewer's own matchup page (team 1 plays in 1-2).
+  render(<MemoryRouter initialEntries={['/fantasy/1-2']}><Routes><Route path="/fantasy/*" element={<Fantasy />} /></Routes></MemoryRouter>);
 }
 afterEach(() => { vi.unstubAllGlobals(); auth.session = { access_token: 'first' }; auth.listener = null; });
 it('clears league links on sign-out', async () => {

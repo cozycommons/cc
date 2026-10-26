@@ -96,6 +96,7 @@ describe('Fantasy pages', () => {
     expect(screen.queryByRole('navigation', { name: 'Sections' })).toBeNull();
     expect(document.querySelector('input[type=password]')).toBeNull();
     expect(screen.queryByText(/Automatic lineups|ESPN password/)).toBeNull();
+    expect(document.querySelector('.fx-hub .fx-espn-logo, .fx-hub .fx-espn-button')).toBeNull();
   });
 
   it('connect page carries the ESPN login form, off the hub', async () => {
