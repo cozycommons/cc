@@ -44,8 +44,8 @@ describe('Fantasy pages', () => {
     m.odds_history = [{ date: '2026-10-21', chance: 80 }, { date: '2026-10-22', chance: 100 }];
     vi.stubGlobal('fetch', respond(200, snap));
     view(`/fantasy/${m.home}-${m.away}`);
-    const chart = await screen.findByRole('img', { name: /to win; .* at the top, .* at the bottom$/ });
-    expect(chart.getAttribute('aria-label')).toMatch(/ >99% to win;/);
+    const chart = await screen.findByRole('img', { name: / to win, .* <1%$/ });
+    expect(chart.getAttribute('aria-label')).toMatch(/ >99% to win, /);
     const head = document.querySelector('.fx-win--big .fx-win-head');
     expect(head.querySelector('b').textContent).toBe('>99%');
     expect(head.querySelector('.fx-up').textContent).toBe('▲20%');
@@ -58,11 +58,12 @@ describe('Fantasy pages', () => {
     m.odds_history = [{ date: '2026-10-21', chance: 80 }, { date: '2026-10-22', chance: 70 }];
     vi.stubGlobal('fetch', respond(200, snap));
     view(`/fantasy/${m.home}-${m.away}`);
-    await screen.findByRole('img', { name: /to win;/ });
+    await screen.findByRole('img', { name: / to win, / });
     const head = document.querySelector('.fx-win--big .fx-win-head');
     expect(head.querySelector('b').textContent).toBe('70%');
     expect(head.querySelector('.fx-down').textContent).toBe('▼10%');
-    expect(document.querySelectorAll('.fx-win--big polyline')).toHaveLength(1);
+    expect(document.querySelectorAll('.fx-win--big polyline')).toHaveLength(2);
+    expect(document.querySelectorAll('.fx-win--big .fx-win-end')).toHaveLength(2);
   });
 
   it('shows the form toggle only once a week is complete', async () => {
