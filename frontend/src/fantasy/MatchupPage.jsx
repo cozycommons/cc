@@ -144,7 +144,7 @@ export default function MatchupPage({ data }) {
 
       {matchup.odds_history?.length > 1 && <div className="fx-panel">
         <div className="fx-panel-head"><h3>Win odds</h3></div>
-        <WinChart history={matchup.odds_history} final={finished(matchup)} big />
+        <WinChart history={matchup.odds_history} teams={teams} final={finished(matchup)} big />
       </div>}
 
       <div className="fx-panel">

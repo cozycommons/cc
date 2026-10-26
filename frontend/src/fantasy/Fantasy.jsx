@@ -45,7 +45,7 @@ function MatchupCard({ matchup, week, mine }) {
       ))}
       <OddsBar chance={matchup.chance} />
       <p className="fx-why"><GameStatus matchup={matchup} /><span>{read.facts.join(' · ')}</span></p>
-      <WinChart history={matchup.odds_history} final={finished(matchup)} />
+      <WinChart history={matchup.odds_history} teams={teams} final={finished(matchup)} />
     </MotionLink>
   );
 }
