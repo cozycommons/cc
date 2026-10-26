@@ -181,7 +181,7 @@ export default function TripsApp() {
   const signIn = async (name) => { setError(''); setSigningIn(true); try { if (name) await auth.signInLocal(name); else await auth.signIn(); } catch (e) { setError(e.message); } finally { setSigningIn(false); } };
   const signOut = async () => { try { setProfileOpen(false); await auth.signOut(); } catch (e) { setError(e.message); } };
   return <div className="cc-page trips"><a href="#trips-main" className="trips-skip">Skip to trip</a>
-    <SiteHeader product="Cozy Trips" to="/trips" icon={<Suitcase size={22} />}>
+    <SiteHeader product="Cozy Trips" to="/trips" icon={<Suitcase size={18} />}>
       {localDemo && <span className="trips-demo-badge">LOCAL</span>}
       {auth.user && <>
         <button className="trips-account-identity" aria-label={`Signed in as ${headerProfile.display_name}. Open profile`} onClick={() => setProfileOpen(true)}>
