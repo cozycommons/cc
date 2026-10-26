@@ -172,3 +172,10 @@ CI opts into real analytics database tests, and migration assertions follow the
 contract marker. The SQL fixture creates a temporary login without modifying an
 existing reader password. Production provisioning, login/telemetry integration,
 and deployment smoke checks remain separate from these local checks.
+
+The first PR CI run passed the frontend/backend/Trips and container suites but
+Crowdset's media tests hit the physical free-space guard on the Ubuntu runner.
+The Crowdset job now removes unused preinstalled SDKs on that disposable host,
+prints disk capacity, and checks for at least 16 GiB free before setup. Production
+limits and the admission guard are unchanged. Local full media suite: 275 passed,
+including physical-disk and storage-quota tests; workflow YAML parses correctly.
