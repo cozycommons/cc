@@ -24,6 +24,15 @@ def test_family_rendering_and_receipt_guards():
     assert "Applying 0079_dice_staging_schema_reconciliation.sql" in both
 
 
+def test_orphaned_prerequisite_is_rejected(tmp_path, monkeypatch):
+    directory = tmp_path / "migrations/prerequisites"
+    directory.mkdir(parents=True)
+    (directory / "9999_dice_missing.sql").write_text("SELECT 1;")
+    monkeypatch.setattr(migration_runner, "ROOT", tmp_path)
+    with pytest.raises(ValueError, match="Prerequisite has no matching migration"):
+        migration_runner.render(["dice"])
+
+
 @pytest.mark.skipif(not is_isolated_dice_test_database(os.environ),reason="isolated database required")
 def test_real_runner_fresh_existing_retry_and_checksum_rejection(tmp_path):
     import re

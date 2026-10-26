@@ -7,10 +7,10 @@ the hosted Supabase database.
 The checked-in `backend/migrations/PRODUCTION_SCHEMA_VERSION` identifies the
 historical baseline. Existing databases must have reconciled migration receipts;
 the runner never creates a baseline receipt from the existence of one table.
-The incoming backend image runs `python -m release`, applying both Dice and
-Commons migrations before starting HTTP. Each migration and its history record
-are committed in one transaction. A database advisory lock serializes releases,
-and both families' histories are checked before pending migrations are applied.
+The incoming backend image runs `python -m release`, applying Dice, Commons,
+Beli, Trips, and Venmo migrations before starting HTTP. Each migration and its
+history record are committed in one transaction. A database advisory lock serializes releases,
+and every family's history is checked before pending migrations are applied.
 
 The release reads `SUPABASE_DB_URL` from the backend's Coolify environment.
 It accepts either a pooler URL or a Supabase Direct URL. Because GitHub-hosted
@@ -31,3 +31,23 @@ Required order for a schema change:
 For additive non-null columns, include a safe default so existing rows remain
 valid. Never bypass the gate. If a migration fails, use a forward repair
 migration.
+
+## Failed historical migration prerequisites
+
+A later numbered migration cannot repair a dependency that prevents an earlier
+migration from finishing. For this exceptional case, add a reviewed prerequisite
+file at `prerequisites/<exact migration filename>` beside that family's migrations.
+Do not edit the shipped migration or manufacture its receipt.
+
+The runner executes a prerequisite only while its matching migration is pending,
+inside the same transaction as the original SQL and receipt. Its separate
+`prerequisite_checksum` is recorded with that receipt. Changes or removal after
+application fail the cross-family history check. Old receipts with a null
+prerequisite checksum remain valid and do not rerun setup.
+
+The prerequisite for `0083_analytics_workspace.sql` prepares the legacy analytics
+table and context columns that imported Dice baselines may lack. It preserves
+existing rows and does not mark skipped historical migrations as applied.
+Ordinary schema changes should still use a new numbered forward migration.
+
+See [migration testing](migration-testing.md) for the automated upgrade rehearsals.

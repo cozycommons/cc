@@ -12,6 +12,6 @@ def pytest_sessionfinish(session, exitstatus):
     if os.environ.get("DICE_REQUIRE_DATABASE_TESTS") == "1":
         reporter = session.config.pluginmanager.get_plugin("terminalreporter")
         skipped = reporter.stats.get("skipped", []) if reporter else []
-        if any("test_dice" in report.nodeid for report in skipped):
-            reporter.write_sep("=", "Required Dice tests unexpectedly skipped")
+        if any("test_dice" in report.nodeid or "test_migration" in report.nodeid for report in skipped):
+            reporter.write_sep("=", "Required Dice or migration tests unexpectedly skipped")
             session.exitstatus = pytest.ExitCode.TESTS_FAILED

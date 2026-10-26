@@ -57,6 +57,10 @@ rows before applying only the new migration to the local database. Verify:
 Migrations are not required to be rerunnable. They are required to succeed once
 against the previous schema.
 
+Run `scripts/test-migration-upgrades.sh` for the automated previous-release and
+adopted-baseline scenarios. Add preservation assertions for each new migration
+using the disposable database harness described in [migration testing](migration-testing.md).
+
 ### 3. Authorization
 
 Check new tables, views, functions, and storage paths using the least privileged
