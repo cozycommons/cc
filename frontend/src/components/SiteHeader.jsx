@@ -3,15 +3,14 @@ import { Link } from 'react-router-dom';
 import CozyMascot from './CozyMascot.jsx';
 import './SiteHeader.css';
 
-// Shared Cozy Commons navbar: mascot lockup with an optional product icon, and a right-hand slot for account or admin controls.
+// Shared Cozy Commons navbar: mascot with an optional product sticker, and a right-hand slot for account or admin controls.
 export default function SiteHeader({ product, to, icon, children, onProductClick, productDisabled = false }) {
   return (
     <header className={`cc-sitebar${product ? ' cc-sitebar--product' : ''}`}>
-      {/* One lockup: mascot and name, with the product's icon tucked in as its sticker. */}
+      {/* One lockup: the mascot, with the product's icon beside it as its sticker. */}
       <div className="cc-sitebar-lockup">
         <Link to="/" className="cc-sitebar-home" aria-label="Cozy Commons home">
           <CozyMascot size={32} animated className="cc-sitebar-mascot" />
-          <span className="cc-sitebar-name" aria-hidden="true">Cozy Commons</span>
         </Link>
         {product && (
           <Link to={to} className={`cc-sitebar-wordmark${icon ? ' cc-sitebar-wordmark--icon' : ''}`} aria-label={icon ? product : undefined} title={icon ? product : undefined}
