@@ -129,7 +129,8 @@ export function WinChart({ history, final = false, big = false }) {
         {big && <div className="fx-win-axis">{days.map(point => <span key={point.date} style={{ left: `${x(point)}%`, transform: `translateX(-${x(point)}%)` }}>{weekday(point.date)}</span>)}</div>}
       </div>
       <div className="fx-win-labels" aria-live={big ? 'polite' : undefined}>
-        {[0, 1].map(side => <span key={side} style={{ color: TEXT_COLORS[side] }}><b>{winPct(now[side], final)}</b>{change(moved[side])}</span>)}
+        {/* Labels stack in the same order as the line ends: higher odds on top. */}
+        {(now[0] >= now[1] ? [0, 1] : [1, 0]).map(side => <span key={side} style={{ color: TEXT_COLORS[side] }}><b>{winPct(now[side], final)}</b>{change(moved[side])}</span>)}
       </div>
     </div>
   );

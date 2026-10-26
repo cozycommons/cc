@@ -327,3 +327,9 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-hl-main small .fx-manager{flex:none;white-space:nowrap}
 .fx-hl-main small .fx-manager img{width:14px;height:14px}
 .fx-hl-how{overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+/* Card detail lines: avatar, coach and projection share one baseline; the chip sits beside the status text. */
+.fx-name small{display:flex;align-items:center;flex-wrap:wrap}
+.fx-name small .fx-manager img{width:16px;height:16px}
+.fx-why{flex-wrap:nowrap;align-items:center;gap:8px}
+.fx-why>span:last-child{flex:1 1 auto;min-width:0}
+.fx-why .fx-close{flex:none;min-height:22px;padding:0 8px;font-size:11.5px;margin:0}

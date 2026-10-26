@@ -43,7 +43,7 @@ export function OddsBar({ chance, big = false }) {
 export function GameStatus({ matchup }) {
   if (finished(matchup)) return null;
   const close = Math.abs(matchup.scores[0] - matchup.scores[1]) <= 10 || (matchup.chance >= 45 && matchup.chance <= 55);
-  return <>{close && <span className="fx-chip fx-close">Close one</span>}{matchup.days.some(day => day.state === 'live') && <span className="fx-live" role="img" aria-label="Games in progress" />}</>;
+  return close ? <span className="fx-chip fx-close">Close one</span> : null;
 }
 
 export function Confetti({ matchup, side, week }) {

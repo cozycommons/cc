@@ -11,7 +11,7 @@ import OnboardPanel from './OnboardPanel.jsx';
 import { fetchOwners, leagueLinks } from './claims.js';
 import { acquiredLabel, finished, highlights, lowlights, matchupRead } from './analysis.js';
 import { Manager, OwnersContext, TeamLogo, WinChart, round, useNarrow, weekday, winPct } from './parts.jsx';
-import { LeagueLinksContext, MatchupLink, PlayerLink, TeamLinks } from './EspnLink.jsx';
+import { LeagueLinksContext, PlayerLink } from './EspnLink.jsx';
 import { checkAdmin } from './admin.js';
 import FantasyAdmin from './FantasyAdmin.jsx';
 import { AdminEntry } from './AdminPanel.jsx';
@@ -119,7 +119,7 @@ function Hub({ data, apiUrl, onOwnersChange, progress, loading }) {
       <div className="fx-grid">{slots.map((slot, index) => {
         const matchup = ready.get(slot.key);
         const mine = matchup && isMine(matchup);
-        return <div className="fx-matchup-card" key={slot.key}>{matchup ? <div className="fx-arrive" style={{ '--i': index }}><MatchupCard matchup={matchup} mine={mine} week={`${data.year}-${data.matchup.id}`} />{mine && <div className="fx-card-links"><MatchupLink matchup={matchup} /><TeamLinks teamId={links.team_id} /></div>}</div> : <SkeletonCard failed={!loading} />}</div>;
+        return <div className="fx-matchup-card" key={slot.key}>{matchup ? <div className="fx-arrive" style={{ '--i': index }}><MatchupCard matchup={matchup} mine={mine} week={`${data.year}-${data.matchup.id}`} /></div> : <SkeletonCard failed={!loading} />}</div>;
       })}</div>
       <Swings title="Outperformers" rows={highlights(matchups)} />
       <Swings title="Underperformers" rows={lowlights(matchups)} />
