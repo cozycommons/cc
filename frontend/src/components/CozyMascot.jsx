@@ -15,7 +15,7 @@ const ART = {
       '.......aDDCCCCCCCCCCCCaaCCCA....',
       '......aDDCCCCCCCCCCCCCCaaCCA....',
       '.....hyyyyyyyyYYYYYYYYYhaaAhhhh.',
-      '.....hYYYYYcccccccYYYYGhaAhQQPPh',
+      '.....hYYYYYYYcccYYYYYYGhaAhQQPPh',
       '....hjjjjjjjjjjjjjjjjjjjJ.hQPPPh',
       '...hhHGGHhhhhhhhhhhhHhhhhJhPPPph',
       '...hHHHHhhjhhhhhhhjhhhhhhJhPPpph',
@@ -25,17 +25,17 @@ const ART = {
       '...JHjseeeeesssssseeeeetjhJ.....',
       '...JHjsshQhhssssshQhhstjhJ......',
       '....JVssrrssssTssssrrttVJ.......',
-      '......TtsscccccccccsstT.........',
-      '.......TTTTTTuuuTTTTTT..........',
-      '........NmgoWWWWWWonN...........',
-      '.......NmgLLLLLLLLLLnN..........',
-      '.......NmgLuvvvvvvvLUN..........',
-      '.......NmgLvvvvvvvVLUN..........',
-      '.......NggLvCvvvvVVLUN..........',
-      '.......NgnLLLLLLLLLLLN..........',
-      '.......NguuuuuuuuuuuuN..........',
-      '........NnnnnnnnnnnnN...........',
-      '........aDCANNNNNaDCA...........',
+      '......TtscssssssssscstT.........',
+      '.......TTTTTTTuTTTTTTT..........',
+      '........hmGGGGGGGGGnh...........',
+      '.......hmGGGGGoGGGGGnh..........',
+      '.......hmGGGooWooGGGnh..........',
+      '.......hmGLUUUUUUULGnh..........',
+      '.......hGsLvVQVVVVLsnh..........',
+      '.......hGtLVVVVVVVLtnh..........',
+      '.......hGLuuuuuuuuuLnh..........',
+      '........LvvvvvvvvvvvL...........',
+      '........aDCAhhhhhaDCA...........',
       '........AAAA.....AAAA...........',
     ],
     // Closed lids laid over the open eyes for the blink.
@@ -47,7 +47,7 @@ const ART = {
       ],
     },
     // The screen edge pixel where the text cursor blinks.
-    cursor: [20, 25],
+    cursor: [16, 25],
   },
   // Favicon cut: same character redrawn for 16px, not a downscale.
   16: {
@@ -64,19 +64,20 @@ const ART = {
       '.JssQhssQhssJ...',
       '.JsrssssssrsJ...',
       '..TtsssTsstT....',
-      '..NoWWWWWWoN....',
-      '..NLvvvvvLUN....',
-      '..NLuvvVVLUN....',
-      '..NLLLLLLLLN....',
+      '..hmGGGGGGnh....',
+      '..hGLUUUULnh....',
+      '..hGLVQVVLnh....',
+      '..hLvvvvvvLh....',
     ],
   },
 };
 
 // Cozy-wabi tokens, warmed for the sprite. Outlines are darker shades of each fill, lighter where
 // light hits. Cap: A a C D E. Cuff: Y y G. Pompom: P p Q. Hair and its outline: J h H j.
-// Skin: T s t r. Eyes: e (lids), h (iris), Q (glint). Hoodie: N g m n. Laptop lid: L v V u.
-// Screen glow, cool against the warm palette: W and o spill over the lid, c lights the face and
-// the brim's underside, u the chin edge, V the hair tips. U is the dark editor on the screen edge.
+// Skin: T s t r. Eyes: e (lids), h (iris), Q (glint). Amber hoodie: h G m n.
+// Laptop: L outline, V lid back, v base edge, u hinge.
+// Screen glow, a few cool pixels against the warm palette: W and o spill over the lid, c lights the
+// cheeks and the brim's underside, u the chin, V the hair tips. U is the screen peeking over the lid.
 const LIGHT = {
   z: '#694b36',
   A: '#6a2b1c', a: '#93492d', C: '#c4673f', D: '#e08a5c', E: '#f8c08f',
@@ -84,15 +85,15 @@ const LIGHT = {
   P: '#f2eadb', p: '#d6c5a7', Q: '#fffaf0',
   J: '#3e2419', h: '#6b4532', H: '#8f5e3d', j: '#4a2c20',
   T: '#a85d43', s: '#fbd9b8', t: '#eab18c', r: '#f0907a', e: '#3e2419',
-  N: '#33412c', g: '#6f8a5a', n: '#4f6544', m: '#93ab74',
+  n: '#b0723f', m: '#e8b273',
   L: '#3f4652', v: '#7c8a99', V: '#5f6b7b', u: '#a7b4c2',
-  U: '#3d5f8f', W: '#dff3ff', o: '#a8d4d4', c: '#e2dbe8',
+  U: '#3d5f8f', W: '#e6f6ff', o: '#bcd6dc', c: '#e2dbe8',
 };
 const CURSOR = '#ffffff';
 // On dark grounds the hair and hoodie edge lift so the silhouette holds, and the z turns butter.
-const DARK = { z: '#f0c477', J: '#64392a', h: '#84563b', H: '#ab744c', j: '#5e3a29', N: '#4a5e3e' };
+const DARK = { z: '#f0c477', J: '#64392a', h: '#84563b', H: '#ab744c', j: '#5e3a29' };
 // Any paint order gives the same pixels; this one, found by search, keeps the paths shortest.
-const BODY = [...'JhAaDEYyPpQHGjeTtsrNgnmLvCVuUoWc'];
+const BODY = [...'JChAaDEYyPpHGjeTtsrnmLvVQuUoWc'];
 const DARK_KEYS = Object.keys(DARK);
 
 // One stroked path per colour: 1px horizontal runs, each stretched over pixels painted later.
