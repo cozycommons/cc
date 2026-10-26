@@ -85,16 +85,15 @@ export function ScorePath({ matchup, height = 150 }) {
 
 const change = value => { const size = Math.round(Math.abs(value)); return size ? `${value > 0 ? '▲' : '▼'}${size}%` : ''; };
 
-// Win odds over time as one line (the second team is always 100 minus the first): the top team's logo
-// marks the top of the right edge and the other team's the bottom, so the line ends beside whoever is winning.
+// Win odds over time: one gray line per team, darker for the leader, each ending at its team's logo.
 // The chart stays neutral; green and red only mean the leader's odds went up or down.
 export function WinChart({ history, teams, final = false, big = false }) {
   const [cursor, setCursor] = React.useState(null);
   if (!history || history.length < 2) return null;
   const start = history[0].time, span = Math.max(1, history.at(-1).time - start);
   const x = point => (point.time - start) / span * 100;
-  const y = point => 100 - point.chance;
-  const points = history.map(point => `${x(point).toFixed(2)},${y(point).toFixed(2)}`).join(' ');
+  const y = (point, side) => (side ? point.chance : 100 - point.chance);
+  const points = side => history.map(point => `${x(point).toFixed(2)},${y(point, side).toFixed(2)}`).join(' ');
   const shown = cursor ?? history.at(-1);
   const leader = shown.chance >= 50 ? 0 : 1;
   const odds = side => (side ? 100 - shown.chance : shown.chance);
@@ -128,18 +127,21 @@ export function WinChart({ history, teams, final = false, big = false }) {
           {...(big && { tabIndex: 0, onKeyDown: step, onBlur: () => setCursor(null), 'aria-label': 'Win odds over time; use arrow keys to step through' })}>
           <div className="fx-win-area">
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
-              aria-label={`${name(leader)} ${winPct(odds(leader), final)} to win; ${name(0)} at the top, ${name(1)} at the bottom`}>
+              aria-label={`${name(leader)} ${winPct(odds(leader), final)} to win, ${name(1 - leader)} ${winPct(odds(1 - leader), final)}`}>
               {big && [0, 100].map(edge => <line key={edge} className="fx-win-grid" x1="0" x2="100" y1={edge} y2={edge} />)}
-              <polygon className="fx-win-fill" points={`0,50 ${points} 100,50`} />
               <line className="fx-win-mid" x1="0" x2="100" y1="50" y2="50" />
               {cursor && <line className="fx-win-cursor" x1={x(cursor)} x2={x(cursor)} y1="0" y2="100" />}
-              <polyline points={points} />
+              {[1 - leader, leader].map(side => <polyline key={side} className={side === leader ? 'fx-win-lead' : undefined} points={points(side)} />)}
             </svg>
-            <i className="fx-win-dot" style={{ left: `${x(shown)}%`, top: `${y(shown)}%` }} />
+            {teams && [0, 1].map(side => {
+              // Near 50% the ends nearly meet: spread the logos (one logo height apart) instead of stacking them.
+              const gap = big ? 14 : 40;
+              const top = Math.abs(shown.chance - 50) * 2 < gap ? 50 + (side === leader ? -gap / 2 : gap / 2) : y(shown, side);
+              return <span key={side} className="fx-win-end" style={{ left: `${x(shown)}%`, top: `${top}%` }} aria-hidden="true"><TeamLogo team={teams[side]} side={side} size={18} /></span>;
+            })}
           </div>
           {big && <div className="fx-win-axis">{days.map(point => <span key={point.date} style={{ left: `${x(point)}%`, transform: `translateX(-${x(point)}%)` }}>{weekday(point.date)}</span>)}</div>}
         </div>
-        {teams && <span className="fx-win-ends" aria-hidden="true"><TeamLogo team={teams[0]} side={0} size={18} /><TeamLogo team={teams[1]} side={1} size={18} /></span>}
       </div>
     </div>
   );
