@@ -31,7 +31,8 @@ The scenarios cover:
 
 - Fresh install, retry without reapplication, corrupt checksums and history gaps.
 - Previous Git release to candidate, preserving representative analytics rows.
-- Adopted Dice baseline without old analytics tables or their receipts.
+- Historical Dice import without old analytics tables or their receipts, through
+  the pinned reconciliation release and then the current strict runner.
 - Legacy analytics with and without context columns, preserving original values.
 - Existing `0083` receipts from before prerequisite support.
 - Prerequisite checksum changes/removal rejected before pending migrations run.
@@ -41,6 +42,8 @@ The scenarios cover:
   columns, constraints, indexes, views, policies, RLS, sequences, table/column/type/
   function/schema grants, and schema/global default privileges.
 - Unreviewed structural or permission drift preventing history reconciliation.
+- Modern Supabase defaults converging to the same grants as the legacy defaults.
+- Missing early receipts and corrupt reconciled checksums blocking all pending SQL.
 
 `tests/migration_harness.py` provides `checkout_release`, `MigrationDatabase`,
 and the `migration_database` fixture. Add an upgrade case by checking out a prior

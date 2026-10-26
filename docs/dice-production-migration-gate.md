@@ -4,9 +4,9 @@ Backend code and database schema are deployed in separate systems. A backend
 deploy must never start querying a column that has not already been applied to
 the hosted Supabase database.
 
-The checked-in `backend/migrations/PRODUCTION_SCHEMA_VERSION` identifies the
-historical baseline. Existing databases must have reconciled migration receipts;
-the runner never creates a baseline receipt from the existence of one table.
+Every migration requires its own receipt, including the earliest Dice and
+analytics versions. Existing databases must have complete migration history;
+the runner never infers it from a numeric baseline or the existence of a table.
 The incoming backend image runs `python -m release`, applying Dice, Commons,
 Beli, Trips, and Venmo migrations before starting HTTP. Each migration and its
 history record are committed in one transaction. A database advisory lock serializes releases,
@@ -51,5 +51,5 @@ existing rows and does not mark skipped historical migrations as applied.
 Ordinary schema changes should still use a new numbered forward migration.
 
 See [migration testing](migration-testing.md) for the automated upgrade rehearsals.
-The [migration unification plan](migration-unification.md) describes schema
-convergence and the staged retirement of the historical numeric baseline.
+The [migration unification guide](migration-unification.md) describes schema
+convergence and the reconciliation release required for old imports.

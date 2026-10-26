@@ -1,7 +1,7 @@
 """Generate and run one serialized PostgreSQL migration session.
 
-Existing databases must carry a baseline receipt; missing history is never
-inferred from a single table. Old receipts retain unknown checksums. Newly
+Every migration requires an individual receipt; missing history is never
+inferred from a version checkpoint. Old receipts retain unknown checksums. Newly
 applied files record hashes and reject later content changes.
 """
 import argparse
@@ -81,10 +81,6 @@ END IF; END $$;""",
             f"ALTER TABLE public.{ledger} ENABLE ROW LEVEL SECURITY;",
             f"REVOKE ALL ON public.{ledger} FROM PUBLIC, anon, authenticated, service_role;",
             f"GRANT SELECT ON public.{ledger} TO service_role;"]
-        if family == "dice":
-            baseline = int((directory / "PRODUCTION_SCHEMA_VERSION").read_text())
-            chunks += [f"SELECT EXISTS(SELECT 1 FROM public.{ledger} WHERE version={baseline}) AS adopted_baseline \\gset"]
-        baseline_floor = int((directory / "PRODUCTION_SCHEMA_VERSION").read_text()) if family == "dice" else 0
         expected_values = ",".join(
             f"({version},'{hashlib.sha256(path.read_bytes()).hexdigest()}',"
             f"{sql_literal(prerequisite_hashes[path]) if prerequisite_hashes[path] else 'NULL::text'})"
@@ -106,8 +102,7 @@ IF EXISTS (SELECT 1 FROM (VALUES {expected_values}) expected(version,checksum,pr
  RAISE EXCEPTION 'Migration prerequisite checksum changed in {family} history';
 END IF;
 IF EXISTS (SELECT 1 FROM (VALUES {expected_values}) expected(version,checksum,prerequisite_checksum)
- WHERE expected.version > {baseline_floor}
- AND expected.version < (SELECT max(version) FROM public.{ledger})
+ WHERE expected.version < (SELECT max(version) FROM public.{ledger})
  AND NOT EXISTS (SELECT 1 FROM public.{ledger} applied WHERE applied.version=expected.version)) THEN
  RAISE EXCEPTION 'Migration history gap in {family}; reconcile before deploying';
 END IF;
@@ -120,8 +115,6 @@ END $$;"""]
 IF EXISTS (SELECT 1 FROM public.{ledger} WHERE version={version} AND checksum IS NOT NULL AND checksum <> '{digest}') THEN
  RAISE EXCEPTION 'Migration checksum changed: {path.name}';
 END IF; END $$;"""]
-            if family == "dice" and version <= baseline:
-                chunks += ["\\if :adopted_baseline", "\\else"]
             chunks += [f"SELECT NOT EXISTS(SELECT 1 FROM public.{ledger} WHERE version={version}) AS pending \\gset",
                        "\\if :pending", f"\\echo Applying {path.name}", "BEGIN;"]
             prerequisite_hash = prerequisite_hashes[path]
@@ -131,8 +124,6 @@ END IF; END $$;"""]
                        f"INSERT INTO public.{ledger}(version,checksum,prerequisite_checksum,recorded_via) VALUES "
                        f"({version},'{digest}',{sql_literal(prerequisite_hash) if prerequisite_hash else 'NULL'},'executed');",
                        "COMMIT;", "\\endif"]
-            if family == "dice" and version <= baseline:
-                chunks += ["\\endif"]
         chunks += [f"""DO $$ BEGIN
 IF NOT EXISTS (SELECT 1 FROM public.{ledger} WHERE version={contract}) THEN
  RAISE EXCEPTION '{family} schema contract receipt missing';

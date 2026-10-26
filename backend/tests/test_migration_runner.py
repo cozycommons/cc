@@ -22,6 +22,8 @@ def test_family_rendering_and_receipt_guards():
     assert "Migration checksum changed:" in both
     assert "Existing dice schema has no migration history" in both
     assert "Applying 0079_dice_staging_schema_reconciliation.sql" in both
+    assert "adopted_baseline" not in both
+    assert "expected.version >" not in both
 
 
 def test_orphaned_prerequisite_is_rejected(tmp_path, monkeypatch):
