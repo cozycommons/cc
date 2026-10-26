@@ -15,6 +15,15 @@ class TokenBucket:
         self.tokens, self.updated = float(burst), clock()
         self.lock = Lock()
 
+    def wait(self, timeout):
+        deadline = self.clock() + timeout
+        while not self.take():
+            remaining = deadline - self.clock()
+            if remaining <= 0:
+                return False
+            time.sleep(min(.05, remaining))
+        return True
+
     def take(self):
         with self.lock:
             now = self.clock()
@@ -52,9 +61,9 @@ bucket = TokenBucket(float(os.getenv('VENMO_REQUEST_RATE', '1')), int(os.getenv(
 breaker = CircuitBreaker()
 
 
-def fetch(url, *, limit=1_000_000, image=False, bypass_breaker=False, validate=None):
+def fetch(url, *, limit=1_000_000, image=False, bypass_breaker=False, validate=None, token_wait=0):
     # Take a token before reserving the half-open probe: denied traffic cannot strand it.
-    if not bucket.take() or (not bypass_breaker and not breaker.enter()):
+    if not (bucket.wait(token_wait) if token_wait else bucket.take()) or (not bypass_breaker and not breaker.enter()):
         raise Unavailable('Venmo backoff')
     success = False
     try:

@@ -132,6 +132,12 @@ class ProfileLookup:
                 db.table('venmo_profiles').upsert(dict(handle=handle, display_name=profile['displayName'], photo_url=profile['photoUrl'], initials=profile['initials'], active=profile['active'], source=profile['source'], fetched_at=datetime.now(timezone.utc).isoformat())).execute()
         except Exception:
             pass  # Optional preview must not interrupt payments.
+        if result is not None:
+            try:
+                from .photos import thumbnail
+                thumbnail(result, db)
+            except Exception:
+                pass
         with self.lock:
             previous = self.cache.get(handle)
             if result is None:
