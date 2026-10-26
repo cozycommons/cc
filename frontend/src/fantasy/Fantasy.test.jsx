@@ -45,8 +45,8 @@ describe('Fantasy pages', () => {
     vi.stubGlobal('fetch', respond(200, snap));
     view(`/fantasy/${m.home}-${m.away}`);
     expect((await screen.findByRole('img', { name: /^Win odds since/ })).getAttribute('aria-label')).toBe('Win odds since Wed: >99% to <1%');
-    const labels = [...document.querySelectorAll('.fx-win--big .fx-win-labels span')].map(span => span.textContent);
-    expect(labels).toEqual(['>99%▲20%', '<1%▼20%']);
+    const labels = [...document.querySelectorAll('.fx-win--big .fx-win-labels > span')].map(span => span.textContent);
+    expect(labels.map(label => label.replace(/^[A-Z]{1,2}/, ''))).toEqual(['>99%▲20%', '<1%']);
   });
 
   it('shows the form toggle only once a week is complete', async () => {

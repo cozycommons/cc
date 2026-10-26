@@ -89,7 +89,7 @@ export const TEXT_COLORS = ['#a0502f', '#2066b8'];
 const change = value => { const size = Math.round(Math.abs(value)); return `${size && value > 0 ? '▲' : size ? '▼' : ''}${size}%`; };
 
 // Win odds over time, one line per team, spaced by when each estimate was saved.
-export function WinChart({ history, final = false, big = false }) {
+export function WinChart({ history, teams, final = false, big = false }) {
   const [cursor, setCursor] = React.useState(null);
   if (!history || history.length < 2) return null;
   const start = history[0].time, span = Math.max(1, history.at(-1).time - start);
@@ -129,8 +129,12 @@ export function WinChart({ history, final = false, big = false }) {
         {big && <div className="fx-win-axis">{days.map(point => <span key={point.date} style={{ left: `${x(point)}%`, transform: `translateX(-${x(point)}%)` }}>{weekday(point.date)}</span>)}</div>}
       </div>
       <div className="fx-win-labels" aria-live={big ? 'polite' : undefined}>
-        {/* Labels stack in the same order as the line ends: higher odds on top. */}
-        {(now[0] >= now[1] ? [0, 1] : [1, 0]).map(side => <span key={side} style={{ color: TEXT_COLORS[side] }}><b>{winPct(now[side], final)}</b>{change(moved[side])}</span>)}
+        {/* Labels stack like the line ends, higher odds on top; the change shows once, on the side that gained. */}
+        {(now[0] >= now[1] ? [0, 1] : [1, 0]).map(side => (
+          <span key={side} style={{ color: TEXT_COLORS[side] }}>
+            {teams && <TeamLogo team={teams[side]} side={side} size={16} />}<b>{winPct(now[side], final)}</b>{moved[side] > 0 && Math.round(moved[side]) > 0 && change(moved[side])}
+          </span>
+        ))}
       </div>
     </div>
   );
