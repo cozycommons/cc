@@ -556,12 +556,13 @@ textarea {
   border: 1px solid transparent;
   border-radius: var(--radius-button);
   color: var(--ink);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.07em;
-  line-height: 1.1;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
   text-decoration: none;
-  text-transform: uppercase;
+  text-transform: none;
   box-shadow: var(--key-shadow);
   transition: background-color var(--ease), border-color var(--ease), box-shadow var(--ease), color var(--ease), transform var(--ease);
 }
@@ -638,7 +639,7 @@ textarea {
 .cc-button--small {
   min-height: 44px;
   padding: 9px 13px;
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .cc-button:disabled,

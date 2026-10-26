@@ -8,7 +8,6 @@ import PhotoGallery from '../components/PhotoGallery.jsx';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { leaderboardPreview, rankLeaderboard } from '../leaderboard.js';
-import { usePageviewTracking } from '../../analytics/usePageviewTracking';
 
 function SectionHeader({ label, viewAllTo }) {
   return (
@@ -364,7 +363,6 @@ function ReleasedHome({ auth }) {
   const signedIn = Boolean(auth?.token && auth?.profile);
   const currentUserId = auth?.profile?.user_id || auth?.user?.id;
 
-  usePageviewTracking('dice', 'home', '/dice');
 
   useEffect(() => {
     (typeof diceApi.getAllGames === 'function' ? diceApi.getAllGames() : diceApi.getGames(100)).then(setGames).catch(() => setGames([]));

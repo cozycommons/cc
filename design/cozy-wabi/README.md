@@ -39,7 +39,7 @@ The library uses the `cc-` namespace so it can be lifted into another page witho
 Example button and card markup:
 
 ```html
-<button class="cc-button cc-button--primary" type="button">save locally</button>
+<button class="cc-button cc-button--primary" type="button">Save locally</button>
 
 <article class="cc-card cc-card--inset">
   <p class="cc-label">group label</p>
@@ -47,6 +47,14 @@ Example button and card markup:
   <p class="cc-body">Related details can rest together here.</p>
 </article>
 ```
+
+## Button typography
+
+Buttons use the existing sans stack (`--sans`), 14px semibold text, sentence-case
+labels, and normal letter spacing. The small variant uses 13px text while keeping
+its 44px target. Raised shapes, colours, shadows, and interaction states remain
+shared across projects. Reserve the monospace role for code and supporting data,
+rather than action labels.
 
 ## Specimen inventory
 

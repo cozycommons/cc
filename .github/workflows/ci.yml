@@ -127,7 +127,21 @@ jobs:
           sudo apt-get "${options[@]}" install -y --no-install-recommends ffmpeg
       - run: bash scripts/crowdset-dev.sh setup
       - run: .crowdset-venv/bin/python -m pip install pytest==8.3.4 httpx==0.28.1
-      - run: .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q
+      - name: Test media on the workspace filesystem
+        run: |
+          mkdir -p "$RUNNER_TEMP/crowdset-media"
+          export TMPDIR="$RUNNER_TEMP/crowdset-media"
+          df -h /tmp "$TMPDIR"
+          python - <<'PYTHON'
+          import shutil
+          import tempfile
+          root = tempfile.gettempdir()
+          free = shutil.disk_usage(root).free
+          print(f'Media test temp directory: {root}; free: {free / 1024 ** 3:.1f} GiB')
+          if free < 16 * 1024 ** 3:
+              raise SystemExit('Media tests require at least 16 GiB free on their temp filesystem')
+          PYTHON
+          .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q --basetemp="$TMPDIR/pytest"
         env:
           PYTHONPATH: backend
 
@@ -252,6 +266,7 @@ jobs:
     env:
       DB_URL: postgresql://postgres:postgres@localhost:5432/dummi_test
       DICE_REQUIRE_DATABASE_TESTS: "1"
+      RUN_ANALYTICS_DB_TESTS: "1"
       PGPASSWORD: postgres
     services:
       postgres:
@@ -326,7 +341,7 @@ jobs:
             cozy-commons-backend-ci
 
           curl --fail --silent --show-error --retry 30 --retry-delay 1 --retry-connrefused --retry-all-errors --max-time 5 http://127.0.0.1:8000/ready
-          test "$(psql "$DB_URL" -Atc 'select max(version) from dice_schema_migrations')" = 80
+          test "$(psql "$DB_URL" -Atc 'select max(version) from dice_schema_migrations')" = "$(cat backend/migrations/DICE_SCHEMA_CONTRACT_VERSION)"
           test "$(psql "$DB_URL" -Atc 'select max(version) from commons_schema_migrations')" = 12
           test "$(psql "$DB_URL" -Atc 'select max(version) from trips_schema_migrations')" = 2
           test "$(psql "$DB_URL" -Atc 'select trips_release_readiness()')" = t

@@ -6,7 +6,6 @@ import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { diceApi } from '../api.js';
 import { rankLeaderboard } from '../leaderboard.js';
 import { aggregateRecordedStats, metricLeaders } from '../recordedStats.js';
-import { usePageviewTracking } from '../../analytics/usePageviewTracking';
 import { calculateStreaks } from './Home.jsx';
 
 const LEADERBOARD_LIMIT = 500;
@@ -437,7 +436,6 @@ export default function Stats({ auth }) {
   const requestedView = params.get('view');
   const view = VIEWS.includes(requestedView) ? requestedView : 'players';
 
-  usePageviewTracking('dice', 'stats', '/dice/stats');
   useEffect(() => {
     (typeof diceApi.getAllGames === 'function' ? diceApi.getAllGames() : diceApi.getGames(200)).then(setGames).catch(() => setGames([]));
     diceApi.getEloLeaderboard(LEADERBOARD_LIMIT, true).then(setElo).catch(() => setElo([]));

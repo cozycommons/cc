@@ -1,0 +1,27 @@
+.admin-workspace { --paper:#faf8f2; --paper-light:#fffdf8; --data-surface:var(--paper-light); min-height:100vh; padding:16px clamp(16px,4vw,56px); color:var(--ink); background:var(--paper); font:14px/1.5 var(--sans); }
+.admin-card header,.admin-controls,.admin-card-actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.admin-main>h1 { font:600 26px/1.2 var(--sans); margin:24px 0; color:var(--espresso); }
+.admin-workspace h2 { font:600 17px/1.4 var(--sans); margin:0 auto 0 0; color:var(--espresso); }
+.admin-controls { margin:16px 0; align-items:flex-end; }
+.admin-controls>label,.admin-editor>label { display:flex; flex-direction:column; gap:6px; color:var(--ink-soft); }
+.admin-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.admin-card header { margin-bottom:20px; }
+.admin-card .cc-notice { margin:12px 0; }
+.admin-table { overflow:auto; max-height:420px; }
+.admin-table table { border-collapse:collapse; width:100%; text-align:left; font-variant-numeric:tabular-nums; }
+.admin-table th,.admin-table td { padding:8px 12px; border-bottom:var(--hairline); white-space:nowrap; }
+.admin-table th { color:var(--ink); font-weight:600; }
+.admin-chart { width:100%; min-width:0; }
+.admin-editor { margin:20px 0; }
+.admin-editor>label { margin:12px 0; }
+.admin-editor .cc-textarea { font:13px/1.6 var(--mono); width:100%; resize:vertical; }
+.admin-editor details { overflow-wrap:anywhere; }
+.admin-editor .cc-picker { min-width:220px; }
+.admin-definitions { margin:16px 0; max-width:760px; }
+.admin-workspace .cc-data-row summary { min-height:44px; padding:10px 0; }
+.admin-workspace summary { cursor:pointer; }
+.admin-collection { margin:16px 0 0; font:12px/1.5 var(--sans); color:var(--ink-soft); }
+.admin-legend { display:flex; justify-content:center; flex-wrap:wrap; gap:8px 16px; margin-bottom:12px; font-size:12px; color:var(--ink-soft); }
+.admin-legend i { display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:2px; }
+@media(max-width:850px) { .admin-grid { grid-template-columns:1fr; } .admin-controls>label { min-width:0; max-width:100%; } .admin-controls .cc-input { max-width:100%; box-sizing:border-box; } }
+.admin-controls>label:has(input[type="date"]) { flex:0 1 156px; min-width:130px; }

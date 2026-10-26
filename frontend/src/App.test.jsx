@@ -15,6 +15,8 @@ vi.mock('../../design/dice/App.jsx', () => ({
   default: () => <div>Dice design system</div>,
 }));
 
+vi.mock('./admin/Admin.jsx', () => ({ default: () => <div>Admin analytics</div> }));
+
 vi.mock('./crowdset/Crowdset.jsx', () => ({ default: () => <div>Crowdset application</div> }));
 vi.mock('./trips/TripsApp.jsx', () => ({ default: () => <div>Cozy Trips application</div> }));
 
@@ -42,6 +44,12 @@ describe('top-level routes', () => {
     expect(await screen.findByText('Cozy Trips application')).toBeInTheDocument();
     expect(screen.getByTestId('supabase-provider')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/trips/trip-id');
+  });
+
+  it('serves the admin workspace at its direct URL', async () => {
+    window.history.replaceState({}, '', '/admin');
+    render(<App />);
+    expect(await screen.findByText('Admin analytics')).toBeInTheDocument();
   });
 
   it('serves Crowdset at its canonical URL', async () => {
