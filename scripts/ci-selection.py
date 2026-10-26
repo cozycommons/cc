@@ -18,6 +18,7 @@ SHARED_BACKEND_INPUTS = {
     "scripts/reset-local-dice-db.sh", "scripts/supabase-test-scaffold.sql",
     "scripts/ci-rest-proxy.py", "scripts/lib/supabase-db-url.sh",
     "scripts/test-supabase-db-url.sh",
+    "scripts/test-migration-upgrades.sh",
 }
 
 

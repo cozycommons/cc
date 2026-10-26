@@ -42,6 +42,14 @@ def render(families):
             else ["[0-9][0-9][0-9][0-9]_dice_*.sql", "[0-9][0-9][0-9][0-9]_analytics_*.sql"]
         )
         files = sorted(p for pattern in patterns for p in directory.glob(pattern))
+        for prerequisite in (directory / "prerequisites").glob("*.sql"):
+            if not (directory / prerequisite.name).is_file():
+                raise ValueError("Prerequisite has no matching migration: " + prerequisite.name)
+        prerequisites = {p: directory / "prerequisites" / p.name for p in files}
+        prerequisite_hashes = {
+            p: hashlib.sha256(prerequisites[p].read_bytes()).hexdigest() if prerequisites[p].is_file() else None
+            for p in files
+        }
         versions = [int(p.name[:4]) for p in files]
         if len(versions) != len(set(versions)):
             raise ValueError("Duplicate migration version in " + family)
@@ -67,6 +75,7 @@ IF to_regclass('public.{ledger}') IS NULL AND to_regclass('public.{anchor}') IS 
 END IF; END $$;""",
             f"CREATE TABLE IF NOT EXISTS public.{ledger} (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());",
             f"ALTER TABLE public.{ledger} ADD COLUMN IF NOT EXISTS checksum text;",
+            f"ALTER TABLE public.{ledger} ADD COLUMN IF NOT EXISTS prerequisite_checksum text;",
             f"ALTER TABLE public.{ledger} ENABLE ROW LEVEL SECURITY;",
             f"REVOKE ALL ON public.{ledger} FROM PUBLIC, anon, authenticated;",
             f"GRANT SELECT ON public.{ledger} TO service_role;"]
@@ -74,17 +83,27 @@ END IF; END $$;""",
             baseline = int((directory / "PRODUCTION_SCHEMA_VERSION").read_text())
             chunks += [f"SELECT EXISTS(SELECT 1 FROM public.{ledger} WHERE version={baseline}) AS adopted_baseline \\gset"]
         baseline_floor = int((directory / "PRODUCTION_SCHEMA_VERSION").read_text()) if family == "dice" else 0
-        expected_values = ",".join(f"({version},'{hashlib.sha256(path.read_bytes()).hexdigest()}')" for path, version in zip(files, versions))
+        expected_values = ",".join(
+            f"({version},'{hashlib.sha256(path.read_bytes()).hexdigest()}',"
+            f"{sql_literal(prerequisite_hashes[path]) if prerequisite_hashes[path] else 'NULL::text'})"
+            for path, version in zip(files, versions)
+        )
         chunks += [f"""DO $$ BEGIN
 IF EXISTS (SELECT 1 FROM public.{ledger} WHERE version NOT IN ({','.join(map(str, versions))})) THEN
  RAISE EXCEPTION 'Unknown migration version in {family} history';
 END IF;
-IF EXISTS (SELECT 1 FROM (VALUES {expected_values}) expected(version,checksum)
+IF EXISTS (SELECT 1 FROM (VALUES {expected_values}) expected(version,checksum,prerequisite_checksum)
  JOIN public.{ledger} applied USING(version)
  WHERE applied.checksum IS NOT NULL AND applied.checksum <> expected.checksum) THEN
  RAISE EXCEPTION 'Migration checksum changed in {family} history';
 END IF;
-IF EXISTS (SELECT 1 FROM (VALUES {expected_values}) expected(version,checksum)
+IF EXISTS (SELECT 1 FROM (VALUES {expected_values}) expected(version,checksum,prerequisite_checksum)
+ JOIN public.{ledger} applied USING(version)
+ WHERE applied.prerequisite_checksum IS NOT NULL
+ AND applied.prerequisite_checksum IS DISTINCT FROM expected.prerequisite_checksum) THEN
+ RAISE EXCEPTION 'Migration prerequisite checksum changed in {family} history';
+END IF;
+IF EXISTS (SELECT 1 FROM (VALUES {expected_values}) expected(version,checksum,prerequisite_checksum)
  WHERE expected.version > {baseline_floor}
  AND expected.version < (SELECT max(version) FROM public.{ledger})
  AND NOT EXISTS (SELECT 1 FROM public.{ledger} applied WHERE applied.version=expected.version)) THEN
@@ -102,8 +121,14 @@ END IF; END $$;"""]
             if family == "dice" and version <= baseline:
                 chunks += ["\\if :adopted_baseline", "\\else"]
             chunks += [f"SELECT NOT EXISTS(SELECT 1 FROM public.{ledger} WHERE version={version}) AS pending \\gset",
-                       "\\if :pending", f"\\echo Applying {path.name}", "BEGIN;", path.read_text(),
-                       f"INSERT INTO public.{ledger}(version,checksum) VALUES ({version},'{digest}');", "COMMIT;", "\\endif"]
+                       "\\if :pending", f"\\echo Applying {path.name}", "BEGIN;"]
+            prerequisite_hash = prerequisite_hashes[path]
+            if prerequisite_hash:
+                chunks += [f"\\echo Preparing prerequisite for {path.name}", prerequisites[path].read_text()]
+            chunks += [path.read_text(),
+                       f"INSERT INTO public.{ledger}(version,checksum,prerequisite_checksum) VALUES "
+                       f"({version},'{digest}',{sql_literal(prerequisite_hash) if prerequisite_hash else 'NULL'});",
+                       "COMMIT;", "\\endif"]
             if family == "dice" and version <= baseline:
                 chunks += ["\\endif"]
         chunks += [f"""DO $$ BEGIN

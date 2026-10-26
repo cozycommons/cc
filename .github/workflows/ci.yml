@@ -267,6 +267,7 @@ jobs:
       DB_URL: postgresql://postgres:postgres@localhost:5432/dummi_test
       DICE_REQUIRE_DATABASE_TESTS: "1"
       RUN_ANALYTICS_DB_TESTS: "1"
+      MIGRATION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
       PGPASSWORD: postgres
     services:
       postgres:
@@ -280,6 +281,8 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -377,6 +380,7 @@ jobs:
         run: >-
           docker run --rm cozy-commons-backend-ci sh -c
           'test -f /app/release.py && test -f /app/migration_runner.py &&
+          test -f /app/migrations/prerequisites/0083_analytics_workspace.sql &&
           test -x /app/apply-shared-migrations.sh &&
           test -f /app/trips/migrations/0002_trips_release_readiness.sql &&
           command -v psql'
