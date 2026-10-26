@@ -8,6 +8,7 @@ export default function VenmoProfile({ handle, request, debounce = 0, confirmedN
   const loadedRef = useRef(onLoaded);
   loadedRef.current = onLoaded;
   const [failedPhoto, setFailedPhoto] = useState('');
+  const [loadedPhoto, setLoadedPhoto] = useState('');
   useEffect(() => {
     if (!handle) return;
     let current = true;
@@ -25,9 +26,10 @@ export default function VenmoProfile({ handle, request, debounce = 0, confirmedN
   const name = found ? state.displayName : `@${handle}`;
   return <div className="trips-venmo-preview">
     <div className="trips-venmo-card">
-      <span className="trips-venmo-avatar">{found && photo && failedPhoto !== photo
-        ? <img src={photo} alt="" referrerPolicy="no-referrer" onError={() => setFailedPhoto(photo)} />
-        : <span>{found ? state.initials || name.slice(0, 1) : handle.slice(0, 1).toUpperCase()}</span>}</span>
+      {/* Initials show at once; the photo fades in over them when it arrives. */}
+      <span className="trips-venmo-avatar"><span>{found ? state.initials || name.slice(0, 1) : handle.slice(0, 1).toUpperCase()}</span>
+        {found && photo && failedPhoto !== photo && <img src={photo} alt="" referrerPolicy="no-referrer" decoding="async"
+          className={loadedPhoto === photo ? 'is-loaded' : ''} onLoad={() => setLoadedPhoto(photo)} onError={() => setFailedPhoto(photo)} />}</span>
       <span className="trips-venmo-identity"><strong className="trips-venmo-name"><a href={venmoProfile(handle)} target="_blank" rel="noopener noreferrer" aria-label={`${found ? `${name}, ` : ''}@${handle}, opens Venmo profile`}>{name}</a>{confirmed && <ConfirmedVenmo name={name} />}</strong>{found && <span>@{handle}</span>}{confirmed && <small className="trips-confirmation-label">Confirmed Venmo</small>}</span>
     </div>
     {found && confirmedName && name !== confirmedName && <p className="trips-muted trips-small">Previously {confirmedName}</p>}
