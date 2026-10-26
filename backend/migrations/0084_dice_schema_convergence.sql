@@ -32,6 +32,9 @@ REVOKE ALL ON TABLE public.dice_profiles,public.dice_games,public.dice_game_play
  public.dice_game_comments,public.dice_tournaments,public.dice_tournament_enrollments FROM PUBLIC,anon,authenticated;
 GRANT SELECT ON TABLE public.dice_profiles,public.dice_games,public.dice_game_players,
  public.dice_game_comments,public.dice_tournaments,public.dice_tournament_enrollments TO anon,authenticated;
+GRANT ALL ON TABLE public.dice_profiles,public.dice_games,public.dice_game_players,
+ public.dice_game_comments,public.dice_tournaments,public.dice_tournament_enrollments,
+ public.analytics_events TO service_role;
 DO $$ DECLARE sequence_name text; BEGIN
  FOREACH sequence_name IN ARRAY ARRAY['analytics_events_id_seq','commons_scene_commands_id_seq',
  'dice_live_command_metrics_id_seq','dice_virtual_ledger_id_seq','dice_virtual_markets_id_seq','dice_virtual_picks_id_seq'] LOOP
@@ -457,8 +460,8 @@ DO $verify$ DECLARE fingerprint text; BEGIN
  FROM pg_temp.cozy_schema_catalog_v1()
  WHERE key LIKE 'public.dice_%' OR key LIKE 'public.analytics_%' OR key LIKE 'analytics.%'
  OR kind IN ('schema_acl','default_acl');
- IF fingerprint IS DISTINCT FROM '65fa7198f86994e7034640df43da88e0' THEN
-  RAISE EXCEPTION 'Dice schema convergence mismatch: expected 65fa7198f86994e7034640df43da88e0, got %; inspect catalog differences before reconciling history',fingerprint;
+ IF fingerprint IS DISTINCT FROM 'fac70a4824cc4b6906c40a3d1974c852' THEN
+  RAISE EXCEPTION 'Dice schema convergence mismatch: expected fac70a4824cc4b6906c40a3d1974c852, got %; inspect catalog differences before reconciling history',fingerprint;
  END IF;
 END $verify$;
 INSERT INTO public.dice_schema_migrations(version,checksum,recorded_via,reconciled_by,reconciliation_reason)

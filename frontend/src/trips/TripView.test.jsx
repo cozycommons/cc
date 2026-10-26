@@ -292,10 +292,13 @@ it('reloads before deleting a trip that changed, and treats a retried delete tha
 });
 
 it('leaves a trip that was deleted while it was open', async () => {
-  open('/trips/trip-id');
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  await act(async () => open('/trips/trip-id'));
   expect(await screen.findByText('Nothing spent yet. Add the first receipt.')).toBeInTheDocument();
+  const requestsBeforeRefresh = mocked.request.mock.calls.length;
   mocked.request.mockRejectedValueOnce(Object.assign(new Error('Trip not found or you are not a member.'), { status: 404 }));
   await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+  expect(mocked.request.mock.calls.length).toBeGreaterThan(requestsBeforeRefresh);
   await waitFor(() => expect(screen.queryByRole('heading', { name: 'Tahoe & Reno' })).not.toBeInTheDocument());
 });
 

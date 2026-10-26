@@ -79,7 +79,7 @@ END IF; END $$;""",
             f"ALTER TABLE public.{ledger} ADD COLUMN IF NOT EXISTS prerequisite_checksum text;",
             f"ALTER TABLE public.{ledger} ADD COLUMN IF NOT EXISTS recorded_via text NOT NULL DEFAULT 'legacy' CHECK (recorded_via IN ('legacy','executed','reconciled'));",
             f"ALTER TABLE public.{ledger} ENABLE ROW LEVEL SECURITY;",
-            f"REVOKE ALL ON public.{ledger} FROM PUBLIC, anon, authenticated;",
+            f"REVOKE ALL ON public.{ledger} FROM PUBLIC, anon, authenticated, service_role;",
             f"GRANT SELECT ON public.{ledger} TO service_role;"]
         if family == "dice":
             baseline = int((directory / "PRODUCTION_SCHEMA_VERSION").read_text())

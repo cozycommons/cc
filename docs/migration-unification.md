@@ -15,6 +15,9 @@ between the hosted catalog and a fresh PostgreSQL 17 database:
   governed by the existing service role and application authorization.
 - Browser sequence privileges and default privileges inherited from older
   Supabase defaults. New tables require explicit browser grants.
+- Explicit backend grants for the original Dice tables and analytics events,
+  independent of Supabase's changing defaults; service-role access to migration
+  ledgers is read-only.
 
 The migration verifies a canonical catalog fingerprint before recording any
 missing historical versions. Unexpected schema or privilege changes abort and
