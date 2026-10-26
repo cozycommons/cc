@@ -33,8 +33,10 @@ def test_host(url):
     assert profiles.photo_url(url) is None
 
 
-def test_size_normalized():
-    assert profiles.photo_url('https://pics-v3.venmo.com/a?width=9000&height=9000&x=1') == 'https://pics-v3.venmo.com/a?width=200&height=200'
+def test_keeps_venmo_size_and_version():
+    # Venmo's host returns 502 for any size or version other than the one in the profile.
+    assert profiles.photo_url('https://pics-v3.venmo.com/a?width=460&height=460&version=5&x=1') == 'https://pics-v3.venmo.com/a?width=460&height=460&version=5'
+    assert profiles.photo_url('https://pics-v3.venmo.com/a?width=99999&version=abc') == 'https://pics-v3.venmo.com/a'
 
 
 def test_breaker_and_bucket():

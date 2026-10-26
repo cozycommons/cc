@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from threading import Lock
-from urllib.parse import urlsplit, urlunsplit, urlencode
+from urllib.parse import parse_qsl, urlsplit, urlunsplit, urlencode
 from .usernames import normalize_username
 from . import venmo_client
 
@@ -19,7 +19,10 @@ def photo_url(value):
         parsed = urlsplit(value)
         if parsed.scheme != 'https' or parsed.netloc != 'pics-v3.venmo.com' or not parsed.path.startswith('/'):
             return None
-        return urlunsplit(('https', parsed.netloc, parsed.path, urlencode({'width': 200, 'height': 200}), ''))
+        # Venmo's image host serves only the exact size and version it handed out (others return 502),
+        # so keep those parameters as given and drop everything else.
+        kept = [(key, val) for key, val in parse_qsl(parsed.query) if key in {'width', 'height', 'version'} and val.isdigit() and len(val) <= 4]
+        return urlunsplit(('https', parsed.netloc, parsed.path, urlencode(kept), ''))
     except ValueError:
         return None
 
