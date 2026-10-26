@@ -6,44 +6,45 @@ const ART = {
   32: {
     grid: [
       '................................',
-      'zzzz............................',
-      '...z........AAAAAA..............',
-      '..z.......aaDEEDCCCAAA..........',
-      '.z.......aDEEDDCCCCCCCAA........',
-      'zzzz....aDEDDCCCCCCCCCCCAA......',
-      '.......aDDDCCCCCCCCCaaCCCCA.....',
-      '.......aDDCCCCCCCCCCCCaaCCCA....',
-      '......aDDCCCCCCCCCCCCCCaaCCA....',
-      '.....hyyyyyyyyYYYYYYYYYhaaAhhhh.',
-      '.....hYYYYYYYcccYYYYYYGhaAhQQPPh',
-      '....hjjjjjjjjjjjjjjjjjjjJ.hQPPPh',
-      '...hhHGGHhhhhhhhhhhhHhhhhJhPPPph',
-      '...hHHHHhhjhhhhhhhjhhhhhhJhPPpph',
-      '...JHhhjsssssjhjsssssjhhhJ.hhhh.',
-      '...JHhjsssssssjsssssssjhhJ......',
-      '...JHjssttttssssstttttstjhJ.....',
-      '...JHjseeeeesssssseeeeetjhJ.....',
-      '...JHjsshQhhssssshQhhstjhJ......',
-      '....JVssrrssssTssssrrttVJ.......',
-      '......TtscssssssssscstT.........',
+      '..........AAAAAA................',
+      'zzzz....AaDEEDCCCCAA............',
+      '...z...AaDEDCCCCCCCCAA..........',
+      '..z...AaDDCCCCCCCCCaaCAA........',
+      '.z....AaDCCCCCCCCCCCCaaCCAhhhh..',
+      'zzzz.AaDCCCCCCCCCCCCCaaaAAhQQPPh',
+      '....hyyyyyyyYYYYYYYYYYYYh.hQPPPh',
+      '....hYYYYYYYYcccYYYYYYYGh.hPPPph',
+      '....JjjjjjjjjjjjjjjjjjjjJ.hPPpph',
+      '...JKkbbKkkkkkkkkkkkKkkkkJ.hhhh.',
+      '...JKkkKkkjkkkkkjkkkkjkkkJ......',
+      '...JKkkkkskkkksskkkskkkkkJ......',
+      '....JksskkkkskssskkkkskkJ.......',
+      '....JTsssssssssssssssssTJ.......',
+      '...TtsssstttssssstttsssstT......',
+      '...TtsssseeessssseeesssstT......',
+      '.....TsssQehsssssQehsssT........',
+      '.....TssshehssssshehsssT........',
+      '.....TsssssssssssssssssT........',
+      '.....TsscsssssTssssscssT........',
+      '......TtssssssssssssstT.........',
       '.......TTTTTTTuTTTTTTT..........',
-      '........hmgggggggggnh...........',
-      '.......hmgggggogggggnh..........',
-      '.......hmgggooWoogggnh..........',
-      '.......hmgLUUUUUUULgnh..........',
-      '.......hgsLvVQVVVVLsnh..........',
-      '.......hgtLVVVVVVVLtnh..........',
-      '.......hgLuuuuuuuuuLnh..........',
-      '........LvvvvvvvvvvvL...........',
-      '........aDCAhhhhhaDCA...........',
-      '........AAAA.....AAAA...........',
+      '.........hmgggggggnh............',
+      '........hmggoWWWoggnh...........',
+      '........hsLUUUUUUULsh...........',
+      '........hmLvVQVVVVLnh...........',
+      '........hgLVVVVVVVLnh...........',
+      '........hLuuuuuuuuuLh...........',
+      '.......LvvvvvvvvvvvvvL..........',
+      '.........aDCA...aDCA............',
+      '.........AAAA...AAAA............',
     ],
     // Closed lids laid over the open eyes for the blink.
     shut: {
-      top: 17,
+      top: 16,
       rows: [
-        '.......sssss.....sssss..........',
-        '........eeee.....eeee...........',
+        '.........ttt.....ttt............',
+        '.........ttt.....ttt............',
+        '.........eee.....eee............',
       ],
     },
     // The screen edge pixel where the text cursor blinks.
@@ -58,12 +59,12 @@ const ART = {
       'zzz.aDECCCCCA...',
       '...aDCCCCCCaAhh.',
       '..hyyYYYYYYYhQPh',
-      '.hhGHhhhhhhhJPph',
-      '.hhhsshhsshhJhh.',
-      '.JheeesseeehJ...',
-      '.JssQhssQhssJ...',
-      '.JsrssssssrsJ...',
-      '..TtsssTsstT....',
+      '.JKbKkkkkkkkJPph',
+      '.JkskkkskkskJhh.',
+      '.TssttssttssT...',
+      '.TsseesseessT...',
+      '.TssQessQessT...',
+      '.TsssssTssssT...',
       '..hmggggggnh....',
       '..hgLUUUULnh....',
       '..hgLVQVVLnh....',
@@ -73,8 +74,9 @@ const ART = {
 };
 
 // Cozy-wabi tokens, warmed for the sprite. Outlines are darker shades of each fill, lighter where
-// light hits. Cap: A a C D E. Cuff: Y y G. Pompom: P p Q. Hair and its outline: J h H j.
-// Skin: T s t r. Eyes: e (lids), h (iris), Q (glint). Moss hoodie: h g m n.
+// light hits. Cap: A a C D E. Cuff: Y y G. Pompom: P p Q. Outlines h.
+// Near-black hair: J outline, k base, K lit, j shadow, b blue-grey sheen.
+// Skin: T s t. Eyes: e (lid edge and pupil), h (iris), Q (glint). Moss hoodie: h g m n.
 // Laptop: L outline, V lid back, v base edge, u hinge.
 // Screen glow, a few cool pixels against the warm palette: W and o spill over the lid, c lights the
 // cheeks and the brim's underside, u the chin, V the hair tips. U is the screen peeking over the lid.
@@ -83,17 +85,19 @@ const LIGHT = {
   A: '#6a2b1c', a: '#93492d', C: '#c4673f', D: '#e08a5c', E: '#f8c08f',
   Y: '#f0c477', y: '#fbe3a6', G: '#d39155',
   P: '#f2eadb', p: '#d6c5a7', Q: '#fffaf0',
-  J: '#3e2419', h: '#6b4532', H: '#8f5e3d', j: '#4a2c20',
-  T: '#a85d43', s: '#fbd9b8', t: '#eab18c', r: '#f0907a', e: '#3e2419',
+  J: '#1c1716', k: '#2b2421', K: '#3a3440', j: '#211b1a', b: '#8a97ad',
+  h: '#6b4532',
+  T: '#a85d43', s: '#fbd9b8', t: '#eab18c', e: '#3e2419',
   g: '#69755a', n: '#465243', m: '#8e9b78',
   L: '#3f4652', v: '#7c8a99', V: '#5f6b7b', u: '#a7b4c2',
   U: '#3d5f8f', W: '#e6f6ff', o: '#bcd6dc', c: '#e2dbe8',
 };
 const CURSOR = '#ffffff';
-// On dark grounds the hair and hoodie edge lift so the silhouette holds, and the z turns butter.
-const DARK = { z: '#f0c477', J: '#64392a', h: '#84563b', H: '#ab744c', j: '#5e3a29' };
+// On dark grounds the hair outline becomes a cool grey rim and the warm outlines lift so the
+// silhouette holds against the dark header; the z turns butter.
+const DARK = { z: '#f0c477', J: '#524858', h: '#84563b' };
 // Any paint order gives the same pixels; this one, found by search, keeps the paths shortest.
-const BODY = [...'JChAaDEYyPpHGjeTtsrgnmLvVQuUoWc'];
+const BODY = [...'JThAaCDEYyGPpkKjbtsegnmLvVQuUoWc'];
 const DARK_KEYS = Object.keys(DARK);
 
 // One stroked path per colour: 1px horizontal runs, each stretched over pixels painted later.
