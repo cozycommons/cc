@@ -257,29 +257,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-matchup-card>.fx-espn-actions{margin-top:6px}
 @media(prefers-reduced-motion:reduce){.fx-loading-ball,.fx-live{animation:none}.fx-confetti{display:none}}
 
-/* Win odds over time: one line per team, current value and change at the end. */
-.fx-win{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;margin-top:8px}
-.fx-win svg{display:block;width:100%;height:48px;overflow:visible}
-.fx-win--big svg{height:150px}
-.fx-win polyline{fill:none;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
-.fx-win .fx-win-mid{stroke:#c9b597;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
-.fx-win .fx-win-grid{stroke:#efe4d1;vector-effect:non-scaling-stroke}
-.fx-win .fx-win-cursor{stroke:#75695b;vector-effect:non-scaling-stroke}
-.fx-win-labels{display:grid;gap:4px;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
-.fx-win-labels b{font-size:14px;margin-right:4px}
-.fx-win-plot{position:relative;min-width:0;touch-action:pan-y}
-.fx-win-axis{display:flex;justify-content:space-between;font-size:11px;color:#75695b;margin-top:4px}
-.fx-win-y{position:absolute;right:-2px;font-size:10.5px;color:#75695b;transform:translate(100%,-50%)}
-.fx-win--big{grid-template-columns:minmax(0,1fr);padding-right:30px}
-.fx-win--big .fx-win-labels{grid-auto-flow:column;justify-content:start;gap:16px;text-align:left}
-.fx-race-cols{display:grid;grid-template-columns:minmax(150px,1.2fr) minmax(120px,1.6fr) 64px 56px;gap:12px;margin:12px 0 0;font-size:var(--cc-text-min);color:#75695b;text-align:right}
-.fx-race-cols span:first-child{grid-column:3}
-.fx-linked{margin-top:20px;text-align:center}
-.fx-text-button{min-height:auto!important;padding:0;border:0;background:none;color:#b75f41;font:inherit;text-decoration:underline;cursor:pointer}
-@media(max-width:600px){.fx-race-cols{grid-template-columns:minmax(0,1fr) 54px 46px}.fx-race-cols span:first-child{grid-column:2}}
-.fx-win-area{position:relative}
-.fx-hero-team .fx-score,.fx-hero-team .fx-score span{font-size:inherit}
-
 /* ESPN's logo marks every link that leaves for ESPN. */
 .fx-espn-logo{display:block;flex:none;width:25px;height:14px;border-radius:2px}
 .fx-espn-button{min-height:32px!important;padding:0 10px 0 4px;gap:6px;border:1px solid #e4d6bd;border-radius:999px;background:#fffaf2;font-size:12.5px;font-weight:600;color:#3d2f29}
@@ -289,9 +266,6 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-card-links>.fx-espn-actions{display:contents}
 .fx-swing-teams h4 .fx-manager,.fx-players h4 .fx-manager{font-size:12.5px;font-weight:500}
 .fx-matchup>.fx-espn-link{margin:0 0 12px}
-.fx-win-axis{position:relative;display:block;height:16px}
-.fx-win-axis span{position:absolute;top:0;white-space:nowrap}
-.fx-win-plot:focus-visible{outline:2px solid #b75f41;outline-offset:4px;border-radius:4px}
 /* Projected days: one-line label, dashed column so the whole day reads as a forecast. */
 .fx-bars-day small{white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:4px}
 .fx-bars-day small .fx-live{margin:0}
@@ -333,7 +307,30 @@ body:has(.fx-page),#root:has(.fx-page){overflow-x:clip}
 .fx-why{flex-wrap:nowrap;align-items:center;gap:8px}
 .fx-why>span:last-child{flex:1 1 auto;min-width:0}
 .fx-why .fx-close{flex:none;min-height:22px;padding:0 8px;font-size:11.5px;margin:0}
-.fx-win-labels span{display:flex;align-items:center;justify-content:flex-end;gap:5px}
-.fx-win-labels .fx-logo{font-size:9px!important}
-.fx-win-labels b{margin-right:0}
-.fx-win--big .fx-win-labels span{justify-content:flex-start}
+
+/* Win odds: one neutral line between the two teams' logos; green and red only mean up and down. */
+.fx-win{margin-top:8px}
+.fx-win-head{display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12.5px;color:#5c4a3d;font-variant-numeric:tabular-nums}
+.fx-win-head b{font-size:15px;color:#201711}
+.fx-win-head small{margin-left:auto;font-size:11.5px;color:#75695b}
+.fx-win-name{font-weight:600;color:#3d2f29;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.fx-up{color:#3f7d4e;font-weight:600}
+.fx-down{color:#a1442b;font-weight:600}
+.fx-win-body{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+.fx-win-ends{display:flex;flex-direction:column;justify-content:space-between;height:68px;margin:-9px 0}
+.fx-win-ends .fx-logo{box-shadow:none;font-size:7px!important}
+.fx-win--big .fx-win-ends{height:168px}
+.fx-win-plot{position:relative;min-width:0;touch-action:pan-y}
+.fx-win-area{position:relative}
+.fx-win svg{display:block;width:100%;height:50px;overflow:visible}
+.fx-win--big svg{height:150px}
+.fx-win polyline{fill:none;stroke:#3d2f29;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.fx-win-fill{fill:#3d2f29;opacity:.07}
+.fx-win .fx-win-mid{stroke:#c9b597;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+.fx-win .fx-win-grid{stroke:#efe4d1;vector-effect:non-scaling-stroke}
+.fx-win .fx-win-cursor{stroke:#75695b;vector-effect:non-scaling-stroke}
+.fx-win-dot{position:absolute;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:#3d2f29;box-shadow:0 0 0 2px #fffaf2}
+.fx-win-axis{position:relative;display:block;height:16px;margin-top:4px;font-size:11px;color:#75695b}
+.fx-win-axis span{position:absolute;top:0;white-space:nowrap}
+.fx-win-plot:focus-visible{outline:2px solid #b75f41;outline-offset:4px;border-radius:4px}
+
