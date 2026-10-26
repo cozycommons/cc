@@ -1,3 +1,4 @@
+import DataShowcase from './DataShowcase.jsx';
 import SiteHeader from '../components/SiteHeader.jsx';
 import React from 'react';
 import { Link } from 'react-router-dom';
@@ -191,6 +192,7 @@ export default function DesignIndex() {
         </button>
         <nav className={`cc-navbar__links${menuOpen ? '' : ' is-collapsed'}`} id="cc-site-navigation" aria-label="Component library navigation">
           <Link to="/">homepage</Link>
+          <a href="#data-patterns">data & interaction</a>
           <a href="#buttons">inventory</a>
           <Link to="/dice">Dice ↗</Link>
         </nav>
@@ -200,8 +202,8 @@ export default function DesignIndex() {
         <section className="cc-hero" aria-labelledby="library-title">
           <div className="cc-hero__copy">
             <Kicker>common room / reusable pieces</Kicker>
-            <h1 className="cc-display" id="library-title">A small kit<br /><em>close at hand.</em></h1>
-            <p className="cc-lead">The chosen Wabi direction, carried into a living kit of tactile controls, paper surfaces, and quiet local interactions.</p>
+            <h1 className="cc-display" id="library-title">Cozy Commons<br /><em>Design system.</em></h1>
+            <p className="cc-lead">Components, materials, and interaction patterns for the next project.</p>
             <div className="cc-hero__actions"><a className="cc-button cc-button--primary" href="#buttons">browse inventory <span aria-hidden="true">↘</span></a><Link className="cc-button cc-button--ghost" to="/">back to the room</Link></div>
           </div>
         </section>
@@ -210,6 +212,8 @@ export default function DesignIndex() {
           <span>01 actions</span><span>02 surfaces</span><span>03 type</span><span>04 controls</span><span>05 feedback</span><span>06 overlays</span>
           <span className="cc-inventory-bar__palette">warm washi · iron glaze · burnt sienna · local amber</span>
         </div>
+
+        <DataShowcase />
 
         <section className="cc-section" id="buttons" aria-labelledby="buttons-title">
           <SectionHeading compact eyebrow="01 / actions" id="buttons-title" title={<>Raised keys<br /><em>with a soft landing.</em></>} aside={<>Hover, focus, press,<br />disabled, and loading.</>} />

@@ -8,6 +8,7 @@
     <title>Common UI library — Cozy Commons</title>
     <link rel="stylesheet" href="./components.css">
     <script src="./components.js" defer></script>
+    <link rel="stylesheet" href="./data-patterns.css">
   </head>
   <body class="cc-body cc-components-body">
     <div class="cc-page">
@@ -46,6 +47,14 @@
           <span>01 actions</span><span>02 surfaces</span><span>03 type</span><span>04 controls</span><span>05 feedback</span><span>06 overlays</span>
           <span class="cc-inventory-bar__palette">demo specimen / warm washi · iron glaze · burnt sienna · local amber</span>
         </div>
+
+        <section class="cc-section cc-data-showcase" aria-labelledby="data-title">
+          <div class="cc-section-heading"><div><p class="cc-kicker">Data &amp; interaction</p><h2 class="cc-h2" id="data-title">Numbers, with context.</h2></div><p class="cc-section-heading__aside">Sample data</p></div>
+          <div class="cc-data-grid">
+            <article class="cc-data-panel"><p class="cc-label">Comparison</p><div class="cc-data-metric"><strong>18<span> / 24</span></strong><span>games played</span></div><div class="cc-comparison" role="group" aria-label="Schedule completion"><div class="cc-comparison__labels"><span>18 played</span><span>6 remaining</span></div><div class="cc-comparison__track" aria-hidden="true"><span style="width:75%"></span></div></div></article>
+            <article class="cc-data-panel"><p class="cc-label">Expandable rows</p><details class="cc-data-row"><summary><span class="cc-data-row__name"><strong>Groceries</strong><small>3 purchases</small></span><span class="cc-data-row__value">$84.20</span><span class="cc-data-row__chevron" aria-hidden="true">↗</span></summary><div class="cc-data-row__detail"><dl><div><dt>Market</dt><dd>$42.00</dd></div><div><dt>Bakery</dt><dd>$18.20</dd></div><div><dt>Corner store</dt><dd>$24.00</dd></div></dl></div></details><p class="cc-data-caption">Open the row for its supporting details.</p></article>
+          </div>
+        </section>
 
         <section class="cc-section" id="buttons" aria-labelledby="buttons-title">
           <div class="cc-section-heading cc-section-heading--compact">
