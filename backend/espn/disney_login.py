@@ -13,11 +13,15 @@ the system changes: cookies remain the only stored secret.
 Password hygiene (hard requirements):
 
 - The password is used for exactly this one login and is never stored,
-  never logged, and never included in an exception message. Nothing in
-  this module logs at all, and no route logs request bodies.
+  never logged, and never included in an exception message. No route
+  logs request bodies.
 - Exactly ONE ``guest/login`` attempt per call — no retries. Disney
   locks accounts after repeated failed logins, and a retry loop here
   could lock a user out of their own ESPN account.
+- Operational logging covers outcomes only: step names, HTTP statuses,
+  Disney error codes, and failure classifications. The password,
+  request/response bodies, the bootstrap API key, and the session
+  cookies are never logged.
 
 Login call sequence (verified live 2026-10-25):
 
@@ -43,11 +47,14 @@ whose entry ``abbrev`` is ``FBA``.
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from .espn_client import USER_AGENT
+
+logger = logging.getLogger(__name__)
 
 DISNEY_BASE = (
     "https://registerdisney.go.com/jgc/v6/client/ESPN-ONESITE.WEB-PROD"
@@ -132,6 +139,7 @@ def _request(method: str, url: str, body: dict | None, headers: dict | None = No
             text = ""
         return e.code, e.headers, text
     except urllib.error.URLError as e:
+        logger.warning("espn disney request transport failure: %s", e.reason)
         raise DisneyLoginError(
             f"could not reach Disney's login service ({e.reason})"
         ) from e
@@ -226,11 +234,13 @@ def login(email: str, password: str) -> dict:
     )
     _absorb_cookies(headers, cookies)
     if status != 200:
+        logger.warning("espn login bootstrap failed: HTTP %s", status)
         raise DisneyLoginError(
             f"Disney login bootstrap failed (HTTP {status})"
         )
     api_key = headers.get("api-key") if headers is not None else None
     if not api_key:
+        logger.warning("espn login bootstrap returned no api-key header")
         raise DisneyLoginError("Disney did not issue an API key")
 
     # Step 2: exactly one login attempt.
@@ -246,15 +256,29 @@ def login(email: str, password: str) -> dict:
     except json.JSONDecodeError:
         payload = None
     if status != 200 or (isinstance(payload, dict) and payload.get("error")):
-        raise _classify(status, payload)
+        exc = _classify(status, payload)
+        logger.warning(
+            "espn guest/login failed: HTTP %s, disney codes=%s, outcome=%s",
+            status,
+            _error_codes(payload),
+            type(exc).__name__,
+        )
+        raise exc
 
     espn_s2 = cookies.get("espn_s2")
     swid = cookies.get("SWID") or cookies.get("swid") or _find_swid(payload)
     if not espn_s2 or not swid:
+        logger.warning(
+            "espn guest/login ok but session cookies missing: "
+            "espn_s2=%s swid=%s",
+            bool(espn_s2),
+            bool(swid),
+        )
         raise DisneyLoginError(
             "Disney login succeeded but did not issue the ESPN session "
             "cookies (espn_s2/SWID)"
         )
+    logger.info("espn guest/login ok: HTTP %s", status)
     return {"espn_s2": espn_s2, "swid": swid}
 
 
@@ -280,6 +304,7 @@ def discover_basketball_leagues(espn_s2: str, swid: str, season: int) -> list:
     if status == 404:
         return []
     if status != 200:
+        logger.warning("espn league discovery failed: HTTP %s", status)
         raise DisneyLoginError(
             f"ESPN league discovery failed (HTTP {status})"
         )
@@ -316,4 +341,7 @@ def discover_basketball_leagues(espn_s2: str, swid: str, season: int) -> list:
                     "team_name": team_name,
                 }
             )
+    logger.info(
+        "espn league discovery ok: season=%s leagues=%d", season, len(leagues)
+    )
     return leagues
