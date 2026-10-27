@@ -115,6 +115,8 @@ export default defineConfig(({ mode }) => {
             if (id.includes('commonjsHelpers') || id.includes('vite/preload-helper') || /node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) return 'react-vendor';
             if (id.includes('/node_modules/@supabase/')) return 'supabase-vendor';
             if (id.includes('/node_modules/recharts/')) return 'recharts';
+            if (id.includes('/node_modules/three/build/three.core.js')) return 'three-core';
+            if (id.includes('/node_modules/three/build/three.module.js')) return 'three-webgl';
           },
         },
       },

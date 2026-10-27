@@ -52,7 +52,7 @@ def test_ready_checks_database_and_core_schema():
     response = _client(supabase).get("/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
-    assert supabase.tables == ["dice_release_readiness", "trips_release_readiness", "floor_planner_release_readiness"]
+    assert supabase.tables == ["dice_release_readiness", "trips_release_readiness", "floor_planner_release_readiness", "cc_mcp_release_readiness"]
 
 
 def test_ready_fails_when_trips_schema_is_not_ready():

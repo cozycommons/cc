@@ -23,6 +23,10 @@ from espn.mcp_server import mcp as espn_mcp
 from espn.routes import router as espn_router
 from espn.public_compression import PublicPredictionsCompression
 from floor_planner.routes import router as floor_planner_router
+from floor_planner.scans import router as floor_planner_scans_router
+from cc_mcp.server import create_agent_app
+from floor_planner.agent_tools import provider as floor_planner_tools
+from cc_mcp.mount import mount_agent_app
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -60,7 +64,8 @@ def _cors_origins() -> list[str]:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logger.info("Dice API starting")
-    yield
+    async with cc_mcp_app.router.lifespan_context(cc_mcp_app):
+        yield
 
 
 app = FastAPI(title="Cozy Commons Dice API", lifespan=lifespan)
@@ -92,7 +97,8 @@ app.state.floor_planner_supabase: Client = create_client(SUPABASE_URL, SUPABASE_
 async def private_admin_responses(request, call_next):
     response = await call_next(request)
     if (request.url.path == '/admin' or request.url.path.startswith('/admin/')
-            or request.url.path == '/floor-planner' or request.url.path.startswith('/floor-planner/')):
+            or request.url.path == '/floor-planner' or request.url.path.startswith('/floor-planner/')
+            or request.url.path in {'/mcp', '/authorize', '/token', '/register', '/revoke', '/consent', '/auth/callback'}):
         response.headers['Cache-Control'] = 'private, no-store'
     return response
 
@@ -126,6 +132,7 @@ app.state.venmo_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.include_router(venmo_router, prefix="/venmo")
 app.include_router(trips_router, prefix="/trips")
 app.include_router(floor_planner_router, prefix="/floor-planner")
+app.include_router(floor_planner_scans_router, prefix="/floor-planner")
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")
 app.include_router(admin_router, prefix="/admin")
@@ -138,3 +145,7 @@ app.include_router(resy_router, prefix="/resy")
 app.mount("/resy/mcp", resy_mcp.streamable_http_app())
 app.include_router(espn_router, prefix="/espn")
 app.mount("/espn/mcp", espn_mcp.streamable_http_app())
+
+app.state.mcp_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+cc_mcp_app = create_agent_app(app.state.mcp_supabase, providers=(floor_planner_tools,))
+mount_agent_app(app, cc_mcp_app)

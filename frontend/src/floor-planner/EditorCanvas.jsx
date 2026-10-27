@@ -30,6 +30,7 @@ export default function EditorCanvas({ scene, setScene, tool, setTool, selectedI
   const spaceDown = useRef(false);
   const pointers = useRef(new Map());
   const pinch = useRef(null);
+  const previousFitSignal = useRef(fitSignal);
   const [viewport, setViewport] = useState(scene.viewport ?? { x: 0, y: 0, zoom: 1 });
   const selected = scene.elements.find((element) => element.id === selectedId);
 
@@ -45,7 +46,12 @@ export default function EditorCanvas({ scene, setScene, tool, setTool, selectedI
     commitViewport(fitViewport(scene.elements, bounds.width, bounds.height, 52));
   };
 
-  useEffect(() => { fit(); }, [fitSignal]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (previousFitSignal.current !== fitSignal) {
+      previousFitSignal.current = fitSignal;
+      fit();
+    }
+  }, [fitSignal]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (scene.viewport) setViewport(scene.viewport);
     else requestAnimationFrame(fit);

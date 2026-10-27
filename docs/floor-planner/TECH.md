@@ -50,12 +50,30 @@ The editor polls the authorized plan endpoint every six seconds for revision
 and access changes. It does not use Realtime channels or publish personal
 presence data. Read-only pan and zoom remain in memory and are not saved.
 
+## Agent access and OAuth setup
+
+Floor Planner registers its four tools with the shared [Cozy Commons MCP
+server](../mcp/README.md). Its provider lives in
+`backend/floor_planner/agent_tools.py`; authentication and OAuth persistence
+belong to `backend/cc_mcp` and its independent migration family.
+
+The provider requires `floor-plans:read` for reads, and both that scope and
+`floor-plans:edit` for changes. It verifies the current Supabase user and email,
+rechecks document access, and uses the existing revision-checked RPC for saves.
+The schema tool returns no private data. Knowing a plan ID does not authorize
+access. Sharing, visibility, ownership, scans, and document deletion are not
+exposed as agent tools.
+
 ## Validation
 
 `backend/tests/test_floor_planner.py` covers scene and input validation. The
 opt-in `backend/tests/test_floor_planner_integration.py` runs against the
 loopback Supabase stack and exercises verified-email invitations, private and
 public RLS, browser-role grants, owner restrictions, revision conflicts,
-revocation, and migration replay. Frontend tests cover retained editor behavior,
+revocation, and migration replay. Agent tests cover OAuth issuer and audience
+validation, local scope isolation through refresh, local revocation, mounted
+metadata, and MCP Streamable HTTP listing, reads, atomic edits, and conflict
+handling. The opt-in agent integration test also checks encrypted OAuth state
+against the loopback database. Frontend tests cover retained editor behavior,
 plan-specific drafts, and serialized autosave. Library and sharing flows were
 also checked manually in the local browser.

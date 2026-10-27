@@ -1,0 +1,12 @@
+.cc-oauth-page { min-height: 100svh; display: grid; place-items: center; padding: 24px; background: var(--paper, #faf9f5); color: var(--ink, #292923); }
+.cc-oauth-card { width: min(100%, 460px); padding: 28px; border: 1px solid #deddd5; border-radius: 12px; background: #fffefa; }
+.cc-oauth-card h1 { margin: 28px 0 20px; font-size: 28px; }
+.cc-oauth-card h2 { margin-top: 24px; font-size: 15px; }
+.cc-oauth-card p, .cc-oauth-card li { line-height: 1.6; overflow-wrap: anywhere; }
+.cc-oauth-account { color: #68685f; font-size: 14px; }
+.cc-oauth-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+
+.cc-oauth-brand { color: inherit; font-size: 12px; letter-spacing: 0.16em; text-decoration: none; }
+.cc-oauth-button { border: 1px solid #292923; border-radius: 6px; padding: 10px 16px; background: #292923; color: #fffefa; cursor: pointer; font: inherit; }
+.cc-oauth-button:disabled { opacity: 0.6; cursor: wait; }
+.cc-oauth-secondary { background: transparent; color: #292923; }

@@ -21,6 +21,11 @@ port = 54323
 site_url = "http://localhost:8080"
 additional_redirect_urls = ["http://localhost:8080/**"]
 
+[auth.oauth_server]
+enabled = true
+authorization_url_path = "/oauth/consent"
+allow_dynamic_registration = false
+
 [realtime]
 enabled = false
 
@@ -29,7 +34,7 @@ enabled = false
 
 [storage]
 enabled = true
-file_size_limit = "10MiB"
+file_size_limit = "50MiB"
 
 [storage.s3_protocol]
 enabled = false
