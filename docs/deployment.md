@@ -1,9 +1,64 @@
 # Cozy Commons deployment
 
-Cozy Commons is deployed from this monorepo as two Coolify applications: one
-static frontend and one FastAPI backend. Dice remains available at `/dice`, but
-the home page and its persistent scene state belong to Commons. The existing
-`jasonkeung.com/dice` deployment remains separate during migration.
+Cozy Commons has a shared static frontend and FastAPI backend deployed from this
+monorepo, plus separate services where projects need them. The Coolify resource
+instructions below cover the shared pair; Crowdset's separate application is
+documented in [its deployment instructions](crowdset/README.md#hosted-test-configuration).
+Dice remains available at `/dice`. The existing `jasonkeung.com/dice` deployment
+remains separate during migration.
+
+## Project placement policy
+
+New projects use the shared frontend and API unless their workload, state,
+dependencies or release needs justify a separate runtime. Background work can
+be separated independently. Creating a separate service should follow a standard,
+repeatable workflow.
+
+This is the default for future project decisions, not a migration plan for
+existing deployments. In particular, it does not require consolidating Crowdset
+or changing its current routing, frontend packaging, storage or worker setup.
+
+### Choosing a runtime
+
+| Project needs | Default placement |
+| --- | --- |
+| Pages and ordinary database/API operations | Shared React frontend and FastAPI API |
+| Slow or intensive background jobs | Shared frontend/API with a separate worker |
+| Incompatible or substantial dependencies, persistent local state with exclusive ownership, special hardware, or a different process lifecycle | Separate the runtime that needs those properties |
+| Independent releases because shared deployments cause actual disruption | Consider extracting the affected API or worker |
+
+Project count alone is not a reason to split services. Keep project routes,
+modules, data ownership and tests distinct even when they share a process. Reuse
+common authentication and infrastructure without making unrelated projects
+depend on each other's implementation. Frontend, API and worker placement are
+independent: a separate worker or API does not require a separate frontend build.
+
+Shared services minimize setup and ongoing maintenance, but share dependencies,
+startup and releases. Separate services allow independent deployments, rollback
+and resource limits, at the cost of more configuration, monitoring, backups and
+dependency maintenance. Containers on the same VM still share host availability
+and capacity. Record the concrete reason for a split and these tradeoffs in the
+project's existing technical or operational docs.
+
+### Keeping separate services easy to operate
+
+When a separate runtime is warranted, reuse existing deployment patterns and
+automate repeated setup. The target workflow should provide:
+
+- A standard service template for startup, health checks, logs, resource limits
+  and graceful shutdown.
+- A small checked-in deployment definition describing routing, port, build file,
+  required secret names and persistent storage. Secret values stay outside Git.
+- A repeatable provisioning workflow that applies those settings to Coolify.
+- Deployment selection based on each service's code and shared dependencies, so
+  shared changes deploy the affected services without deploying unrelated ones.
+- Clear responsibility for backups, dependency updates and deployment failures.
+
+These are requirements for future deployment tooling, not a claim that a unified
+provisioning workflow already exists. Avoid a new bespoke setup for every project,
+but do not keep an unsuitable workload in the shared API solely to avoid resource
+creation. Provisioning, consolidation and deployment changes remain separate
+implementation work within an explicitly scoped task.
 
 ## Coolify resources
 
