@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Armchair, BedDouble, BrickWall, Circle, Cloud, CloudOff, DoorOpen, Hand, Link2, LoaderCircle, Minus, Monitor, MousePointer2, PanelTop, Pencil, Redo2, RotateCcw, Scan, Square, Trash2, Undo2, UserPlus, Users, X } from 'lucide-react';
 import EditorCanvas from './EditorCanvas';
