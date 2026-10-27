@@ -63,7 +63,7 @@ class SelectionTests(unittest.TestCase):
                 self.assertFalse(plan["crowdset"])
 
     def test_crowdset_backend_is_isolated(self):
-        for path in ["backend/crowdset/video.py", "backend/crowdset/tests/test_video.py", "backend/requirements-crowdset.txt", "scripts/crowdset-dev.sh"]:
+        for path in ["backend/crowdset/video.py", "backend/crowdset/tests/test_video.py", "backend/crowdset/tests/requirements.txt", "backend/requirements-crowdset.txt", "scripts/crowdset-dev.sh"]:
             with self.subTest(path=path):
                 plan = ci.select([path], TEST_FILES)
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["crowdset", "crowdset-container"])

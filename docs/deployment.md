@@ -206,6 +206,12 @@ requirements and runtime scripts, or shared compute runtime/dependency changes.
 Workflow edits, generic scripts, and unknown infrastructure alone do not select
 it. The container smoke check still runs for shared frontend changes. Media test
 logs include the slowest 15 test phases for future performance work.
+CI runs the media suite with two pytest workers and work-stealing scheduling.
+BLAS/OpenMP thread pools are capped at one thread per worker, matching the media
+worker's production limits. Worker crashes fail the run without an automatic
+restart. The existing 16-GiB temporary-filesystem check remains in place.
+The test-only dependencies are pinned in `backend/crowdset/tests/requirements.txt`;
+install them alongside the Crowdset runtime requirements to reproduce the run.
 The integration fixtures retain real 1080p rendering, multiwindow alignment,
 publication, cache reuse, and restart assertions with shorter synthetic videos.
 The dedicated codec, timing, short/long alignment, and recovery tests remain.
