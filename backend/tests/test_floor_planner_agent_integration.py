@@ -28,7 +28,7 @@ from cc_mcp.server import create_agent_app
 from floor_planner.agent_tools import EDIT_SCOPE, READ_SCOPE, provider
 from cc_mcp.oauth_storage import SupabaseOAuthStore
 from floor_planner.routes import router
-from test_floor_planner_integration import create_account, local_floor_planner_api
+from tests.test_floor_planner_integration import create_account, local_floor_planner_api
 
 
 class LocalSupabaseSessionVerifier(TokenVerifier):
