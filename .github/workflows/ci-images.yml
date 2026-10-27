@@ -1,0 +1,62 @@
+name: Prebuild CI images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/images/crowdset-tests.Dockerfile
+      - .github/workflows/ci-images.yml
+      - scripts/crowdset-ci-image.sh
+      - backend/requirements-crowdset.txt
+      - backend/crowdset/tests/requirements.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prebuild-ci-images
+  cancel-in-progress: false
+
+jobs:
+  crowdset:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build media test environment
+        run: bash scripts/crowdset-ci-image.sh build
+      - name: Verify image tools and dependencies
+        run: |
+          image=$(bash scripts/crowdset-ci-image.sh ref)
+          docker run --rm "$image" sh -ec 'ffmpeg -version; ffprobe -version; python -m pip check; python -m pytest --version'
+      - name: Publish dependency image
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          image=$(bash scripts/crowdset-ci-image.sh ref)
+          docker push "$image"
+          echo "Published $image" >> "$GITHUB_STEP_SUMMARY"
+
+  verify-prebuilt-crowdset:
+    needs: crowdset
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to the CI image registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Pull published image on a fresh runner
+        run: docker pull "$(bash scripts/crowdset-ci-image.sh ref)"
+      - name: Verify full media suite in the prebuilt image
+        run: bash scripts/crowdset-ci-image.sh test

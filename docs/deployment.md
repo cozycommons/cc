@@ -210,6 +210,28 @@ CI runs the media suite with two pytest workers and work-stealing scheduling.
 BLAS/OpenMP thread pools are capped at one thread per worker, matching the media
 worker's production limits. Worker crashes fail the run without an automatic
 restart. The existing 16-GiB temporary-filesystem check remains in place.
+The media job pulls a prebuilt Python 3.12/FFmpeg dependency image from
+`ghcr.io/cozycommons/cc/crowdset-tests`. Its tag hashes the target architecture,
+`.github/images/crowdset-tests.Dockerfile` and both requirement files. A changed
+recipe or dependency file uses a new image; missing images (including forks
+without package access) build locally. Tests always use the current checkout,
+mounted read-only, and a writable temporary filesystem with the same 16-GiB
+check. No application code, credentials, or fixtures are baked into the image.
+The separate `Prebuild CI images` workflow publishes from `main` after image
+input changes, then pulls the published image on a fresh runner and runs all
+media tests. It can also be dispatched manually on `main` to refresh system
+packages. Only that publisher has package write permission. The consumer uses
+package read permission for same-repository events, with anonymous pulls for
+fork PRs. The Python base image is pinned by digest; update that digest in the
+Dockerfile when upgrading the base image. Trips retains its isolated Supabase
+setup.
+For local reproduction, run `bash scripts/crowdset-ci-image.sh prepare` followed
+by `bash scripts/crowdset-ci-image.sh test` (Docker required; the CI image uses
+`linux/amd64` by default). On Apple Silicon, export
+`CROWDSET_CI_PLATFORM=linux/arm64` before both commands to build a native local
+variant with a separate tag. Outside CI, the helper uses a temporary Docker
+volume so Docker Desktop bind-mount locking behavior cannot affect spool tests;
+the volume is removed afterward. CI continues to use `RUNNER_TEMP`.
 The test-only dependencies are pinned in `backend/crowdset/tests/requirements.txt`;
 install them alongside the Crowdset runtime requirements to reproduce the run.
 The integration fixtures retain real 1080p rendering, multiwindow alignment,
