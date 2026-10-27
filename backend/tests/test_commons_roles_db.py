@@ -62,7 +62,7 @@ def test_seed_directory_privileges_and_own_role(database):
         conn.execute('RESET ROLE')
         for role in ['anon','authenticated']:
             conn.execute('SET ROLE ' + role)
-            for statement in ['SELECT * FROM commons_accounts', 'SELECT * FROM commons_role_history', 'SELECT * FROM commons_role_audit',
+            for statement in ['SELECT * FROM commons_accounts', 'SELECT * FROM commons_role_history', 'SELECT * FROM commons_role_audit', 'SELECT last_value FROM commons_role_history_id_seq',
                               "SELECT commons_get_role('" + ids[0] + "')", "SELECT * FROM commons_list_users('',0)",
                               "SELECT commons_set_role('"+ids[2]+"','"+ids[2]+"','admin','member')",
                               "UPDATE commons_user_roles SET role='admin'", 'DELETE FROM commons_user_roles',
@@ -175,3 +175,12 @@ def test_admin_http_flow_uses_real_role_transactions(database):
     assert client.get('/admin/session',headers=headers(ids[2])).status_code == 200
     assert client.put(path,headers=headers(ids[0]),json={'role':'member','expected_role':'admin'}).status_code == 200
     assert client.get('/admin/session',headers=headers(ids[2])).status_code == 403
+
+
+def test_unverified_assigned_admin_can_be_demoted(database):
+    import psycopg
+    url, ids = database
+    with psycopg.connect(url) as conn:
+        conn.execute('UPDATE auth.users SET email_confirmed_at=NULL WHERE id=%s',(ids[1],))
+        assert conn.execute('SELECT commons_get_role(%s)',(ids[1],)).fetchone()[0] == 'member'
+    assert role_call(url,ids[0],ids[1],'member','admin') == 'member'

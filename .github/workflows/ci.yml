@@ -90,7 +90,7 @@ jobs:
       - name: Start isolated Supabase Auth and Trips database
         run: backend/.venv/bin/python scripts/trips-dev.py setup
       - name: Require real Supabase Trips integration tests
-        run: backend/.venv/bin/python -m pytest backend/tests/test_trips.py backend/tests/test_trips_import.py backend/tests/test_trips_profiles.py -q
+        run: backend/.venv/bin/python -m pytest backend/tests/test_trips.py backend/tests/test_trips_import.py backend/tests/test_trips_profiles.py backend/tests/test_trips_link.py -q
         env:
           PYTHONPATH: backend
           TRIPS_INTEGRATION: "1"

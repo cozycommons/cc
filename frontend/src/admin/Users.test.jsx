@@ -67,3 +67,9 @@ it('ignores an old search response after a new search', async () => {
   resolveFirst({ users: [member], has_more: false });
   await waitFor(() => expect(screen.queryByText('Taylor')).not.toBeInTheDocument());
 });
+
+it('allows revoking an assigned admin whose account is no longer verified', async () => {
+  adminRequest.mockImplementation(async (path) => path === '/role-history' ? [] : { users: [{ ...member, role: 'admin', verified: false }], has_more: false });
+  show();
+  expect(await screen.findByRole('button', { name: 'Make member@example.test a member' })).toBeEnabled();
+});

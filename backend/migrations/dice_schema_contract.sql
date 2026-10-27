@@ -373,7 +373,9 @@ DO $$ BEGIN
  OR has_function_privilege('anon','public.commons_list_users(text,integer)','EXECUTE')
  OR has_function_privilege('authenticated','public.commons_list_users(text,integer)','EXECUTE')
  OR has_table_privilege('anon','public.commons_user_roles','SELECT,INSERT,UPDATE,DELETE')
- OR has_table_privilege('authenticated','public.commons_role_audit','SELECT') THEN
+ OR has_table_privilege('authenticated','public.commons_role_audit','SELECT')
+ OR has_sequence_privilege('authenticated','public.commons_role_history_id_seq','USAGE,SELECT,UPDATE')
+ OR has_sequence_privilege('anon','public.commons_role_history_id_seq','USAGE,SELECT,UPDATE') THEN
   RAISE EXCEPTION 'Commons role boundary missing';
  END IF;
 END $$;

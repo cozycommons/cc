@@ -20,6 +20,7 @@ GRANT SELECT ON public.commons_user_roles TO authenticated;
 CREATE POLICY commons_own_role ON public.commons_user_roles FOR SELECT TO authenticated
  USING (user_id = (SELECT auth.uid()));
 GRANT ALL ON public.commons_user_roles, public.commons_role_history TO service_role;
+REVOKE ALL ON SEQUENCE public.commons_role_history_id_seq FROM PUBLIC, anon, authenticated;
 GRANT USAGE, SELECT ON SEQUENCE public.commons_role_history_id_seq TO service_role;
 
 CREATE VIEW public.commons_accounts WITH (security_barrier=true) AS
