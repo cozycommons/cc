@@ -94,6 +94,7 @@ run_verification() {
   "${npm_command[@]}" run build:check
   cd "$repo_dir"
   "$repo_dir/scripts/check-dice-migration-contract.sh"
+  "$repo_dir/scripts/check-floor-planner-migration-contract.sh"
   bash -n "$repo_dir"/scripts/*.sh "$repo_dir"/backend/*.sh
   if [[ -x "$repo_dir/backend/.venv/bin/python" ]]; then
     PYTHONPATH="$repo_dir/backend" \

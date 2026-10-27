@@ -22,6 +22,7 @@ from resy.routes import router as resy_router
 from espn.mcp_server import mcp as espn_mcp
 from espn.routes import router as espn_router
 from espn.public_compression import PublicPredictionsCompression
+from floor_planner.routes import router as floor_planner_router
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -84,12 +85,14 @@ app.state.supabase_admin: Client = CachedSupabaseClient(
 app.state.analytics_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.readiness_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.trips_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+app.state.floor_planner_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 @app.middleware("http")
 async def private_admin_responses(request, call_next):
     response = await call_next(request)
-    if request.url.path == '/admin' or request.url.path.startswith('/admin/'):
+    if (request.url.path == '/admin' or request.url.path.startswith('/admin/')
+            or request.url.path == '/floor-planner' or request.url.path.startswith('/floor-planner/')):
         response.headers['Cache-Control'] = 'private, no-store'
     return response
 
@@ -122,6 +125,7 @@ from venmo.routes import router as venmo_router
 app.state.venmo_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.include_router(venmo_router, prefix="/venmo")
 app.include_router(trips_router, prefix="/trips")
+app.include_router(floor_planner_router, prefix="/floor-planner")
 app.include_router(dice_router, prefix="/dice")
 app.include_router(analytics_router, prefix="/track")
 app.include_router(admin_router, prefix="/admin")

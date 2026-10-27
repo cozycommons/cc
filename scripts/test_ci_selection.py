@@ -21,6 +21,7 @@ TEST_FILES = [
     "frontend/nginx.test.js",
     "frontend/e2e/dice-regressions.spec.js",
     *(f"backend/tests/test_{p}.py" for p in ci.BACKEND_PROJECTS),
+    "backend/tests/test_floor_planner_integration.py",
     "backend/tests/test_migration_runner.py",
     "backend/tests/test_service_health.py",
 ]
@@ -55,9 +56,12 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(project=project):
                 plan = ci.select([f"backend/{directory}/logic.py"], TEST_FILES)
                 self.assertEqual(plan["backend_projects"], [project])
-                self.assertEqual(plan["backend_files"], sorted([
+                expected = [
                     f"backend/tests/test_{project}.py", "backend/tests/test_migration_runner.py", "backend/tests/test_service_health.py",
-                ]))
+                ]
+                if project == "floor_planner":
+                    expected.append("backend/tests/test_floor_planner_integration.py")
+                self.assertEqual(plan["backend_files"], sorted(expected))
                 self.assertEqual(plan["trips"], project == "trips")
                 self.assertFalse(plan["frontend-tests"])
                 self.assertFalse(plan["crowdset"])
@@ -102,10 +106,12 @@ class SelectionTests(unittest.TestCase):
             "backend/migrations/DICE_SCHEMA_CONTRACT_VERSION": ["dice", "trips"],
             "backend/commons/migrations/0013_commons_example.sql": ["commons"],
             "backend/trips/migrations/0003_trips_example.sql": ["trips"],
+            "backend/floor_planner/migrations/0001_floor_planner_documents.sql": ["floor_planner"],
             "backend/migrations/0008_beli_espn_lineup.sql": sorted(ci.INTEGRATIONS),
             "backend/jobs/dice_rating_rebuild.py": ["dice"],
             "backend/jobs/espn_lineup.py": ["espn"],
             "scripts/trips-dev.py": ["trips"],
+            "scripts/check-floor-planner-migration-contract.sh": ["floor_planner"],
             "scripts/start-local-dice-backend.sh": ["dice"],
             "scripts/verify-commons-schema.sh": ["commons"],
         }

@@ -51,7 +51,7 @@ def test_fresh_schema_without_legacy_supabase_default_grants(migration_database,
     database.sql("ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT,INSERT,UPDATE,DELETE ON TABLES FROM service_role;")
     database.release()
     assert catalog_difference(canonical_catalog, database.catalog()) == []
-    for family in ('dice', 'commons', 'beli', 'trips', 'venmo'):
+    for family in ('dice', 'commons', 'beli', 'trips', 'floor_planner', 'venmo'):
         denied = database.sql(f"SET ROLE service_role; DELETE FROM public.{family}_schema_migrations;", check=False)
         assert denied.returncode != 0 and 'permission denied' in denied.stderr
 

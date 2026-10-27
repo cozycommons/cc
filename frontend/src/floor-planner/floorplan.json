@@ -1,0 +1,1355 @@
+{
+  "rooms" : [
+    {
+      "z" : -86,
+      "y" : 0,
+      "name" : "Room",
+      "x" : -26,
+      "id" : "53F7206F-3BB4-46EF-B817-C894DF638277",
+      "furniture_objects" : [
+
+      ],
+      "walls" : [
+        {
+          "rotation" : 90,
+          "height" : 122,
+          "z" : 19,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "3B7B2104-BD07-4216-9C78-F5A4350BAADD",
+          "x" : 5,
+          "width" : 19,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 180,
+          "height" : 129,
+          "z" : 9,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "564B875C-BB12-4A1E-B961-8DDAA58E38E3",
+          "x" : 49,
+          "width" : 87,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "width" : 67,
+              "rotation" : 180,
+              "height" : 115,
+              "z" : 9,
+              "y" : 0,
+              "id" : "367BB434-A8F3-4214-B690-C6F8C5218015",
+              "depth" : 4,
+              "x" : 51
+            }
+          ]
+        },
+        {
+          "width" : 61,
+          "rotation" : 180,
+          "height" : 129,
+          "z" : 28,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "A8702E93-2986-404A-8386-75F267F2D6E1",
+          "depth" : 4,
+          "x" : -64
+        },
+        {
+          "width" : 56,
+          "rotation" : -90,
+          "height" : 129,
+          "z" : 0,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "rotation" : -90,
+              "height" : 110,
+              "z" : -10,
+              "y" : 0,
+              "id" : "32FE7AE1-16DF-42C2-8E8C-AE9AD5B66804",
+              "x" : -94,
+              "width" : 33,
+              "depth" : 4
+            }
+          ],
+          "y" : 0,
+          "id" : "BA24C155-1591-4BC4-95AC-EAEEA94266DD",
+          "depth" : 4,
+          "x" : -94
+        },
+        {
+          "rotation" : 0,
+          "height" : 129,
+          "z" : -27,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "C4626C4E-A450-4D7F-A33E-49D039827575",
+          "x" : 0,
+          "width" : 189,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        }
+      ]
+    },
+    {
+      "walls" : [
+        {
+          "rotation" : 90,
+          "height" : 122,
+          "z" : 0,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "275DA26C-4BB4-40F0-822A-9C37EB2B9488",
+          "x" : 66,
+          "width" : 27,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 0,
+          "height" : 122,
+          "z" : -86,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "2A5627B2-BEEB-413F-8576-06AB348F3A83",
+          "x" : -80,
+          "width" : 108,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 180,
+          "height" : 122,
+          "z" : 77,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "696608A4-6721-46C8-B250-2969BEF20173",
+          "x" : 87,
+          "width" : 99,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 90,
+          "height" : 129,
+          "z" : -63,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "70AA1F7D-E21F-4EFF-B644-570DC317EFB1",
+          "x" : -26,
+          "width" : 43,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 0,
+          "height" : 122,
+          "z" : 12,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "72BA8A3A-8002-4537-8FA7-07148FCAA938",
+          "x" : 9,
+          "width" : 30,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : -90,
+          "height" : 122,
+          "z" : 69,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "7B389E45-9939-4D3F-90C1-0E152EB7D1B4",
+          "x" : 37,
+          "width" : 14,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 90,
+          "height" : 122,
+          "z" : 64,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "7D2E50BF-363D-4B2C-840D-80CC6A82D3DC",
+          "x" : 136,
+          "width" : 26,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 90,
+          "height" : 122,
+          "z" : -32,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "7F731281-F375-4886-9984-E6189BF2170D",
+          "x" : 136,
+          "width" : 93,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 180,
+          "height" : 122,
+          "z" : 86,
+          "y" : 0,
+          "windows" : [
+            {
+              "width" : 116,
+              "rotation" : 180,
+              "height" : 114,
+              "z" : 86,
+              "y" : 4,
+              "id" : "4D8A4071-EB28-4497-89EE-52898841811A",
+              "depth" : 4,
+              "x" : -40
+            }
+          ],
+          "id" : "9CA738ED-70D6-4492-8806-2BDB84F2CBD6",
+          "x" : -58,
+          "width" : 156,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "width" : 27,
+          "rotation" : -90,
+          "height" : 122,
+          "z" : 0,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "A556B466-B1CC-4C61-9F86-821EE0BCD574",
+          "depth" : 4,
+          "x" : 24
+        },
+        {
+          "width" : 127,
+          "rotation" : -90,
+          "height" : 129,
+          "z" : 20,
+          "windows" : [
+            {
+              "rotation" : -90,
+              "height" : 111,
+              "z" : 27,
+              "y" : 8,
+              "id" : "DB835ABE-9D39-4775-B2B1-7DE12E0658D0",
+              "x" : -135,
+              "width" : 92,
+              "depth" : 4
+            }
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "AFA522F6-1A4C-417B-A5BC-B691F101635D",
+          "depth" : 4,
+          "x" : -135
+        },
+        {
+          "rotation" : -90,
+          "height" : 122,
+          "z" : 71,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "CA829A85-477B-402A-98AC-9C9450856427",
+          "x" : 63,
+          "width" : 12,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 180,
+          "height" : 122,
+          "z" : 76,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "CBA58F97-9277-4E80-96E7-7B383D5B4512",
+          "x" : 28,
+          "width" : 18,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 0,
+          "height" : 122,
+          "z" : 14,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "CE982BCF-A363-45FD-9718-222179BC5BD1",
+          "x" : 101,
+          "width" : 69,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "width" : 59,
+              "rotation" : 0,
+              "height" : 113,
+              "z" : 13,
+              "y" : 0,
+              "id" : "D8AAA4FA-33ED-42A0-AC69-31760AA8E357",
+              "depth" : 4,
+              "x" : 99
+            }
+          ]
+        },
+        {
+          "width" : 10,
+          "rotation" : 90,
+          "height" : 122,
+          "z" : 81,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "F17A33A9-76B8-43FF-8D67-176A22558C88",
+          "depth" : 4,
+          "x" : 19
+        },
+        {
+          "width" : 31,
+          "rotation" : 127,
+          "height" : 122,
+          "z" : 74,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "F2CB9A9B-478F-4EE0-B180-8527164C77BD",
+          "depth" : 4,
+          "x" : 28
+        },
+        {
+          "width" : 50,
+          "rotation" : 0,
+          "height" : 129,
+          "z" : -41,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "FD5D0DB4-CEAF-49E0-8D1E-058D72C045D6",
+          "depth" : 4,
+          "x" : -2
+        },
+        {
+          "width" : 44,
+          "rotation" : -90,
+          "height" : 129,
+          "z" : -65,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "FFFA6EA0-6EA4-45CA-BDEF-55739823CAD8",
+          "depth" : 4,
+          "x" : -136
+        }
+      ],
+      "z" : 147,
+      "y" : 0,
+      "id" : "594BBA22-6998-4154-B953-94397CE111CD",
+      "name" : "Room",
+      "x" : -96,
+      "furniture_objects" : [
+
+      ]
+    },
+    {
+      "z" : 50,
+      "y" : 0,
+      "name" : "Kitchen",
+      "x" : 123,
+      "id" : "63E8B740-68C5-421E-A102-1D019D8A7A98",
+      "furniture_objects" : [
+        {
+          "rotation" : 180,
+          "category" : "Dishwasher",
+          "z" : -48,
+          "y" : -5,
+          "height" : 5,
+          "id" : "0AC689B2-29C8-4102-B149-6CF03ED0FC21",
+          "x" : 45,
+          "width" : 22,
+          "subcategoryID" : 26,
+          "depth" : 23
+        },
+        {
+          "rotation" : 201,
+          "category" : "Stove",
+          "z" : 11,
+          "y" : -3,
+          "height" : 3,
+          "id" : "34314495-C6E0-49F1-9FF4-C4A03B80AB91",
+          "x" : 74,
+          "width" : 26,
+          "subcategoryID" : 31,
+          "depth" : 18
+        },
+        {
+          "rotation" : 180,
+          "category" : "Storage",
+          "z" : -45,
+          "y" : -5,
+          "height" : 5,
+          "id" : "381F88BD-1CC9-44FF-BB3C-76B64A8DA374",
+          "x" : 78,
+          "width" : 44,
+          "subcategoryID" : 46,
+          "depth" : 23
+        },
+        {
+          "rotation" : 180,
+          "category" : "Refrigerator",
+          "z" : -50,
+          "y" : 0,
+          "height" : 30,
+          "id" : "3DD36D2C-85D1-4FCB-B0F5-DCA7D08D07A2",
+          "x" : 20,
+          "width" : 25,
+          "subcategoryID" : 29,
+          "depth" : 27
+        },
+        {
+          "rotation" : 180,
+          "category" : "Storage",
+          "z" : -58,
+          "y" : 14,
+          "height" : 49,
+          "id" : "4FEF0074-D386-4CF3-BA52-91F206324ACF",
+          "x" : 71,
+          "width" : 72,
+          "subcategoryID" : 46,
+          "depth" : 11
+        },
+        {
+          "rotation" : 201,
+          "category" : "Storage",
+          "z" : 12,
+          "y" : -5,
+          "height" : 5,
+          "id" : "B41D9A04-69DE-4358-8A70-4DC7FC2FE6AB",
+          "x" : 67,
+          "width" : 64,
+          "subcategoryID" : 46,
+          "depth" : 32
+        },
+        {
+          "rotation" : 0,
+          "category" : "Sink",
+          "z" : -55,
+          "y" : -5,
+          "height" : 5,
+          "id" : "FCF521C7-ED49-459C-A1FB-01FDE4401896",
+          "x" : 73,
+          "width" : 18,
+          "subcategoryID" : 30,
+          "depth" : 17
+        }
+      ],
+      "walls" : [
+        {
+          "width" : 258,
+          "rotation" : -90,
+          "height" : 122,
+          "z" : 85,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "rotation" : -90,
+              "height" : 117,
+              "z" : 135,
+              "y" : 0,
+              "id" : "EF3D3210-CBDF-43E4-AD64-F1FD18CCD330",
+              "x" : -109,
+              "width" : 35,
+              "depth" : 4
+            }
+          ],
+          "y" : 0,
+          "id" : "0F9D9BA9-6B2B-4E1B-A324-0B4FF2752166",
+          "depth" : 4,
+          "x" : -109
+        },
+        {
+          "rotation" : -90,
+          "height" : 122,
+          "z" : -192,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "2E609C2A-04D4-4A7A-B39F-B93EC1B97F5F",
+          "x" : -77,
+          "width" : 40,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 185,
+          "height" : 122,
+          "z" : 171,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "4287EFAD-01EA-4D8A-AE80-D7EBDA42DFE2",
+          "x" : 77,
+          "width" : 22,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 0,
+          "height" : 122,
+          "z" : -213,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "47A18A09-E1F8-460B-8CC5-66876D9F52B6",
+          "x" : -47,
+          "width" : 60,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "width" : 33,
+              "rotation" : 0,
+              "height" : 114,
+              "z" : -213,
+              "y" : 0,
+              "id" : "0666BFF1-8765-4F4D-9A06-DDD6486ED8B3",
+              "depth" : 4,
+              "x" : -59
+            }
+          ]
+        },
+        {
+          "width" : 50,
+          "rotation" : 0,
+          "height" : 136,
+          "z" : -67,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "4B98EA30-921A-47E8-8442-7079DAE4B439",
+          "depth" : 4,
+          "x" : 7
+        },
+        {
+          "width" : 91,
+          "rotation" : -90,
+          "height" : 122,
+          "z" : -90,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "6DD91FBC-4CF5-436E-87EE-7CC5E203404F",
+          "depth" : 4,
+          "x" : -84
+        },
+        {
+          "width" : 30,
+          "rotation" : 180,
+          "height" : 122,
+          "z" : 172,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "6FE676C3-6C3F-4941-B3D3-F174A7563938",
+          "depth" : 4,
+          "x" : -54
+        },
+        {
+          "width" : 7,
+          "rotation" : 90,
+          "height" : 122,
+          "z" : -62,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "7A228E96-08EF-4B7A-8752-51D14AF0F733",
+          "depth" : 4,
+          "x" : 109
+        },
+        {
+          "width" : 25,
+          "rotation" : 0,
+          "height" : 122,
+          "z" : -43,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "rotation" : -90,
+              "height" : 113,
+              "z" : -61,
+              "y" : 0,
+              "id" : "84A0F13D-B1CA-4581-9448-D48FBFD2073E",
+              "x" : -84,
+              "width" : 27,
+              "depth" : 4
+            }
+          ],
+          "y" : 0,
+          "id" : "89D259AD-771F-4982-8844-E405B646A488",
+          "depth" : 4,
+          "x" : -97
+        },
+        {
+          "rotation" : 180,
+          "height" : 122,
+          "z" : 182,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "A1A77705-288D-4DAC-8D3E-D739B7F46380",
+          "x" : 13,
+          "width" : 105,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "width" : 89,
+              "rotation" : 180,
+              "height" : 122,
+              "z" : 182,
+              "y" : 0,
+              "id" : "F8532585-EDC0-4CA0-8205-6ECE709CCCEC",
+              "depth" : 4,
+              "x" : 13
+            }
+          ]
+        },
+        {
+          "width" : 11,
+          "rotation" : 90,
+          "height" : 122,
+          "z" : 175,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "A1F615D5-5545-4786-8BF2-3FBF4449BF7E",
+          "depth" : 4,
+          "x" : 66
+        },
+        {
+          "width" : 12,
+          "rotation" : -90,
+          "height" : 122,
+          "z" : 177,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "A91CC4EE-DB88-484D-8717-D99C1919D889",
+          "depth" : 4,
+          "x" : -39
+        },
+        {
+          "width" : 44,
+          "rotation" : -90,
+          "height" : 136,
+          "z" : -88,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "AA18FCA7-C2A9-4CC1-B8F4-3C03F3309755",
+          "depth" : 4,
+          "x" : 32
+        },
+        {
+          "width" : 231,
+          "rotation" : 95,
+          "height" : 122,
+          "z" : 57,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "rotation" : 95,
+              "height" : 122,
+              "z" : 67,
+              "y" : 0,
+              "id" : "7B429DE7-02CA-4767-AC24-0AD003166B9A",
+              "x" : 98,
+              "width" : 193,
+              "depth" : 4
+            }
+          ],
+          "y" : 0,
+          "id" : "AAF7E2F2-9A4A-481B-B6C6-0D901E72B34E",
+          "depth" : 4,
+          "x" : 99
+        },
+        {
+          "rotation" : 90,
+          "height" : 122,
+          "z" : -53,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "DC463C43-14CB-4BFD-8CDD-8D18AD4BF0F0",
+          "x" : -17,
+          "width" : 28,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 0,
+          "height" : 136,
+          "z" : -110,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "F7D855F2-AEAD-4D13-AD59-938D00E7A083",
+          "x" : 62,
+          "width" : 60,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 0,
+          "height" : 136,
+          "z" : -66,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "F8515AB4-1D3C-4794-8FF3-289E500C2D7F",
+          "x" : 71,
+          "width" : 76,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 90,
+          "height" : 136,
+          "z" : -140,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "F9BF7C05-AE94-4058-B691-8BE4A3FBA6FC",
+          "x" : -17,
+          "width" : 147,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        }
+      ]
+    },
+    {
+      "z" : -100,
+      "y" : 0,
+      "name" : "Room",
+      "x" : 176,
+      "id" : "70338260-042E-4402-BA17-AE27B6C3A093",
+      "furniture_objects" : [
+
+      ],
+      "walls" : [
+        {
+          "rotation" : 0,
+          "height" : 136,
+          "z" : -83,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "20163183-4B43-4230-8962-0739C4C8D246",
+          "x" : 2,
+          "width" : 135,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "width" : 31,
+              "rotation" : 0,
+              "height" : 115,
+              "z" : -83,
+              "y" : 0,
+              "id" : "BB5363B5-D753-4B9B-92E0-F3A2B9D0578E",
+              "depth" : 4,
+              "x" : 16
+            }
+          ]
+        },
+        {
+          "width" : 168,
+          "rotation" : -90,
+          "height" : 136,
+          "z" : 0,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "2CDEA95B-6657-4D9F-9E4C-2CADFD2A610C",
+          "depth" : 4,
+          "x" : -69
+        },
+        {
+          "width" : 123,
+          "rotation" : 90,
+          "height" : 136,
+          "z" : -19,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "rotation" : 90,
+              "height" : 128,
+              "z" : -32,
+              "y" : 0,
+              "id" : "A030A16A-2C70-4D4F-88F0-72C3622BFAA3",
+              "x" : 68,
+              "width" : 86,
+              "depth" : 4
+            }
+          ],
+          "y" : 0,
+          "id" : "734E02C0-DF4A-4857-9971-955CDD87B608",
+          "depth" : 4,
+          "x" : 68
+        },
+        {
+          "rotation" : 180,
+          "height" : 136,
+          "z" : 84,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "8C03EBA3-CF89-4DAD-81ED-E4BFB9F2B81E",
+          "x" : -44,
+          "width" : 50,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "width" : 33,
+              "rotation" : -90,
+              "height" : 115,
+              "z" : 63,
+              "y" : 0,
+              "id" : "1818F889-128C-4092-911C-205BCF1214FF",
+              "depth" : 4,
+              "x" : -69
+            }
+          ]
+        },
+        {
+          "width" : 44,
+          "rotation" : 90,
+          "height" : 136,
+          "z" : 62,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "923A27AC-8C41-4D1F-8C07-422C6B108CB4",
+          "depth" : 4,
+          "x" : -19
+        },
+        {
+          "width" : 86,
+          "rotation" : 180,
+          "height" : 136,
+          "z" : 40,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "rotation" : 180,
+              "height" : 117,
+              "z" : 40,
+              "y" : 0,
+              "id" : "98A83A6A-509B-47C3-B5E2-48419F6CC818",
+              "x" : 3,
+              "width" : 32,
+              "depth" : 4
+            }
+          ],
+          "y" : 0,
+          "id" : "D48125B4-9B67-40E2-B729-0EE13A7D4B89",
+          "depth" : 4,
+          "x" : 23
+        }
+      ]
+    },
+    {
+      "z" : -10,
+      "y" : 0,
+      "name" : "Room",
+      "x" : -176,
+      "id" : "FF90CBA4-1FB0-403D-8DFC-D7C86EA79FE0",
+      "furniture_objects" : [
+
+      ],
+      "walls" : [
+        {
+          "rotation" : 90,
+          "height" : 129,
+          "z" : -109,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "121B8293-1566-4219-93B0-1527CCF19DDF",
+          "x" : 56,
+          "width" : 10,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : -90,
+          "height" : 129,
+          "z" : -74,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "19AE1B00-5711-4005-A903-DFCF1A24955D",
+          "x" : -52,
+          "width" : 83,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "width" : 75,
+              "rotation" : -90,
+              "height" : 122,
+              "z" : -75,
+              "y" : 0,
+              "id" : "D2908D34-C697-40BB-952A-8891F351B183",
+              "depth" : 4,
+              "x" : -52
+            }
+          ]
+        },
+        {
+          "width" : 44,
+          "rotation" : -90,
+          "height" : 129,
+          "z" : 92,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ],
+          "y" : 0,
+          "id" : "5A2FF285-34DF-4855-89B1-A798BB0F4AAB",
+          "depth" : 4,
+          "x" : -55
+        },
+        {
+          "width" : 108,
+          "rotation" : 0,
+          "height" : 129,
+          "z" : -115,
+          "windows" : [
+
+          ],
+          "openings" : [
+
+          ],
+          "doors" : [
+            {
+              "rotation" : 0,
+              "height" : 111,
+              "z" : -115,
+              "y" : 0,
+              "id" : "20706D5F-C0BC-402D-8DD6-59BCF615CFD9",
+              "x" : -7,
+              "width" : 76,
+              "depth" : 4
+            }
+          ],
+          "y" : 0,
+          "id" : "69E90C41-F1FA-4FE5-BC9B-5CA047A39F9F",
+          "depth" : 4,
+          "x" : 2
+        },
+        {
+          "rotation" : 90,
+          "height" : 129,
+          "z" : 5,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "8A16419D-946D-4E3C-ADCA-09C620348D84",
+          "x" : 54,
+          "width" : 220,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 0,
+          "height" : 129,
+          "z" : -32,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "D3BDEF24-1D40-4C82-99B0-A9A1C2ED246F",
+          "x" : -40,
+          "width" : 24,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : -90,
+          "height" : 129,
+          "z" : 18,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "D70C5D01-B04A-4283-A817-30869A42DEF0",
+          "x" : -56,
+          "width" : 103,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : 180,
+          "height" : 129,
+          "z" : 115,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "D70D1302-A524-448A-8639-B56A6D749B1D",
+          "x" : 0,
+          "width" : 108,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        },
+        {
+          "rotation" : -90,
+          "height" : 129,
+          "z" : -20,
+          "y" : 0,
+          "windows" : [
+
+          ],
+          "id" : "D894932B-F4F3-499D-8A7D-FCEA6CECAF4C",
+          "x" : -28,
+          "width" : 23,
+          "depth" : 4,
+          "openings" : [
+
+          ],
+          "doors" : [
+
+          ]
+        }
+      ]
+    }
+  ]
+}

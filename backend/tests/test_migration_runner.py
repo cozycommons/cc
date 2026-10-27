@@ -24,6 +24,13 @@ def test_family_rendering_and_receipt_guards():
     assert "Applying 0079_dice_staging_schema_reconciliation.sql" in both
     assert "adopted_baseline" not in both
     assert "expected.version >" not in both
+    floor_planner = migration_runner.render(["floor_planner"])
+    assert "Applying 0001_floor_planner_documents.sql" in floor_planner
+    assert "floor_planner_schema_migrations" in floor_planner
+    assert "floor_plan_documents" in floor_planner
+    assert "Applying 0001_floor_planner_documents.sql" in migration_runner.render(
+        ["dice", "commons", "beli", "trips", "floor_planner"]
+    )
 
 
 def test_orphaned_prerequisite_is_rejected(tmp_path, monkeypatch):
@@ -50,7 +57,7 @@ def test_real_runner_fresh_existing_retry_and_checksum_rejection(tmp_path):
     try:
         setup = (Path(__file__).resolve().parents[2] / 'scripts/supabase-test-scaffold.sql').read_text()
         assert sql(setup,url).returncode == 0
-        driver = migration_runner.render(["dice", "commons", "beli", "trips"])
+        driver = migration_runner.render(["dice", "commons", "beli", "trips", "floor_planner"])
         first = sql(driver,url)
         assert first.returncode == 0, first.stdout+first.stderr
         # Fantasy settings stay service-only even under default table grants.

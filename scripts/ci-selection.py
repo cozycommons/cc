@@ -9,8 +9,8 @@ import re
 import subprocess
 
 
-FRONTEND_PROJECTS = ("crowdset", "dice", "design", "trips")
-BACKEND_PROJECTS = ("beli", "commons", "dice", "espn", "partiful", "resy", "trips")
+FRONTEND_PROJECTS = ("crowdset", "dice", "design", "trips", "floor-planner")
+BACKEND_PROJECTS = ("beli", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips")
 INTEGRATIONS = {"beli", "espn", "partiful", "resy"}
 JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute")
 SHARED_BACKEND_INPUTS = {
@@ -71,7 +71,9 @@ def select(paths, test_files):
             backend.update(BACKEND_PROJECTS)
         elif path.startswith(("scripts/", "supabase/")):
             name = Path(path).name
-            if "trips" in name:
+            if "floor-planner" in name:
+                backend.add("floor_planner")
+            elif "trips" in name:
                 backend.add("trips")
             elif "dice" in name:
                 backend.add("dice")

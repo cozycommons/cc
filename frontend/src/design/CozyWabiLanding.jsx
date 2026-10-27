@@ -54,6 +54,14 @@ export default function CozyWabiLanding() {
               </div>
               <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
             </Link>
+            <Link className="cc-home-project" to="/floor-planner" aria-label="Open Cozy Floor Planner">
+              <span className="cc-home-project__icon" aria-hidden="true">⌑</span>
+              <div className="cc-home-project__body">
+                <h2>Floor Planner</h2>
+                <p>Measured room plans, shared by email.</p>
+              </div>
+              <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
+            </Link>
           </div>
         </section>
       </main>

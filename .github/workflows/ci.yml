@@ -286,6 +286,7 @@ jobs:
           PYTHONPATH: backend
           CI_TEST_FILES: ${{ needs.changes.outputs.backend_files }}
       - run: scripts/check-dice-migration-contract.sh
+      - run: scripts/check-floor-planner-migration-contract.sh
       - run: scripts/check-commons-migration-contract.sh
       - run: scripts/test-supabase-db-url.sh
       - name: Build backend container
