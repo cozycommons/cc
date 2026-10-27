@@ -9,3 +9,20 @@
 @media(max-width:700px){.fp-content{padding-top:30px}.fp-title-row{align-items:flex-start;flex-direction:column}.fp-section-head{align-items:flex-start;flex-direction:column;gap:3px}.fp-create-actions{width:100%}.fp-create-actions button{flex:1}.fp-library-head{height:56px}.editor-header{gap:8px}.editor-heading{gap:8px}.editor-heading h1{max-width:23vw}.editor-header-actions{gap:4px}.fp-save-warning{flex-wrap:wrap}.fp-save-warning span{min-width:75%}}
 .fp-share-dialog{--fp-ink:#272925;--fp-muted:#77776d;--fp-line:#dcded4;--fp-card:#fffefa;position:fixed;inset:0;margin:auto;overflow:auto;color:var(--fp-ink);font-family:Karla,system-ui,sans-serif}
 @media(max-width:900px){.editor-body{grid-template-columns:72px minmax(0,1fr)}.property-panel{position:absolute;z-index:3;right:12px;top:88px;width:220px;max-height:calc(100vh - 110px);border:1px solid var(--line);border-radius:9px;box-shadow:0 8px 24px rgba(8,8,12,.12)}.save-status{display:none}}@media(max-width:620px){.editor-header{height:62px;padding:0 12px}.editor-header h1{font-size:23px}.editor-header-actions .text-button,.editor-header-actions .icon-text-button:last-child{display:none}.editor-body{height:calc(100vh - 62px);grid-template-columns:58px minmax(0,1fr)}.tool-rail{padding-inline:5px}.tool-rail button span{display:none}.tool-rail button{min-height:40px}.property-panel,.canvas-hint{display:none}}
+.fp-view-tabs { display: flex; gap: 8px; padding: 8px 20px; border-bottom: 1px solid #dedbd2; background: #faf9f6; }
+.fp-view-tabs button { padding: 7px 14px; border: 1px solid transparent; border-radius: 6px; background: transparent; font: inherit; cursor: pointer; }
+.fp-view-tabs button[aria-selected="true"] { background: #e9e6db; border-color: #ccc6b7; }
+.fp-scan-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #f5f3ed; }
+.fp-scan-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 20px; border-bottom: 1px solid #dedbd2; }
+.fp-scan-toolbar p { margin: 6px 0 0; font-size: 12px; color: #68655b; }
+.fp-scan-actions { display: flex; gap: 8px; }
+.fp-scan-panel button { font: inherit; padding: 7px 12px; border: 1px solid #c8c3b6; border-radius: 5px; background: #fffefb; cursor: pointer; }
+.fp-scan-panel button:disabled { opacity: .5; cursor: default; }
+.fp-scan-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; color: #813c28; background: #fff3e9; }
+.fp-scan-empty { padding: 64px 20px; text-align: center; color: #68655b; }
+.fp-scan-viewer { position: relative; flex: 1; min-height: 420px; }
+.fp-scan-canvas { position: absolute; inset: 0; outline-offset: -4px; }
+.fp-scan-canvas canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.fp-scan-overlay { position: absolute; top: 35%; left: 15%; right: 15%; padding: 18px; text-align: center; background: #faf9f6; border: 1px solid #dedbd2; }
+.fp-scan-viewer-controls { position: absolute; bottom: 16px; left: 16px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; color: #57544c; pointer-events: none; }
+.fp-scan-viewer-controls button { pointer-events: auto; }

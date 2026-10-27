@@ -14,6 +14,11 @@ def test_direct_pooler_normalization_preserves_encoded_password():
 
 
 def test_family_rendering_and_receipt_guards():
+    shared = migration_runner.render(["cc_mcp"])
+    assert "Applying 0001_cc_mcp_oauth_state.sql" in shared
+    assert "cc_mcp_schema_migrations" in shared
+    assert "floor_plan_documents" not in shared
+    assert "floor_planner" not in shared
     commons = migration_runner.render(["commons"])
     assert "Applying 0008_commons_service_role_read.sql" in commons
     assert "Applying 0025_dice_schema.sql" not in commons

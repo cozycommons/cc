@@ -13,6 +13,21 @@ begin
 end;
 $$;
 create schema if not exists auth;
+create schema if not exists storage;
+create table if not exists storage.buckets (
+  id text primary key,
+  name text not null,
+  public boolean not null default false,
+  file_size_limit bigint,
+  allowed_mime_types text[]
+);
+grant usage on schema storage to service_role;
+grant select on storage.buckets to service_role;
+create table if not exists storage.objects (
+  id uuid primary key,
+  bucket_id text
+);
+alter table storage.objects enable row level security;
 grant usage on schema auth to anon, authenticated, service_role;
 create table if not exists auth.users (
   id uuid primary key,

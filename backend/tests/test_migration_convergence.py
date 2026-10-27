@@ -51,7 +51,7 @@ def test_fresh_schema_without_legacy_supabase_default_grants(migration_database,
     database.sql("ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE SELECT,INSERT,UPDATE,DELETE ON TABLES FROM service_role;")
     database.release()
     assert catalog_difference(canonical_catalog, database.catalog()) == []
-    for family in ('dice', 'commons', 'beli', 'trips', 'floor_planner', 'venmo'):
+    for family in ('dice', 'commons', 'beli', 'trips', 'floor_planner', 'cc_mcp', 'venmo'):
         denied = database.sql(f"SET ROLE service_role; DELETE FROM public.{family}_schema_migrations;", check=False)
         assert denied.returncode != 0 and 'permission denied' in denied.stderr
 
@@ -134,3 +134,17 @@ def test_reconciled_checksum_is_verified(imported_database, reconciliation_relea
     result = database.release(check=False)
     assert result.returncode != 0 and 'Migration checksum changed in dice history' in result.stderr
     assert 'Applying ' not in result.stdout
+
+
+def test_shared_mcp_installs_without_feature_tables_and_attests_grants(migration_database):
+    from migration_runner import render
+
+    database = migration_database
+    database.sql(render(["cc_mcp"]))
+    assert database.sql("SELECT to_regclass('public.floor_plan_documents') IS NULL, public.cc_mcp_release_readiness();").stdout.strip() == 't|t'
+    for role in ('anon', 'authenticated'):
+        denied = database.sql(f"SET ROLE {role}; SELECT * FROM public.cc_mcp_oauth_state;", check=False)
+        assert denied.returncode != 0 and 'permission denied' in denied.stderr
+    database.sql("REVOKE UPDATE ON public.cc_mcp_oauth_state FROM service_role;")
+    failed = database.sql("SELECT public.cc_mcp_release_readiness();", check=False)
+    assert failed.returncode != 0 and 'service_role grants changed' in failed.stderr

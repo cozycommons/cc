@@ -28,6 +28,7 @@ def local_floor_planner_api():
                             cwd=root, check=True, env=dict(os.environ, SUPABASE_DB_URL=settings["DB_URL"]),
                             capture_output=True, text=True)
     assert "Applying 0001_floor_planner_documents.sql" not in replay.stdout
+    assert "Applying 0002_floor_planner_scans.sql" not in replay.stdout
 
     service = create_client(settings["API_URL"], settings["SERVICE_ROLE_KEY"])
     accounts = []

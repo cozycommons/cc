@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getUrl } from '../api.js';
-import { useSupabase } from '../contexts/SupabaseContext';
 import { SCENE_VERSION, createInitialScene } from './initialScene';
 
 export function isValidScene(scene) {
@@ -36,24 +35,7 @@ async function request(supabase, path, method = 'GET', payload, expectedUserId) 
   return body;
 }
 
-export function usePlannerAuth() {
-  const { supabase, auth } = useSupabase();
-  const [state, setState] = useState({ loading: true, user: null });
-  useEffect(() => {
-    let active = true;
-    let version = 0;
-    const initialVersion = version;
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (active && version === initialVersion) setState({ loading: false, user: error ? null : data.session?.user ?? null });
-    }).catch(() => { if (active && version === initialVersion) setState({ loading: false, user: null }); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      version += 1;
-      if (active) setState({ loading: false, user: session?.user ?? null });
-    });
-    return () => { active = false; subscription.unsubscribe(); };
-  }, [supabase]);
-  return { ...state, supabase, signIn: () => auth.signInWithGoogle(`${window.location.origin}${window.location.pathname}${window.location.search}`) };
-}
+export { useCozyAuth as usePlannerAuth } from '../auth/useCozyAuth';
 
 export function useFloorPlanDocument(planId, supabase, user) {
   const [scene, setSceneState] = useState(blankScene);

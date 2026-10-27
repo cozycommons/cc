@@ -9,6 +9,7 @@ let editorState;
 const user = { id: 'person-1', email: 'person@example.test' };
 const supabase = {};
 const signIn = vi.fn();
+vi.mock('./ScanPanel', () => ({ default: () => <section aria-label="Attached scan" /> }));
 vi.mock('./useFloorPlanDocument', () => ({
   usePlannerAuth: () => ({ supabase, user, loading: false, signIn }),
   useFloorPlanDocument: () => editorState,
@@ -46,6 +47,16 @@ describe('FloorPlannerApp', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Wall' }));
     expect(screen.getByRole('button', { name: 'Wall' })).toHaveClass('active');
     expect(screen.getByText(/2″ snap/)).toBeInTheDocument();
+  });
+
+  it('does not handle hidden 2D undo shortcuts while viewing a scan', () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole('tab', { name: '3D scan' }));
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
+    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(editorState.setScene).not.toHaveBeenCalled();
   });
 
   it('omits public presence identity/count and exposes sharing only to the owner', () => {

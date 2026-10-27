@@ -2,14 +2,15 @@
 cachetools==5.5.0
 cryptography==50.0.1
 fastapi==0.115.6
+fastmcp==2.14.7
 instaloader==4.15.3
 mcp==1.30.0
 Pillow==12.3.0
 PyJWT==2.10.1
-python-dotenv==1.0.1
+python-dotenv==1.1.0
 supabase==2.16.0
 twilio==9.6.5
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.35.0
 
 # The current CI job installs this file before running the backend suite.
 pytest==8.3.4
