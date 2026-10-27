@@ -35,6 +35,22 @@ Do not commit Linux-only process or filesystem assumptions such as `/proc`,
 `ss`, or `setsid` in shared scripts. Do not add PowerShell, `cmd.exe`, or
 Windows-path syntax to repository scripts or documented developer commands.
 
+## Project service boundaries
+
+- New projects default to the shared React frontend and FastAPI backend. Keep
+  project routes, modules, data ownership and tests distinct within those shared
+  applications; a new project does not automatically require a Coolify resource.
+- Separate a runtime when workload, persistent local state, dependencies,
+  hardware, process lifecycle or demonstrated release needs justify it. Consider
+  extracting background work into a worker before separating the whole API.
+  Frontend, API and worker placement are independent decisions.
+- Record the concrete reason and operational tradeoffs in the project's docs
+  when choosing a separate service. Reuse standard deployment patterns and
+  automate repeated setup rather than copying bespoke configuration per project.
+- Follow the policy in `docs/deployment.md#project-placement-policy`. This policy
+  does not authorize consolidating, provisioning or redeploying existing services;
+  deployment changes need their own task scope.
+
 ## GitHub batching and CI cost
 
 - Distinguish branch backups from PR updates. This repository's CI runs on
