@@ -82,13 +82,11 @@ def select(paths, test_files):
             else:
                 frontend.update(FRONTEND_PROJECTS)
                 backend.update(BACKEND_PROJECTS)
-                crowdset = True
                 compute = True
         else:
-            # New/unmapped infrastructure must get coverage until it has an owner.
+            # Shared checks cover unmapped infrastructure; media tests need a runtime input.
             frontend.update(FRONTEND_PROJECTS)
             backend.update(BACKEND_PROJECTS)
-            crowdset = True
             compute = True
 
     frontend_tests = sorted(

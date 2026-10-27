@@ -141,7 +141,7 @@ jobs:
           if free < 16 * 1024 ** 3:
               raise SystemExit('Media tests require at least 16 GiB free on their temp filesystem')
           PYTHON
-          .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q --basetemp="$TMPDIR/pytest"
+          .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q --durations=15 --basetemp="$TMPDIR/pytest"
         env:
           PYTHONPATH: backend
 

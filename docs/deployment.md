@@ -199,7 +199,18 @@ only the lightweight selection checks and required-check gates.
 | `backend/crowdset/`, its requirements, or Crowdset scripts | Crowdset tests and container smoke check |
 | `backend/compute/` or its requirements | Compute tests/container; runtime edits also run Crowdset compatibility checks |
 | Shared backend code/dependencies, database scaffolding, or root npm dependencies | All shared-API backend projects and real Trips integration |
-| CI workflow/selection code or unmapped infrastructure | All checks |
+| CI workflow/selection code or unmapped infrastructure | Shared frontend/backend, Trips, compute, and container checks; no Crowdset media suite |
+
+The Crowdset media suite runs only for Crowdset backend code/tests, its
+requirements and runtime scripts, or shared compute runtime/dependency changes.
+Workflow edits, generic scripts, and unknown infrastructure alone do not select
+it. The container smoke check still runs for shared frontend changes. Media test
+logs include the slowest 15 test phases for future performance work.
+The integration fixtures retain real 1080p rendering, multiwindow alignment,
+publication, cache reuse, and restart assertions with shorter synthetic videos.
+The dedicated codec, timing, short/long alignment, and recovery tests remain.
+A serial Python 3.12 macOS comparison on 2026-10-27 kept all 275 cases passing
+and reduced local suite time from 172.61s to 121.16s (29.8%); CI timing will vary.
 
 Trips backend changes also run its real local Supabase integration job. Dice
 migrations, routes, repositories, and schemas include Trips because it consumes
