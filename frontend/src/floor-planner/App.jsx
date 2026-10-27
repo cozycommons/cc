@@ -104,11 +104,11 @@ function ShareDialog({ plan, supabase, user, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
-  const load = async () => {
+  const load = useCallback(async () => {
     try { setInvitations(await listFloorPlanInvitations(supabase, user.id, plan.id)); }
     catch (failure) { setError(failure.message); }
-  };
-  useEffect(() => { void load(); }, [plan.id, user?.id]);
+  }, [plan.id, supabase, user?.id]);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => { const dialog = dialogRef.current; if (dialog && !dialog.open) dialog.showModal(); }, []);
   const copyLink = async () => {
     await navigator.clipboard.writeText(`${window.location.origin}${planHref(plan.id)}`);
