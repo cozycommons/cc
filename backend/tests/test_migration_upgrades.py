@@ -25,7 +25,7 @@ def shipped_release(tmp_path_factory):
 @pytest.fixture
 def candidate_release(tmp_path):
     backend = tmp_path / "backend"
-    for directory in ("migrations", "commons/migrations", "trips/migrations"):
+    for directory in ("migrations", "commons/migrations", "trips/migrations", "floor_planner/migrations"):
         shutil.copytree(REPO / "backend" / directory, backend / directory)
     shutil.copy(REPO / "backend/migration_runner.py", backend)
     shutil.copy(REPO / "backend/schema_catalog_v1.sql", backend)

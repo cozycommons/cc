@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!--
+        Floor Plan Layout SVG
+        Generated on: 2026-09-01 16:33:07 +0000
+        Scaling: 1 unit = 1 pixel
+        Units: Centimeters
+        Description: This SVG represents the floor plan layout including rooms, walls, doors, windows, openings, and furniture. Elements are grouped by room with unique IDs.
+    -->
+    <svg xmlns="http://www.w3.org/2000/svg" width="1622.8000000000002" height="1081.8" viewBox="0 0 1622.8000000000002 1081.8" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="white" />
+        <!-- Room: Room (ID: 53F7206F-3BB4-46EF-B817-C894DF638277) -->
+        <g id="53F7206F-3BB4-46EF-B817-C894DF638277">
+        <!-- Wall: 3B7B2104-BD07-4216-9C78-F5A4350BAADD -->
+        <rect id="3B7B2104-BD07-4216-9C78-F5A4350BAADD" x="679.7" y="300.6" width="49.2" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 704.3000000000001, 306.3)" />
+        <!-- Wall: 564B875C-BB12-4A1E-B961-8DDAA58E38E3 -->
+        <rect id="564B875C-BB12-4A1E-B961-8DDAA58E38E3" x="704.7" y="277.3" width="222.20000000000002" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 815.8000000000001, 283.0)" />
+        <!-- Wall: A8702E93-2986-404A-8386-75F267F2D6E1 -->
+        <rect id="A8702E93-2986-404A-8386-75F267F2D6E1" x="448.55" y="323.5" width="154.9" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 526.0, 329.2)" />
+        <!-- Wall: BA24C155-1591-4BC4-95AC-EAEEA94266DD -->
+        <rect id="BA24C155-1591-4BC4-95AC-EAEEA94266DD" x="377.65000000000003" y="250.9" width="143.5" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 449.40000000000003, 256.6)" />
+        <!-- Wall: C4626C4E-A450-4D7F-A33E-49D039827575 -->
+        <rect id="C4626C4E-A450-4D7F-A33E-49D039827575" x="450.15000000000003" y="182.0" width="480.5" height="11.4" style="fill:#000000; stroke:none" />
+    <!-- Door: 367BB434-A8F3-4214-B690-C6F8C5218015 -->
+    <rect id="367BB434-A8F3-4214-B690-C6F8C5218015" x="734.45" y="277.3" width="171.9" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(180, 820.4000000000001, 283.0)" />
+    <!-- Door: 32FE7AE1-16DF-42C2-8E8C-AE9AD5B66804 -->
+    <rect id="32FE7AE1-16DF-42C2-8E8C-AE9AD5B66804" x="407.0" y="226.0" width="84.60000000000001" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(-90, 449.3, 231.7)" />
+        </g>
+        <!-- Room: Room (ID: 594BBA22-6998-4154-B953-94397CE111CD) -->
+        <g id="594BBA22-6998-4154-B953-94397CE111CD">
+        <!-- Wall: 275DA26C-4BB4-40F0-822A-9C37EB2B9488 -->
+        <rect id="275DA26C-4BB4-40F0-822A-9C37EB2B9488" x="648.25" y="845.2" width="68.5" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 682.5, 850.9000000000001)" />
+        <!-- Wall: 2A5627B2-BEEB-413F-8576-06AB348F3A83 -->
+        <rect id="2A5627B2-BEEB-413F-8576-06AB348F3A83" x="170.15" y="625.6" width="274.7" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: 696608A4-6721-46C8-B250-2969BEF20173 -->
+        <rect id="696608A4-6721-46C8-B250-2969BEF20173" x="607.8000000000001" y="1042.2" width="252.8" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 734.2, 1047.9)" />
+        <!-- Wall: 70AA1F7D-E21F-4EFF-B644-570DC317EFB1 -->
+        <rect id="70AA1F7D-E21F-4EFF-B644-570DC317EFB1" x="388.5" y="683.3000000000001" width="111.4" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 444.2, 689.0000000000001)" />
+        <!-- Wall: 72BA8A3A-8002-4537-8FA7-07148FCAA938 -->
+        <rect id="72BA8A3A-8002-4537-8FA7-07148FCAA938" x="496.6" y="877.2" width="78.0" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: 7B389E45-9939-4D3F-90C1-0E152EB7D1B4 -->
+        <rect id="7B389E45-9939-4D3F-90C1-0E152EB7D1B4" x="589.65" y="1021.8000000000001" width="36.9" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 608.1, 1027.5)" />
+        <!-- Wall: 7D2E50BF-363D-4B2C-840D-80CC6A82D3DC -->
+        <rect id="7D2E50BF-363D-4B2C-840D-80CC6A82D3DC" x="826.5500000000001" y="1010.2" width="67.7" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 860.4000000000001, 1015.9000000000001)" />
+        <!-- Wall: 7F731281-F375-4886-9984-E6189BF2170D -->
+        <rect id="7F731281-F375-4886-9984-E6189BF2170D" x="740.0" y="763.1" width="237.8" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 858.9, 768.8000000000001)" />
+        <!-- Wall: 9CA738ED-70D6-4492-8806-2BDB84F2CBD6 -->
+        <rect id="9CA738ED-70D6-4492-8806-2BDB84F2CBD6" x="164.4" y="1063.9" width="397.0" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 362.9, 1069.6000000000001)" />
+        <!-- Wall: A556B466-B1CC-4C61-9F86-821EE0BCD574 -->
+        <rect id="A556B466-B1CC-4C61-9F86-821EE0BCD574" x="540.15" y="842.8000000000001" width="70.10000000000001" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 575.1999999999999, 848.5000000000001)" />
+        <!-- Wall: AFA522F6-1A4C-417B-A5BC-B691F101635D -->
+        <rect id="AFA522F6-1A4C-417B-A5BC-B691F101635D" x="5.0" y="898.4000000000001" width="325.0" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 167.5, 904.1000000000001)" />
+        <!-- Wall: CA829A85-477B-402A-98AC-9C9450856427 -->
+        <rect id="CA829A85-477B-402A-98AC-9C9450856427" x="657.0500000000001" y="1025.6" width="31.3" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 672.7, 1031.3)" />
+        <!-- Wall: CBA58F97-9277-4E80-96E7-7B383D5B4512 -->
+        <rect id="CBA58F97-9277-4E80-96E7-7B383D5B4512" x="561.65" y="1039.9" width="46.1" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 584.6999999999999, 1045.6000000000001)" />
+        <!-- Wall: CE982BCF-A363-45FD-9718-222179BC5BD1 -->
+        <rect id="CE982BCF-A363-45FD-9718-222179BC5BD1" x="682.0" y="880.7" width="177.60000000000002" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: F17A33A9-76B8-43FF-8D67-176A22558C88 -->
+        <rect id="F17A33A9-76B8-43FF-8D67-176A22558C88" x="547.75" y="1053.2" width="27.3" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 561.4, 1058.9)" />
+        <!-- Wall: F2CB9A9B-478F-4EE0-B180-8527164C77BD -->
+        <rect id="F2CB9A9B-478F-4EE0-B180-8527164C77BD" x="545.25" y="1035.1000000000001" width="79.10000000000001" height="11.4" style="fill:#000000; stroke:none" transform="rotate(127, 584.8, 1040.8000000000002)" />
+        <!-- Wall: FD5D0DB4-CEAF-49E0-8D1E-058D72C045D6 -->
+        <rect id="FD5D0DB4-CEAF-49E0-8D1E-058D72C045D6" x="443.55" y="740.0" width="127.30000000000001" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: FFFA6EA0-6EA4-45CA-BDEF-55739823CAD8 -->
+        <rect id="FFFA6EA0-6EA4-45CA-BDEF-55739823CAD8" x="110.30000000000001" y="679.7" width="112.4" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 166.5, 685.4000000000001)" />
+    <!-- Door: D8AAA4FA-33ED-42A0-AC69-31760AA8E357 -->
+    <rect id="D8AAA4FA-33ED-42A0-AC69-31760AA8E357" x="689.9000000000001" y="880.7" width="150.4" height="11.4" style="fill:#A2845E; stroke:none" />
+    <!-- Window: 4D8A4071-EB28-4497-89EE-52898841811A -->
+    <rect id="4D8A4071-EB28-4497-89EE-52898841811A" x="260.95000000000005" y="1063.8" width="295.90000000000003" height="11.4" style="fill:#007AFF; stroke:none" transform="rotate(180, 408.9000000000001, 1069.5)" />
+    <!-- Window: DB835ABE-9D39-4775-B2B1-7DE12E0658D0 -->
+    <rect id="DB835ABE-9D39-4775-B2B1-7DE12E0658D0" x="50.400000000000006" y="915.4000000000001" width="234.4" height="11.4" style="fill:#007AFF; stroke:none" transform="rotate(-90, 167.60000000000002, 921.1000000000001)" />
+        </g>
+        <!-- Room: Kitchen (ID: 63E8B740-68C5-421E-A102-1D019D8A7A98) -->
+        <g id="63E8B740-68C5-421E-A102-1D019D8A7A98">
+        <!-- Wall: 0F9D9BA9-6B2B-4E1B-A324-0B4FF2752166 -->
+        <rect id="0F9D9BA9-6B2B-4E1B-A324-0B4FF2752166" x="466.35" y="818.4000000000001" width="655.3000000000001" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 794.0, 824.1000000000001)" />
+        <!-- Wall: 2E609C2A-04D4-4A7A-B39F-B93EC1B97F5F -->
+        <rect id="2E609C2A-04D4-4A7A-B39F-B93EC1B97F5F" x="822.6" y="112.0" width="104.0" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 874.6, 117.7)" />
+        <!-- Wall: 4287EFAD-01EA-4D8A-AE80-D7EBDA42DFE2 -->
+        <rect id="4287EFAD-01EA-4D8A-AE80-D7EBDA42DFE2" x="1239.8000000000002" y="1036.1000000000001" width="57.6" height="11.4" style="fill:#000000; stroke:none" transform="rotate(185, 1268.6000000000001, 1041.8000000000002)" />
+        <!-- Wall: 47A18A09-E1F8-460B-8CC5-66876D9F52B6 -->
+        <rect id="47A18A09-E1F8-460B-8CC5-66876D9F52B6" x="873.25" y="57.900000000000006" width="154.5" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: 4B98EA30-921A-47E8-8442-7079DAE4B439 -->
+        <rect id="4B98EA30-921A-47E8-8442-7079DAE4B439" x="1027.6" y="430.70000000000005" width="128.0" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: 6DD91FBC-4CF5-436E-87EE-7CC5E203404F -->
+        <rect id="6DD91FBC-4CF5-436E-87EE-7CC5E203404F" x="739.6500000000001" y="372.3" width="233.5" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 856.4000000000001, 378.0)" />
+        <!-- Wall: 6FE676C3-6C3F-4941-B3D3-F174A7563938 -->
+        <rect id="6FE676C3-6C3F-4941-B3D3-F174A7563938" x="894.3000000000001" y="1037.9" width="77.4" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 933.0000000000001, 1043.6000000000001)" />
+        <!-- Wall: 7A228E96-08EF-4B7A-8752-51D14AF0F733 -->
+        <rect id="7A228E96-08EF-4B7A-8752-51D14AF0F733" x="1340.5" y="443.5" width="19.6" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 1350.3, 449.2)" />
+        <!-- Wall: 89D259AD-771F-4982-8844-E405B646A488 -->
+        <rect id="89D259AD-771F-4982-8844-E405B646A488" x="793.25" y="490.0" width="63.900000000000006" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: A1A77705-288D-4DAC-8D3E-D739B7F46380 -->
+        <rect id="A1A77705-288D-4DAC-8D3E-D739B7F46380" x="972.5" y="1065.4" width="268.2" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 1106.6, 1071.1000000000001)" />
+        <!-- Wall: A1F615D5-5545-4786-8BF2-3FBF4449BF7E -->
+        <rect id="A1F615D5-5545-4786-8BF2-3FBF4449BF7E" x="1226.2" y="1047.6000000000001" width="28.200000000000003" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 1240.3, 1053.3000000000002)" />
+        <!-- Wall: A91CC4EE-DB88-484D-8717-D99C1919D889 -->
+        <rect id="A91CC4EE-DB88-484D-8717-D99C1919D889" x="956.1" y="1053.0" width="32.2" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 972.2, 1058.7)" />
+        <!-- Wall: AA18FCA7-C2A9-4CC1-B8F4-3C03F3309755 -->
+        <rect id="AA18FCA7-C2A9-4CC1-B8F4-3C03F3309755" x="1099.4" y="375.40000000000003" width="112.0" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 1155.4, 381.1)" />
+        <!-- Wall: AAF7E2F2-9A4A-481B-B6C6-0D901E72B34E -->
+        <rect id="AAF7E2F2-9A4A-481B-B6C6-0D901E72B34E" x="1029.95" y="745.9000000000001" width="587.9" height="11.4" style="fill:#000000; stroke:none" transform="rotate(95, 1323.9, 751.6000000000001)" />
+        <!-- Wall: DC463C43-14CB-4BFD-8CDD-8D18AD4BF0F0 -->
+        <rect id="DC463C43-14CB-4BFD-8CDD-8D18AD4BF0F0" x="991.95" y="465.8" width="71.5" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 1027.7, 471.5)" />
+        <!-- Wall: F7D855F2-AEAD-4D13-AD59-938D00E7A083 -->
+        <rect id="F7D855F2-AEAD-4D13-AD59-938D00E7A083" x="1155.3" y="319.5" width="152.4" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: F8515AB4-1D3C-4794-8FF3-289E500C2D7F -->
+        <rect id="F8515AB4-1D3C-4794-8FF3-289E500C2D7F" x="1155.6000000000001" y="432.5" width="194.4" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: F9BF7C05-AE94-4058-B691-8BE4A3FBA6FC -->
+        <rect id="F9BF7C05-AE94-4058-B691-8BE4A3FBA6FC" x="840.6500000000001" y="243.0" width="374.1" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 1027.7, 248.7)" />
+    <!-- Door: EF3D3210-CBDF-43E4-AD64-F1FD18CCD330 -->
+    <rect id="EF3D3210-CBDF-43E4-AD64-F1FD18CCD330" x="749.7" y="945.3000000000001" width="89.2" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(-90, 794.3000000000001, 951.0000000000001)" />
+    <!-- Door: 0666BFF1-8765-4F4D-9A06-DDD6486ED8B3 -->
+    <rect id="0666BFF1-8765-4F4D-9A06-DDD6486ED8B3" x="877.6500000000001" y="57.7" width="85.30000000000001" height="11.4" style="fill:#A2845E; stroke:none" />
+    <!-- Door: 84A0F13D-B1CA-4581-9448-D48FBFD2073E -->
+    <rect id="84A0F13D-B1CA-4581-9448-D48FBFD2073E" x="822.45" y="444.3" width="68.9" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(-90, 856.9000000000001, 450.0)" />
+    <!-- Door: F8532585-EDC0-4CA0-8205-6ECE709CCCEC -->
+    <rect id="F8532585-EDC0-4CA0-8205-6ECE709CCCEC" x="993.5500000000001" y="1065.4" width="226.10000000000002" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(180, 1106.6000000000001, 1071.1000000000001)" />
+    <!-- Door: 7B429DE7-02CA-4767-AC24-0AD003166B9A -->
+    <rect id="7B429DE7-02CA-4767-AC24-0AD003166B9A" x="1075.45" y="772.7" width="492.1" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(95, 1321.5, 778.4000000000001)" />
+        <!-- Furniture: 0AC689B2-29C8-4102-B149-6CF03ED0FC21 -->
+        <rect id="0AC689B2-29C8-4102-B149-6CF03ED0FC21" x="1158.3500000000001" y="452.75" width="57.300000000000004" height="60.7" style="fill:#F2F2F7; stroke:black; stroke-width:0.2" transform="rotate(180, 1187.0000000000002, 483.1)" />
+        <!-- Furniture: 34314495-C6E0-49F1-9FF4-C4A03B80AB91 -->
+        <rect id="34314495-C6E0-49F1-9FF4-C4A03B80AB91" x="1228.5" y="610.6" width="66.60000000000001" height="48.0" style="fill:#F2F2F7; stroke:black; stroke-width:0.2" transform="rotate(201, 1261.8, 634.6)" />
+        <!-- Furniture: 381F88BD-1CC9-44FF-BB3C-76B64A8DA374 -->
+        <rect id="381F88BD-1CC9-44FF-BB3C-76B64A8DA374" x="1215.7" y="462.5" width="112.0" height="59.6" style="fill:#F2F2F7; stroke:black; stroke-width:0.2" transform="rotate(180, 1271.7, 492.3)" />
+        <!-- Furniture: 3DD36D2C-85D1-4FCB-B0F5-DCA7D08D07A2 -->
+        <rect id="3DD36D2C-85D1-4FCB-B0F5-DCA7D08D07A2" x="1090.1000000000001" y="442.6" width="65.4" height="70.60000000000001" style="fill:#F2F2F7; stroke:black; stroke-width:0.2" transform="rotate(180, 1122.8000000000002, 477.90000000000003)" />
+        <!-- Furniture: 4FEF0074-D386-4CF3-BA52-91F206324ACF -->
+        <rect id="4FEF0074-D386-4CF3-BA52-91F206324ACF" x="1161.25" y="444.55" width="183.3" height="29.5" style="fill:#F2F2F7; stroke:black; stroke-width:0.2" transform="rotate(180, 1252.9, 459.3)" />
+        <!-- Furniture: B41D9A04-69DE-4358-8A70-4DC7FC2FE6AB -->
+        <rect id="B41D9A04-69DE-4358-8A70-4DC7FC2FE6AB" x="1162.2" y="596.5" width="163.20000000000002" height="83.2" style="fill:#F2F2F7; stroke:black; stroke-width:0.2" transform="rotate(201, 1243.8, 638.1)" />
+        <!-- Furniture: FCF521C7-ED49-459C-A1FB-01FDE4401896 -->
+        <rect id="FCF521C7-ED49-459C-A1FB-01FDE4401896" x="1234.7" y="444.70000000000005" width="46.6" height="44.0" style="fill:#F2F2F7; stroke:black; stroke-width:0.2" />
+        </g>
+        <!-- Room: Room (ID: 70338260-042E-4402-BA17-AE27B6C3A093) -->
+        <g id="70338260-042E-4402-BA17-AE27B6C3A093">
+        <!-- Wall: 20163183-4B43-4230-8962-0739C4C8D246 -->
+        <rect id="20163183-4B43-4230-8962-0739C4C8D246" x="1038.7" y="5.0" width="343.6" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: 2CDEA95B-6657-4D9F-9E4C-2CADFD2A610C -->
+        <rect id="2CDEA95B-6657-4D9F-9E4C-2CADFD2A610C" x="813.0" y="215.5" width="429.20000000000005" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 1027.6, 221.2)" />
+        <!-- Wall: 734E02C0-DF4A-4857-9971-955CDD87B608 -->
+        <rect id="734E02C0-DF4A-4857-9971-955CDD87B608" x="1221.45" y="166.20000000000002" width="314.3" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 1378.6000000000001, 171.9)" />
+        <!-- Wall: 8C03EBA3-CF89-4DAD-81ED-E4BFB9F2B81E -->
+        <rect id="8C03EBA3-CF89-4DAD-81ED-E4BFB9F2B81E" x="1027.7" y="430.70000000000005" width="128.0" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 1091.7, 436.40000000000003)" />
+        <!-- Wall: 923A27AC-8C41-4D1F-8C07-422C6B108CB4 -->
+        <rect id="923A27AC-8C41-4D1F-8C07-422C6B108CB4" x="1099.5" y="375.3" width="112.0" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 1155.5, 381.0)" />
+        <!-- Wall: D48125B4-9B67-40E2-B729-0EE13A7D4B89 -->
+        <rect id="D48125B4-9B67-40E2-B729-0EE13A7D4B89" x="1155.2" y="319.6" width="219.60000000000002" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 1265.0, 325.3)" />
+    <!-- Door: BB5363B5-D753-4B9B-92E0-F3A2B9D0578E -->
+    <rect id="BB5363B5-D753-4B9B-92E0-F3A2B9D0578E" x="1206.5" y="5.2" width="80.0" height="11.4" style="fill:#A2845E; stroke:none" />
+    <!-- Door: A030A16A-2C70-4D4F-88F0-72C3622BFAA3 -->
+    <rect id="A030A16A-2C70-4D4F-88F0-72C3622BFAA3" x="1269.0500000000002" y="132.9" width="219.5" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(90, 1378.8000000000002, 138.6)" />
+    <!-- Door: 1818F889-128C-4092-911C-205BCF1214FF -->
+    <rect id="1818F889-128C-4092-911C-205BCF1214FF" x="985.3000000000001" y="378.5" width="84.60000000000001" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(-90, 1027.6000000000001, 384.2)" />
+    <!-- Door: 98A83A6A-509B-47C3-B5E2-48419F6CC818 -->
+    <rect id="98A83A6A-509B-47C3-B5E2-48419F6CC818" x="1173.5" y="319.40000000000003" width="83.0" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(180, 1215.0, 325.1)" />
+        </g>
+        <!-- Room: Room (ID: FF90CBA4-1FB0-403D-8DFC-D7C86EA79FE0) -->
+        <g id="FF90CBA4-1FB0-403D-8DFC-D7C86EA79FE0">
+        <!-- Wall: 121B8293-1566-4219-93B0-1527CCF19DDF -->
+        <rect id="121B8293-1566-4219-93B0-1527CCF19DDF" x="437.45000000000005" y="166.20000000000002" width="25.900000000000002" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 450.40000000000003, 171.9)" />
+        <!-- Wall: 19AE1B00-5711-4005-A903-DFCF1A24955D -->
+        <rect id="19AE1B00-5711-4005-A903-DFCF1A24955D" x="69.05" y="256.0" width="211.70000000000002" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 174.9, 261.7)" />
+        <!-- Wall: 5A2FF285-34DF-4855-89B1-A798BB0F4AAB -->
+        <rect id="5A2FF285-34DF-4855-89B1-A798BB0F4AAB" x="110.30000000000001" y="679.8000000000001" width="112.4" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 166.5, 685.5000000000001)" />
+        <!-- Wall: 69E90C41-F1FA-4FE5-BC9B-5CA047A39F9F -->
+        <rect id="69E90C41-F1FA-4FE5-BC9B-5CA047A39F9F" x="176.15" y="151.6" width="274.3" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: 8A16419D-946D-4E3C-ADCA-09C620348D84 -->
+        <rect id="8A16419D-946D-4E3C-ADCA-09C620348D84" x="166.8" y="459.1" width="560.0" height="11.4" style="fill:#000000; stroke:none" transform="rotate(90, 446.8, 464.8)" />
+        <!-- Wall: D3BDEF24-1D40-4C82-99B0-A9A1C2ED246F -->
+        <rect id="D3BDEF24-1D40-4C82-99B0-A9A1C2ED246F" x="173.55" y="362.20000000000005" width="63.1" height="11.4" style="fill:#000000; stroke:none" />
+        <!-- Wall: D70C5D01-B04A-4283-A817-30869A42DEF0 -->
+        <rect id="D70C5D01-B04A-4283-A817-30869A42DEF0" x="34.85" y="492.70000000000005" width="261.7" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 165.7, 498.40000000000003)" />
+        <!-- Wall: D70D1302-A524-448A-8639-B56A6D749B1D -->
+        <rect id="D70D1302-A524-448A-8639-B56A6D749B1D" x="168.55" y="737.5" width="274.90000000000003" height="11.4" style="fill:#000000; stroke:none" transform="rotate(180, 306.0, 743.2)" />
+        <!-- Wall: D894932B-F4F3-499D-8A7D-FCEA6CECAF4C -->
+        <rect id="D894932B-F4F3-499D-8A7D-FCEA6CECAF4C" x="206.95000000000002" y="391.90000000000003" width="58.7" height="11.4" style="fill:#000000; stroke:none" transform="rotate(-90, 236.3, 397.6)" />
+    <!-- Door: D2908D34-C697-40BB-952A-8891F351B183 -->
+    <rect id="D2908D34-C697-40BB-952A-8891F351B183" x="78.85000000000001" y="251.9" width="192.10000000000002" height="11.4" style="fill:#A2845E; stroke:none" transform="rotate(-90, 174.90000000000003, 257.6)" />
+    <!-- Door: 20706D5F-C0BC-402D-8DD6-59BCF615CFD9 -->
+    <rect id="20706D5F-C0BC-402D-8DD6-59BCF615CFD9" x="190.35000000000002" y="151.8" width="195.5" height="11.4" style="fill:#A2845E; stroke:none" />
+        </g>
+</svg>

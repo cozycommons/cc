@@ -10,6 +10,7 @@ const DiceApp = lazyWithRecovery(() => import('./dice/App.jsx'));
 const Crowdset = lazyWithRecovery(() => import('./crowdset/Crowdset.jsx'));
 const TripsApp = lazyWithRecovery(() => import('./trips/TripsApp.jsx'));
 const Fantasy = lazyWithRecovery(() => import('./fantasy/Fantasy.jsx'));
+const FloorPlannerApp = lazyWithRecovery(() => import('./floor-planner/App.jsx'));
 
 const DesignIndex = lazyWithRecovery(() => import('./design/DesignIndex.jsx'));
 const DiceDesignApp = lazyWithRecovery(() => import('../../design/dice/App.jsx'));
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/admin/*" element={<React.Suspense fallback={<p>Loading…</p>}><Admin /></React.Suspense>} />
         <Route path="/" element={<React.Suspense fallback={null}><CozyWabiLanding /></React.Suspense>} />
         <Route path="/trips/*" element={<React.Suspense fallback={<TripsSplash />}><SupabaseProvider><TripsApp /></SupabaseProvider></React.Suspense>} />
+        <Route path="/floor-planner/*" element={<React.Suspense fallback={<p>Opening Floor Planner…</p>}><SupabaseProvider><FloorPlannerApp /></SupabaseProvider></React.Suspense>} />
         <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
         <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
         <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />

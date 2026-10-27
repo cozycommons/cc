@@ -52,7 +52,7 @@ def test_ready_checks_database_and_core_schema():
     response = _client(supabase).get("/ready")
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
-    assert supabase.tables == ["dice_release_readiness", "trips_release_readiness"]
+    assert supabase.tables == ["dice_release_readiness", "trips_release_readiness", "floor_planner_release_readiness"]
 
 
 def test_ready_fails_when_trips_schema_is_not_ready():
@@ -63,6 +63,16 @@ def test_ready_fails_when_trips_schema_is_not_ready():
             return super().rpc(name)
 
     assert _client(TripsUnavailable()).get("/ready").status_code == 503
+
+
+def test_ready_fails_when_floor_planner_schema_is_not_ready():
+    class FloorPlannerUnavailable(_Supabase):
+        def rpc(self, name):
+            if name == "floor_planner_release_readiness":
+                return _Query(RuntimeError("Floor Planner migration missing"))
+            return super().rpc(name)
+
+    assert _client(FloorPlannerUnavailable()).get("/ready").status_code == 503
 
 
 def test_ready_rejects_false_schema_attestation():
