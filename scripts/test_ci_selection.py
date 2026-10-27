@@ -113,11 +113,20 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(ci.select([path], TEST_FILES)["backend_projects"], expected)
 
-    def test_ci_and_unmapped_infrastructure_run_everything(self):
+    def test_ci_and_unmapped_infrastructure_skip_unrelated_media(self):
         for path in [".github/workflows/ci.yml", "scripts/ci-selection.py", "scripts/test_ci_selection.py", "scripts/new-build.sh", ".dockerignore", "new-runtime/config.json"]:
             with self.subTest(path=path):
                 plan = ci.select([path], TEST_FILES)
-                self.assertTrue(all(plan[job] for job in ci.JOBS))
+                self.assertTrue(all(plan[job] for job in ci.JOBS if job != "crowdset"))
+                self.assertFalse(plan["crowdset"])
+
+    def test_media_runtime_changes_still_run_alongside_shared_inputs(self):
+        for runtime in ["backend/crowdset/hosting.py", "backend/compute/worker.py", "backend/requirements-crowdset.txt", "scripts/systemd/crowdset-worker.service"]:
+            for paths in ([runtime, ".github/workflows/ci.yml"], ["scripts/new-build.sh", runtime]):
+                with self.subTest(paths=paths):
+                    plan = ci.select(paths, TEST_FILES)
+                    self.assertTrue(plan["crowdset"])
+                    self.assertTrue(plan["crowdset-container"])
 
     def test_empty_diff_skips_but_missing_tests_fails(self):
         self.assertFalse(any(ci.select([], TEST_FILES)[job] for job in ci.JOBS))

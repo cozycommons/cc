@@ -71,8 +71,9 @@ def test_local_validation_and_safe_uploads(tmp_path, monkeypatch):
 def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
     import subprocess
     import imageio_ffmpeg
-    raw = music(100)
-    source = write_wav(tmp_path / 'source.wav', raw[:80 * 16000])
+    # Four alignment windows leave three overlapping when the second clip extends past the first.
+    raw = music(58)
+    source = write_wav(tmp_path / 'source.wav', raw[:52 * 16000])
     video = tmp_path / 'video.mp4'
     subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-v', 'error', '-f', 'lavfi', '-i',
                     'color=c=green:s=160x90:r=1', '-i', str(source), '-shortest', '-c:v', 'libx264',
@@ -102,7 +103,7 @@ def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
         old = api.get(path + '/audio').content
         cached = root / first['id'] / (clip_id + '.wav')
         cache_time = cached.stat().st_mtime_ns
-        second_audio = write_wav(tmp_path / 'b.wav', raw[20 * 16000:90 * 16000]).read_bytes()
+        second_audio = write_wav(tmp_path / 'b.wav', raw[6 * 16000:56 * 16000]).read_bytes()
         from crowdset.tests.test_video import make_video, frame
         red = make_video(tmp_path / 'portrait.mp4', tmp_path / 'b.wav')
         queued = upload(api, path, 'portrait.mp4', red.read_bytes()).json()
@@ -115,7 +116,7 @@ def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
         second = wait(api, path)
         assert second['status'] == 'ready', second
         assert second['mix_revision'] != first['mix_revision']
-        assert second['timeline']['duration'] == pytest.approx(90, abs=.1)
+        assert second['timeline']['duration'] == pytest.approx(56, abs=.1)
         assert cached.stat().st_mtime_ns == cache_time
         assert not second['dirty']
         assert second['video_playable']
@@ -127,7 +128,7 @@ def test_auto_mix_original_video_publication_cache_and_restart(tmp_path):
         cut = tmp_path / 'published.mp4'
         cut.write_bytes(current_video)
         assert frame(cut, 30)[24, 42, 1] > 90
-        assert frame(cut, 85)[24, 42, 0] > 200
+        assert frame(cut, 55)[24, 42, 0] > 200
         current = api.get(path + '/audio').content
         # A failed rebuild must not overwrite the current result.
         for clip in second['clips']:
@@ -395,9 +396,9 @@ def test_legacy_audio_remains_pinned_after_modern_publication(tmp_path, monkeypa
 
 def test_contained_clip_updates_alignment_without_duplicate_video(tmp_path):
     from crowdset.tests.test_video import make_video
-    raw = music(80)
+    raw = music(40)
     audio = write_wav(tmp_path / 'full.wav', raw)
-    full = make_video(tmp_path / 'full.mp4', audio, size='160x90', duration=80)
+    full = make_video(tmp_path / 'full.mp4', audio, size='160x90', duration=40)
     with client(tmp_path / 'store') as api:
         path = create(api)
         upload(api, path, 'full.mp4', full.read_bytes())

@@ -34,9 +34,9 @@ def test_friend_priority_overlap_stability_bounds_and_leftovers():
 
 
 def test_official_audio_and_normalized_friend_video_reuse(tmp_path):
-    raw = music(80)
+    raw = music(48)
     full = make_video(tmp_path / 'official.mp4', write_wav(tmp_path / 'official.wav', raw), color='blue', size='160x90')
-    friend = make_video(tmp_path / 'friend.mp4', write_wav(tmp_path / 'friend.wav', raw[20*16000:70*16000]), color='red')
+    friend = make_video(tmp_path / 'friend.mp4', write_wav(tmp_path / 'friend.wav', raw[6*16000:46*16000]), color='red')
     with client(tmp_path / 'store') as api:
         path = create(api)
         upload(api, path, 'official.mp4', full.read_bytes())
@@ -54,8 +54,8 @@ def test_official_audio_and_normalized_friend_video_reuse(tmp_path):
         assert api.get(path + '/audio').content == original_audio
         assert {s['clip_id'] for s in second['timeline']['segments']} == {official_id}
         insert = next(s for s in second['video_timeline']['segments'] if s.get('asset_id'))
-        assert insert['start'] == pytest.approx(20, abs=.1)
-        assert insert['end'] == pytest.approx(70, abs=.15)
+        assert insert['start'] == pytest.approx(6, abs=.1)
+        assert insert['end'] == pytest.approx(46, abs=.15)
         url = path + '/overlays/' + insert['asset_id'] + '?v=' + second['mix_revision']
         response = api.get(url)
         assert response.status_code == 200
