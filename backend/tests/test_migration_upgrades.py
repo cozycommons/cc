@@ -68,7 +68,8 @@ def test_adopted_baseline_without_analytics(adopted_database, shipped_release, r
     blocked = database.release(check=False)
     assert blocked.returncode != 0 and 'Migration history gap in dice' in blocked.stderr
     result = database.release(reconciliation_release)
-    assert 'Applying ' not in database.release().stdout
+    database.release()
+    assert database.sql('SELECT max(version) FROM public.dice_schema_migrations;').stdout.strip() == (REPO / 'backend/migrations/DICE_SCHEMA_CONTRACT_VERSION').read_text().strip()
     assert "Preparing prerequisite for " + ANALYTICS_MIGRATION in result.stdout
     assert database.sql("SELECT display_name FROM public.dice_profiles;").stdout.strip() == "Upgrade fixture"
     assert database.sql("SELECT count(*) FROM public.analytics_saved_queries;").stdout.strip() == "4"

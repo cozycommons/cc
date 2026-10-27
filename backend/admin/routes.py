@@ -4,7 +4,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from commons_roles import role_rpc, user_role
 
 from .query import execute_query, reader_url
 
@@ -21,7 +22,7 @@ def require_admin(request: Request, response: Response, credentials: HTTPAuthori
         user = request.app.state.analytics_supabase.auth.get_user(credentials.credentials).user
     except Exception:
         raise HTTPException(401, 'Invalid authentication token.')
-    if not user or not user.email_confirmed_at or getattr(user, 'is_anonymous', False) or user.app_metadata.get('commons_admin') is not True:
+    if not user or not user.email_confirmed_at or getattr(user, 'is_anonymous', False) or user_role(request.app.state.analytics_supabase, user.id) != 'admin':
         raise HTTPException(403, 'Access denied.')
     return user
 
@@ -124,3 +125,36 @@ def run_saved(query_id: UUID, payload: Filters, request: Request, user=Depends(r
     if not rows:
         raise HTTPException(404, 'Query not found.')
     return execute_query(rows[0]['sql'], payload.start_at, payload.end_at, payload.project, request.app.state.runtime_policy)
+
+
+class RoleChange(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    role: Literal['member', 'admin']
+    expected_role: Literal['member', 'admin']
+
+
+@router.get('/users')
+def users(request: Request, search: str = '', offset: int = 0, user=Depends(require_admin)):
+    if len(search) > 200 or not 0 <= offset <= 1000000:
+        raise HTTPException(422, 'Invalid search or page.')
+    rows = role_rpc(request.app.state.analytics_supabase, 'commons_list_users', {'p_search': search.strip(), 'p_offset': offset})
+    return {'users': rows[:50], 'has_more': len(rows) > 50}
+
+
+@router.put('/users/{user_id}/role')
+def change_role(user_id: UUID, payload: RoleChange, request: Request, user=Depends(require_admin)):
+    role = role_rpc(request.app.state.analytics_supabase, 'commons_set_role', {
+        'p_actor_id': str(user.id), 'p_user_id': str(user_id),
+        'p_role': payload.role, 'p_expected_role': payload.expected_role,
+    })
+    return {'user_id': str(user_id), 'role': role}
+
+
+@router.get('/role-history')
+def role_history(request: Request, user=Depends(require_admin)):
+    try:
+        return (request.app.state.analytics_supabase.table('commons_role_audit')
+                .select('id,user_id,actor_id,old_role,new_role,source,created_at,user_label,actor_label')
+                .order('id', desc=True).limit(50).execute().data)
+    except Exception as exc:
+        raise HTTPException(503, 'Role history is temporarily unavailable.') from exc

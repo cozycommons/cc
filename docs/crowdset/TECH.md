@@ -5,7 +5,13 @@ Retain the separate FastAPI package and optional Python environment, local loopb
 
 ## Admin authorization
 
-Read `app_metadata.crowdset_admin === true` from the existing live Supabase `/auth/v1/user` verification on every authenticated request. Never accept roles from user-editable metadata, request bodies, headers, or a client-decoded JWT. Missing, false, or nonboolean flags grant no admin rights; revocation takes effect on the next request without waiting for token refresh. Operators grant/revoke this Crowdset-specific flag through trusted Supabase administration, preserving other app metadata. No role-management endpoint is exposed to users.
+Use the application-owned `commons_user_roles` table after live Supabase
+`/auth/v1/user` verification on each authenticated request. Read only the caller's
+row with their bearer token and the existing public key; RLS prevents reading
+other users' roles or writing any role. Missing assignments mean member. Role
+lookup failures return 503. Supabase metadata never grants admin access. Manage
+Commons roles in `/admin` → Users; see [roles](../commons-roles/README.md).
+
 
 Only admins can delete a set. Admins can remove any clip; other users can remove only clips with their verified uploader ID. Return independent `can_delete` flags for sets and clips, and enforce the same rules on canonical and legacy API paths. `can_manage`/`can_edit` still control existing soundtrack/exclusion behavior and do not grant deletion rights. Admin visibility includes owned private sets, but never ownerless local data. Local loopback mode retains standalone control. Clip removal keeps the existing soft-delete and storage-reclamation behavior. Set deletion retains its existing confirmation and full cleanup.
 

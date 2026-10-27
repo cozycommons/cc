@@ -25,3 +25,17 @@
 .admin-legend i { display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:2px; }
 @media(max-width:850px) { .admin-grid { grid-template-columns:1fr; } .admin-controls>label { min-width:0; max-width:100%; } .admin-controls .cc-input { max-width:100%; box-sizing:border-box; } }
 .admin-controls>label:has(input[type="date"]) { flex:0 1 156px; min-width:130px; }
+
+.admin-users { margin-top:20px; }
+.admin-users td:first-child { white-space:normal; overflow-wrap:anywhere; min-width:140px; }
+.admin-user-email { display:block; color:var(--ink-soft); }
+.admin-role-confirm { padding:12px 16px; border:var(--hairline); border-radius:8px; }
+.admin-role-history { padding-left:20px; overflow-wrap:anywhere; }
+.admin-role-history li { margin:12px 0; }
+.admin-role-history span { color:var(--ink-soft); }
+@media(max-width:600px) {
+  .admin-users thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .admin-users tr { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; border-bottom:var(--hairline); }
+  .admin-users td { border:0; white-space:normal; }
+  .admin-users td:first-child { grid-column:1/-1; min-width:0; }
+}

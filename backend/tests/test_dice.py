@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from dice.rating_replay import build_rating_plan
-from dice.routes import ADMIN_EMAIL, router
+from dice.routes import router
 from dice.schemas import DiceGame
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,7 +16,7 @@ HOST_TOKEN = "host-token"
 OTHER_TOKEN = "other-token"
 
 AUTH_USERS = {
-    ADMIN_TOKEN: {"id": "u3", "email": ADMIN_EMAIL},  # Jason Keung
+    ADMIN_TOKEN: {"id": "u3", "email": "jason.keungg@gmail.com", "role": "admin"},  # Jason Keung
     HOST_TOKEN: {"id": "u1", "email": "andrew@example.com"},  # Andrew S
     OTHER_TOKEN: {"id": "u4", "email": "jaycee@example.com"},  # Jaycee
 }
@@ -349,6 +349,9 @@ class _FakeSupabase:
 
         class _FakeRpc:
             def execute(self):
+                if name == "commons_get_role":
+                    info = next((u for u in supabase.auth._users_by_token.values() if u["id"] == params["p_user_id"]), {})
+                    return _Resp(info.get("role", "member"))
                 if name == "dice_rating_analytics_snapshot":
                     return _Resp(supabase._rating_analytics_snapshot())
                 if name == "dice_rating_source_snapshot":
@@ -2928,3 +2931,15 @@ def test_phone_numbers_are_visible_only_to_the_owner_and_admins():
     for token in (HOST_TOKEN, ADMIN_TOKEN):
         own = client.get("/dice/profiles/u1", headers=_headers(token)).json()
         assert own["phone_number"] == "+14155551234" and own["sms_notifications_enabled"] is True
+
+
+def test_commons_role_controls_admin_access_and_me_without_email_fallback():
+    users = deepcopy(AUTH_USERS)
+    users[ADMIN_TOKEN]['email'] = 'new-admin@example.test'
+    client, supabase = _build_client(profiles=deepcopy(ROSTER), auth_users=users)
+    headers = _headers(ADMIN_TOKEN)
+    assert client.get('/dice/me', headers=headers).json()['is_admin'] is True
+    supabase.auth._users_by_token[ADMIN_TOKEN]['role'] = 'member'
+    supabase.auth._users_by_token[ADMIN_TOKEN]['email'] = 'jason.keungg@gmail.com'
+    assert client.get('/dice/me', headers=headers).json()['is_admin'] is False
+    assert client.put('/dice/admin/features/u1', headers=headers, json={'feature':'dice_live_referee','enabled':True}).status_code == 403

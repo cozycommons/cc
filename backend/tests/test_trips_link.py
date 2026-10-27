@@ -80,7 +80,7 @@ def test_only_the_creator_links_and_stale_revisions_conflict():
     assert stale.value.status == 409
 
 
-def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch):  # noqa: F811
+def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch, request):  # noqa: F811
     api, admin, settings, tokens, ids = local_api
     alex_id = api.get('/trips/me', headers=tokens['Alex']).json()['user_id']
     group_id = str(uuid4())
@@ -97,7 +97,16 @@ def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch): 
     assert api.get(suggestions, headers=tokens['Matt']).status_code == 403
     assert api.post(f'{base}/members/{place}/link', headers=tokens['Matt'], json=attempt).status_code == 403
 
-    monkeypatch.setattr('trips.routes.ADMIN_EMAILS', {'matt@trips.local', 'alex@trips.local'})
+    admin_ids = [api.get('/trips/me', headers=tokens[name]).json()['user_id'] for name in ['Matt', 'Alex']]
+    previous_roles = admin.table('commons_user_roles').select('*').in_('user_id', admin_ids).execute().data
+
+    def restore_roles():
+        admin.table('commons_user_roles').delete().in_('user_id', admin_ids).execute()
+        if previous_roles:
+            admin.table('commons_user_roles').insert(previous_roles).execute()
+
+    request.addfinalizer(restore_roles)
+    admin.table('commons_user_roles').upsert([{'user_id': uid, 'role': 'admin'} for uid in admin_ids]).execute()
     assert api.get('/trips/me', headers=tokens['Matt']).json()['is_admin'] is True
     assert api.get(suggestions, headers=tokens['Alex']).status_code == 404  # An admin who isn't on the trip.
     # ...gets the same answer from the link endpoint whatever account they try, before any account is examined.

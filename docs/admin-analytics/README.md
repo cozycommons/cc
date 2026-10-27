@@ -26,16 +26,16 @@ loopback database port (Dice 54322; Trips 55322). Never use the migration accoun
 service-role credentials, or a hosted URL in a sandbox. Missing reader configuration
 leaves event ingestion and product APIs running; charts return an unavailable error.
 
-Grant `app_metadata.commons_admin: true` to the intended verified Supabase user
-through a trusted server-side Auth Admin operation. Preserve its existing app
-metadata. The dashboard checks live Auth on every request. `user_metadata` cannot
-grant access, and Dice/Crowdset admin flags do not grant Commons access. Revoke by
-removing this flag. No public endpoint assigns it.
+Commons administrators are assigned in the application-owned
+`commons_user_roles` table. Existing admins can grant or revoke roles in
+`/admin` → Users. The backend checks the role live on every request; Supabase
+Auth metadata and Dice email allowlists no longer grant access.
+See [Commons roles](../commons-roles/README.md) for migration and recovery.
 
 Allow `https://cozycommons.dev/admin` as an Auth redirect. Deploy the shared
 backend, shared frontend, **and Crowdset's separate frontend image**. The existing
 SPA fallback already serves `/admin`; no infrastructure dashboard is embedded.
-No production changes have been made by the implementation task.
+
 
 ## Metrics
 

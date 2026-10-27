@@ -68,9 +68,19 @@ class HostedAccess:
                     if isinstance(value, str) and value.strip():
                         name = ' '.join(value.split())[:80]
                         break
-            app_metadata = user.get('app_metadata') or {}
-            is_admin = isinstance(app_metadata, dict) and app_metadata.get('crowdset_admin') is True
-            return str(UUID(user['id'])), name, is_admin
+            user_id = str(UUID(user['id']))
+            try:
+                roles = await self.client.get(f'{self.url}/rest/v1/commons_user_roles',
+                    params={'select': 'role', 'user_id': f'eq.{user_id}'},
+                    headers={'apikey': self.key, 'Authorization': f'Bearer {token}', 'Cache-Control': 'no-cache'})
+                if roles.status_code != 200:
+                    raise HTTPException(503, 'Account roles are temporarily unavailable.')
+                rows = roles.json()
+                if not isinstance(rows, list) or len(rows) > 1 or any(row.get('role') not in ('admin', 'member') for row in rows):
+                    raise ValueError('Invalid account role response')
+            except httpx.RequestError as exc:
+                raise HTTPException(503, 'Account roles are temporarily unavailable.') from exc
+            return user_id, name, bool(rows and rows[0]['role'] == 'admin')
         except (ValueError, KeyError) as exc:
             logger.warning('Crowdset sign-in verification returned invalid user data: %s', type(exc).__name__)
             raise HTTPException(503, 'Sign-in verification is unavailable. Try again.') from exc
