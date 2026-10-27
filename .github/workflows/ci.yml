@@ -109,7 +109,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements-crowdset.txt
+          cache-dependency-path: |
+            backend/requirements-crowdset.txt
+            backend/crowdset/tests/requirements.txt
       - name: Install media inspection tools
         timeout-minutes: 3
         run: |
@@ -126,7 +128,7 @@ jobs:
           sudo apt-get "${options[@]}" update
           sudo apt-get "${options[@]}" install -y --no-install-recommends ffmpeg
       - run: bash scripts/crowdset-dev.sh setup
-      - run: .crowdset-venv/bin/python -m pip install pytest==8.3.4 httpx==0.28.1
+      - run: .crowdset-venv/bin/python -m pip install -r backend/crowdset/tests/requirements.txt
       - name: Test media on the workspace filesystem
         run: |
           mkdir -p "$RUNNER_TEMP/crowdset-media"
@@ -141,9 +143,11 @@ jobs:
           if free < 16 * 1024 ** 3:
               raise SystemExit('Media tests require at least 16 GiB free on their temp filesystem')
           PYTHON
-          .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q --durations=15 --basetemp="$TMPDIR/pytest"
+          .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q -n 2 --dist=worksteal --max-worker-restart=0 --durations=15 --basetemp="$TMPDIR/pytest"
         env:
           PYTHONPATH: backend
+          OPENBLAS_NUM_THREADS: "1"
+          OMP_NUM_THREADS: "1"
 
   crowdset-container:
     needs: changes
