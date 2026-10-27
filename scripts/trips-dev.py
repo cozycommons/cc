@@ -49,7 +49,7 @@ def prepare():
     elif json.loads(network.stdout)[0]['Options'].get('com.docker.network.bridge.host_binding_ipv4') != '127.0.0.1':
         raise RuntimeError('Existing Trips Docker network is not bound to loopback.')
     cli('--network-id', 'cozy-trips-local', 'start', '--exclude',
-        'studio,meta,imgproxy,inbucket,realtime,storage,edge-runtime,analytics,vector', capture=True)
+        'studio,meta,imgproxy,inbucket,realtime,edge-runtime,analytics,vector', capture=True)
     print('Dedicated Trips Supabase started (loopback ports 55321 and 55322).')
 
 

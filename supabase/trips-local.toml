@@ -19,7 +19,8 @@ enabled = false
 [local_smtp]
 enabled = false
 [storage]
-enabled = false
+enabled = true
+file_size_limit = "50MiB"
 [edge_runtime]
 enabled = false
 [analytics]
