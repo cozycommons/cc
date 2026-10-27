@@ -131,6 +131,8 @@ class FakeSupabase:
         return Query(self, name)
 
     def rpc(self, name, args):
+        if name == "commons_get_role":
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data="admin" if args["p_user_id"] in {"admin-id", "jason-id"} else "member"))
         assert name == "espn_claim_team"
         self.rpc_calls.append((name, args))
 

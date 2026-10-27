@@ -49,6 +49,7 @@ class _ProvisionalRatingMixin(BaseModel):
 
 
 class DiceProfile(_ProvisionalRatingMixin):
+    is_admin: bool = False
     user_id: str
     display_name: str
     avatar_url: Optional[str] = None

@@ -44,6 +44,7 @@ def api():
     app.state.analytics_supabase = MagicMock()
     user = SimpleNamespace(id=str(uuid4()), email='qa@example.invalid', email_confirmed_at='now', is_anonymous=False, app_metadata={'commons_admin':True})
     app.state.analytics_supabase.auth.get_user.return_value.user = user
+    app.state.analytics_supabase.rpc.return_value.execute.return_value.data = "admin"
     _buckets.clear()
     return TestClient(app), app, user
 
@@ -56,9 +57,11 @@ def test_admin_access(api):
     client, app, user = api
     assert client.get('/admin/session').status_code == 401
     assert client.get('/admin/session',headers={'Authorization':'Bearer valid'}).status_code == 200
-    user.app_metadata = {}; user.user_metadata = {'commons_admin':True}
+    user.app_metadata = {'commons_admin':True}; user.user_metadata = {'commons_admin':True}
+    app.state.analytics_supabase.rpc.return_value.execute.return_value.data = 'member'
     assert client.get('/admin/session',headers={'Authorization':'Bearer valid'}).status_code == 403
-    user.app_metadata = {'commons_admin':True}; user.email_confirmed_at = None
+    app.state.analytics_supabase.rpc.return_value.execute.return_value.data = 'admin'
+    user.email_confirmed_at = None
     assert client.get('/admin/session',headers={'Authorization':'Bearer valid'}).status_code == 403
 
 
@@ -88,3 +91,21 @@ def test_range_validation(api):
     client, _, _ = api
     data={'start_at':'2026-01-02T00:00:00Z','end_at':'2026-01-01T00:00:00Z','sql':'SELECT 1'}
     assert client.post('/admin/query',json=data,headers={'Authorization':'Bearer valid'}).status_code==422
+
+
+def test_user_management_requires_live_admin_and_valid_input(api):
+    client, app, user = api
+    headers = {'Authorization':'Bearer valid'}
+    assert client.get('/admin/users').status_code == 401
+    app.state.analytics_supabase.rpc.return_value.execute.return_value.data = 'member'
+    for path in ['/admin/users','/admin/role-history']:
+        assert client.get(path,headers=headers).status_code == 403
+    assert client.put(f'/admin/users/{uuid4()}/role',headers=headers,json={'role':'admin','expected_role':'member'}).status_code == 403
+    app.state.analytics_supabase.rpc.return_value.execute.return_value.data = 'admin'
+    assert client.get('/admin/users?offset=-1',headers=headers).status_code == 422
+    assert client.get('/admin/users?search='+('a'*201),headers=headers).status_code == 422
+    for payload in [{'role':'owner','expected_role':'member'}, {'role':'admin'}, {'role':'admin','expected_role':'member','actor_id':str(uuid4())}]:
+        assert client.put(f'/admin/users/{uuid4()}/role',headers=headers,json=payload).status_code == 422
+    app.state.analytics_supabase.rpc.return_value.execute.side_effect = RuntimeError('private connection details')
+    failure=client.get('/admin/session',headers=headers)
+    assert failure.status_code == 503 and 'private connection' not in failure.text

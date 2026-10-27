@@ -1,5 +1,6 @@
 import pytest
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -38,6 +39,10 @@ class _Auth:
 
 class _Supabase:
     auth = _Auth()
+
+    def rpc(self, name, params):
+        assert name == "commons_get_role"
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data="member"))
 
     def table(self, _name):
         return self
@@ -577,6 +582,8 @@ def test_virtual_bankroll_and_pick_are_tournament_scoped_and_server_quoted(monke
         calls = []
 
         def rpc(self, name, params):
+            if name == "commons_get_role":
+                return super().rpc(name, params)
             self.calls.append((name, params))
             self.rpc_name = name
             self.params = params

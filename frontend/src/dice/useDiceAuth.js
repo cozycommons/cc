@@ -3,8 +3,6 @@ import { useSupabase } from '../contexts/SupabaseContext';
 import { diceApi } from './api.js';
 import { resolveRuntimeServiceUrl } from '../runtimeConfig.js';
 
-export const ADMIN_EMAILS = new Set(['jason.keungg@gmail.com', 'homatt999@gmail.com']);
-
 function isLocalHarnessOrigin(origin) {
   try {
     const url = new URL(origin);
@@ -168,7 +166,7 @@ export function useDiceAuth() {
     return p;
   };
 
-  const isAdmin = ADMIN_EMAILS.has(user?.email?.toLowerCase());
+  const isAdmin = profile?.is_admin === true;
 
   const signIn = async () => {
     const localSignIn = await signInWithSyntheticDiceAccount(supabase);

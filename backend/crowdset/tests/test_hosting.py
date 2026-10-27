@@ -20,6 +20,9 @@ def hosted(tmp_path, monkeypatch):
     auth_failures, auth_calls, clients = [], [], []
 
     def auth(request):
+        if request.url.path == '/rest/v1/commons_user_roles':
+            token = request.headers['authorization']
+            return httpx.Response(200, json=[{'role': 'admin'}] if admin_roles.get(token) is True else [])
         assert request.url == 'https://test.supabase.co/auth/v1/user'
         assert request.headers['apikey'] == 'sb_publishable_test'
         token = request.headers['authorization']

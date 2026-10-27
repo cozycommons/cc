@@ -15,7 +15,7 @@ operational limits: [README.md](README.md).
   falls back to tab memory; browsers without Web Locks have best-effort cross-tab
   concurrency. New event IDs deduplicate retries at the database, although this
   client makes only one delivery attempt.
-- `backend/admin/routes.py`: live Auth plus trusted `commons_admin` app metadata;
+- `backend/admin/routes.py`: live Auth plus the application-owned Commons role table;
   query CRUD with revisions, catalog, draft and saved execution. No product
   mutations or admin self-enrollment. API errors are sanitized.
 - `backend/admin/query.py`: scoped SQL AST validation using pglast, safe

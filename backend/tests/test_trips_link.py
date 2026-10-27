@@ -97,7 +97,7 @@ def test_real_admin_links_with_suggestions_and_unlinks(local_api, monkeypatch): 
     assert api.get(suggestions, headers=tokens['Matt']).status_code == 403
     assert api.post(f'{base}/members/{place}/link', headers=tokens['Matt'], json=attempt).status_code == 403
 
-    monkeypatch.setattr('trips.routes.ADMIN_EMAILS', {'matt@trips.local', 'alex@trips.local'})
+    admin.table('commons_user_roles').upsert([{'user_id': api.get('/trips/me', headers=tokens[name]).json()['user_id'], 'role': 'admin'} for name in ['Matt', 'Alex']]).execute()
     assert api.get('/trips/me', headers=tokens['Matt']).json()['is_admin'] is True
     assert api.get(suggestions, headers=tokens['Alex']).status_code == 404  # An admin who isn't on the trip.
     # ...gets the same answer from the link endpoint whatever account they try, before any account is examined.

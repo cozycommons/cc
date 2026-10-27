@@ -30,7 +30,7 @@ controls and readable tables; support narrow screens without clipped controls.
 ## Behavior
 
 1. `/admin` requires a verified Cozy Commons account with a separately assigned
-   Commons admin permission. Signing in alone does not grant access. Anonymous
+   Commons admin role in the application-owned role table. Signing in alone does not grant access. Anonymous
    visitors see a sign-in control; other accounts see `Access denied`. Every
    admin API independently enforces this permission.
 2. The default dashboard shows the last 30 UTC calendar days, including today,

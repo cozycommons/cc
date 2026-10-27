@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from commons_roles import user_role
+
 import json
 import logging
 import uuid
@@ -118,25 +120,21 @@ from dice.schemas import (
     VirtualPickRequest,
 )
 
-ADMIN_EMAILS = {"jason.keungg@gmail.com", "homatt999@gmail.com"}
-# Backwards-compatible name used by the existing test harness and bootstrap
-# documentation; authorization uses the full allowlist above.
-ADMIN_EMAIL = "jason.keungg@gmail.com"
-
 _security = HTTPBearer()
 _live_security = HTTPBearer(auto_error=False)
 _optional_security = HTTPBearer(auto_error=False)
 
 
 class AuthedUser:
-    def __init__(self, user_id: str, email: str, metadata: dict):
+    def __init__(self, user_id: str, email: str, metadata: dict, role: str = "member"):
         self.user_id = user_id
         self.email = email
         self.metadata = metadata or {}
+        self.role = role
 
     @property
     def is_admin(self) -> bool:
-        return self.email.lower() in ADMIN_EMAILS
+        return self.role == "admin"
 
 
 def require_authenticated_user(
@@ -144,7 +142,9 @@ def require_authenticated_user(
 ) -> AuthedUser:
     try:
         user = request.app.state.supabase.auth.get_user(credentials.credentials).user
-        return AuthedUser(user.id, user.email or "", user.user_metadata)
+        return AuthedUser(user.id, user.email or "", user.user_metadata, user_role(request.app.state.supabase, user.id))
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 
@@ -157,7 +157,9 @@ def get_optional_authenticated_user(
         return None
     try:
         user = request.app.state.supabase.auth.get_user(credentials.credentials).user
-        return AuthedUser(user.id, user.email or "", user.user_metadata)
+        return AuthedUser(user.id, user.email or "", user.user_metadata, user_role(request.app.state.supabase, user.id))
+    except HTTPException:
+        raise
     except Exception:
         return None
 
@@ -209,7 +211,9 @@ def require_live_authenticated_user(
         raise HTTPException(status_code=401, detail="Invalid authentication token")
     try:
         user = request.app.state.supabase.auth.get_user(credentials.credentials).user
-        return AuthedUser(user.id, user.email or "", user.user_metadata)
+        return AuthedUser(user.id, user.email or "", user.user_metadata, user_role(request.app.state.supabase, user.id))
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid authentication token")
 
@@ -757,12 +761,14 @@ def get_my_profile(
 ) -> DiceProfile:
     default_name = auth.metadata.get("full_name") or auth.metadata.get("name") or "Player"
     default_avatar = auth.metadata.get("avatar_url")
-    return get_or_create_profile(
+    profile = get_or_create_profile(
         request.app.state.supabase,
         auth.user_id,
         default_name,
         default_avatar,
     )
+
+    return profile.model_copy(update={"is_admin": auth.is_admin})
 
 
 @router.get("/me/features", response_model=DiceFeatures, deprecated=True)

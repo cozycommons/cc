@@ -356,3 +356,24 @@ DO $$ BEGIN
   RAISE EXCEPTION 'Dice migration history reconciliation missing';
  END IF;
 END $$;
+
+DO $$ BEGIN
+ IF to_regclass('public.commons_user_roles') IS NULL
+ OR to_regclass('public.commons_role_history') IS NULL
+ OR to_regprocedure('public.commons_set_role(uuid,uuid,text,text)') IS NULL
+ OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.commons_user_roles'::regclass)
+ OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.commons_role_history'::regclass)
+ OR has_table_privilege('authenticated', 'public.commons_user_roles', 'INSERT,UPDATE,DELETE,TRUNCATE')
+ OR has_table_privilege('authenticated', 'public.commons_role_history', 'SELECT')
+ OR has_table_privilege('authenticated', 'public.commons_accounts', 'SELECT')
+ OR has_function_privilege('authenticated','public.commons_set_role(uuid,uuid,text,text)','EXECUTE')
+ OR has_function_privilege('anon','public.commons_set_role(uuid,uuid,text,text)','EXECUTE')
+ OR has_function_privilege('anon','public.commons_get_role(uuid)','EXECUTE')
+ OR has_function_privilege('authenticated','public.commons_get_role(uuid)','EXECUTE')
+ OR has_function_privilege('anon','public.commons_list_users(text,integer)','EXECUTE')
+ OR has_function_privilege('authenticated','public.commons_list_users(text,integer)','EXECUTE')
+ OR has_table_privilege('anon','public.commons_user_roles','SELECT,INSERT,UPDATE,DELETE')
+ OR has_table_privilege('authenticated','public.commons_role_audit','SELECT') THEN
+  RAISE EXCEPTION 'Commons role boundary missing';
+ END IF;
+END $$;

@@ -10,7 +10,7 @@ from gotrue.errors import AuthApiError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from postgrest.exceptions import APIError
 
-from dice.routes import ADMIN_EMAILS
+from commons_roles import user_role
 
 from .ledger import (CREATES, INDEPENDENT, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
                      new_group, require_member)
@@ -115,17 +115,16 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials | N
     return user
 
 
-def is_admin(user):
-    """The Commons admins Dice already trusts, and only with a verified email."""
-    return bool(user.email and user.email_confirmed_at and user.email.lower() in ADMIN_EMAILS)
+def is_admin(request, user):
+    return user_role(client(request), user.id) == 'admin'
 
 
 def my_profile(request, user):
-    return {**current_profile(client(request), user), 'is_admin': is_admin(user)}
+    return {**current_profile(client(request), user), 'is_admin': is_admin(request, user)}
 
 
-def require_admin(user):
-    if not is_admin(user):
+def require_admin(request, user):
+    if not is_admin(request, user):
         raise HTTPException(403, 'Only Cozy Commons admins can link people to accounts.')
 
 
@@ -372,7 +371,7 @@ def set_member_venmo(trip_id: UUID, member_id: UUID, payload: MemberVenmo, reque
 @router.post('/groups/{trip_id}/members/{member_id}/link')
 def link_member(trip_id: UUID, member_id: UUID, payload: MemberAccount, request: Request, user=Depends(current_user)):
     # Admin and creator: an ordinary creator could otherwise enrol any account and read its profile.
-    require_admin(user)
+    require_admin(request, user)
     # Authorize the trip before looking at any account, so outsiders learn nothing from the answers.
     try:
         row = read_row(request, trip_id)
@@ -411,14 +410,14 @@ def link_blocked(request, row, member_id, user_id):
 
 @router.post('/groups/{trip_id}/members/{member_id}/unlink')
 def unlink_member(trip_id: UUID, member_id: UUID, payload: MemberAccount, request: Request, user=Depends(current_user)):
-    require_admin(user)
+    require_admin(request, user)
     return command(request, trip_id, user, 'unlink_member', {**payload.model_dump(mode='json'), 'member_id': str(member_id)})
 
 
 @router.get('/admin/groups/{trip_id}/link-suggestions')
 def link_suggestions(trip_id: UUID, request: Request, response: Response, user=Depends(current_user)):
     """Read-only name-match suggestions for the creator to review one by one. Never stored or cached."""
-    require_admin(user)
+    require_admin(request, user)
     try:
         row = read_row(request, trip_id)
         require_member(row, user.id)
