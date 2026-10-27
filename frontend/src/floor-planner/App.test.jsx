@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import FloorPlannerApp, { TOOLS } from './App';
 import { createInitialScene } from './initialScene';
+import { listFloorPlanInvitations } from './useFloorPlanDocument';
 
 let editorState;
 const user = { id: 'person-1', email: 'person@example.test' };
@@ -11,6 +12,7 @@ const signIn = vi.fn();
 vi.mock('./useFloorPlanDocument', () => ({
   usePlannerAuth: () => ({ supabase, user, loading: false, signIn }),
   useFloorPlanDocument: () => editorState,
+  listFloorPlanInvitations: vi.fn().mockResolvedValue([]),
 }));
 
 function renderEditor() {
@@ -22,6 +24,11 @@ describe('FloorPlannerApp', () => {
     const scene = createInitialScene();
     editorState = { scene, setScene: vi.fn(), document: { id: 'plan-1', title: 'Apartment plan', template: 'apartment', visibility: 'private', revision: 1 }, status: 'saved', message: 'Saved to cloud', canEdit: true, isOwner: true, draftAvailable: false, restoreDraft: vi.fn(), discardDraft: vi.fn() };
     signIn.mockClear();
+    listFloorPlanInvitations.mockClear();
+  });
+
+  afterEach(() => {
+    delete HTMLDialogElement.prototype.showModal;
   });
 
   it('keeps the measured apartment and editor tools intact', () => {
@@ -45,6 +52,21 @@ describe('FloorPlannerApp', () => {
     renderEditor();
     expect(screen.getByRole('button', { name: 'Share' })).toBeInTheDocument();
     expect(screen.queryByText(/here$/)).not.toBeInTheDocument();
+  });
+
+  it('opens the sharing dialog with the invite form and empty invitation state', async () => {
+    const showModal = vi.fn(function () { this.setAttribute('open', ''); });
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value: showModal });
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Share Apartment plan' });
+    expect(showModal).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('Invite by email')).toBeInTheDocument();
+    expect(screen.getByText('No invitations yet.')).toBeInTheDocument();
+    await waitFor(() => expect(listFloorPlanInvitations).toHaveBeenCalledWith(supabase, user.id, 'plan-1'));
+    expect(dialog).toBeVisible();
   });
 
   it('keeps the drawing editable and recovery controls visible after save failure', () => {
