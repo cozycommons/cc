@@ -4,9 +4,9 @@ import { ArrowRight, Check, ExternalLink, HandCoins, Plus, Trash2 } from 'lucide
 import { decimal, money, shortDate, today, toMinor } from './money.js';
 import { Avatar, Button, CopyButton, Field, Form } from './ui.jsx';
 import { findMember, firstName, memberName } from './people.js';
-import { normalizeUsername, settlementRole, tripNote, venmoLink } from './venmo.js';
+import { normalizeUsername, settlementRole, tripNote } from './venmo.js';
 import { balanceBreakdown } from './balances.js';
-import { CheckInVenmo, PaymentPrompt, useVenmoPayment } from './VenmoPayment.jsx';
+import { CheckInVenmo, PaymentPrompt, useVenmoPayment, VenmoOpenLink } from './VenmoPayment.jsx';
 import { ConfirmationMark } from './ConfirmedVenmo.jsx';
 
 const SquareStamp = () => <span className="trips-square-stamp" aria-hidden="true">All square</span>;
@@ -66,8 +66,8 @@ export function VenmoReview({ group, transfer, role, onRecord, onCancel, onSaveH
     <VenmoProfile handle={username} request={request} confirmedName={other?.venmo_confirmed_name} confirmed={other?.venmo_confirmed} />
     {obligation && group.settle?.started_at && obligation.created_at > group.settle.started_at && <small className="trips-updated">Updated</small>}
     <strong className="trips-venmo-amount">{money(shownAmount, group.currency)}</strong>
-    {usd && username && <a className="cc-button cc-button--primary trips-venmo-open" href={venmoLink({ username, role, amountMinor: shownAmount, note })}
-      target="_blank" rel="noopener noreferrer" onClick={() => flow.open(pending || payment, role, username)}>{role === 'pay' ? `Pay ${money(shownAmount, group.currency)} in Venmo` : `Request ${money(shownAmount, group.currency)} in Venmo`} <ExternalLink size={14} aria-hidden="true" /></a>}
+    {usd && username && <VenmoOpenLink className="cc-button cc-button--primary trips-venmo-open" payment={{ username, role, amountMinor: shownAmount, note }}
+      onOpen={() => flow.open(pending || payment, role, username)}>{role === 'pay' ? `Pay ${money(shownAmount, group.currency)} in Venmo` : `Request ${money(shownAmount, group.currency)} in Venmo`} <ExternalLink size={14} aria-hidden="true" /></VenmoOpenLink>}
     {canAddHandle && <InlineHandle name={firstName(other)} onSave={onSaveHandle} />}
     {usd && !username && !canAddHandle && <p className="trips-muted">{firstName(other)} hasn’t added a Venmo username. {other?.user_id ? `Ask ${firstName(other)} to add it in their profile, or` : 'Ask the trip creator to add it, or'} pay with the details below.</p>}
     {!usd && <p className="trips-muted">Venmo only sends US dollars. Use the details below with another app.</p>}
@@ -135,8 +135,8 @@ function PaymentRow({ group, payment, meId, onVenmo, onRecord, onUndo, onNudge, 
       {nudgeable && <button type="button" className="trips-text-button" onClick={() => onNudge?.(obligation)}>Nudge</button>}
       {!paid && role === 'pay' && <Button variant="primary" onClick={open} aria-label={usd ? `Pay ${memberName(to)} with Venmo` : recordLabel}>{usd ? 'Pay' : 'Paid'}</Button>}
       {!paid && role === 'request' && (usd && other?.venmo_username && obligation
-        ? <a className="cc-button cc-button--secondary" href={venmoLink({ username: other.venmo_username, role, amountMinor, note: tripNote(group.name), reference: obligation.reference })}
-          target="_blank" rel="noopener noreferrer" onClick={() => paymentFlow.open(obligation, role, other.venmo_username)} aria-label={`Request ${money(amountMinor, group.currency)} from @${other.venmo_username}`}>Request</a>
+        ? <VenmoOpenLink className="cc-button cc-button--secondary" payment={{ username: other.venmo_username, role, amountMinor, note: tripNote(group.name), reference: obligation.reference }}
+          onOpen={() => paymentFlow.open(obligation, role, other.venmo_username)} ariaLabel={`Request ${money(amountMinor, group.currency)} from @${other.venmo_username}`}>Request</VenmoOpenLink>
         : <Button variant="secondary" onClick={open} aria-label={usd ? `Request from ${memberName(from)} with Venmo` : recordLabel}>{usd ? 'Request' : 'Received'}</Button>)}
     </span>
   </li>;

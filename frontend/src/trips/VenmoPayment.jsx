@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Button } from './ui.jsx';
 import { findMember, firstName } from './people.js';
 import { money } from './money.js';
-import { venmoProfile } from './venmo.js';
+import { isPhone, venmoAppLink, venmoLink, venmoProfile } from './venmo.js';
 
 export function useVenmoPayment(group, onNotice) {
   const [opened, setOpened] = useState(null);
@@ -27,6 +27,27 @@ export function useVenmoPayment(group, onNotice) {
   return { opened, pending: valid ? opened : null, item, returned: valid && returned,
     open: (obligation, role, handle) => { setOpened({ ...obligation, cycle: obligation.cycle || 0, role, handle }); setReturned(false); },
     dismiss: () => { setOpened(null); setReturned(false); } };
+}
+
+// Phones open the Venmo app directly; computers open Venmo on the web in a new tab.
+// If the app doesn't take over within a couple of seconds, offer the web link instead.
+export function VenmoOpenLink({ payment, className, ariaLabel, onOpen, children }) {
+  const phone = isPhone();
+  const [stuck, setStuck] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const open = () => {
+    onOpen?.();
+    if (!phone) return;
+    setStuck(false);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => { if (document.visibilityState === 'visible') setStuck(true); }, 2000);
+  };
+  return <>
+    <a className={className} href={phone ? venmoAppLink(payment) : venmoLink(payment)} target={phone ? undefined : '_blank'} rel="noopener noreferrer"
+      aria-label={ariaLabel} onClick={open}>{children}</a>
+    {stuck && <a className="trips-text-button trips-venmo-web" href={venmoLink(payment)} target="_blank" rel="noopener noreferrer">Didn’t open? Use Venmo on the web</a>}
+  </>;
 }
 
 export function CheckInVenmo({ username }) {
