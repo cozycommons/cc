@@ -24,11 +24,19 @@ export const venmoProfile = (username) => `https://venmo.com/u/${encodeURICompon
 
 export const tripNote =(groupName) => `Cozy Trips · ${groupName}`;
 
-// Venmo redirects these public links to its web app or mobile app. Prefill is best-effort; the person reviews it there.
+// The native Venmo app displays form-encoded '+' spaces literally, so encode with %20.
+const query = (params) => Object.entries(params).map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
+const fullNote = (note, reference) => (reference ? `${note} · ${reference}` : note);
+
+// Web payment link, for computers. Venmo's app doesn't claim these paths, so on phones they stay in the browser.
 export function venmoLink({ username, role, amountMinor, note, reference }) {
-  // The native Venmo app displays form-encoded '+' spaces literally.
-  if (reference) note = `${note} · ${reference}`;
-  const params = Object.entries({ txn: role === 'request' ? 'charge' : 'pay', amount: decimal(amountMinor), note })
-    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
-  return `https://venmo.com/${encodeURIComponent(username)}?${params}`;
+  return `https://venmo.com/${encodeURIComponent(username)}?${query({ txn: role === 'request' ? 'charge' : 'pay', amount: decimal(amountMinor), note: fullNote(note, reference) })}`;
 }
+
+// Opens the Venmo app straight to a prefilled payment or request. Prefill is best-effort; the person reviews it there.
+export function venmoAppLink({ username, role, amountMinor, note, reference }) {
+  return `venmo://paycharge?${query({ txn: role === 'request' ? 'charge' : 'pay', recipients: username, amount: decimal(amountMinor), note: fullNote(note, reference) })}`;
+}
+
+export const isPhone = () => typeof navigator !== 'undefined'
+  && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));

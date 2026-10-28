@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeUsername, settlementRole, tripNote, venmoLink, venmoProfile } from './venmo.js';
+import { normalizeUsername, settlementRole, tripNote, venmoAppLink, venmoLink, venmoProfile } from './venmo.js';
 
 describe('Venmo usernames', () => {
   it.each([['@Jayce-e', 'Jayce-e'], [' keungjason ', 'keungjason'], ['https://venmo.com/u/bchen0702', 'bchen0702'],
@@ -51,5 +51,14 @@ describe('Venmo profiles', () => {
   it('links to the public profile so people can check the name before paying', () => {
     expect(venmoProfile('MattSHo')).toBe('https://venmo.com/u/MattSHo');
     expect(venmoProfile('jayce-e')).toBe('https://venmo.com/u/jayce-e');
+  });
+});
+
+describe('venmoAppLink', () => {
+  it('opens the Venmo app to the exact prefilled payment with %20 spaces', () => {
+    expect(venmoAppLink({ username: 'alex-rivera', role: 'pay', amountMinor: 1234, note: 'Cozy Trips · Cabin', reference: 'CZ-0001' }))
+      .toBe('venmo://paycharge?txn=pay&recipients=alex-rivera&amount=12.34&note=Cozy%20Trips%20%C2%B7%20Cabin%20%C2%B7%20CZ-0001');
+    expect(venmoAppLink({ username: 'alex-rivera', role: 'request', amountMinor: 500, note: 'Cozy Trips · Cabin' }))
+      .toBe('venmo://paycharge?txn=charge&recipients=alex-rivera&amount=5.00&note=Cozy%20Trips%20%C2%B7%20Cabin');
   });
 });

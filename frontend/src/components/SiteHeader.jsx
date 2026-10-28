@@ -7,19 +7,18 @@ import './SiteHeader.css';
 export default function SiteHeader({ product, to, icon, children, onProductClick, productDisabled = false }) {
   return (
     <header className={`cc-sitebar${product ? ' cc-sitebar--product' : ''}`}>
-      {/* One lockup: the mascot, with the product's icon beside it as its sticker. */}
+      {/* One lockup: the mascot, then the product's sticker and name. */}
       <div className="cc-sitebar-lockup">
         <Link to="/" className="cc-sitebar-home" aria-label="Cozy Commons home">
           {/* The site has no dark theme, so the header keeps the light palette in every colour scheme. */}
           <CozyMascot size={32} tone="light" animated className="cc-sitebar-mascot" />
         </Link>
         {product && (
-          <Link to={to} className={`cc-sitebar-wordmark${icon ? ' cc-sitebar-wordmark--icon' : ''}`} aria-label={icon ? product : undefined} title={icon ? product : undefined}
-            aria-disabled={productDisabled || undefined} onClick={(event) => {
+          <Link to={to} className={`cc-sitebar-wordmark${icon ? ' cc-sitebar-wordmark--icon' : ''}`} aria-disabled={productDisabled || undefined} onClick={(event) => {
               if (productDisabled) { event.preventDefault(); return; }
               onProductClick?.(event);
             }}>
-            {icon ? <span className="cc-sitebar-logo" aria-hidden="true">{icon}</span> : product}
+            {icon && <span className="cc-sitebar-logo" aria-hidden="true">{icon}</span>}{product}
           </Link>
         )}
       </div>

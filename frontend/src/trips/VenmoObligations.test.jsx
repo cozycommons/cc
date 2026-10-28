@@ -154,3 +154,19 @@ it('keeps another pair\'s opened payment out of this Pay sheet', async () => {
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Sent' })));
   expect(settle).toHaveBeenCalledExactlyOnceWith(toJamie);
 });
+
+it('opens the Venmo app on phones and offers the web link if it does not open', async () => {
+  vi.useFakeTimers();
+  const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)');
+  try {
+    render(<VenmoReview group={group} transfer={transfers[0]} role="pay" obligation={obligations[0]} request={request} />);
+    const link = screen.getByRole('link', { name: 'Pay $12.34 in Venmo' });
+    expect(link).toHaveAttribute('href', 'venmo://paycharge?txn=pay&recipients=matt-rivera&amount=12.34&note=Cozy%20Trips%20%C2%B7%20Cabin%20%C2%B7%20CZ-000000');
+    expect(link).not.toHaveAttribute('target');
+    link.addEventListener('click', e => e.preventDefault());
+    fireEvent.click(link);
+    expect(screen.queryByText(/Didn’t open/)).not.toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(2100); });
+    expect(screen.getByRole('link', { name: 'Didn’t open? Use Venmo on the web' })).toHaveAttribute('href', expect.stringContaining('https://venmo.com/matt-rivera?txn=pay'));
+  } finally { ua.mockRestore(); vi.useRealTimers(); }
+});
