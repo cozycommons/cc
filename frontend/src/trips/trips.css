@@ -319,9 +319,9 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
 
 /* Playful layer: a travel scrapbook on Commons paper. Stickers, stamps and ticket stubs decorate;
    amounts, names and owe/owed words stay upright, sans-serif and in their usual colours. */
-.trips .cc-sitebar-logo { width: 34px; height: 34px; border-radius: var(--radius-small); color: var(--ink); background: var(--butter); --fill: #e6b49a; box-shadow: 0 0 0 2px var(--paper-light), 0 2px 0 2px rgba(61, 47, 41, .14); transform: rotate(-6deg); }
+.trips .cc-sitebar-logo { width: 34px; height: 34px; border-radius: var(--radius-small); color: var(--ink); background: var(--butter); --fill: #d9483d; box-shadow: 0 0 0 2px var(--paper-light), 0 2px 0 2px rgba(61, 47, 41, .14); transform: rotate(-6deg); }
 .trips .cc-sitebar-wordmark:hover .cc-sitebar-logo { transform: rotate(6deg); }
-.trips-welcome-mark { width: 72px; height: 72px; border-radius: var(--radius-card); color: var(--ink); background: var(--butter); --fill: #e6b49a; transform: rotate(-4deg); }
+.trips-welcome-mark { width: 72px; height: 72px; border-radius: var(--radius-card); color: var(--ink); background: var(--butter); --fill: #d9483d; transform: rotate(-4deg); }
 .trips-greeting { color: var(--clay); }
 
 .trips-stamp { position: relative; display: inline-grid; flex: 0 0 auto; place-items: center; border-radius: 4px; color: var(--ink); background: var(--paper-light);
