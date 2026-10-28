@@ -44,10 +44,5 @@
   .cc-sitebar-wordmark--icon .cc-sitebar-logo { width: 32px; height: 32px; }
 }
 
-/* Keep the warm lockup legible when the browser requests a dark surface. */
-@media (prefers-color-scheme: dark) {
-  .cc-sitebar { --ink: #f2eadb; --ink-soft: #d6c5a7; --espresso: #f2eadb; --line: #6f6256; --paper-light: #473328; background: #2d2422; padding-inline: 12px; border-radius: var(--radius-small); box-sizing: border-box; }
-}
 .jk-dice .cc-sitebar { width: 100%; }
 
-@media (prefers-color-scheme: dark) and (max-width: 640px) { .cc-sitebar { padding-inline: 8px; } }
