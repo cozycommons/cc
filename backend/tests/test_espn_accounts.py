@@ -138,7 +138,9 @@ def test_create_account_stores_encrypted_cookies_and_mints_token(
     assert created["label"] == "warner"
     assert created["league_id"] == 222
     assert created["season"] == 2027
+    assert created["lineup_automation_enabled"] is True
     stored = db._store[0]
+    assert stored["lineup_automation_enabled"] is True
     assert stored["label"] == "warner"
     assert stored["league_id"] == 222
     assert stored["season"] == 2027
@@ -150,6 +152,35 @@ def test_create_account_stores_encrypted_cookies_and_mints_token(
     assert "{SWID-secret-value}" not in str(stored)
     assert accounts.decrypt_secret(stored["espn_s2_enc"]) == "s2-secret-value"
     assert accounts.decrypt_secret(stored["swid_enc"]) == "{SWID-secret-value}"
+
+
+def test_new_accounts_start_with_automation_enabled_and_toggle_works(
+    fernet_key, monkeypatch
+):
+    """Onboarding enables lineup automation (product decision,
+    2026-10-29); POST /espn/automation/lineup's switch — backed by
+    set_lineup_automation — still opts the account out and back in,
+    which is also what the server scheduler's fan-out reads."""
+    db = FakeSupabase()
+    created = _make_account(db, monkeypatch)
+    assert created["lineup_automation_enabled"] is True
+    assert db._store[0]["lineup_automation_enabled"] is True
+
+    resolved = accounts.get_account_by_token(db, created["token"])
+    assert resolved["lineup_automation_enabled"] is True
+    assert [
+        a["id"] for a in accounts.list_lineup_automation_accounts(db)
+    ] == [created["id"]]
+
+    # opt out: token resolution and the scheduler's list both see it
+    assert accounts.set_lineup_automation(db, created["id"], False) is False
+    resolved = accounts.get_account_by_token(db, created["token"])
+    assert resolved["lineup_automation_enabled"] is False
+    assert accounts.list_lineup_automation_accounts(db) == []
+
+    # and back in
+    assert accounts.set_lineup_automation(db, created["id"], True) is True
+    assert len(accounts.list_lineup_automation_accounts(db)) == 1
 
 
 def test_create_account_defaults_label(fernet_key, monkeypatch):
