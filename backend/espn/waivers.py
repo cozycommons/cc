@@ -388,12 +388,39 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
 
     # The pool.
     pool: dict = {}  # player_id -> {player, on_team_id}
-    for entry in client.get_players(POOL_LIMIT) or []:
+    raw_pool = client.get_players(POOL_LIMIT) or []
+    for entry in raw_pool:
         player = _entry_player(entry)
         pid = _entry_player_id(entry, player)
         if pid is None:
             continue
         pool[pid] = {"player": player, "on_team_id": entry.get("onTeamId")}
+    # TEMP PROBE (shape diagnostic; remove once the live kona shape is known)
+    def _shape(entries):
+        if not entries:
+            return "no entries"
+        e = entries[0]
+        if not isinstance(e, dict):
+            return f"first entry is {type(e).__name__}"
+        parts = [f"count={len(entries)}", f"entry_keys={sorted(e.keys())}"]
+        p = e.get("player")
+        if isinstance(p, dict):
+            parts.append(f"player_keys={sorted(p.keys())}")
+            parts.append(f"player_stats={len(p.get('stats') or [])}")
+            parts.append(f"player_ownership={type(p.get('ownership')).__name__}")
+        else:
+            parts.append(f"player_field={type(p).__name__}")
+        parts.append(f"top_stats={len(e.get('stats') or [])}")
+        parts.append(f"top_ownership={type(e.get('ownership')).__name__}")
+        return "; ".join(parts)
+
+    notes.append("PROBE pool: " + _shape(raw_pool))
+    try:
+        probe_entries = client.get_players_for_period(current, limit=5) or []
+        notes.append("PROBE period: " + _shape(probe_entries))
+    except Exception as exc:  # probe only; never fail the report on it
+        notes.append(f"PROBE period fetch failed: {type(exc).__name__}")
+
     for pid, rostered in own_roster.items():
         if pid not in pool:
             pool[pid] = {"player": rostered["player"], "on_team_id": own_team_id}
