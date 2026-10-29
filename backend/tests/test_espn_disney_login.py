@@ -423,8 +423,12 @@ def test_endpoint_with_league_id_echoes_league_and_team(env):
     assert body["league_name"] == "My 2027 League"
     assert body["team_name"] == "mr diddles"
     assert body["team_id"] == 1
-    assert body["lineup_automation_enabled"] is False
+    # Behavior change (Warner, 2026-10-29): onboarding enables lineup
+    # automation by default — this used to assert False for a request
+    # that doesn't pass enable_automation.
+    assert body["lineup_automation_enabled"] is True
     assert len(db._store) == 1
+    assert db._store[0]["lineup_automation_enabled"] is True
     assert PASSWORD not in json.dumps(db._store)
 
 
