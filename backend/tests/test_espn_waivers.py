@@ -234,7 +234,7 @@ class FakeClient:
     def get_league(self, views):
         return LEAGUE_PAYLOAD
 
-    def get_players(self, limit=300):
+    def get_league_players(self, limit=1000):
         entries = []
         for pid, player in POOL_PLAYERS.items():
             player = dict(player)
@@ -250,7 +250,7 @@ class FakeClient:
             entries.append(entry)
         return entries
 
-    def get_players_for_period(self, scoring_period_id, limit=1000):
+    def get_league_players_for_period(self, scoring_period_id, limit=1000):
         if self.auth_fail:
             raise EspnAuthError("cookies expired")
         if scoring_period_id in self.fail_periods:
@@ -266,7 +266,9 @@ class FakeClient:
                     "id": pid,
                     "stats": [{
                         "statSourceId": 0,
-                        "statSplitTypeId": 0,
+                        # live day splits are splitTypeId 5 (one actual
+                        # split per player per day; PRs #172-#174)
+                        "statSplitTypeId": 5,
                         "scoringPeriodId": scoring_period_id,
                         "stats": raw,
                     }],
