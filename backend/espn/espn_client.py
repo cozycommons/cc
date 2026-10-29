@@ -22,6 +22,13 @@ Endpoints:
     scoring period (``filterStatsForScoringPeriodIds``) — that is
     where per-day projections live when the league payload's roster
     entries carry none (see :meth:`EspnClient.get_players_for_period`).
+  - League players: ``GET /seasons/{season}/segments/0/leagues/{league_id}
+    ?view=kona_player_info`` with the same ``X-Fantasy-Filter`` header;
+    the response is an object whose ``players`` array carries the rich
+    nested entries (stats, ownership, onTeamId). This is the player
+    source waiver analytics use — see
+    :meth:`EspnClient.get_league_players` for why the seasons-level
+    players endpoint above is not.
   - Lineup moves (v2): ``POST .../leagues/{league_id}/transactions/``
     on the write host with a ``ROSTER`` transaction whose items are
     ``LINEUP`` moves (playerId, fromLineupSlotId, toLineupSlotId).
@@ -262,6 +269,86 @@ class EspnClient:
         suffices: every team's most-owned players sit far inside it.
         """
         return self._fetch_players(
+            {
+                "players": {
+                    "filterStatsForScoringPeriodIds": {
+                        "value": [int(scoring_period_id)]
+                    },
+                    "limit": limit,
+                    "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+                }
+            }
+        )
+
+    def _fetch_league_players(self, players_filter: dict) -> list:
+        """One league-scoped kona_player_info fetch with the given filter.
+
+        The kona view rides on the LEAGUE URL; the response is the
+        league object (in practice just a ``players`` key) whose
+        ``players`` array holds the nested entries.
+        """
+        url = self.league_url() + "?view=kona_player_info"
+        data = self._get(
+            url,
+            headers={"X-Fantasy-Filter": json.dumps(players_filter)},
+            what="ESPN league players",
+        )
+        if not isinstance(data, dict):
+            raise EspnError(
+                "ESPN league players: unexpected response (expected object)"
+            )
+        players = data.get("players")
+        if not isinstance(players, list):
+            raise EspnError(
+                "ESPN league players: unexpected response "
+                "(expected players list)"
+            )
+        return players
+
+    def get_league_players(self, limit: int = 1000) -> list:
+        """Player entries for THIS league, sorted by percent owned (desc).
+
+        The league-scoped kona view is the rich player source: entries
+        are nested (``{id, onTeamId, player}``) and each ``player``
+        carries ``stats``, ``ownership`` and ``eligibleSlots``. The
+        ``X-Fantasy-Filter`` header is honoured here — limit and sort
+        actually apply (live-verified Oct 2026, PRs #172-#174: a limit
+        of 1500 returned the full ~1,099-player pool). Without a
+        filter the view serves only a 50-entry default page, so the
+        filter is not optional.
+
+        Do NOT "simplify" this back to :meth:`get_players`: on this
+        host the seasons-level players endpoint IGNORES the filter
+        header and returns a flat, minimal list — name, position and
+        injury status only, with no nested player object, no stats,
+        no ownership and no onTeamId — which silently emptied the
+        waiver report. The seasons endpoint remains in use only by
+        the lineup schedule gate (see :meth:`get_players_for_period`).
+        """
+        return self._fetch_league_players(
+            {
+                "players": {
+                    "limit": limit,
+                    "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+                }
+            }
+        )
+
+    def get_league_players_for_period(
+        self, scoring_period_id: int, limit: int = 1000
+    ) -> list:
+        """League-kona entries with stat splits for ONE scoring period.
+
+        ``filterStatsForScoringPeriodIds`` on the league URL scopes
+        each player's ``stats`` to exactly that day: live-verified
+        (PRs #172-#174) to return a single actual split
+        (statSplitTypeId 5, statSourceId 0) per player who recorded a
+        game that day, keyed by the requested scoringPeriodId. Note
+        the ``scoringPeriodId`` QUERY PARAM does not scope kona stats
+        — its stat distribution is identical to the unscoped fetch —
+        so the filter document is the only scoping mechanism here.
+        """
+        return self._fetch_league_players(
             {
                 "players": {
                     "filterStatsForScoringPeriodIds": {

@@ -4,14 +4,21 @@ and the account's own drop candidates.
 Powers the daily waiver report. Everything is computed live from the
 account's ESPN league (no snapshots, no writes):
 
-  - The free-agent pool is the kona player pool (``EspnClient.get_players``)
-    minus every player rostered in this league (league-payload rosters and
-    the pool entries' ``onTeamId`` are both honoured).
-  - Recent form comes from per-scoring-period kona fetches
-    (``EspnClient.get_players_for_period``): one fetch per day for the
-    trailing 15 scoring periods gives exact games played and per-game
-    fantasy points for the last-15-days and last-7-days windows. A scoring
-    period is one day, so the windows are period ranges
+  - The free-agent pool is the league-scoped kona player pool
+    (``EspnClient.get_league_players``) minus every player rostered in
+    this league (league-payload rosters and the pool entries'
+    ``onTeamId`` are both honoured). The seasons-level players endpoint
+    is NOT a usable source here: live probes (PRs #172-#174) showed it
+    returns a flat, minimal list with no stats or ownership and ignores
+    the filter header — the league view is where the rich nested
+    entries live.
+  - Recent form comes from per-scoring-period league-kona fetches
+    (``EspnClient.get_league_players_for_period``): one fetch per day
+    for the trailing 15 scoring periods gives exact games played and
+    per-game fantasy points for the last-15-days and last-7-days
+    windows. Each day fetch's stats are a single actual day split
+    (statSplitTypeId 5, statSourceId 0) per player who played that
+    day. A scoring period is one day, so the windows are period ranges
     ``[current-14, current]`` and ``[current-6, current]``.
   - Fantasy points are ALWAYS the shared conversion — the league's own
     scoring items (``lineup.scoring_items``) applied through
@@ -53,7 +60,7 @@ LAST7_PERIODS = 7
 FREE_AGENT_LIMIT = 25
 POCKET_PICK_LIMIT = 8
 DROP_LIMIT = 5
-POOL_LIMIT = 1000
+POOL_LIMIT = 2000
 
 # ESPN pro team ids -> abbreviations. Cosmetic only: ids drive every
 # computation (schedule counts included); the abbreviation is display.
@@ -176,7 +183,9 @@ def _fetch_day_points(client, periods: list, items: list):
     failed = []
     for period in periods:
         try:
-            entries = client.get_players_for_period(period, limit=POOL_LIMIT)
+            entries = client.get_league_players_for_period(
+                period, limit=POOL_LIMIT
+            )
         except EspnAuthError:
             raise
         except EspnError:
@@ -388,95 +397,13 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
 
     # The pool.
     pool: dict = {}  # player_id -> {player, on_team_id}
-    raw_pool = client.get_players(POOL_LIMIT) or []
+    raw_pool = client.get_league_players(POOL_LIMIT) or []
     for entry in raw_pool:
         player = _entry_player(entry)
         pid = _entry_player_id(entry, player)
         if pid is None:
             continue
         pool[pid] = {"player": player, "on_team_id": entry.get("onTeamId")}
-    # TEMP PROBE (shape diagnostic; remove once the live kona shape is known)
-    def _shape(entries):
-        if not entries:
-            return "no entries"
-        e = entries[0]
-        if not isinstance(e, dict):
-            return f"first entry is {type(e).__name__}"
-        parts = [f"count={len(entries)}", f"entry_keys={sorted(e.keys())}"]
-        p = e.get("player")
-        if isinstance(p, dict):
-            parts.append(f"player_keys={sorted(p.keys())}")
-            parts.append(f"player_stats={len(p.get('stats') or [])}")
-            parts.append(f"player_ownership={type(p.get('ownership')).__name__}")
-        else:
-            parts.append(f"player_field={type(p).__name__}")
-        parts.append(f"top_stats={len(e.get('stats') or [])}")
-        parts.append(f"top_ownership={type(e.get('ownership')).__name__}")
-        return "; ".join(parts)
-
-    notes.append("PROBE pool: " + _shape(raw_pool))
-    try:
-        probe_entries = client.get_players_for_period(current, limit=5) or []
-        notes.append("PROBE period: " + _shape(probe_entries))
-    except Exception as exc:  # probe only; never fail the report on it
-        notes.append(f"PROBE period fetch failed: {type(exc).__name__}")
-
-    try:
-        lk = client.get_league(["kona_player_info"]) or {}
-        lps = lk.get("players") or []
-        notes.append(
-            "PROBE league-kona: payload_keys="
-            + str(sorted(lk.keys())[:25])
-            + "; "
-            + _shape(lps)
-        )
-        lk9 = client.get_league(["kona_player_info"], scoring_period_id=current) or {}
-        lps9 = lk9.get("players") or []
-        notes.append("PROBE league-kona-period: " + _shape(lps9))
-        if lps9 and isinstance(lps9[0], dict):
-            p9 = lps9[0].get("player")
-            if isinstance(p9, dict):
-                spids = sorted(
-                    {s.get("scoringPeriodId") for s in (p9.get("stats") or []) if isinstance(s, dict)}
-                )
-                notes.append(f"PROBE league-kona-period stat periods: {spids[:8]}")
-    except Exception as exc:  # probe only
-        notes.append(f"PROBE league-kona failed: {type(exc).__name__}")
-
-    try:
-        import json as _json
-        from collections import Counter as _Counter
-
-        def _stat_dist(entries):
-            c = _Counter()
-            for e in entries or []:
-                p = e.get("player") if isinstance(e, dict) else None
-                if not isinstance(p, dict):
-                    continue
-                for s in p.get("stats") or []:
-                    if isinstance(s, dict):
-                        c[(s.get("scoringPeriodId"), s.get("statSplitTypeId"), s.get("statSourceId"))] += 1
-            return str(c.most_common(10))
-
-        def _league_kona(filt=None, period=None):
-            url = client.league_url() + "?view=kona_player_info"
-            if period is not None:
-                url += f"&scoringPeriodId={period}"
-            headers = {"X-Fantasy-Filter": _json.dumps(filt)} if filt else None
-            data = client._get(url, headers=headers, what="ESPN league kona probe")
-            return (data or {}).get("players") or []
-
-        base_entries = (client.get_league(["kona_player_info"]) or {}).get("players") or []
-        notes.append("PROBE3 base stat dist: " + _stat_dist(base_entries))
-        filt_entries = _league_kona({"players": {"limit": 1500, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}})
-        notes.append(f"PROBE3 filter-limit: count={len(filt_entries)}; " + _shape(filt_entries))
-        day_entries = _league_kona({"players": {"filterStatsForScoringPeriodIds": {"value": [current]}, "limit": 1500, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}})
-        notes.append(f"PROBE3 filter-day: count={len(day_entries)}; dist=" + _stat_dist(day_entries))
-        scoped_entries = (client.get_league(["kona_player_info"], scoring_period_id=current) or {}).get("players") or []
-        notes.append("PROBE3 param-day dist: " + _stat_dist(scoped_entries))
-    except Exception as exc:  # probe only
-        notes.append(f"PROBE3 failed: {type(exc).__name__}: {exc}")
-
     for pid, rostered in own_roster.items():
         if pid not in pool:
             pool[pid] = {"player": rostered["player"], "on_team_id": own_team_id}

@@ -253,6 +253,81 @@ def test_get_players_for_period_non_list_body_raises(monkeypatch):
         _client().get_players_for_period(6)
 
 
+# --- league players (league-scoped kona) ---------------------------------------
+def test_get_league_players_extracts_players_and_sends_filter(monkeypatch):
+    players = [{"id": 1, "onTeamId": 0, "player": {"fullName": "Player One"}},
+               {"id": 2, "onTeamId": 3, "player": {"fullName": "Player Two"}}]
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": players}))
+    client = _client()
+    assert client.get_league_players() == players
+    (req,) = t.requests
+    assert req.full_url.startswith(LEAGUE_URL + "?")
+    assert query_of(req) == {"view": ["kona_player_info"]}
+    h = headers_of(req)
+    assert h["cookie"] == f"espn_s2={ESPN_S2}; SWID={SWID}"
+    fantasy_filter = json.loads(h["x-fantasy-filter"])
+    assert fantasy_filter == {
+        "players": {
+            "limit": 1000,
+            "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+        }
+    }
+
+
+def test_get_league_players_custom_limit(monkeypatch):
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": []}))
+    assert _client().get_league_players(limit=2000) == []
+    fantasy_filter = json.loads(headers_of(t.requests[0])["x-fantasy-filter"])
+    assert fantasy_filter["players"]["limit"] == 2000
+
+
+def test_get_league_players_non_dict_body_raises(monkeypatch):
+    StubTransport(monkeypatch).on(LEAGUE_URL, ok([{"not": "a league"}]))
+    with pytest.raises(EspnError, match="unexpected response"):
+        _client().get_league_players()
+
+
+def test_get_league_players_missing_players_list_raises(monkeypatch):
+    StubTransport(monkeypatch).on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    with pytest.raises(EspnError, match="unexpected response"):
+        _client().get_league_players()
+
+
+def test_get_league_players_for_period_filters_stats(monkeypatch):
+    players = [
+        {
+            "id": 1,
+            "onTeamId": 0,
+            "player": {
+                "fullName": "Player One",
+                "proTeamId": 2,
+                "stats": [
+                    {
+                        "statSourceId": 0,
+                        "statSplitTypeId": 5,
+                        "scoringPeriodId": 9,
+                        "appliedTotal": 33.0,
+                    }
+                ],
+            },
+        }
+    ]
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": players}))
+    client = _client()
+    assert client.get_league_players_for_period(9) == players
+    (req,) = t.requests
+    assert req.full_url.startswith(LEAGUE_URL + "?")
+    assert query_of(req) == {"view": ["kona_player_info"]}
+    fantasy_filter = json.loads(headers_of(req)["x-fantasy-filter"])
+    assert fantasy_filter == {
+        "players": {
+            "filterStatsForScoringPeriodIds": {"value": [9]},
+            "limit": 1000,
+            "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
+        }
+    }
+
+
 # --- probe (onboarding) --------------------------------------------------------
 def test_probe_returns_league_payload(monkeypatch):
     payload = {"id": LEAGUE_ID, "settings": {"name": "Fantasy Hoops '27"},
