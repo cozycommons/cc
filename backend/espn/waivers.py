@@ -288,31 +288,59 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
     runner). ``scoreboard`` is an optional ScoreboardClient for the
     schedule fallback. Raises EspnAuthError / EspnError from the wire,
     ValueError when the current scoring period can be neither read
-    from the payload nor derived from its pro-games schedule.
+    from the payload nor derived — from its pro-games schedule, or
+    from the public scoreboard when the payload carries no schedule
+    at all.
     """
     payload = client.get_league(["mSettings", "mTeam", "mRoster"]) or {}
     items = lineup.scoring_items(payload)
     notes: list[str] = []
     status = payload.get("status") or {}
+    first = _period_int(status.get("firstScoringPeriod"))
+    if first is None:
+        first = 1
     current = _period_int(status.get("currentScoringPeriod"))
     if current is None:
         # ESPN omits currentScoringPeriod in-season (first seen on
         # opening day 2026-10-20; the lineup runner documents the same
         # reality and falls back identically): derive today's period
         # from the pro-games block's period->date map.
-        if not isinstance(payload.get("proGamesByScoringPeriod"), dict):
+        today = datetime.now(lineup._ET).date()
+        if isinstance(payload.get("proGamesByScoringPeriod"), dict):
+            current = lineup.resolve_scoring_period(
+                payload, date=today.isoformat()
+            )
+            notes.append(
+                "the league payload omitted status.currentScoringPeriod; "
+                f"the current period ({current}) was derived from the "
+                "pro-games schedule for today's date (America/New_York), "
+                "the lineup runner's fallback"
+            )
+        elif scoreboard is not None:
+            # The payload carries no pro-games block either (the live
+            # reality after #169): anchor on the public scoreboard the
+            # way the runner's no-date path does — period ``first``
+            # falls on the season's first regular-season date and
+            # periods advance one per calendar day.
+            start, end = lineup._scoreboard_window(client.season)
+            season_start = scoreboard.first_regular_season_date(start, end)
+            if season_start is not None:
+                derived = first + (today - season_start).days
+                if derived >= first:
+                    current = derived
+                    notes.append(
+                        "the league payload omitted "
+                        "status.currentScoringPeriod and carried no "
+                        f"pro-games schedule; the current period "
+                        f"({current}) was derived from the public "
+                        f"scoreboard: period {first} began on the "
+                        "season's first regular-season date "
+                        f"({season_start.isoformat()}), and periods "
+                        "advance one per calendar day "
+                        "(America/New_York) — the lineup runner's anchor"
+                    )
+        if current is None:
             raise ValueError("league payload has no current scoring period")
-        today_et = datetime.now(lineup._ET).date().isoformat()
-        current = lineup.resolve_scoring_period(payload, date=today_et)
-        notes.append(
-            "the league payload omitted status.currentScoringPeriod; "
-            f"the current period ({current}) was derived from the "
-            "pro-games schedule for today's date (America/New_York), "
-            "the lineup runner's fallback"
-        )
-    first = _period_int(status.get("firstScoringPeriod"))
-    if first is None:
-        first = 1
     last15_start = max(first, current - (LAST15_PERIODS - 1))
     last7_start = max(first, current - (LAST7_PERIODS - 1))
     notes.append(

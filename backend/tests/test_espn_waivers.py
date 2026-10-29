@@ -417,6 +417,75 @@ def test_current_period_derived_when_status_omits_it():
     assert report["free_agents"]
 
 
+class FakeScoreboard:
+    """Duck-typed ScoreboardClient: only the season-start lookup."""
+
+    def __init__(self, first_date):
+        self._first_date = first_date
+
+    def first_regular_season_date(self, start, end):
+        return self._first_date
+
+
+def _payload_without_period_or_schedule():
+    payload = copy.deepcopy(LEAGUE_PAYLOAD)
+    payload["status"] = {"currentMatchupPeriod": 3, "firstScoringPeriod": 1}
+    del payload["proGamesByScoringPeriod"]
+    return payload
+
+
+def test_current_period_derived_from_scoreboard_without_schedule_block():
+    """The payload carries neither status.currentScoringPeriod nor a
+    proGamesByScoringPeriod block (the live failure after #169): the
+    period must come from the scoreboard anchor — period 1 on the
+    season's first regular-season date, one period per calendar day —
+    exactly the lineup runner's derivation."""
+    payload = _payload_without_period_or_schedule()
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    today_et = datetime.now(ZoneInfo("America/New_York")).date()
+    # CURRENT periods in, the season started CURRENT - 1 days ago.
+    scoreboard = FakeScoreboard(today_et - timedelta(days=CURRENT - 1))
+    report = waivers.get_waivers(_Client(), "{SWID-1}", scoreboard=scoreboard)
+    assert report["scoring_period"] == CURRENT
+    assert any(
+        "scoreboard" in note and "derived" in note
+        for note in report["notes"]
+    )
+    assert report["free_agents"]
+
+
+def test_period_underivable_without_scoreboard_still_raises():
+    """No currentScoringPeriod, no pro-games block, and no scoreboard
+    injected: the original 400-worthy ValueError stands."""
+    payload = _payload_without_period_or_schedule()
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    with pytest.raises(ValueError, match="no current scoring period"):
+        waivers.get_waivers(_Client(), "{SWID-1}")
+
+
+def test_period_before_season_start_still_raises():
+    """A scoreboard anchor in the future would derive a period before
+    the first one; that is preseason, not a report — keep the error."""
+    payload = _payload_without_period_or_schedule()
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    today_et = datetime.now(ZoneInfo("America/New_York")).date()
+    scoreboard = FakeScoreboard(today_et + timedelta(days=3))
+    with pytest.raises(ValueError, match="no current scoring period"):
+        waivers.get_waivers(_Client(), "{SWID-1}", scoreboard=scoreboard)
+
+
 @pytest.fixture()
 def client(monkeypatch):
     application = FastAPI()
