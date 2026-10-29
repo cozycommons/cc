@@ -19,6 +19,10 @@ Hand-computed spot checks (see test_fp_spot_checks):
           = 8 - 10 + 2 - 2 + 1 + 4 + 6 + 0 + 0 - 10 + 11 = 10.0
 """
 
+import copy
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -382,6 +386,35 @@ def test_period_auth_failure_propagates():
 
 
 # --- route ------------------------------------------------------------------------
+
+
+def test_current_period_derived_when_status_omits_it():
+    """ESPN omits status.currentScoringPeriod in-season (the lineup
+    runner documents the same reality). The report must derive today's
+    period from the pro-games block instead of failing."""
+    payload = copy.deepcopy(LEAGUE_PAYLOAD)
+    payload["status"] = {"currentMatchupPeriod": 3, "firstScoringPeriod": 1}
+    today_et = datetime.now(ZoneInfo("America/New_York")).date()
+    block = {}
+    for period, games in _games_block().items():
+        day = today_et + timedelta(days=int(period) - CURRENT)
+        stamp = int(
+            datetime.combine(
+                day, time(19, 0), tzinfo=ZoneInfo("America/New_York")
+            ).timestamp()
+            * 1000
+        )
+        block[period] = [dict(game, date=stamp) for game in games]
+    payload["proGamesByScoringPeriod"] = block
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    report = _report(_Client())
+    assert report["scoring_period"] == CURRENT
+    assert any("derived" in note for note in report["notes"])
+    assert report["free_agents"]
 
 
 @pytest.fixture()
