@@ -421,6 +421,28 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
     except Exception as exc:  # probe only; never fail the report on it
         notes.append(f"PROBE period fetch failed: {type(exc).__name__}")
 
+    try:
+        lk = client.get_league(["kona_player_info"]) or {}
+        lps = lk.get("players") or []
+        notes.append(
+            "PROBE league-kona: payload_keys="
+            + str(sorted(lk.keys())[:25])
+            + "; "
+            + _shape(lps)
+        )
+        lk9 = client.get_league(["kona_player_info"], scoring_period_id=current) or {}
+        lps9 = lk9.get("players") or []
+        notes.append("PROBE league-kona-period: " + _shape(lps9))
+        if lps9 and isinstance(lps9[0], dict):
+            p9 = lps9[0].get("player")
+            if isinstance(p9, dict):
+                spids = sorted(
+                    {s.get("scoringPeriodId") for s in (p9.get("stats") or []) if isinstance(s, dict)}
+                )
+                notes.append(f"PROBE league-kona-period stat periods: {spids[:8]}")
+    except Exception as exc:  # probe only
+        notes.append(f"PROBE league-kona failed: {type(exc).__name__}")
+
     for pid, rostered in own_roster.items():
         if pid not in pool:
             pool[pid] = {"player": rostered["player"], "on_team_id": own_team_id}
