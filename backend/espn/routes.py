@@ -235,7 +235,9 @@ class OnboardLoginBody(BaseModel):
     )
     enable_automation: bool = Field(
         default=False,
-        description="Opt the new account into daily lineup automation",
+        description="Deprecated and ignored: lineup automation is "
+        "enabled for every new account at onboarding; opt out via "
+        "POST /espn/automation/lineup",
     )
 
 
@@ -353,14 +355,11 @@ def onboard_login(body: OnboardLoginBody, request: Request):
     except EspnError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    automation = False
-    if body.enable_automation:
-        try:
-            automation = accounts.set_lineup_automation(
-                _supabase(request), created["id"], True
-            )
-        except Exception:
-            automation = False
+    # Automation is part of onboarding: create_account stored the
+    # account with lineup_automation_enabled = true (product decision,
+    # 2026-10-29), so there is no post-create opt-in step here. The
+    # opt-out / re-enable switch is POST /espn/automation/lineup.
+    automation = True
     logger.info(
         "espn onboard/login ok: account=%s league=%s automation=%s",
         created.get("id"),
