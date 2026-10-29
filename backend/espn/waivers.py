@@ -443,6 +443,40 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
     except Exception as exc:  # probe only
         notes.append(f"PROBE league-kona failed: {type(exc).__name__}")
 
+    try:
+        import json as _json
+        from collections import Counter as _Counter
+
+        def _stat_dist(entries):
+            c = _Counter()
+            for e in entries or []:
+                p = e.get("player") if isinstance(e, dict) else None
+                if not isinstance(p, dict):
+                    continue
+                for s in p.get("stats") or []:
+                    if isinstance(s, dict):
+                        c[(s.get("scoringPeriodId"), s.get("statSplitTypeId"), s.get("statSourceId"))] += 1
+            return str(c.most_common(10))
+
+        def _league_kona(filt=None, period=None):
+            url = client.league_url() + "?view=kona_player_info"
+            if period is not None:
+                url += f"&scoringPeriodId={period}"
+            headers = {"X-Fantasy-Filter": _json.dumps(filt)} if filt else None
+            data = client._get(url, headers=headers, what="ESPN league kona probe")
+            return (data or {}).get("players") or []
+
+        base_entries = (client.get_league(["kona_player_info"]) or {}).get("players") or []
+        notes.append("PROBE3 base stat dist: " + _stat_dist(base_entries))
+        filt_entries = _league_kona({"players": {"limit": 1500, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}})
+        notes.append(f"PROBE3 filter-limit: count={len(filt_entries)}; " + _shape(filt_entries))
+        day_entries = _league_kona({"players": {"filterStatsForScoringPeriodIds": {"value": [current]}, "limit": 1500, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}}})
+        notes.append(f"PROBE3 filter-day: count={len(day_entries)}; dist=" + _stat_dist(day_entries))
+        scoped_entries = (client.get_league(["kona_player_info"], scoring_period_id=current) or {}).get("players") or []
+        notes.append("PROBE3 param-day dist: " + _stat_dist(scoped_entries))
+    except Exception as exc:  # probe only
+        notes.append(f"PROBE3 failed: {type(exc).__name__}: {exc}")
+
     for pid, rostered in own_roster.items():
         if pid not in pool:
             pool[pid] = {"player": rostered["player"], "on_team_id": own_team_id}
