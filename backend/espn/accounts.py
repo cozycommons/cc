@@ -85,6 +85,11 @@ def create_account(supabase, label, league_id, season, espn_s2, swid) -> dict:
     failure; nothing is stored when the probe fails.
 
     ``season`` is the ending year: the 2026-27 season is season 2027.
+
+    New accounts start with lineup automation ENABLED: automatic
+    lineup setting is part of onboarding, not a separate opt-in
+    (product decision, 2026-10-29). POST /espn/automation/lineup
+    remains the opt-out / re-enable switch.
     """
     label = (label or "").strip()[:80] or "espn"
     league_id = _coerce_int(league_id, "league_id")
@@ -119,6 +124,10 @@ def create_account(supabase, label, league_id, season, espn_s2, swid) -> dict:
         "swid_enc": encrypt_secret(swid),
         "token_hash": hash_token(token),
         "token_prefix": token[:12],
+        # Automation is on from creation (see docstring); the column
+        # default in migration 0008 stays false for rows created any
+        # other way, so onboarding sets it explicitly here.
+        "lineup_automation_enabled": True,
     }
     res = supabase.table("espn_accounts").insert(row).execute()
     created = (res.data or [{}])[0]
@@ -128,6 +137,7 @@ def create_account(supabase, label, league_id, season, espn_s2, swid) -> dict:
         "league_id": league_id,
         "season": season,
         "token": token,
+        "lineup_automation_enabled": True,
     }
 
 
