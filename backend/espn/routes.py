@@ -10,6 +10,7 @@ Endpoints:
   GET  /espn/transactions     recent transactions (player ids only)
   GET  /espn/trends/players   ownership + performance trends (snapshot-based)
   GET  /espn/trends/teams     per-team form / all-play / luck trends
+  GET  /espn/waivers          waiver wire: FA form, pocket picks, drops
   GET  /espn/draft            draft picks in overall-pick order
   POST /espn/automation/lineup  opt in/out of daily lineup automation
   POST /espn/lineup/run       set today's lineup now (or dry-run a plan)
@@ -59,6 +60,7 @@ from . import disney_login
 from . import lineup
 from . import logic
 from . import snapshots
+from . import waivers as waivers_logic
 from .accounts import AccountError
 from .espn_client import EspnAuthError, EspnClient, EspnError
 from .public_predictions import router as public_predictions_router
@@ -504,6 +506,32 @@ def team_trends(
     client = _client(account)
     try:
         return logic.get_team_trends(client)
+    except EspnAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except EspnError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/waivers")
+def waiver_wire(
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """Waiver-wire report: free-agent form, pocket picks, drop candidates.
+
+    Live-computed from the account's league (see espn/waivers.py): the
+    top free agents by last-15-days fantasy points per game under the
+    league's own scoring, a deterministic low-ownership pocket-pick
+    subset with reasons, and the account's own coldest healthy players.
+    Read-only — no ESPN writes.
+    """
+    client = _client(account)
+    try:
+        return waivers_logic.get_waivers(
+            client, account.get("swid"), scoreboard=ScoreboardClient()
+        )
     except EspnAuthError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except EspnError as e:
