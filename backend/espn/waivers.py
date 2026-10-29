@@ -265,6 +265,21 @@ def _base_reasons(rec: dict) -> list:
 # --- the report -------------------------------------------------------------------
 
 
+def _period_int(value) -> int | None:
+    """Lenient scoring-period coercion (the lineup runner int()s the
+    same status fields): ints pass, integral floats and digit strings
+    convert, everything else is None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return None
+
+
 def get_waivers(client, swid, scoreboard=None) -> dict:
     """The waiver-wire report for the account behind ``client``.
 
@@ -272,19 +287,32 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
     account's team for drop candidates, exactly like the lineup
     runner). ``scoreboard`` is an optional ScoreboardClient for the
     schedule fallback. Raises EspnAuthError / EspnError from the wire,
-    ValueError when the league payload has no current scoring period.
+    ValueError when the current scoring period can be neither read
+    from the payload nor derived from its pro-games schedule.
     """
     payload = client.get_league(["mSettings", "mTeam", "mRoster"]) or {}
     items = lineup.scoring_items(payload)
-    status = payload.get("status") or {}
-    current = status.get("currentScoringPeriod")
-    if not isinstance(current, int) or isinstance(current, bool):
-        raise ValueError("league payload has no current scoring period")
-    first = status.get("firstScoringPeriod")
-    if not isinstance(first, int) or isinstance(first, bool):
-        first = 1
-
     notes: list[str] = []
+    status = payload.get("status") or {}
+    current = _period_int(status.get("currentScoringPeriod"))
+    if current is None:
+        # ESPN omits currentScoringPeriod in-season (first seen on
+        # opening day 2026-10-20; the lineup runner documents the same
+        # reality and falls back identically): derive today's period
+        # from the pro-games block's period->date map.
+        if not isinstance(payload.get("proGamesByScoringPeriod"), dict):
+            raise ValueError("league payload has no current scoring period")
+        today_et = datetime.now(lineup._ET).date().isoformat()
+        current = lineup.resolve_scoring_period(payload, date=today_et)
+        notes.append(
+            "the league payload omitted status.currentScoringPeriod; "
+            f"the current period ({current}) was derived from the "
+            "pro-games schedule for today's date (America/New_York), "
+            "the lineup runner's fallback"
+        )
+    first = _period_int(status.get("firstScoringPeriod"))
+    if first is None:
+        first = 1
     last15_start = max(first, current - (LAST15_PERIODS - 1))
     last7_start = max(first, current - (LAST7_PERIODS - 1))
     notes.append(
