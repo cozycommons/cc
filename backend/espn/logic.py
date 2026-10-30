@@ -62,6 +62,23 @@ def _members_by_id(payload: dict) -> dict:
     return members
 
 
+# Per-team waiver priority lives on the team object in ESPN's payload
+# (it is state, not a setting, so it is NOT in the acquisitionSettings
+# block). No recorded payload in this repo carries it yet, so the read
+# is defensive: the canonical key first, then the plausible variants,
+# each accepted only as a plain int. Anything else degrades to None —
+# the rank is ESPN state and is never derived from standings/record.
+_WAIVER_RANK_KEYS = ("waiverRank", "currentWaiverRank", "waiver_rank")
+
+
+def _waiver_rank(team: dict):
+    for key in _WAIVER_RANK_KEYS:
+        value = team.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
 def _slim_team(team: dict, members: dict) -> dict:
     record = ((team.get("record") or {}).get("overall")) or {}
     streak_raw = record.get("streak") or {}
@@ -84,6 +101,7 @@ def _slim_team(team: dict, members: dict) -> dict:
         "points_for": record.get("pointsFor"),
         "points_against": record.get("pointsAgainst"),
         "streak": streak,
+        "waiver_rank": _waiver_rank(team),
     }
 
 
