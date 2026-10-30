@@ -314,6 +314,32 @@ def test_get_league_acquisition_settings_absent(client):
     }
 
 
+def _payload_with_teams(teams):
+    return dict(LEAGUE_PAYLOAD, teams=teams)
+
+
+def test_get_league_waiver_rank_parsed():
+    teams = [dict(t) for t in LEAGUE_PAYLOAD["teams"]]
+    teams[0]["waiverRank"] = 2
+    teams[1]["currentWaiverRank"] = 1
+    # teams[2] carries no waiver field at all
+    res = logic.get_league(FakeClient(payload=_payload_with_teams(teams)))
+    assert [t["waiver_rank"] for t in res["teams"]] == [2, 1, None]
+    # pre-existing keys are untouched
+    alpha = res["teams"][0]
+    assert alpha["name"] == "Alpha"
+    assert alpha["wins"] == 8
+    assert alpha["streak"] == "W2"
+
+
+def test_get_league_waiver_rank_absent_is_none(client):
+    # the default fixture carries no per-team waiver field: the rank
+    # degrades to None on every team instead of disappearing (and is
+    # never invented from standings or record)
+    res = logic.get_league(client)
+    assert [t["waiver_rank"] for t in res["teams"]] == [None, None, None]
+
+
 def test_get_standings_order_and_rank(client):
     res = logic.get_standings(client)
     assert res["count"] == 3
