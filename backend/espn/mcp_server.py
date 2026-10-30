@@ -9,6 +9,12 @@ Deliberately no matchup-summary tool in v1. The one non-read tool surface
 is the lineup run log (v2): daily lineup automation runs server-side under
 the user's standing instructions, and get_lineup_runs exposes their plans
 and conflicts here for on-demand pulling.
+
+Roster edits (add/drop) are exposed as an explicit propose -> approve
+pair mirroring the REST routes: propose_roster_edit validates and
+persists a pending edit (submitting nothing), and approve_roster_edit is
+the separate, deliberate call that executes it — the two calls are the
+approval gate, never a single combined operation.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from supabase import create_client
 from . import accounts
 from . import lineup
 from . import logic
+from . import roster_edits
 from . import snapshots
 from .accounts import AccountError
 from .scoreboard import ScoreboardClient
@@ -207,4 +214,72 @@ def run_lineup(
         date=date,
         scoreboard=ScoreboardClient(),
     )
+    return json.dumps(result)
+
+
+@mcp.tool()
+def propose_roster_edit(
+    api_token: str,
+    add_player_id: int | None = None,
+    drop_player_id: int | None = None,
+) -> str:
+    """Propose a roster add/drop for your team — SUBMITS NOTHING.
+
+    Validates the edit against the live league (add target is a free
+    agent, drop target is on your roster, post-edit roster is legal)
+    and persists it as a pending edit with a validated snapshot, a
+    human preview, and a 30-minute expiry. Pass both ids for a swap,
+    or just one for an add-only / drop-only edit. The edit executes
+    only when approve_roster_edit is called with the returned edit id
+    — show the preview to the user and get their explicit approval
+    before making that second call.
+    """
+    supabase, account, client = _account_and_client(api_token)
+    result = roster_edits.propose_edit(
+        supabase,
+        account,
+        client,
+        add_player_id=add_player_id,
+        drop_player_id=drop_player_id,
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+def approve_roster_edit(api_token: str, edit_id: str) -> str:
+    """Approve and execute ONE pending roster edit (the approval step).
+
+    Executes the edit as a single ESPN transaction and records the
+    outcome on the edit: executed, waiver_pending (the add became a
+    waiver claim, bid 0), or failed with ESPN's error. Only call this
+    after the user has explicitly approved the exact edit shown by
+    propose_roster_edit. Approving an already-executed or expired
+    edit is an error and never double-submits.
+    """
+    supabase, account, client = _account_and_client(api_token)
+    result = roster_edits.approve_edit(
+        supabase,
+        account,
+        client,
+        edit_id,
+        scoreboard=ScoreboardClient(),
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+def get_roster_edits(
+    api_token: str, limit: int = 25, edit_id: str | None = None
+) -> str:
+    """Roster edits for your account, newest first (the audit trail).
+
+    Pass edit_id to fetch just that one edit's current status.
+    """
+    supabase, account, _ = _account_and_client(api_token)
+    if edit_id is not None:
+        edit = roster_edits.get_edit(supabase, account["id"], edit_id)
+        if edit is None:
+            raise ValueError("no roster edit with that id for this account")
+        return json.dumps(edit)
+    result = roster_edits.list_edits(supabase, account["id"], limit)
     return json.dumps(result)
