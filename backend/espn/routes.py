@@ -15,13 +15,23 @@ Endpoints:
   POST /espn/automation/lineup  opt in/out of daily lineup automation
   POST /espn/lineup/run       set today's lineup now (or dry-run a plan)
   GET  /espn/lineup/runs      past lineup runs + their conflicts
+  POST /espn/roster/edits     propose a roster add/drop (validates +
+                              persists a pending edit; submits nothing)
+  POST /espn/roster/edits/{id}/approve
+                              approve + execute one pending edit as a
+                              single ESPN transaction
+  GET  /espn/roster/edits     the account's roster edits (audit trail)
+  GET  /espn/roster/edits/{id}  one roster edit
   DELETE /espn/account        delete the caller's account (+ cascaded history)
 
 There is deliberately no /matchups endpoint in v1.
 
 The lineup endpoints are v2: fully automatic daily lineup setting under
-the user's standing instructions (see espn/lineup.py). Lineup moves
-only — there are no add/drop/trade endpoints.
+the user's standing instructions (see espn/lineup.py). The roster-edit
+endpoints are the module's other write: approval-gated add/drop (see
+espn/roster_edits.py) — an edit is proposed, validated and persisted
+first, and only an explicit approve call executes it. There are no
+trade endpoints.
 
 Onboarding stores the caller's ESPN cookies (espn_s2 + SWID) encrypted at
 rest (see accounts.py):
@@ -59,6 +69,7 @@ from . import accounts
 from . import disney_login
 from . import lineup
 from . import logic
+from . import roster_edits
 from . import snapshots
 from . import waivers as waivers_logic
 from .accounts import AccountError
@@ -645,3 +656,119 @@ def lineup_runs(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- roster edits (approval-gated add/drop) ------------------------------------
+
+
+class RosterEditBody(BaseModel):
+    add_player_id: int | None = Field(
+        default=None,
+        description="ESPN player id to add; omit for a drop-only edit",
+    )
+    drop_player_id: int | None = Field(
+        default=None,
+        description="ESPN player id to drop; omit for an add-only edit",
+    )
+
+
+@router.post("/roster/edits")
+def propose_roster_edit(
+    body: RosterEditBody,
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """Propose a roster add/drop for this account (submits NOTHING).
+
+    The edit is validated against the live league — the add target is
+    a free agent, the drop target is on the caller's own roster, and
+    the post-edit roster is legal — and persisted as a pending edit
+    with the validated snapshot, a human preview, and a 30-minute
+    expiry. Executing it takes a separate POST to
+    /espn/roster/edits/{id}/approve; that two-step gate is the point.
+    """
+    client = _client(account)
+    try:
+        return roster_edits.propose_edit(
+            _supabase(request),
+            account,
+            client,
+            add_player_id=body.add_player_id,
+            drop_player_id=body.drop_player_id,
+        )
+    except roster_edits.EditError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except EspnAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except EspnError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/roster/edits/{edit_id}/approve")
+def approve_roster_edit(
+    edit_id: str,
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """Approve and execute one pending roster edit.
+
+    Executes the edit as ONE ESPN transaction and records the outcome
+    on the edit (executed / waiver_pending / failed). Approving an
+    edit that is not pending (already executed, failed, or expired)
+    is a 409, and an edit belonging to another account is a 404 —
+    approving twice never double-submits.
+    """
+    client = _client(account)
+    try:
+        return roster_edits.approve_edit(
+            _supabase(request),
+            account,
+            client,
+            edit_id,
+            scoreboard=ScoreboardClient(),
+        )
+    except roster_edits.EditNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except roster_edits.EditStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except EspnAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except EspnError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/roster/edits")
+def list_roster_edits(
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+    limit: int = Query(default=25, description="Max edits, 1-200"),
+    status: str | None = Query(
+        default=None, description="Only edits in this status"
+    ),
+):
+    """Past roster edits for this account, newest first (audit trail)."""
+    try:
+        return roster_edits.list_edits(
+            _supabase(request), account["id"], limit, status
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/roster/edits/{edit_id}")
+def get_roster_edit(
+    edit_id: str,
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """One roster edit for this account (404 when it is not theirs)."""
+    edit = roster_edits.get_edit(_supabase(request), account["id"], edit_id)
+    if edit is None:
+        raise HTTPException(
+            status_code=404, detail="no roster edit with that id for this account"
+        )
+    return edit
