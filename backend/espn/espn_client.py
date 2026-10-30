@@ -32,8 +32,14 @@ Endpoints:
   - Lineup moves (v2): ``POST .../leagues/{league_id}/transactions/``
     on the write host with a ``ROSTER`` transaction whose items are
     ``LINEUP`` moves (playerId, fromLineupSlotId, toLineupSlotId).
-    That is the ONLY write: there are deliberately no add / drop /
-    trade / waiver methods anywhere in this module.
+  - Roster edits (approval-gated add/drop): the same transactions
+    endpoint with a ``FREEAGENT`` transaction — or ``WAIVER`` (bid 0)
+    when the add target is on waivers — whose items are ``ADD`` /
+    ``DROP`` moves. Items carry ``fromTeamId`` / ``toTeamId`` with
+    team id 0 meaning the free-agent pool, the same shape the
+    ``mTransactions2`` read payload reports for executed league
+    transactions. Trades remain out of scope: there is no trade
+    method anywhere in this module.
 
 Auth is cookie-based: the user's ``espn_s2`` and ``SWID`` cookies are
 sent as a single ``Cookie`` header (``SWID`` is passed through verbatim —
@@ -85,8 +91,9 @@ class EspnAuthError(EspnError):
 class EspnClient:
     """Authenticated ESPN Fantasy access for a single league.
 
-    Reads plus exactly one write (lineup-move transactions); see the
-    module docstring.
+    Reads plus two transaction writes on the same endpoint: lineup
+    moves, and approval-gated roster add/drop edits (see the module
+    docstring and espn/roster_edits.py).
     """
 
     def __init__(self, espn_s2: str, swid: str, league_id: int, season: int):
@@ -360,7 +367,7 @@ class EspnClient:
             }
         )
 
-    # -- the one write: lineup moves ---------------------------------------
+    # -- writes: transactions (lineup moves + roster edits) -----------------
     def transactions_url(self) -> str:
         return (
             f"{WRITE_API_BASE}/seasons/{self.season}/segments/0"
@@ -374,9 +381,9 @@ class EspnClient:
 
         ``items`` are dicts with ``playerId``, ``fromLineupSlotId`` and
         ``toLineupSlotId``; the ``type: "LINEUP"`` marker is stamped
-        here so callers cannot smuggle in any other move type. This is
-        the module's only write — adds, drops, trades and waiver claims
-        are out of scope by design and have no code path.
+        here so callers cannot smuggle in any other move type. Roster
+        add/drop edits go through :meth:`post_roster_transaction`,
+        never through here.
 
         Returns ESPN's transaction response. Raises EspnAuthError when
         the cookies are dead (callers record that as a conflict-level
@@ -406,6 +413,77 @@ class EspnClient:
         if not isinstance(data, dict):
             raise EspnError(
                 "ESPN lineup transaction: unexpected response (expected object)"
+            )
+        return data
+
+    def post_roster_transaction(
+        self,
+        member_id: str,
+        team_id: int,
+        scoring_period_id: int,
+        moves: list,
+        on_waivers: bool = False,
+    ) -> dict:
+        """Submit ONE add/drop transaction (an approval-gated roster edit).
+
+        ``moves`` are dicts ``{"action": "ADD" | "DROP", "playerId":
+        int}``; the wire items are stamped here — ADD moves run pool
+        (team 0) -> ``team_id``, DROP moves run ``team_id`` -> pool —
+        so callers cannot smuggle in any other move type. The
+        transaction ``type`` is ``FREEAGENT`` for a straight free-agent
+        edit and ``WAIVER`` (with ``bidAmount`` 0; FAAB bidding is not
+        supported) when the add target is on waivers, mirroring the
+        transaction types the ``mTransactions2`` read payload reports
+        for these moves. This method only ever runs behind the
+        propose -> approve gate in espn/roster_edits.py.
+
+        Returns ESPN's transaction response. Raises EspnAuthError when
+        the cookies are dead and EspnError on any other failure.
+        """
+        items = []
+        for move in moves:
+            action = move.get("action")
+            player_id = move.get("playerId")
+            if action == "ADD":
+                items.append(
+                    {
+                        "playerId": player_id,
+                        "type": "ADD",
+                        "fromTeamId": 0,
+                        "toTeamId": team_id,
+                    }
+                )
+            elif action == "DROP":
+                items.append(
+                    {
+                        "playerId": player_id,
+                        "type": "DROP",
+                        "fromTeamId": team_id,
+                        "toTeamId": 0,
+                    }
+                )
+            else:
+                raise EspnError(
+                    f"unsupported roster move action: {action!r}"
+                )
+        if not items:
+            raise EspnError("roster transaction has no moves")
+        body = {
+            "isLeagueManager": False,
+            "memberId": member_id,
+            "scoringPeriodId": scoring_period_id,
+            "teamId": team_id,
+            "type": "WAIVER" if on_waivers else "FREEAGENT",
+            "items": items,
+        }
+        if on_waivers:
+            body["bidAmount"] = 0
+        data = self._post(
+            self.transactions_url(), body, what="ESPN roster transaction"
+        )
+        if not isinstance(data, dict):
+            raise EspnError(
+                "ESPN roster transaction: unexpected response (expected object)"
             )
         return data
 

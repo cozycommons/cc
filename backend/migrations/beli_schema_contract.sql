@@ -15,6 +15,7 @@ begin
     'espn_snapshots',
     'espn_public_predictions',
     'espn_team_claims',
+    'espn_roster_edits',
     'fantasy_leagues'
   ] loop
     if to_regclass('public.' || object_name) is null then
@@ -51,6 +52,17 @@ begin
     'espn_team_claims.team_id',
     'espn_team_claims.user_id',
     'espn_team_claims.created_at',
+    'espn_roster_edits.id',
+    'espn_roster_edits.account_id',
+    'espn_roster_edits.league_id',
+    'espn_roster_edits.season',
+    'espn_roster_edits.team_id',
+    'espn_roster_edits.add_player_id',
+    'espn_roster_edits.drop_player_id',
+    'espn_roster_edits.status',
+    'espn_roster_edits.expires_at',
+    'espn_roster_edits.executed_at',
+    'espn_roster_edits.created_at',
     'ig_sources.handle',
     'ig_sources.last_seen_ts',
     'ig_scan_jobs.source_handle',
