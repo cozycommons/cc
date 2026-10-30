@@ -269,6 +269,51 @@ def test_get_league(client):
     assert res["teams"][2]["streak"] == "T1"
 
 
+def test_get_league_acquisition_settings():
+    settings = dict(LEAGUE_PAYLOAD["settings"])
+    settings["acquisitionSettings"] = {
+        "acquisitionLimit": -1,
+        "acquisitionType": "WAIVERS",
+        "acquisitionBudget": 100,
+        "isUsingAcquisitionBudget": True,
+        "minimumBid": 1,
+        "waiverHours": 24,
+        "waiverOrderReset": True,
+    }
+    settings["tradeSettings"] = {"deadlineDate": 1796000000000}
+    payload = dict(LEAGUE_PAYLOAD, settings=settings)
+    res = logic.get_league(FakeClient(payload=payload))
+    assert res["acquisition_settings"] == {
+        "acquisition_limit": -1,
+        "acquisition_type": "WAIVERS",
+        "acquisition_budget": 100,
+        "is_using_acquisition_budget": True,
+        "minimum_bid": 1,
+        "waiver_hours": 24,
+        "waiver_order_reset": True,
+        "trade_deadline": 1796000000000,
+    }
+    # pre-existing keys are untouched
+    assert res["name"] == "Fantasy Hoops '27"
+    assert res["size"] == 3
+
+
+def test_get_league_acquisition_settings_absent(client):
+    # the default fixture carries no acquisitionSettings/tradeSettings
+    # blocks: every field degrades to None instead of disappearing
+    res = logic.get_league(client)
+    assert res["acquisition_settings"] == {
+        "acquisition_limit": None,
+        "acquisition_type": None,
+        "acquisition_budget": None,
+        "is_using_acquisition_budget": None,
+        "minimum_bid": None,
+        "waiver_hours": None,
+        "waiver_order_reset": None,
+        "trade_deadline": None,
+    }
+
+
 def test_get_standings_order_and_rank(client):
     res = logic.get_standings(client)
     assert res["count"] == 3
