@@ -5,8 +5,8 @@ league (standings, rosters, trends) plus automatic daily lineup setting.
 Code: `backend/espn/`. Routes: `/espn/*`. MCP: `/espn/mcp`.
 
 Lineup setting means slot moves only — starters, bench, IR. Roster
-add/drop exists, but only as an approval-gated two-step (propose, then
-approve — see below); there are no trade endpoints.
+add/drop and trade offers exist, but only as approval-gated two-steps
+(propose, then approve — see below).
 
 ## What you need
 
@@ -140,6 +140,29 @@ never double-submits. Edits are per-account: your token only ever sees
 your own. Migration `0014_beli_espn_roster_edits.sql` adds the audit
 table through the normal release step.
 
+## Trade proposals (approval-gated)
+
+Offering players to another team is gated the same way, because
+approving submits a real offer the counterparty sees. `POST
+/espn/trades` with `{"counterparty_team_id": ..., "give_player_ids":
+[...], "receive_player_ids": [...]}` validates the offer against the
+live league — the counterparty exists and is not your own team, every
+give player is on your roster, every receive player is on theirs,
+the post-trade roster is legal for BOTH teams (slot counts with IR
+accounting, so 2-for-1 and 1-for-2 offers change size on both sides),
+and the league's trade deadline has not passed — and stores it as a
+pending proposal (30-minute expiry) with snapshots of both sides and
+a human-readable preview. Nothing is submitted to ESPN. `POST
+/espn/trades/{id}/approve` re-validates, then submits that exact
+offer as ONE ESPN `TRADE` transaction and records the outcome:
+`offered` (ESPN accepted the offer; the counterparty accepts or
+declines on ESPN — that is not tracked here) or `failed` with ESPN's
+error. A proposal that went stale since proposal (a player moved, the
+deadline passed) fails closed at approve time instead of submitting.
+Proposals are per-account, like edits. Migration
+`0015_beli_espn_trade_proposals.sql` adds the audit table through the
+normal release step.
+
 ## Public predictions
 
 A publisher can upload a daily `public-v2` JSON snapshot (`public-v1` remains accepted) with
@@ -232,6 +255,10 @@ users can unlink like any other claim.
 | `POST /espn/roster/edits/{id}/approve` | Approve + execute one pending edit as a single transaction |
 | `GET /espn/roster/edits` | Past roster edits + their outcomes (audit trail) |
 | `GET /espn/roster/edits/{id}` | One roster edit |
+| `POST /espn/trades` | Propose a trade offer (validates + persists a pending proposal; submits nothing) |
+| `POST /espn/trades/{id}/approve` | Approve + submit one pending proposal's offer as a single transaction |
+| `GET /espn/trades` | Past trade proposals + their outcomes (audit trail) |
+| `GET /espn/trades/{id}` | One trade proposal |
 
 The same operations are available as MCP tools at `/espn/mcp` — pass your
 token as the `api_token` argument.
