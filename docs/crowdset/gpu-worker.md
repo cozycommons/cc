@@ -107,3 +107,14 @@ The remote worker now uses the shared compute runner. It can alternate Crowdset
 with project-declared jobs using the same execution slot. See
 [Shared project jobs](../compute.md) for declarations, configuration, capacity
 settings, and the two-cycle updater transition.
+
+## Prioritizing an interactive model session
+
+The shared worker supports a separate, durable GPU-session reservation that
+finishes an active render before pausing new claims. It holds the reservation
+through the model server's lifetime, including idle periods with resident
+weights. See [Exclusive interactive GPU sessions](../compute.md#exclusive-interactive-gpu-sessions)
+for the Linux/systemd supervisor, acknowledgment barrier, release transition,
+and fail-closed recovery rules. The initial policy pauses CPU-only jobs too;
+it does not add a new queue or cancel work. Activate it only through the normal
+CI-approved-main worker release path.

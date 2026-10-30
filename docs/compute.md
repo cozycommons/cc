@@ -169,3 +169,96 @@ project authorization, resource filtering, lease expiry, bounded retries, result
 validation/replay, real handler subprocesses, timeout termination, source rotation,
 and updater pauses. CI runs this lightweight suite only for compute/infrastructure
 changes. Runtime changes also select Crowdset's compatibility tests and image.
+
+## Exclusive interactive GPU sessions
+
+An interactive model-serving session can reserve the PC ahead of queued renders.
+The reservation drains any accepted job without cancelling it, then pauses the
+whole worker, including CPU-only jobs. It does not change FIFO job order or
+interrupt leases, heartbeats, publication, or subprocess cleanup. Rendering
+resumes only after the owned model process group has ended and its supervisor
+releases the reservation. This implements session priority, not GPU preemption.
+
+The supervisor CLI is **Linux/systemd-specific**. Once a complete CI-approved
+release containing `compute.reservation` and `compute.gpu_session` is installed:
+
+```sh
+cd ~/.local/share/crowdset-worker
+processing-venv/bin/python -m compute.gpu_session --root data -- \
+  /path/to/model-server --host 127.0.0.1 --port 8001
+```
+
+The command after `--` is trusted operator code. Use a dedicated inference
+runtime, not the rendering venv. No model weights or inference packages are
+installed by this command. It waits up to four hours for the active job to drain
+(`--drain-timeout` changes that bound). A drain timeout never cancels the render.
+The Python `serve(root, command, pid_reader, stop)` API takes a PID-reader
+callback instead of requiring systemd; it supports portable Unix tests on macOS
+and Ubuntu. This does not add Windows support.
+
+`data/gpu-session.json` contains an opaque owner token, owner PID, launch phase
+and model PID when known. The supervisor serializes owners with
+`gpu-session.lock`, installs its request while holding the updater's existing
+`update.lock`, and waits for `gpu-session-ack.json` carrying that token, the
+current service PID and a fresh timestamp. An acknowledgment is written only
+between jobs, after the accepted job's `run` path returns. A claim already in
+flight when the request arrives may be accepted and must drain before this
+acknowledgment; GPU loading cannot race it. Both the shared runner and legacy
+local-spool runner honor the reservation before claiming more work.
+
+The updater defers all release/recovery work while `gpu-session.json` exists.
+It never removes that file. The updater-owned `update-requested` marker has a
+separate purpose and must not be used as an RL reservation. Keep both queues
+under one worker data root; an unrelated GPU process or worker using another
+root is outside this cooperative protocol.
+
+Stop a session normally with Ctrl-C or SIGTERM to its supervisor. Cleanup
+terminates and reaps only the process group that supervisor created, checks
+that the group has disappeared, then removes only its matching reservation and
+acknowledgment. Model startup failure and drain timeout clean up their own
+requests. A lost worker acknowledgment stops the model before release.
+
+There is deliberately **no expiry or automatic stale-owner cleanup**. SIGKILL,
+power loss, a failed process-group cleanup, or a supervisor crash during launch
+can retain ownership. The worker remains paused and the updater defers releases
+until an operator recovers it. Inspect without revealing process arguments:
+
+```sh
+cat ~/.local/share/crowdset-worker/data/gpu-session.json
+cat ~/.local/share/crowdset-worker/data/status.json
+nvidia-smi --query-compute-apps=pid,process_name,used_gpu_memory --format=csv
+```
+
+A zero-GPU-utilization reading does not prove a model process is gone. Before
+removing an orphaned marker, establish that its supervisor and every process
+from that serving session have ended. A `launching` phase with no model PID is
+ambiguous: the supervisor may have died after creating a child but before
+recording its PID. Do not clear that marker based only on age or missing owner
+PID; keep the fail-closed pause until process ownership and termination are
+verified. Never remove an active owner's marker or `update-requested` as part
+of this recovery. There is no force-release command.
+
+### Release transition and validation
+
+The installer and updater bundle include both new modules. An older installed
+updater may need two normal CI-approved-main update cycles: its first cycle
+installs the new runner/updater but not newly declared modules; incomplete
+runtimes remain healthy without claiming jobs. The next cycle installs the
+expanded module bundle before stopping/restarting the worker. Existing updater
+backups, rollback and source/output preservation still apply. An incomplete
+runtime cannot acknowledge a GPU session, so the model cannot start early.
+Do not copy an uncommitted patch over the installed worker or bypass release
+checks to activate a session.
+
+Focused validation:
+
+```sh
+cd backend
+source .venv/bin/activate
+python -m pytest compute/tests crowdset/tests/test_gpu_worker.py crowdset/tests/test_gpu_updater.py -q
+```
+
+Tests cover active-job draining, claims in flight, current-PID/token acknowledgment,
+restart persistence, updater independence, owner conflicts, model lifetime and
+failure cleanup, SIGKILL before/after process creation, and incomplete release
+bundles. They use CPU subprocesses and do not load models or consume GPU memory.
