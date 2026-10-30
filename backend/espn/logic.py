@@ -137,6 +137,29 @@ def _teams(payload: dict) -> list:
 # --- league / standings / teams -----------------------------------------------
 
 
+def _acquisition_settings(settings: dict) -> dict:
+    """Waiver/acquisition knobs from the settings payload.
+
+    Each field is None when ESPN omits it (or the whole block), so
+    consumers can rely on the keys existing. ``acquisition_limit`` is
+    ESPN's per-matchup-period cap, where -1 means unlimited.
+    """
+    acquisition = settings.get("acquisitionSettings") or {}
+    trade = settings.get("tradeSettings") or {}
+    return {
+        "acquisition_limit": acquisition.get("acquisitionLimit"),
+        "acquisition_type": acquisition.get("acquisitionType"),
+        "acquisition_budget": acquisition.get("acquisitionBudget"),
+        "is_using_acquisition_budget": acquisition.get(
+            "isUsingAcquisitionBudget"
+        ),
+        "minimum_bid": acquisition.get("minimumBid"),
+        "waiver_hours": acquisition.get("waiverHours"),
+        "waiver_order_reset": acquisition.get("waiverOrderReset"),
+        "trade_deadline": trade.get("deadlineDate"),
+    }
+
+
 def get_league(client) -> dict:
     """League settings plus a slim team list."""
     payload = client.get_league(["mSettings", "mTeam"]) or {}
@@ -157,6 +180,7 @@ def get_league(client) -> dict:
             "scoringItems"
         )
         or [],
+        "acquisition_settings": _acquisition_settings(settings),
     }
 
 
