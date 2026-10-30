@@ -31,11 +31,15 @@ account's ESPN league (no snapshots, no writes):
     per-day rate) and the response's ``notes`` say so.
   - ``games_next_7d`` counts, per pro team, the next 7 scoring periods in
     which the team plays: the league payload's ``proGamesByScoringPeriod``
-    block first, the public scoreboard (period dates anchored off the
-    block, periods advancing one per calendar day — the lineup runner's
-    own rule) when a period is missing from the block. Periods neither
-    source covers are excluded and the shortfall is disclosed in
-    ``notes``.
+    block first, the public scoreboard when a period is missing from the
+    block. Scoreboard dates anchor off the block's period->date map when
+    it publishes one, and off the season's first regular-season date
+    (period 1, periods advancing one per calendar day — the lineup
+    runner's own rule) when the payload carries no schedule at all.
+    Both sources key teams by ESPN pro team id, so the counts need no
+    abbreviation mapping. Periods neither source covers are excluded
+    and the shortfall is disclosed in ``notes``; a scoreboard outage
+    degrades the counts, never the report.
 
 Pocket picks are a deterministic subset of the free-agent list
 (low ownership when known, plus at least one of: a last-15 breakout vs
@@ -205,17 +209,22 @@ def _fetch_day_points(client, periods: list, items: list):
 # --- schedule (next 7 days) -------------------------------------------------------
 
 
-def _team_games_next_7d(payload: dict, current: int, scoreboard) -> tuple:
+def _team_games_next_7d(payload: dict, current: int, scoreboard,
+                        anchor=None) -> tuple:
     """({pro_team_id: games in next 7 periods}, covered_period_count).
 
     The league payload's proGamesByScoringPeriod block is authoritative
     for the periods it publishes. For unpublished periods the public
     scoreboard is consulted when one is injected, with the period's
-    date anchored off the block (periods advance one per calendar day).
+    date anchored off the block's period->date map — or, when the
+    payload carries no schedule at all, off the caller-supplied
+    ``anchor`` (a (period, date) pair from the season-start derivation).
+    A period counts as covered only when a source actually answered
+    for it; scoreboard failures leave it uncovered (and disclosed in
+    the report's notes), never fatal.
     """
     block = payload.get("proGamesByScoringPeriod")
     date_map = lineup._period_date_map(payload)
-    anchor = None
     if date_map:
         anchor_period = min(date_map, key=lambda q: abs(q - (current + 1)))
         anchor = (anchor_period, date_map[anchor_period])
@@ -304,6 +313,7 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
     payload = client.get_league(["mSettings", "mTeam", "mRoster"]) or {}
     items = lineup.scoring_items(payload)
     notes: list[str] = []
+    period_anchor = None  # (period, date) for the scoreboard schedule
     status = payload.get("status") or {}
     first = _period_int(status.get("firstScoringPeriod"))
     if first is None:
@@ -337,6 +347,9 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
                 derived = first + (today - season_start).days
                 if derived >= first:
                     current = derived
+                    # The same anchor dates the next-7 schedule below:
+                    # period ``first`` fell on season_start.
+                    period_anchor = (first, season_start)
                     notes.append(
                         "the league payload omitted "
                         "status.currentScoringPeriod and carried no "
@@ -425,11 +438,31 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
         )
 
     # Schedule for the next 7 days.
-    team_games_next7, covered = _team_games_next_7d(payload, current, scoreboard)
+    if (
+        period_anchor is None
+        and scoreboard is not None
+        and not lineup._period_date_map(payload)
+    ):
+        # The payload carries no schedule at all and the period came
+        # straight from status: anchor the scoreboard schedule on the
+        # season's first regular-season date, the runner's rule. A
+        # scoreboard outage here must not fail the report — the
+        # schedule simply stays uncovered, exactly as it was before
+        # this fallback existed.
+        try:
+            start, end = lineup._scoreboard_window(client.season)
+            season_start = scoreboard.first_regular_season_date(start, end)
+        except EspnError:
+            season_start = None
+        if season_start is not None:
+            period_anchor = (first, season_start)
+    team_games_next7, covered = _team_games_next_7d(
+        payload, current, scoreboard, anchor=period_anchor
+    )
     if covered < 7:
         notes.append(
             f"games_next_7d covers {covered} of the next 7 days "
-            f"(the rest is not published yet); counts may understate"
+            f"(the rest could not be determined); counts may understate"
         )
 
     # Ownership presence (for the honesty note + the pocket-pick gate).

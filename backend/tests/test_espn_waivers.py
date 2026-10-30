@@ -420,13 +420,17 @@ def test_current_period_derived_when_status_omits_it():
 
 
 class FakeScoreboard:
-    """Duck-typed ScoreboardClient: only the season-start lookup."""
+    """Duck-typed ScoreboardClient: only the season-start lookup
+    (plus an empty slate — no pro team plays on any day)."""
 
     def __init__(self, first_date):
         self._first_date = first_date
 
     def first_regular_season_date(self, start, end):
         return self._first_date
+
+    def teams_on(self, day):
+        return set()
 
 
 def _payload_without_period_or_schedule():
@@ -486,6 +490,154 @@ def test_period_before_season_start_still_raises():
     scoreboard = FakeScoreboard(today_et + timedelta(days=3))
     with pytest.raises(ValueError, match="no current scoring period"):
         waivers.get_waivers(_Client(), "{SWID-1}", scoreboard=scoreboard)
+
+
+# --- games_next_7d from the scoreboard (no pro-games block) ---------------------
+
+
+class FakeScheduleScoreboard:
+    """Duck-typed ScoreboardClient with a programmable next-7-days slate.
+
+    ``SLATE`` maps a day offset from today (America/New_York) to the pro
+    team ids playing that day — ESPN's canonical team-id space, the
+    same space fantasy ``proTeamId`` uses (scoreboard.py's contract).
+    It mirrors the fixture pro-games block's slate, so the expected
+    counts match the block-based tests: team 5 x5, team 9 x5,
+    team 14 x3, team 16 x3, team 2 x2. Offsets in ``fail_offsets``
+    raise EspnError (a partial outage); ``down=True`` takes the whole
+    scoreboard out.
+    """
+
+    SLATE = {
+        1: {5, 2, 9, 16},
+        2: {9, 14},
+        3: {16, 5},
+        4: {2, 9, 14, 16},
+        5: {5, 9},
+        6: {9, 5},
+        7: {14, 5},
+    }
+
+    def __init__(self, *, fail_offsets=(), down=False):
+        self._fail_offsets = set(fail_offsets)
+        self._down = down
+
+    @staticmethod
+    def _today():
+        return datetime.now(ZoneInfo("America/New_York")).date()
+
+    def first_regular_season_date(self, start, end):
+        if self._down:
+            raise EspnError("scoreboard down")
+        # CURRENT periods in, the season started CURRENT - 1 days ago.
+        return self._today() - timedelta(days=CURRENT - 1)
+
+    def teams_on(self, day):
+        if self._down:
+            raise EspnError("scoreboard down")
+        offset = (day - self._today()).days
+        if offset in self._fail_offsets:
+            raise EspnError("scoreboard day unavailable")
+        return set(self.SLATE.get(offset, ()))
+
+
+def _payload_without_schedule_block():
+    payload = copy.deepcopy(LEAGUE_PAYLOAD)
+    del payload["proGamesByScoringPeriod"]
+    return payload
+
+
+def test_games_next_7d_from_scoreboard_when_block_absent():
+    """No pro-games block in the payload (the live reality): the
+    next-7 counts come from the public scoreboard, anchored on the
+    season's first regular-season date. Full coverage -> no shortfall
+    note, and the pocket-pick schedule edge fires off the derived
+    counts exactly as it does off the block."""
+    payload = _payload_without_schedule_block()
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    report = waivers.get_waivers(
+        _Client(), "{SWID-1}", scoreboard=FakeScheduleScoreboard()
+    )
+    free = _by_id(report["free_agents"])
+    assert free[201]["games_next_7d"] == 5  # team 5 (CLE)
+    assert free[203]["games_next_7d"] == 5  # team 9 (GSW)
+    assert free[202]["games_next_7d"] == 2  # team 2 (BOS)
+    assert free[204]["games_next_7d"] == 3  # team 14 (MIA)
+    drops = _by_id(report["drop_candidates"])
+    assert drops[102]["games_next_7d"] == 5  # own roster is all team 5
+    assert not any("covers" in n for n in report["notes"])
+    assert [p["player_id"] for p in report["pocket_picks"]] == [201, 204, 203]
+    assert any(
+        "schedule edge" in r
+        for r in _by_id(report["pocket_picks"])[203]["reasons"]
+    )
+
+
+def test_games_next_7d_anchor_reused_from_period_derivation():
+    """Neither status.currentScoringPeriod nor a pro-games block: the
+    period is derived from the scoreboard, and the SAME season-start
+    anchor dates the next-7 schedule (no drift between the two)."""
+    payload = _payload_without_period_or_schedule()
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    report = waivers.get_waivers(
+        _Client(), "{SWID-1}", scoreboard=FakeScheduleScoreboard()
+    )
+    assert report["scoring_period"] == CURRENT
+    free = _by_id(report["free_agents"])
+    assert free[201]["games_next_7d"] == 5
+    assert free[203]["games_next_7d"] == 5
+    assert not any("covers" in n for n in report["notes"])
+
+
+def test_games_next_7d_partial_scoreboard_coverage():
+    """Three of the next seven scoreboard days fail: counts use only
+    the four fetched days, the note reports the true coverage, and
+    the report itself is unaffected."""
+    payload = _payload_without_schedule_block()
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    report = waivers.get_waivers(
+        _Client(), "{SWID-1}",
+        scoreboard=FakeScheduleScoreboard(fail_offsets={2, 5, 7}),
+    )
+    assert report["free_agents"]
+    free = _by_id(report["free_agents"])
+    # team 5 plays offsets 1,3,5,6,7; fetched days are 1,3,4,6 -> 3
+    assert free[201]["games_next_7d"] == 3
+    assert any(
+        "covers 4 of the next 7 days" in n for n in report["notes"]
+    )
+
+
+def test_games_next_7d_scoreboard_down_degrades_to_zero():
+    """A total scoreboard outage with no pro-games block: the counts
+    fall back to 0 with the coverage note — the report must not fail."""
+    payload = _payload_without_schedule_block()
+
+    class _Client(FakeClient):
+        def get_league(self, views):
+            return payload
+
+    report = waivers.get_waivers(
+        _Client(), "{SWID-1}", scoreboard=FakeScheduleScoreboard(down=True)
+    )
+    assert report["free_agents"]
+    assert all(p["games_next_7d"] == 0 for p in report["free_agents"])
+    assert all(p["games_next_7d"] == 0 for p in report["drop_candidates"])
+    assert any(
+        "covers 0 of the next 7 days" in n for n in report["notes"]
+    )
 
 
 @pytest.fixture()
