@@ -11,10 +11,12 @@ def test_espn_migrations_render_in_beli_family():
     assert "Applying 0009_beli_espn_public_predictions.sql" in script
     assert "Applying 0010_beli_espn_team_claims.sql" in script
     assert "Applying 0011_beli_espn_seed_team_claims.sql" in script
+    assert "Applying 0014_beli_espn_roster_edits.sql" in script
     assert "Applying 0001_beli_accounts.sql" in script
     assert "espn_accounts" in script
     assert "espn_snapshots" in script
     assert "espn_lineup_runs" in script
+    assert "espn_roster_edits" in script
     assert "lineup_automation_enabled" in script
 
 
@@ -36,7 +38,7 @@ def test_public_predictions_append_only_privileges_and_contract():
     assert "from public, anon, authenticated" in migration
     assert "grant select, insert on public.espn_public_predictions to service_role" in migration
     assert "revoke update, delete, truncate" in migration
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "13"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "14"
     contract = (directory / "beli_schema_contract.sql").read_text()
     for column in ("id", "matchup_id", "generated_at", "received_at", "payload"):
         assert f"espn_public_predictions.{column}" in contract
@@ -75,7 +77,7 @@ def test_account_delete_grant_and_contract_version():
     # Dependents (espn_snapshots, espn_lineup_runs) cascade per 0007/0008.
     assert "grant delete on public.espn_accounts to service_role" in migration
     assert "Applying 0013_beli_espn_account_delete.sql" in migration_runner.render(["beli"])
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "13"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "14"
 
 
 def test_seeded_claims_are_guarded_and_never_override_links():
@@ -101,3 +103,37 @@ def test_fantasy_settings_service_only_schema_and_release_contract():
     contract = (directory / "beli_schema_contract.sql").read_text()
     for column in ("season", "espn_league_id", "updated_at", "updated_by"):
         assert f"fantasy_leagues.{column}" in contract
+
+
+def test_roster_edits_schema_privileges_and_contract():
+    directory = migration_runner.ROOT / "migrations"
+    migration = (directory / "0014_beli_espn_roster_edits.sql").read_text()
+    for definition in (
+        "id uuid primary key default gen_random_uuid()",
+        "account_id uuid not null references public.espn_accounts(id) on delete cascade",
+        "league_id bigint not null",
+        "season integer not null",
+        "team_id integer not null",
+        "add_player_id integer",
+        "drop_player_id integer",
+        "add_player jsonb",
+        "drop_player jsonb",
+        "preview text not null",
+        "status text not null default 'pending'",
+        "espn_transaction jsonb",
+        "expires_at timestamptz not null",
+        "executed_at timestamptz",
+        "created_at timestamptz not null default now()",
+        "alter table public.espn_roster_edits enable row level security",
+        "revoke all on public.espn_roster_edits from public, anon, authenticated",
+        # Edits mutate through their lifecycle (pending -> executed /
+        # waiver_pending / failed), unlike the append-only run log.
+        "grant select, insert, update on public.espn_roster_edits to service_role",
+    ):
+        assert definition in migration
+    assert "Applying 0014_beli_espn_roster_edits.sql" in migration_runner.render(["beli"])
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "14"
+    contract = (directory / "beli_schema_contract.sql").read_text()
+    assert "'espn_roster_edits'" in contract
+    for column in ("id", "account_id", "status", "expires_at", "created_at"):
+        assert f"espn_roster_edits.{column}" in contract
