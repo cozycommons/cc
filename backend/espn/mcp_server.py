@@ -15,6 +15,11 @@ pair mirroring the REST routes: propose_roster_edit validates and
 persists a pending edit (submitting nothing), and approve_roster_edit is
 the separate, deliberate call that executes it — the two calls are the
 approval gate, never a single combined operation.
+
+Trade proposals (propose_trade / approve_trade / get_trades) mirror
+the same gate: approving submits a real trade offer to ESPN that the
+counterparty sees, so the preview must be shown and explicitly
+approved before the second call.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ from . import lineup
 from . import logic
 from . import roster_edits
 from . import snapshots
+from . import trades
 from .accounts import AccountError
 from .scoreboard import ScoreboardClient
 
@@ -282,4 +288,78 @@ def get_roster_edits(
             raise ValueError("no roster edit with that id for this account")
         return json.dumps(edit)
     result = roster_edits.list_edits(supabase, account["id"], limit)
+    return json.dumps(result)
+
+
+@mcp.tool()
+def propose_trade(
+    api_token: str,
+    counterparty_team_id: int,
+    give_player_ids: list[int],
+    receive_player_ids: list[int],
+) -> str:
+    """Propose a trade offer for your team — SUBMITS NOTHING.
+
+    Validates the offer against the live league (counterparty exists
+    and is not your own team, every give player is on your roster,
+    every receive player is on theirs, the post-trade roster is legal
+    for both teams, the trade deadline has not passed) and persists
+    it as a pending proposal with snapshots of both sides, a human
+    preview, and a 30-minute expiry. The offer reaches the
+    counterparty only when approve_trade is called with the returned
+    proposal id — show the preview to the user and get their explicit
+    approval of that exact offer before making that second call,
+    because approving submits a real offer the counterparty sees.
+    """
+    supabase, account, client = _account_and_client(api_token)
+    result = trades.propose_trade(
+        supabase,
+        account,
+        client,
+        counterparty_team_id=counterparty_team_id,
+        give_player_ids=give_player_ids,
+        receive_player_ids=receive_player_ids,
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+def approve_trade(api_token: str, proposal_id: str) -> str:
+    """Approve and submit ONE pending trade proposal (the approval step).
+
+    Submits the offer as a single ESPN TRADE transaction and records
+    the outcome on the proposal: offered (ESPN accepted the offer; the
+    counterparty accepts or declines on ESPN) or failed with ESPN's
+    error. Only call this after the user has explicitly approved the
+    exact offer shown by propose_trade. Approving an already-offered
+    or expired proposal is an error and never double-submits.
+    """
+    supabase, account, client = _account_and_client(api_token)
+    result = trades.approve_trade(
+        supabase,
+        account,
+        client,
+        proposal_id,
+        scoreboard=ScoreboardClient(),
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+def get_trades(
+    api_token: str, limit: int = 25, proposal_id: str | None = None
+) -> str:
+    """Trade proposals for your account, newest first (the audit trail).
+
+    Pass proposal_id to fetch just that one proposal's current status.
+    """
+    supabase, account, _ = _account_and_client(api_token)
+    if proposal_id is not None:
+        proposal = trades.get_proposal(supabase, account["id"], proposal_id)
+        if proposal is None:
+            raise ValueError(
+                "no trade proposal with that id for this account"
+            )
+        return json.dumps(proposal)
+    result = trades.list_proposals(supabase, account["id"], limit)
     return json.dumps(result)
