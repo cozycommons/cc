@@ -4,8 +4,9 @@ Per-user ESPN Fantasy basketball on Cozy Commons: read analytics for your
 league (standings, rosters, trends) plus automatic daily lineup setting.
 Code: `backend/espn/`. Routes: `/espn/*`. MCP: `/espn/mcp`.
 
-Lineup setting means slot moves only — starters, bench, IR. There are no
-add/drop/trade endpoints, and there never will be in this integration.
+Lineup setting means slot moves only — starters, bench, IR. Roster
+add/drop exists, but only as an approval-gated two-step (propose, then
+approve — see below); there are no trade endpoints.
 
 ## What you need
 
@@ -121,6 +122,24 @@ sits. Each sit is recorded as a **conflict**, visible in
   new account and a new token — update wherever the old token was saved.
 - Runs are idempotent per day: calling `/espn/lineup/run` twice is safe.
 
+## Roster edits (approval-gated add/drop)
+
+Changing who is ON the roster is a bigger deal than setting a lineup, so
+it never happens in one call. `POST /espn/roster/edits` with
+`{"add_player_id": ..., "drop_player_id": ...}` (either id may be
+omitted for an add-only or drop-only edit) validates the edit against the
+live league — the add target is a free agent, the drop target is on your
+own roster, the post-edit roster is legal — and stores it as a pending
+edit (30-minute expiry) with a human-readable preview. Nothing is
+submitted to ESPN. `POST /espn/roster/edits/{id}/approve` then executes
+that exact edit as ONE ESPN transaction and records the outcome on the
+edit: `executed`, `waiver_pending` (the add target was on waivers, so the
+approval filed a waiver claim at bid 0 — no FAAB support), or `failed`
+with ESPN's error. Approving twice, or after expiry, is rejected and
+never double-submits. Edits are per-account: your token only ever sees
+your own. Migration `0014_beli_espn_roster_edits.sql` adds the audit
+table through the normal release step.
+
 ## Public predictions
 
 A publisher can upload a daily `public-v2` JSON snapshot (`public-v1` remains accepted) with
@@ -209,6 +228,10 @@ users can unlink like any other claim.
 | `POST /espn/automation/lineup` | Opt in/out of lineup automation (`{"enabled": true}`) |
 | `POST /espn/lineup/run` | Set a day's lineup now (or `dry_run` a plan) |
 | `GET /espn/lineup/runs` | Past runs + their conflicts |
+| `POST /espn/roster/edits` | Propose a roster add/drop (validates + persists a pending edit; submits nothing) |
+| `POST /espn/roster/edits/{id}/approve` | Approve + execute one pending edit as a single transaction |
+| `GET /espn/roster/edits` | Past roster edits + their outcomes (audit trail) |
+| `GET /espn/roster/edits/{id}` | One roster edit |
 
 The same operations are available as MCP tools at `/espn/mcp` — pass your
 token as the `api_token` argument.
