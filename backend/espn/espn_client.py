@@ -38,8 +38,14 @@ Endpoints:
     ``DROP`` moves. Items carry ``fromTeamId`` / ``toTeamId`` with
     team id 0 meaning the free-agent pool, the same shape the
     ``mTransactions2`` read payload reports for executed league
-    transactions. Trades remain out of scope: there is no trade
-    method anywhere in this module.
+    transactions.
+  - Trade proposals (approval-gated): the same transactions endpoint
+    with a ``TRADE`` transaction whose items are one ``TRADE`` move
+    per player, each carrying that player's own ``fromTeamId`` /
+    ``toTeamId`` (the two teams, in the direction he moves) — the
+    item shape the ``mTransactions2`` read payload reports for an
+    executed trade. Submitting a trade OFFERS it; the counterparty
+    accepts or declines on ESPN.
 
 Auth is cookie-based: the user's ``espn_s2`` and ``SWID`` cookies are
 sent as a single ``Cookie`` header (``SWID`` is passed through verbatim —
@@ -91,9 +97,10 @@ class EspnAuthError(EspnError):
 class EspnClient:
     """Authenticated ESPN Fantasy access for a single league.
 
-    Reads plus two transaction writes on the same endpoint: lineup
-    moves, and approval-gated roster add/drop edits (see the module
-    docstring and espn/roster_edits.py).
+    Reads plus three transaction writes on the same endpoint: lineup
+    moves, approval-gated roster add/drop edits, and approval-gated
+    trade offers (see the module docstring, espn/roster_edits.py and
+    espn/trades.py).
     """
 
     def __init__(self, espn_s2: str, swid: str, league_id: int, season: int):
@@ -367,7 +374,7 @@ class EspnClient:
             }
         )
 
-    # -- writes: transactions (lineup moves + roster edits) -----------------
+    # -- writes: transactions (lineup moves, roster edits, trades) ---------
     def transactions_url(self) -> str:
         return (
             f"{WRITE_API_BASE}/seasons/{self.season}/segments/0"
@@ -484,6 +491,78 @@ class EspnClient:
         if not isinstance(data, dict):
             raise EspnError(
                 "ESPN roster transaction: unexpected response (expected object)"
+            )
+        return data
+
+    def post_trade_transaction(
+        self,
+        member_id: str,
+        team_id: int,
+        counterparty_team_id: int,
+        scoring_period_id: int,
+        give_player_ids: list,
+        receive_player_ids: list,
+    ) -> dict:
+        """Submit ONE trade offer (an approval-gated trade proposal).
+
+        The wire items are stamped here — one ``TRADE`` item per
+        player moved, give players running ``team_id`` ->
+        ``counterparty_team_id`` and receive players running back —
+        so callers cannot smuggle in any other move type. The item
+        shape mirrors what the ``mTransactions2`` read payload
+        reports for an executed trade, and the envelope mirrors
+        :meth:`post_roster_transaction`'s. Submitting OFFERS the
+        trade: ESPN parks it for the counterparty to accept or
+        decline, so an accepted submission is an open offer, not an
+        executed swap. This method only ever runs behind the
+        propose -> approve gate in espn/trades.py.
+
+        ASSUMPTION (flagged for live verification): the read payload
+        proves the item shape and the transaction ``type``, but no
+        captured fixture shows a trade SUBMISSION envelope — if ESPN
+        requires a trade-specific envelope field beyond the shared
+        one, the first live offer will surface it as a rejection,
+        recorded on the proposal. Do not "fix" this by guessing
+        fields here.
+
+        Returns ESPN's transaction response. Raises EspnAuthError
+        when the cookies are dead and EspnError on any other failure.
+        """
+        items = []
+        for player_id in give_player_ids or []:
+            items.append(
+                {
+                    "playerId": player_id,
+                    "type": "TRADE",
+                    "fromTeamId": team_id,
+                    "toTeamId": counterparty_team_id,
+                }
+            )
+        for player_id in receive_player_ids or []:
+            items.append(
+                {
+                    "playerId": player_id,
+                    "type": "TRADE",
+                    "fromTeamId": counterparty_team_id,
+                    "toTeamId": team_id,
+                }
+            )
+        if not items:
+            raise EspnError("trade transaction has no players")
+        body = {
+            "isLeagueManager": False,
+            "memberId": member_id,
+            "scoringPeriodId": scoring_period_id,
+            "teamId": team_id,
+            "type": "TRADE",
+            "items": items,
+        }
+        data = self._post(
+            self.transactions_url(), body, what="ESPN trade transaction"
+        )
+        if not isinstance(data, dict):
+            raise EspnError(
+                "ESPN trade transaction: unexpected response (expected object)"
             )
         return data
 
