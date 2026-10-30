@@ -30,7 +30,8 @@ enforced server-side here):
 Tenant isolation is the module-wide rule: every read and write is
 scoped by ``account_id``, and the account comes from the caller's
 bearer token — an edit id from another account simply does not exist
-here. Basketball only, one league per account, no trades.
+here. Basketball only, one league per account. Trades are a separate
+gate with the same shape, in espn/trades.py.
 
 Nothing in this module is wired into the scheduler or the lineup
 automation: edits happen only when a human proposes and then approves
