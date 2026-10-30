@@ -22,6 +22,14 @@ Endpoints:
                               single ESPN transaction
   GET  /espn/roster/edits     the account's roster edits (audit trail)
   GET  /espn/roster/edits/{id}  one roster edit
+  POST /espn/trades           propose a trade offer (validates +
+                              persists a pending proposal; submits
+                              nothing)
+  POST /espn/trades/{id}/approve
+                              approve + submit one pending proposal's
+                              offer as a single ESPN transaction
+  GET  /espn/trades           the account's trade proposals (audit)
+  GET  /espn/trades/{id}      one trade proposal
   DELETE /espn/account        delete the caller's account (+ cascaded history)
 
 There is deliberately no /matchups endpoint in v1.
@@ -30,8 +38,10 @@ The lineup endpoints are v2: fully automatic daily lineup setting under
 the user's standing instructions (see espn/lineup.py). The roster-edit
 endpoints are the module's other write: approval-gated add/drop (see
 espn/roster_edits.py) — an edit is proposed, validated and persisted
-first, and only an explicit approve call executes it. There are no
-trade endpoints.
+first, and only an explicit approve call executes it. Trade proposals
+follow the identical gate (see espn/trades.py): proposed and
+validated first, and only an explicit approve call submits the offer
+to ESPN, where the counterparty can accept or decline it.
 
 Onboarding stores the caller's ESPN cookies (espn_s2 + SWID) encrypted at
 rest (see accounts.py):
@@ -71,6 +81,7 @@ from . import lineup
 from . import logic
 from . import roster_edits
 from . import snapshots
+from . import trades
 from . import waivers as waivers_logic
 from .accounts import AccountError
 from .espn_client import EspnAuthError, EspnClient, EspnError
@@ -772,3 +783,128 @@ def get_roster_edit(
             status_code=404, detail="no roster edit with that id for this account"
         )
     return edit
+
+
+# --- trades (approval-gated trade proposals) -----------------------------------
+
+
+class TradeBody(BaseModel):
+    counterparty_team_id: int = Field(
+        description="ESPN team id to trade with (not your own team)"
+    )
+    give_player_ids: list[int] = Field(
+        description="ESPN player ids you give up (all on your roster)"
+    )
+    receive_player_ids: list[int] = Field(
+        description="ESPN player ids you receive (all on their roster)"
+    )
+
+
+@router.post("/trades")
+def propose_trade(
+    body: TradeBody,
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """Propose a trade offer for this account (submits NOTHING).
+
+    The offer is validated against the live league — the counterparty
+    exists and is not the caller's own team, every give player is on
+    the caller's roster, every receive player is on the counterparty's
+    roster, the post-trade roster is legal for both teams, and the
+    trade deadline has not passed — and persisted as a pending
+    proposal with both sides' snapshots, a human preview, and a
+    30-minute expiry. Submitting the offer to ESPN takes a separate
+    POST to /espn/trades/{id}/approve; that two-step gate is the
+    point, because approval sends a real offer the counterparty sees.
+    """
+    client = _client(account)
+    try:
+        return trades.propose_trade(
+            _supabase(request),
+            account,
+            client,
+            counterparty_team_id=body.counterparty_team_id,
+            give_player_ids=body.give_player_ids,
+            receive_player_ids=body.receive_player_ids,
+        )
+    except trades.TradeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except EspnAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except EspnError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/trades/{proposal_id}/approve")
+def approve_trade(
+    proposal_id: str,
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """Approve and submit one pending trade proposal's offer.
+
+    Submits the offer as ONE ESPN TRADE transaction and records the
+    outcome on the proposal (offered / failed); whether the
+    counterparty accepts happens later, on ESPN. Approving a proposal
+    that is not pending (already offered, failed, or expired) is a
+    409, and a proposal belonging to another account is a 404 —
+    approving twice never double-submits.
+    """
+    client = _client(account)
+    try:
+        return trades.approve_trade(
+            _supabase(request),
+            account,
+            client,
+            proposal_id,
+            scoreboard=ScoreboardClient(),
+        )
+    except trades.TradeNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except trades.TradeStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except EspnAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except EspnError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/trades")
+def list_trades(
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+    limit: int = Query(default=25, description="Max proposals, 1-200"),
+    status: str | None = Query(
+        default=None, description="Only proposals in this status"
+    ),
+):
+    """Past trade proposals for this account, newest first (audit trail)."""
+    try:
+        return trades.list_proposals(
+            _supabase(request), account["id"], limit, status
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/trades/{proposal_id}")
+def get_trade(
+    proposal_id: str,
+    request: Request,
+    account: dict = Depends(_account),  # noqa: B008
+):
+    """One trade proposal for this account (404 when it is not theirs)."""
+    proposal = trades.get_proposal(
+        _supabase(request), account["id"], proposal_id
+    )
+    if proposal is None:
+        raise HTTPException(
+            status_code=404,
+            detail="no trade proposal with that id for this account",
+        )
+    return proposal
