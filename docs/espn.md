@@ -59,28 +59,34 @@ chat or a shared doc.
 
 ## Onboard with the browser extension (recommended)
 
-The flow that works in production, written for an AI agent guiding a
-human through setup — each step says who does it. Onboarding is the
-only setup step: it unlocks the full API and MCP surface above, and
-daily lineup automation is on by default.
+The flow that works in production. Steps say who does them — **you**
+in your browser, or **an agent helping you** — so it reads the same
+either way. Onboarding is the only setup step: it unlocks the full
+API and MCP surface above, and daily lineup automation is on by
+default.
 
-**Human — in your own browser:**
+**You — in your own browser:**
 
-1. Open **https://cozycommons.dev/fantasy/connect** and sign in to
+1. Install the extension (not on the Chrome Web Store — you sideload
+   it): clone or download this repo, open `chrome://extensions`, turn
+   on **Developer mode**, choose **Load unpacked**, and select the
+   `extension/espn-connector/` folder. It stays installed; to update,
+   refresh the folder and reload it there.
+2. Open **https://cozycommons.dev/fantasy/connect** and sign in to
    ESPN.
-2. Run the companion browser extension. It reads your ESPN session
+3. Run the companion browser extension. It reads your ESPN session
    cookies (`espn_s2` + `SWID`) from your browser and produces a
    one-time copy token / pairing. Your ESPN password never reaches
    the backend.
-3. Paste the token on the hosted capture page at /fantasy/connect.
+4. Paste the token on the hosted capture page at /fantasy/connect.
    The backend creates your account, stores the cookies encrypted at
    rest, and the page shows your `cce_...` API token.
 
-**Agent — save and verify:**
+**You, or an agent helping you — save and verify:**
 
-4. Save the `cce_...` token immediately. It is shown **once** and
+5. Save the `cce_...` token immediately. It is shown **once** and
    cannot be retrieved later.
-5. Verify: `GET /espn/me` with `Authorization: Bearer <token>` must
+6. Verify: `GET /espn/me` with `Authorization: Bearer <token>` must
    return `200` with the account (`id`, `league_id`, `season`) and
    `"lineup_automation_enabled": true`. Opt out of automation with
    `POST /espn/automation/lineup` (`{"enabled": false}`).
