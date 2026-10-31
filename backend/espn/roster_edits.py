@@ -440,12 +440,26 @@ def propose_edit(supabase, account: dict, client,
 
 
 def _classify_outcome(response: dict, add_snapshot) -> tuple:
-    """(status, error) from ESPN's transaction response."""
+    """(status, error) from ESPN's transaction response.
+
+    Keyed off the transaction's own ``type``/``status``, not the
+    propose-time snapshot alone: a WAIVER transaction is a claim and
+    stays pending until waivers process, whatever its status echo,
+    and an explicitly pending/processing status is a claim parked
+    with ESPN. A FREEAGENT transaction ESPN reports EXECUTED has
+    executed — possibly effective from the next scoring period, but
+    executed; it is never a waiver claim.
+    """
     raw_status = str(response.get("status") or "").upper()
     if raw_status.startswith("FAILED") or response.get("error"):
         detail = response.get("error") or raw_status
         return STATUS_FAILED, f"ESPN rejected the transaction: {detail}"
-    if raw_status == "PENDING":
+    raw_type = str(response.get("type") or "").upper()
+    if (
+        raw_type == "WAIVER"
+        or raw_status.startswith("PENDING")
+        or raw_status == "PROCESSING"
+    ):
         return STATUS_WAIVER_PENDING, None
     if raw_status == "EXECUTED":
         return STATUS_EXECUTED, None
@@ -591,10 +605,21 @@ def _execute(supabase, account: dict, client, edit: dict, scoreboard,
                         "error": str(e)})
 
     status, error = _classify_outcome(response, add_snapshot)
-    if status == STATUS_EXECUTED and edit.get("add_player_id") is not None:
-        # Verify the add actually landed on the roster (the lineup
-        # runner's verify philosophy); a contradiction means ESPN's
-        # EXECUTED echo cannot be trusted for this edit.
+    if (
+        status == STATUS_EXECUTED
+        and on_waivers
+        and edit.get("add_player_id") is not None
+    ):
+        # Verify a waiver claim ESPN echoed as EXECUTED actually
+        # landed on the roster (the lineup runner's verify
+        # philosophy); a contradiction means the claim was parked
+        # after all. A straight free-agent edit is NOT verified this
+        # way: ESPN applies a FREEAGENT move submitted after the
+        # day's games lock from the next scoring period, so the add
+        # legitimately is not on the current-period roster yet and
+        # absence proves nothing (2026-10-30 incident, edit
+        # baefb882: FREEAGENT/EXECUTED, effective the next period,
+        # misrecorded as waiver_pending by this check).
         try:
             after = client.get_league(["mTeam", "mRoster"]) or {}
             after_team = lineup.find_member_team(after, account["swid"])
