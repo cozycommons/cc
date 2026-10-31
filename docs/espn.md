@@ -10,6 +10,11 @@ add/drop and trade offers exist, but only as approval-gated two-steps
 
 ## What the API does
 
+Base path `/espn` (host `https://api.cozycommons.dev`); MCP at
+`/espn/mcp`. Every call takes your per-account token as
+`Authorization: Bearer cce_...`; the token resolves to exactly one
+account and only ever touches that account's league.
+
 - **Reads** — league settings, standings, team rosters, recent
   transactions, draft results.
 - **Trends** — player ownership/performance trends and per-team form
@@ -20,8 +25,9 @@ add/drop and trade offers exist, but only as approval-gated two-steps
 - **Lineups** — set today's lineup now (or dry-run a plan) and list
   past runs; with automation on, the server sets lineups twice daily.
 - **Approval-gated writes** — roster add/drop and trade proposals:
-  proposing validates and persists a pending item without submitting
-  anything; only an explicit approve executes one ESPN transaction.
+  a propose call validates and persists a pending item and submits
+  **nothing** to ESPN; only a separate, explicit approve call
+  executes one ESPN transaction.
 - **Account** — `GET /espn/me` checks your token; `DELETE
   /espn/account` deletes your own account, history included.
 - **MCP** — the same surface as tools at `/espn/mcp`: `get_league`,
@@ -53,22 +59,42 @@ chat or a shared doc.
 
 ## Onboard with the browser extension (recommended)
 
-The flow that works in production — your ESPN password never reaches
-the backend:
+The flow that works in production, written for an AI agent guiding a
+human through setup — each step says who does it. Onboarding is the
+only setup step: it unlocks the full API and MCP surface above, and
+daily lineup automation is on by default.
+
+**Human — in your own browser:**
 
 1. Open **https://cozycommons.dev/fantasy/connect** and sign in to
-   ESPN in your own browser.
-2. The companion browser extension reads your ESPN session cookies
-   (`espn_s2` + `SWID`) from your browser and produces a one-time copy
-   token / pairing.
-3. Paste the token on the hosted capture page. The backend creates
-   your account, stores the cookies encrypted at rest, and issues
-   your `cce_...` API token — shown once; save it.
+   ESPN.
+2. Run the companion browser extension. It reads your ESPN session
+   cookies (`espn_s2` + `SWID`) from your browser and produces a
+   one-time copy token / pairing. Your ESPN password never reaches
+   the backend.
+3. Paste the token on the hosted capture page at /fantasy/connect.
+   The backend creates your account, stores the cookies encrypted at
+   rest, and the page shows your `cce_...` API token.
 
-Onboarding is the only setup step. It unlocks the full API and MCP
-surface above, and daily lineup automation is **on by default** —
-opt out any time with `POST /espn/automation/lineup`. Lineup
-scheduling runs server-side; how it works is in
+**Agent — save and verify:**
+
+4. Save the `cce_...` token immediately. It is shown **once** and
+   cannot be retrieved later.
+5. Verify: `GET /espn/me` with `Authorization: Bearer <token>` must
+   return `200` with the account (`id`, `league_id`, `season`) and
+   `"lineup_automation_enabled": true`. Opt out of automation with
+   `POST /espn/automation/lineup` (`{"enabled": false}`).
+
+Failure modes to know:
+
+- The hosted capture page is the reliable intake. Do **not** paste
+  the token into an in-app vault dialog — it has rejected valid
+  tokens.
+- If the password login below fails with `AUTHORIZATION_CREDENTIALS`,
+  that's Disney's risk check, not a wrong password. Don't retry the
+  credentials; switch to this extension flow.
+
+Lineup scheduling runs server-side; how it works is in
 `docs/espn-scheduler.md`.
 
 ## Onboard with your ESPN login (no DevTools)
