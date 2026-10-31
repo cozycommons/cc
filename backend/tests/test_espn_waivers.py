@@ -27,7 +27,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from espn import routes, waivers
+from espn import routes, scoreboard, waivers
 from espn.accounts import AccountError
 from espn.espn_client import EspnAuthError, EspnError
 
@@ -674,3 +674,40 @@ def test_waivers_route(client):
 def test_waivers_route_requires_auth(client):
     r = client.get("/espn/waivers")
     assert r.status_code == 401
+
+
+# --- pro-team abbreviation map ----------------------------------------------
+#
+# The map drives the user-facing team labels in the waiver digest.
+# Every entry is pinned against ESPN's canonical NBA pro-team id
+# space (the space the public scoreboard publishes and fantasy
+# proTeamId uses). Anchors verified against live fantasy roster
+# payloads, Oct 2026: 26 = Utah (Mo Bamba, Lauri Markkanen, Keyonte
+# George), 27 = Washington (Bilal Coulibaly), 28 = Toronto (Scottie
+# Barnes). Waivers once carried its own copy with exactly those three
+# rotated (TOR/UTA/WAS) — the regression these tests exist to catch.
+
+CANONICAL_PRO_TEAM_ABBR = {
+    1: "ATL", 2: "BOS", 3: "NOP", 4: "CHI", 5: "CLE", 6: "DAL",
+    7: "DEN", 8: "DET", 9: "GSW", 10: "HOU", 11: "IND", 12: "LAC",
+    13: "LAL", 14: "MIA", 15: "MIL", 16: "MIN", 17: "BKN", 18: "NYK",
+    19: "ORL", 20: "PHI", 21: "PHX", 22: "POR", 23: "SAC", 24: "SAS",
+    25: "OKC", 26: "UTA", 27: "WAS", 28: "TOR", 29: "MEM", 30: "CHA",
+}
+
+
+def test_pro_team_abbr_anchor_teams():
+    assert waivers.PRO_TEAM_ABBR[26] == "UTA"   # Bamba / Markkanen / George
+    assert waivers.PRO_TEAM_ABBR[27] == "WAS"   # Coulibaly
+    assert waivers.PRO_TEAM_ABBR[28] == "TOR"   # Scottie Barnes
+
+
+def test_pro_team_abbr_matches_canonical_map():
+    assert waivers.PRO_TEAM_ABBR == CANONICAL_PRO_TEAM_ABBR
+
+
+def test_pro_team_abbr_single_source_with_scoreboard():
+    # One map, defined in scoreboard.py (the id-space owner) and
+    # re-exported by waivers: the same object, so the two modules
+    # cannot drift apart again.
+    assert waivers.PRO_TEAM_ABBR is scoreboard.PRO_TEAM_ABBR
