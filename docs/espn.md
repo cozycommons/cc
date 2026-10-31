@@ -65,16 +65,24 @@ either way. Onboarding is the only setup step: it unlocks the full
 API and MCP surface above, and daily lineup automation is on by
 default.
 
+You'll need: a desktop or laptop with Chrome, and an ESPN account
+with a team in a fantasy basketball league.
+
 **You — in your own browser:**
 
+0. **Before you start — be signed in to ESPN in this browser.** Open
+   **fantasy.espn.com** and confirm you can see your team. The extension
+   copies your existing session cookies and never sees your password;
+   if you're signed out, sign in first, then continue.
 1. Install the extension (not on the Chrome Web Store — you sideload
-   it): clone or download this repo, open `chrome://extensions`, turn
-   on **Developer mode**, choose **Load unpacked**, and select the
-   `extension/espn-connector/` folder. It stays installed; to update,
-   refresh the folder and reload it there.
-2. Open **https://cozycommons.dev/fantasy/connect** and sign in to
-   ESPN.
-3. Run the companion browser extension. It reads your ESPN session
+   it): clone or download https://github.com/cozycommons/cc, open
+   `chrome://extensions`, turn on **Developer mode**, choose **Load
+   unpacked**, and select the repo's `extension/espn-connector/`
+   folder. It stays installed; to update, refresh the folder and
+   reload it there.
+2. Open **https://cozycommons.dev/fantasy/connect**.
+3. Click the extension's toolbar icon (**Cozy Commons ESPN
+   Connector**) and hit **Copy token**. It reads your ESPN session
    cookies (`espn_s2` + `SWID`) from your browser and produces a
    one-time copy token / pairing. Your ESPN password never reaches
    the backend.
@@ -90,6 +98,9 @@ default.
    return `200` with the account (`id`, `league_id`, `season`) and
    `"lineup_automation_enabled": true`. Opt out of automation with
    `POST /espn/automation/lineup` (`{"enabled": false}`).
+
+Done — your account is live, daily lineup automation is on, and
+there's nothing else to set up.
 
 Failure modes to know:
 
