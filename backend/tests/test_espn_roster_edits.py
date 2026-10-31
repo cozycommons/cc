@@ -205,6 +205,10 @@ class FakeClient:
         self.posts = []
         self.post_response = None
         self.post_error = None
+        # When False, a posted transaction does NOT mutate the
+        # roster: ESPN applied the move from the next scoring
+        # period, so a roster re-read does not show it yet.
+        self.apply_posts = True
 
     def get_league(self, views, scoring_period_id=None):
         return copy.deepcopy(self.payload)
@@ -227,15 +231,18 @@ class FakeClient:
             raise self.post_error
         entries = self.payload["teams"][0]["roster"]["entries"]
         pool_by_id = {e["id"]: e["player"] for e in self.pool}
-        for move in moves:
-            if move["action"] == "DROP":
-                entries[:] = [
-                    e for e in entries if e["playerId"] != move["playerId"]
-                ]
-            elif move["action"] == "ADD":
-                entries.append(
-                    _entry(move["playerId"], BE, pool_by_id[move["playerId"]])
-                )
+        if self.apply_posts:
+            for move in moves:
+                if move["action"] == "DROP":
+                    entries[:] = [
+                        e for e in entries
+                        if e["playerId"] != move["playerId"]
+                    ]
+                elif move["action"] == "ADD":
+                    entries.append(
+                        _entry(move["playerId"], BE,
+                               pool_by_id[move["playerId"]])
+                    )
         if self.post_response is not None:
             return self.post_response
         return {
@@ -363,6 +370,66 @@ def test_approve_waiver_claim_recorded_waiver_pending():
                                        now=NOW)
     assert result["status"] == "waiver_pending"
     assert client.posts[0]["on_waivers"] is True
+    assert db._store[0]["status"] == "waiver_pending"
+
+
+def test_approve_freeagent_executed_next_period_stays_executed():
+    # Regression (2026-10-30 live incident, edit baefb882): a
+    # FREEAGENT add/drop approved after the day's games locked came
+    # back from ESPN as type FREEAGENT / status EXECUTED, effective
+    # the NEXT scoring period — so the added player was not on the
+    # current-period roster yet. The post-submit roster check read
+    # that absence as a parked waiver claim and recorded
+    # waiver_pending; no claim existed and no priority was spent.
+    db, client = FakeSupabase(), FakeClient()
+    client.apply_posts = False  # ESPN applies the move next period
+    client.post_response = {
+        "id": "txn-next-period",
+        "type": "FREEAGENT",
+        "status": "EXECUTED",
+        "items": [
+            {"playerId": FA_ID, "type": "ADD", "fromTeamId": 0,
+             "toTeamId": 7},
+            {"playerId": DROP_ID, "type": "DROP", "fromTeamId": 7,
+             "toTeamId": 0},
+        ],
+    }
+    edit = _propose(db, client, add_player_id=FA_ID, drop_player_id=DROP_ID)
+    result = roster_edits.approve_edit(db, ACCOUNT, client, edit["id"],
+                                       now=NOW)
+    assert result["status"] == "executed"
+    assert result["espn_transaction"]["type"] == "FREEAGENT"
+    assert db._store[0]["status"] == "executed"
+
+
+def test_approve_waiver_transaction_pending_even_if_echoed_executed():
+    # Classification keys off the transaction type: a genuine WAIVER
+    # transaction is a claim and stays pending until waivers
+    # process, whatever ESPN's status echo says.
+    db, client = FakeSupabase(), FakeClient()
+    client.post_response = {"id": "txn-3", "status": "EXECUTED",
+                            "type": "WAIVER"}
+    edit = _propose(db, client, add_player_id=WAIVER_ID,
+                    drop_player_id=DROP_ID)
+    result = roster_edits.approve_edit(db, ACCOUNT, client, edit["id"],
+                                       now=NOW)
+    assert result["status"] == "waiver_pending"
+    assert client.posts[0]["on_waivers"] is True
+    assert db._store[0]["status"] == "waiver_pending"
+
+
+def test_approve_waiver_claim_without_type_echo_verified_on_roster():
+    # The roster-verification safety net survives for waiver
+    # submissions: ESPN echoes EXECUTED with no type, but the add is
+    # not on the roster — the claim was parked, record it as such.
+    db, client = FakeSupabase(), FakeClient()
+    client.apply_posts = False
+    client.post_response = {"id": "txn-4", "status": "EXECUTED"}
+    edit = _propose(db, client, add_player_id=WAIVER_ID,
+                    drop_player_id=DROP_ID)
+    result = roster_edits.approve_edit(db, ACCOUNT, client, edit["id"],
+                                       now=NOW)
+    assert result["status"] == "waiver_pending"
     assert db._store[0]["status"] == "waiver_pending"
 
 
