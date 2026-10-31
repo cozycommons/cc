@@ -58,6 +58,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import lineup, logic
 from .espn_client import EspnAuthError, EspnError
+from .scoreboard import PRO_TEAM_ABBR
 
 LAST15_PERIODS = 15
 LAST7_PERIODS = 7
@@ -66,18 +67,15 @@ POCKET_PICK_LIMIT = 8
 DROP_LIMIT = 5
 POOL_LIMIT = 2000
 
-# ESPN pro team ids -> abbreviations. Cosmetic only: ids drive every
-# computation (schedule counts included); the abbreviation is display.
-# NOTE: espn/scoreboard.py's docstring claims WSH is id 27; the widely
-# used ESPN team-id map (and ESPN's own team pages) put Utah at 27 and
-# Washington at 28, which is what this map follows. Flagged in the PR.
-PRO_TEAM_ABBR = {
-    1: "ATL", 2: "BOS", 3: "NOP", 4: "CHI", 5: "CLE", 6: "DAL",
-    7: "DEN", 8: "DET", 9: "GSW", 10: "HOU", 11: "IND", 12: "LAC",
-    13: "LAL", 14: "MIA", 15: "MIL", 16: "MIN", 17: "BKN", 18: "NYK",
-    19: "ORL", 20: "PHI", 21: "PHX", 22: "POR", 23: "SAC", 24: "SAS",
-    25: "OKC", 26: "TOR", 27: "UTA", 28: "WAS", 29: "MEM", 30: "CHA",
-}
+# ESPN pro team ids -> abbreviations: PRO_TEAM_ABBR is imported from
+# espn/scoreboard.py (above), the module that owns the canonical
+# pro-team-id space, and re-exported here because display consumers
+# (this module, roster_edits) read it from here. Cosmetic only: ids
+# drive every computation (schedule counts included); the
+# abbreviation is display. Do NOT fork a local copy again — the
+# previous one carried 26/27/28 rotated (TOR/UTA/WAS) against the
+# anchors (26 = Utah, 27 = Washington, 28 = Toronto) and mislabeled
+# players in the waiver digest. Pinned by test_espn_waivers.
 
 _NON_POSITION_SLOTS = {12, 13}  # BE / IR are lineup slots, not positions
 
