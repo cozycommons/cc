@@ -8,6 +8,38 @@ Lineup setting means slot moves only — starters, bench, IR. Roster
 add/drop and trade offers exist, but only as approval-gated two-steps
 (propose, then approve — see below).
 
+## What the API does
+
+Base path `/espn` (host `https://api.cozycommons.dev`); MCP at
+`/espn/mcp`. Every call takes your per-account token as
+`Authorization: Bearer cce_...`; the token resolves to exactly one
+account and only ever touches that account's league.
+
+- **Reads** — league settings, standings, team rosters, recent
+  transactions, draft results.
+- **Trends** — player ownership/performance trends and per-team form
+  trends, computed from periodic snapshots.
+- **Waiver report** — free-agent form across season, last-15 and
+  last-7 windows, flagged pocket picks, drop candidates, and games in
+  the next 7 days.
+- **Lineups** — set today's lineup now (or dry-run a plan) and list
+  past runs; with automation on, the server sets lineups twice daily.
+- **Approval-gated writes** — roster add/drop and trade proposals:
+  a propose call validates and persists a pending item and submits
+  **nothing** to ESPN; only a separate, explicit approve call
+  executes one ESPN transaction.
+- **Account** — `GET /espn/me` checks your token; `DELETE
+  /espn/account` deletes your own account, history included.
+- **MCP** — the same surface as tools at `/espn/mcp`: `get_league`,
+  `get_standings`, `get_team`, `get_transactions`, `get_player_trends`,
+  `get_team_trends`, `get_draft`, `get_lineup_runs`, `run_lineup`,
+  roster-edit and trade propose/approve, `get_roster_edits`,
+  `get_trades`.
+- **Deliberate v1 limit** — no matchup summaries; there is no
+  `/espn/matchups` endpoint.
+
+Endpoint reference: [Routes](#routes).
+
 ## What you need
 
 - Your **league ID** — the `leagueId` number in your league's URL on
@@ -25,9 +57,49 @@ Treat both cookies like a password: together they are a login to your ESPN
 account. On the server they're encrypted at rest; never paste them into a
 chat or a shared doc.
 
+## Onboard with the browser extension (recommended)
+
+The flow that works in production, written for an AI agent guiding a
+human through setup — each step says who does it. Onboarding is the
+only setup step: it unlocks the full API and MCP surface above, and
+daily lineup automation is on by default.
+
+**Human — in your own browser:**
+
+1. Open **https://cozycommons.dev/fantasy/connect** and sign in to
+   ESPN.
+2. Run the companion browser extension. It reads your ESPN session
+   cookies (`espn_s2` + `SWID`) from your browser and produces a
+   one-time copy token / pairing. Your ESPN password never reaches
+   the backend.
+3. Paste the token on the hosted capture page at /fantasy/connect.
+   The backend creates your account, stores the cookies encrypted at
+   rest, and the page shows your `cce_...` API token.
+
+**Agent — save and verify:**
+
+4. Save the `cce_...` token immediately. It is shown **once** and
+   cannot be retrieved later.
+5. Verify: `GET /espn/me` with `Authorization: Bearer <token>` must
+   return `200` with the account (`id`, `league_id`, `season`) and
+   `"lineup_automation_enabled": true`. Opt out of automation with
+   `POST /espn/automation/lineup` (`{"enabled": false}`).
+
+Failure modes to know:
+
+- The hosted capture page is the reliable intake. Do **not** paste
+  the token into an in-app vault dialog — it has rejected valid
+  tokens.
+- If the password login below fails with `AUTHORIZATION_CREDENTIALS`,
+  that's Disney's risk check, not a wrong password. Don't retry the
+  credentials; switch to this extension flow.
+
+Lineup scheduling runs server-side; how it works is in
+`docs/espn-scheduler.md`.
+
 ## Onboard with your ESPN login (no DevTools)
 
-The easy path — no cookies to extract:
+The alternative front door — no cookies to extract:
 
 1. Open the connect page: **https://cozycommons.dev/fantasy/connect**
 2. On the **Automatic lineups** form, enter your ESPN email and password,
@@ -43,6 +115,11 @@ stored or logged; the only secret kept is the pair of ESPN session
 cookies the login returns, encrypted at rest exactly like the cookie
 flow. The form answers with your league name and your team name, so you
 can confirm it connected the right team before you close the page.
+
+**Reality check:** Disney's login risk checks reject this backend
+login for many accounts — it fails with `AUTHORIZATION_CREDENTIALS`,
+the same error as a wrong password. When it works it's quick; when it
+doesn't, the extension flow above is the reliable path.
 
 If ESPN demands extra verification for your account (a CAPTCHA or a
 code), the form can't complete that step — it will say so, and the
@@ -86,7 +163,7 @@ Save it somewhere safe; it cannot be retrieved later. Every other call uses it:
 
 ```bash
 curl -s https://<backend-host>/espn/me -H "Authorization: Bearer <token>"
-# -> your account, plus "lineup_automation_enabled": false (for now)
+# -> your account, plus "lineup_automation_enabled": true
 ```
 
 ## Turn on daily lineup setting
@@ -97,10 +174,12 @@ curl -s -X POST https://<backend-host>/espn/automation/lineup \
   -d '{"enabled": true}'
 ```
 
-Honest fine print: the backend has no scheduler. Opting in flags your
-account, but a run only happens when someone calls `POST /espn/lineup/run`
-(or the `run_lineup` MCP tool) — e.g. a daily cron on your own Muse.
-Nothing runs your lineup until that trigger exists.
+New accounts already have automation on — this endpoint is the
+opt-out / re-enable switch. When it's on, the server-side scheduler
+sets your lineup twice daily (09:00 and 18:30 ET); see
+`docs/espn-scheduler.md` for how it runs. A manual run is still
+available any time via `POST /espn/lineup/run` or the `run_lineup`
+MCP tool.
 
 ## The daily rule
 
@@ -240,6 +319,7 @@ users can unlink like any other claim.
 | Route | What it does |
 | --- | --- |
 | `POST /espn/onboard` | Store your ESPN cookies, get your token (once) |
+| `POST /espn/onboard/login` | Log in with email+password, get your token (once) |
 | `GET /espn/me` | Check a token / describe your account |
 | `GET /espn/league` | League settings + team list |
 | `GET /espn/standings` | Teams ranked by wins, then points for |
@@ -247,6 +327,7 @@ users can unlink like any other claim.
 | `GET /espn/transactions` | Recent transactions (player IDs only) |
 | `GET /espn/trends/players` | Ownership + performance trends |
 | `GET /espn/trends/teams` | Per-team form / all-play / luck trends |
+| `GET /espn/waivers` | Waiver wire: FA form, pocket picks, drop candidates |
 | `GET /espn/draft` | Draft picks in overall-pick order |
 | `POST /espn/automation/lineup` | Opt in/out of lineup automation (`{"enabled": true}`) |
 | `POST /espn/lineup/run` | Set a day's lineup now (or `dry_run` a plan) |
@@ -259,6 +340,7 @@ users can unlink like any other claim.
 | `POST /espn/trades/{id}/approve` | Approve + submit one pending proposal's offer as a single transaction |
 | `GET /espn/trades` | Past trade proposals + their outcomes (audit trail) |
 | `GET /espn/trades/{id}` | One trade proposal |
+| `DELETE /espn/account` | Delete your own account (+ cascaded history) |
 
 The same operations are available as MCP tools at `/espn/mcp` — pass your
 token as the `api_token` argument.
