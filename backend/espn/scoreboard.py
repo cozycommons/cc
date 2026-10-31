@@ -11,8 +11,9 @@ the default response caps at 100 events and a full month runs ~155).
 The hyphenated range form (``YYYYMMDD-YYYYMMDD``) is rejected with
 HTTP 400, so spans are fetched month by month. Event competitor ids
 live in ESPN's canonical NBA team-id space — the same space as
-fantasy ``proTeamId`` (CHA 30, WSH 27, CLE 5, MIN 16, BOS 2, CHI 4,
-MIA 14, DAL 6, ...).
+fantasy ``proTeamId`` (CHA 30, WAS 27, CLE 5, MIN 16, BOS 2, CHI 4,
+MIA 14, DAL 6, ...). ``PRO_TEAM_ABBR`` below is the backend's single
+id -> abbreviation map for that space.
 
 This client exists because the fantasy league payload does not
 always carry its ``proGamesByScoringPeriod`` schedule block (in
@@ -50,6 +51,25 @@ POSTSEASON = 3
 
 _ET = ZoneInfo("America/New_York")
 _TIMEOUT_S = 15
+
+# ESPN pro team id -> abbreviation, in the canonical NBA team-id
+# space this module documents (the space scoreboard competitor ids
+# and fantasy ``proTeamId`` share). This is the backend's single
+# source of truth for pro-team labels: display code (espn/waivers.py,
+# espn/roster_edits.py) reads the map from here instead of keeping
+# its own copy. Waivers once kept its own, with 26/27/28 rotated
+# (TOR/UTA/WAS), which mislabeled Utah players as Toronto's in the
+# waiver digest. Anchors verified against live fantasy roster
+# payloads (Oct 2026): 26 = Utah (Mo Bamba, Lauri Markkanen, Keyonte
+# George), 27 = Washington (Bilal Coulibaly), 28 = Toronto (Scottie
+# Barnes).
+PRO_TEAM_ABBR = {
+    1: "ATL", 2: "BOS", 3: "NOP", 4: "CHI", 5: "CLE", 6: "DAL",
+    7: "DEN", 8: "DET", 9: "GSW", 10: "HOU", 11: "IND", 12: "LAC",
+    13: "LAL", 14: "MIA", 15: "MIL", 16: "MIN", 17: "BKN", 18: "NYK",
+    19: "ORL", 20: "PHI", 21: "PHX", 22: "POR", 23: "SAC", 24: "SAS",
+    25: "OKC", 26: "UTA", 27: "WAS", 28: "TOR", 29: "MEM", 30: "CHA",
+}
 
 
 def _event_date(event: dict) -> _date | None:
