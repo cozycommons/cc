@@ -17,7 +17,8 @@ begin
     'espn_team_claims',
     'espn_roster_edits',
     'espn_trade_proposals',
-    'fantasy_leagues'
+    'fantasy_leagues',
+    'beli_agent_receipts'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -30,6 +31,11 @@ begin
     'beli_accounts.token_hash',
     'beli_accounts.watcher_opt_in',
     'beli_accounts.last_eats_scan',
+    'beli_accounts.owner_user_id',
+    'beli_agent_receipts.user_id',
+    'beli_agent_receipts.idempotency_key',
+    'beli_agent_receipts.payload',
+    'beli_agent_receipts.result',
     'partiful_accounts.refresh_token_enc',
     'partiful_accounts.uid_enc',
     'partiful_accounts.token_hash',
@@ -137,5 +143,47 @@ begin
       raise exception 'Beli schema contract: unsafe ESPN write claim table privileges on %', object_name;
     end if;
   end loop;
+
+  -- Connector account links and receipts are service-role only (0017).
+  if not exists (
+    select 1 from pg_catalog.pg_index i
+    join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
+    where i.indrelid = to_regclass('public.beli_accounts') and i.indisunique
+      and i.indnatts = 1 and a.attname = 'owner_user_id' and i.indpred is not null
+  ) then
+    raise exception 'Beli schema contract: missing unique owner link index on beli_accounts';
+  end if;
+  foreach object_name in array array['beli_accounts', 'beli_agent_receipts'] loop
+    if not exists (select 1 from pg_catalog.pg_class
+                   where oid = to_regclass('public.' || object_name) and relrowsecurity)
+        or pg_catalog.has_any_column_privilege('anon', 'public.' || object_name, 'SELECT,INSERT,UPDATE,REFERENCES')
+        or pg_catalog.has_any_column_privilege('authenticated', 'public.' || object_name, 'SELECT,INSERT,UPDATE,REFERENCES')
+        or pg_catalog.has_table_privilege('anon', 'public.' || object_name, 'DELETE,TRUNCATE,TRIGGER')
+        or pg_catalog.has_table_privilege('authenticated', 'public.' || object_name, 'DELETE,TRUNCATE,TRIGGER') then
+      raise exception 'Beli schema contract: unsafe browser access to public.%', object_name;
+    end if;
+  end loop;
+  -- A privilege list means "any of", so check each grant on its own.
+  foreach column_spec in array array[
+    'beli_agent_receipts.SELECT', 'beli_agent_receipts.INSERT', 'beli_agent_receipts.UPDATE',
+    'beli_agent_receipts.DELETE', 'beli_accounts.SELECT', 'beli_accounts.UPDATE'
+  ] loop
+    if not pg_catalog.has_table_privilege('service_role', 'public.' || split_part(column_spec, '.', 1),
+                                          split_part(column_spec, '.', 2)) then
+      raise exception 'Beli schema contract: connector service_role grants changed (%)', column_spec;
+    end if;
+  end loop;
+  if not exists (
+    select 1 from pg_catalog.pg_proc
+    where oid = to_regprocedure('public.beli_link_account(uuid,uuid)')
+      and not prosecdef and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'Beli schema contract: missing or unsafe public.beli_link_account';
+  end if;
+  if not pg_catalog.has_function_privilege('service_role', 'public.beli_link_account(uuid,uuid)', 'EXECUTE')
+      or pg_catalog.has_function_privilege('anon', 'public.beli_link_account(uuid,uuid)', 'EXECUTE')
+      or pg_catalog.has_function_privilege('authenticated', 'public.beli_link_account(uuid,uuid)', 'EXECUTE') then
+    raise exception 'Beli schema contract: unsafe beli_link_account privileges';
+  end if;
 end
 $$;

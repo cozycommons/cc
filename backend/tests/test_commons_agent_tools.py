@@ -22,6 +22,7 @@ class Query:
         self.db, self.table, self.filters = db, table, {}
         self.head = False
         self.write = None
+        self.action = None
 
     def select(self, *args, **kwargs):
         self.head = kwargs.get('head', False)
@@ -42,11 +43,22 @@ class Query:
         self.filters[key] = ('in', list(values))
         return self
 
-    def is_(self, *args):
+    def is_(self, key, value):
+        if self.table in BELI_TABLES:
+            self.filters[key] = None if value == 'null' else value
         return self
 
-    def upsert(self, row, on_conflict):
+    def upsert(self, row, on_conflict, ignore_duplicates=False):
         self.write = row
+        self.ignore_duplicates = ignore_duplicates
+        return self
+
+    def update(self, row):
+        self.action = ('update', row)
+        return self
+
+    def delete(self):
+        self.action = ('delete', None)
         return self
 
     def matches(self, row):
@@ -62,6 +74,8 @@ class Query:
         return True
 
     def execute(self):
+        if self.table in BELI_TABLES:
+            return self.db.beli_execute(self)
         if self.write is not None:
             assert self.table == 'cc_mcp_project_settings'
             self.db.settings[(self.write['user_id'], self.write['project_id'])] = deepcopy(self.write)
@@ -79,6 +93,9 @@ class Query:
         return SimpleNamespace(data=[] if self.head else data, count=len(data))
 
 
+BELI_TABLES = {'beli_accounts', 'beli_agent_receipts'}
+
+
 class Database:
     def __init__(self):
         self.user = SimpleNamespace(id=str(uuid4()), email='synthetic@example.test', user_metadata={'name': 'Sam'})
@@ -89,11 +106,40 @@ class Database:
             self.row, _ = apply_command(self.row, self.user.id, 'add_member', {'name': name, 'revision': self.row['revision']})
         self.receipts, self.commits, self.conflicts = {}, 0, 0
         self.settings = {}
+        # Beli: account rows (with owner_user_id) and connector receipts.
+        self.beli_accounts, self.beli_receipts = [], {}
 
     def table(self, table):
         return Query(self, table)
 
+    def beli_execute(self, query):
+        if query.table == 'beli_accounts':
+            assert query.write is None and query.action is None, 'Beli accounts change only through beli_link_account'
+            rows = self.beli_accounts
+        else:
+            rows = list(self.beli_receipts.values())
+        if query.write is not None:
+            key = (query.write['user_id'], query.write['idempotency_key'])
+            if key in self.beli_receipts:
+                assert query.ignore_duplicates
+                return SimpleNamespace(data=[])
+            self.beli_receipts[key] = {'result': None, 'created_at': '2026-11-03T12:00:00+00:00',
+                                       **deepcopy(query.write)}
+            return SimpleNamespace(data=[deepcopy(self.beli_receipts[key])])
+        matched = [row for row in rows if query.matches(row)]
+        if query.action:
+            kind, change = query.action
+            for row in matched:
+                key = (row['user_id'], row['idempotency_key'])
+                if kind == 'delete':
+                    del self.beli_receipts[key]
+                else:
+                    self.beli_receipts[key].update(deepcopy(change))
+        return SimpleNamespace(data=[deepcopy(row) for row in matched])
+
     def rpc(self, name, args):
+        if name == 'beli_link_account':
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=self.link_beli(**args)))
         assert name == 'trips_agent_commit'
         self.commits += 1
         if self.conflicts:
@@ -104,6 +150,21 @@ class Database:
         result = deepcopy(args['p_result'])
         self.receipts[(args['p_user_id'], args['p_key'])] = {'payload': deepcopy(args['p_payload']), 'result': result}
         return SimpleNamespace(execute=lambda: SimpleNamespace(data={'result': result}))
+
+    def link_beli(self, p_account_id, p_user_id):
+        # Mirrors public.beli_link_account (0017).
+        account = next((row for row in self.beli_accounts if row['id'] == p_account_id), None)
+        if account is None:
+            return 'missing'
+        if account['owner_user_id'] == p_user_id:
+            return 'already_linked'
+        if account['owner_user_id'] is not None:
+            return 'other_owner'
+        for row in self.beli_accounts:
+            if row['owner_user_id'] == p_user_id:
+                row['owner_user_id'] = None
+        account['owner_user_id'] = p_user_id
+        return 'linked'
 
 
 def connect(mcp):
@@ -157,8 +218,10 @@ async def test_whoami_and_extensible_registry_without_feature_scopes(tools):
     assert {t['name']: t['access'] for t in projects['trips']['tools']} == {
         'get_trip_overview': 'read', 'add_expense': 'edit', 'record_repayment': 'edit'}
     assert all(p['next_step'] for p in projects.values())
-    assert projects['beli']['on_connector'] is False
-    assert '/beli/mcp' in projects['beli']['next_step']
+    assert projects['beli']['on_connector'] is True and projects['beli']['linked'] is False
+    assert projects['beli']['next_step'] == "Call enable_project('beli') to add its 3 tools."
+    assert projects['resy']['on_connector'] is False
+    assert '/resy/mcp' in projects['resy']['next_step']
 
 
 @pytest.mark.asyncio
@@ -182,7 +245,7 @@ async def test_enable_and_disable_persist_a_choice_and_gate_calls(tools):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('project_id,message', [('commons', 'Unknown project'), ('nope', 'Unknown project'),
-    ('beli', 'not on this connector yet'), ('dice', 'no agent tools yet')])
+    ('resy', 'not on this connector yet'), ('dice', 'no agent tools yet')])
 async def test_enable_project_errors_name_the_fix(tools, project_id, message):
     db, _, call = tools
     with pytest.raises(ToolError, match=message):

@@ -4,11 +4,11 @@
 
 - M1: merged in #197 (Commons discovery + Trips on `/mcp`).
 - M2: merged in #198 (`/connect` page, `docs/mcp/SKILL.md`).
-- M3a (this PR, `commons-connector-m3a`): connector foundation for M3. Coarse
-  stable scopes, per-user project enablement, filtered tool list, the project
-  contract with account links, and the generic per-tool safety test. Opened
-  non-draft against main; the orchestrator runs the external review and merges.
-- M3b–M3e: not started. Plan below; one PR each, in order.
+- M3a: merged in #199 (connector foundation: commons scopes, per-user
+  enablement, filtered tool list, account-link contract, generic safety test).
+- M3b (this PR, `commons-connector-m3b-beli`): Beli on `/mcp`. Opened non-draft
+  against main; the orchestrator runs the external review and merges.
+- M3c–M3e: not started. Plan below; one PR each, in order.
 - Loopback only. Local OAuth client credentials and signing/encryption keys live
   only in ignored `.dice-dev/commons-mcp.json` (0600). No production connection.
 
@@ -109,6 +109,72 @@ PASS read-only token reads Trips; writes refused; ledger unchanged
 PASS pre-commons trips:* token still reads and previews Trips until it expires
 PASS pre-commons token refused outside its old project with a reconnect step
 ```
+
+### M3b decisions
+
+- **Link.** Migration `0017_beli_account_owner.sql` (beli family, contract 17):
+  `beli_accounts.owner_user_id` (`on delete set null`) with a partial unique
+  index, `beli_agent_receipts`, and `beli_link_account(account, user)`, which in
+  one transaction refuses another owner and moves the caller's earlier link.
+  All service-role only; the Beli contract now also checks each service grant on
+  its own (a privilege list in `has_table_privilege` means "any of").
+  `link_beli_account(api_token)` (edit) reuses the legacy constant-time token
+  lookup, never stores or returns the token, and allows 10 attempts per user
+  per hour. No dry_run on the link: it changes only our own link row, is
+  idempotent and is reversed by linking again. Beli has no web onboarding page,
+  so there is no onboarding-time link; the link step points at `/beli/onboard`.
+- **Tools (3).** `get_restaurant_recs` (read; `get_recs`), `save_restaurant`
+  (edit; `bookmark_name`, dry_run default true, required idempotency_key) and
+  the link tool. `day` is a date or lowercase weekday, `time` 24-hour `HH:MM`.
+  Commits reserve the key before writing to Beli, record the result for replay,
+  refuse a reused key with new details, and release the key when nothing was
+  written. A reservation left mid-save is reported after two minutes with the
+  fix (new key; it reports `already_bookmarked` if the save landed).
+- **Default.** Beli is on by default once linked (`in_use`). Existing accounts,
+  their `ccb_` tokens, `/beli/*`, `/beli/mcp` and watcher subscriptions are
+  unchanged; the `beli` catalog entry is gone from `list_projects`.
+- **Local exercise.** `serve` routes the Beli client to the e2e's fake loopback
+  Beli API on port 8766 with a per-process credentials key; nothing reaches Beli.
+
+### M3b validation evidence
+
+- Backend, all DB/integration opt-ins (fresh bootstrapped
+  `dummi_regression_501_1703` + real PostgREST, loopback Floor Planner stack,
+  dedicated Trips stack, analytics opt-in): **1976 passed, 0 skipped**. Plain
+  `python -m pytest tests -q`: 1804 passed, 172 skipped.
+- New: `tests/test_beli_agent_tools.py` (24), `tests/test_beli_owner_database.py`
+  (25, real Postgres: link outcomes, unique owner, user deletion, receipts,
+  browser denial, contract tampering, upgrade from the pre-0017 release with an
+  existing account left unlinked and unchanged). Safety test: 66 cases over 14
+  tools. Mutation check: accepting another owner's account fails both suites.
+- Frontend: 98 files, 770 tests; production build passed.
+- 0017 applied to the shared loopback stack for the e2e, then rolled back
+  (ledger back at 16) so other worktrees on main are not blocked.
+- Real OAuth e2e, Beli lines (all 56 PASS lines in the run, the M3a lines unchanged):
+
+```text
+PASS enable_project beli
+PASS list_projects/enable_project show Beli unlinked with the link step
+PASS unlinked get_restaurant_recs refused with the link step
+PASS unlinked save_restaurant refused with the link step
+PASS synthetic Beli onboarding through /beli/onboard (fake loopback Beli API)
+PASS link_beli_account refused for another user's account
+PASS link_beli_account refused for a wrong token
+PASS link_beli_account
+PASS linked account keeps its legacy ccb_ token on /beli
+PASS list_projects shows Beli linked with the next step
+PASS get_restaurant_recs
+PASS save_restaurant dry_run
+PASS save_restaurant commit
+PASS save_restaurant idempotent replay
+PASS save_restaurant key reuse with new details refused
+PASS every Beli tool over real OAuth: link, recs, preview, commit, replay; one Beli write
+PASS read-only token denied on save_restaurant
+PASS read-only token reads Beli recs; saves refused; no Beli write
+```
+
+- Follow-up (not changed here): Trips readiness (`trips` 0002/0003) checks
+  service grants with privilege lists, so it passes when any one is still held.
 
 ## M3 plan: one PR per project
 

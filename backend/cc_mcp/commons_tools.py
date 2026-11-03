@@ -29,8 +29,6 @@ class CatalogProject:
 
 CATALOG = (
     CatalogProject('dice', 'Dice', 'Beer die records, rankings and stats.', 'https://cozycommons.dev/dice'),
-    CatalogProject('beli', 'Beli', 'Save restaurant recommendations from Instagram.',
-                   'https://api.cozycommons.dev/beli/mcp', '/beli/mcp'),
     CatalogProject('resy', 'Resy', 'Find and book restaurant reservations.',
                    'https://api.cozycommons.dev/resy/mcp', '/resy/mcp'),
     CatalogProject('partiful', 'Partiful', 'Manage events and invitations.',
