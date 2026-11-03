@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getLiveGames: vi.fn(),
   getLiveGame: vi.fn(),
   getTournament: vi.fn(),
+  getVirtualEligibleGames: vi.fn(),
   createVirtualMarket: vi.fn(),
   placeVirtualPick: vi.fn(),
 }));
@@ -53,6 +54,10 @@ function ready({
   mocks.getLiveGames.mockResolvedValue(liveGames);
   mocks.getLiveGame.mockResolvedValue({ ...game, status: 'completed' });
   mocks.getTournament.mockResolvedValue(tournament);
+  const enrolled = new Set(tournament.enrolled_players.map((player) => player.user_id));
+  mocks.getVirtualEligibleGames.mockResolvedValue(liveGames
+    .filter((live) => live.team_order.flatMap((team) => live.teams[team]).every((id) => enrolled.has(id)))
+    .map((live) => live.id));
   mocks.createVirtualMarket.mockResolvedValue(market);
   mocks.placeVirtualPick.mockImplementation((_token, _tournamentId, marketId, payload) => Promise.resolve({
     id: 8, market_id: marketId, selection: payload.selection, stake: payload.stake,

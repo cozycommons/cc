@@ -13,6 +13,7 @@ import EloHistoryChart from '../components/EloHistoryChart.jsx';
 import { synergyDescription, synergyGap } from '../duoSynergy.js';
 import { aggregateRecordedStats } from '../recordedStats.js';
 import LoadingRows, { LoadingPage } from '../components/LoadingRows.jsx';
+import { isAnonymousId } from '../anonymous.js';
 
 const AVATAR_BUCKET = 'dice-profile-photos';
 
@@ -101,8 +102,10 @@ export default function PlayerProfile({ auth }) {
   const [partnerResult, setPartnerResult] = useState(null);
   const viewerKey = user?.id || 'anonymous';
   const profileKey = `profile:${userId}:${viewerKey}`;
-  const gamesKey = `profile-games:${userId}:200`;
-  const progressKey = `rating-progress:${userId}`;
+  const gamesKey = `profile-games:${userId}:200:${viewerKey}`;
+  const progressKey = `rating-progress:${userId}:${viewerKey}`;
+  const anonymousAlias = isAnonymousId(userId);
+  const [missing, setMissing] = useState(false);
   const [profile, setProfile] = useState(() => peekDiceResource(profileKey) ?? null);
   const [games, setGames] = useState(() => peekDiceResource(gamesKey) ?? null);
   const [ratingProgress, setRatingProgress] = useState(() => peekDiceResource(progressKey));
@@ -110,7 +113,6 @@ export default function PlayerProfile({ auth }) {
   const [name, setName] = useState(() => peekDiceResource(profileKey)?.display_name ?? '');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [savingSetting, setSavingSetting] = useState(false);
   const [error, setError] = useState(null);
   const [phone, setPhone] = useState(() => peekDiceResource(profileKey)?.phone_number || '');
   const [smsEnabled, setSmsEnabled] = useState(() => peekDiceResource(profileKey)?.sms_notifications_enabled ?? false);
@@ -132,6 +134,8 @@ export default function PlayerProfile({ auth }) {
   // Responses for a player we have since navigated away from are dropped.
   const loadSequence = useRef(0);
   const load = () => {
+    if (anonymousAlias) return;
+    setMissing(false);
     const sequence = ++loadSequence.current;
     const current = () => sequence === loadSequence.current;
     const cachedProfile = peekDiceResource(profileKey);
@@ -140,15 +144,16 @@ export default function PlayerProfile({ auth }) {
     setRatingProgress(peekDiceResource(progressKey));
     loadDiceResource(profileKey, () => diceApi.getProfile(userId, token)).then((p) => {
       if (current()) applyProfile(p);
-    }).catch(() => {
-      if (current() && !cachedProfile) setProfile(null);
+    }).catch((loadError) => {
+      if (current() && loadError?.status === 404) setMissing(true);
+      else if (current() && !cachedProfile) setProfile(null);
     });
-    loadDiceResource(gamesKey, () => diceApi.getProfileGames(userId, 200)).then((loaded) => {
+    loadDiceResource(gamesKey, () => diceApi.getProfileGames(userId, 200, token)).then((loaded) => {
       if (current()) setGames(loaded);
     }).catch(() => {
       if (current()) setGames((shown) => shown ?? []);
     });
-    loadDiceResource(progressKey, () => diceApi.getRatingProgress(userId)).then((loaded) => {
+    loadDiceResource(progressKey, () => diceApi.getRatingProgress(userId, token)).then((loaded) => {
       if (current()) setRatingProgress(loaded);
     }).catch(() => {
       if (current()) setRatingProgress((shown) => shown ?? null);
@@ -164,13 +169,13 @@ export default function PlayerProfile({ auth }) {
 
   useEffect(() => {
     let active = true;
-    if (token && auth.profile) {
+    if (token && auth.profile && !anonymousAlias) {
       diceApi.getBestPartner(token, userId).then((duo) => {
         if (active) setPartnerResult({ userId, duo });
       }).catch(() => { if (active) setPartnerResult(null); });
     }
     return () => { active = false; };
-  }, [userId, token, auth.profile]);
+  }, [userId, token, auth.profile, anonymousAlias]);
   const bestPartner = partnerResult?.userId === userId ? partnerResult.duo : null;
   const partner = bestPartner?.members.find((member) => member.user_id !== userId);
 
@@ -240,23 +245,6 @@ export default function PlayerProfile({ auth }) {
     }
   };
 
-  const toggleHideFromLeaderboard = async () => {
-    if (!token) return;
-    setSavingSetting(true);
-    setError(null);
-    try {
-      const payload = { hide_from_leaderboard: !profile.hide_from_leaderboard };
-      if (!isOwnProfile && isAdmin) payload.user_id = userId;
-      const updated = await diceApi.updateMyProfile(token, payload);
-      setProfile(updated);
-      if (isOwnProfile) await refreshProfile();
-    } catch (err) {
-      setError('Failed to save setting.');
-    } finally {
-      setSavingSetting(false);
-    }
-  };
-
   const saveSmsSettings = async () => {
     if (!token) return;
     setSmsError(null);
@@ -287,6 +275,20 @@ export default function PlayerProfile({ auth }) {
       setSavingSms(false);
     }
   };
+
+  if (anonymousAlias || missing) {
+    return (
+      <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">
+        <p className="jk-display text-3xl">{anonymousAlias ? 'Anonymous player' : 'Profile not found'}</p>
+        <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
+          {anonymousAlias
+            ? 'This player plays anonymously, so their profile is private. Their games still count in every stat.'
+            : 'This profile is private or no longer exists.'}
+        </p>
+        <Link className="jk-label underline inline-block mt-4" to="/dice">← Dice home</Link>
+      </div>
+    );
+  }
 
   if (profile === null) {
     return <LoadingPage width="max-w-xl" />;
@@ -439,23 +441,6 @@ export default function PlayerProfile({ auth }) {
         </div>
       </div>
 
-      {canEdit && (
-        <div className="mb-8">
-          <p className="jk-label mb-3">// SETTINGS</p>
-          <div className="jk-card p-4">
-            <label className="flex items-center gap-2" style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--text-primary)' }}>
-              <input
-                type="checkbox"
-                checked={profile.hide_from_leaderboard}
-                onChange={toggleHideFromLeaderboard}
-                disabled={savingSetting}
-              />
-              Hide my profile from leaderboard
-            </label>
-          </div>
-        </div>
-      )}
-
       {isOwnProfile && (
         <div className="mb-8">
           <p className="jk-label mb-3">// NOTIFICATIONS</p>
@@ -504,7 +489,8 @@ export default function PlayerProfile({ auth }) {
       </div>
 
       {isOwnProfile && (
-        <div className="flex justify-center mt-8">
+        <div className="flex justify-center items-center gap-2 mt-8">
+          <Link to="/dice/settings" className="jk-label underline px-2">Settings</Link>
           <Button size="sm" variant="ghost" onClick={signOut} className="flex items-center gap-2">
             <LogOut className="w-3.5 h-3.5" />
             Sign out

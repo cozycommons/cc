@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import DiceHeader from './DiceHeader.jsx';
 import { useDiceAuth } from './useDiceAuth.js';
+import { claimDiceResources } from './resourceCache.js';
 import Home from './pages/Home.jsx';
 import MatchHistory from './pages/MatchHistory.jsx';
 import EloLeaderboard from './pages/EloLeaderboard.jsx';
@@ -20,12 +21,15 @@ import VirtualDice from './pages/VirtualDice.jsx';
 import Stats from './pages/Stats.jsx';
 import DuoDetail from './pages/DuoDetail.jsx';
 import StreakDetail from './pages/StreakDetail.jsx';
+import Settings from './pages/Settings.jsx';
 import './dice-theme.css';
 
 export default function DiceApp() {
   const auth = useDiceAuth();
   const { pathname } = useLocation();
   const authScope = auth.user?.id || 'anonymous';
+  // During render, before any page in this scope reads the cache.
+  claimDiceResources(authScope);
   const privateRoute = (element) => {
     if (auth.loading) return null;
     return auth.token && auth.profile ? element : <Navigate replace to="/dice" />;
@@ -57,6 +61,7 @@ export default function DiceApp() {
         <Route path="tournament/:tournamentId/edit" element={<TournamentForm auth={auth} editMode />} />
         <Route path="live" element={privateRoute(<LiveLobby auth={auth} />)} />
         <Route path="live/:matchId" element={privateRoute(<LiveGame auth={auth} />)} />
+        <Route path="settings" element={privateRoute(<Settings auth={auth} />)} />
       </Routes>
       </div>
     </div>

@@ -34,6 +34,17 @@ export function invalidateDiceResources() {
   inflight.clear();
 }
 
+// Some reads are viewer-specific (an anonymous player sees their own name;
+// organizers see real names). The cache remembers which signed-in viewer filled
+// it, outliving the Dice app's mount, and is dropped as soon as anyone else
+// uses it. Going from signed out to signed in keeps the public entries.
+let owner = null;
+
+export function claimDiceResources(viewer) {
+  if (owner !== null && owner !== viewer && owner !== 'anonymous') invalidateDiceResources();
+  owner = viewer;
+}
+
 // Every cache write from a request goes through here, so a response to a
 // request started before a mutation can never repopulate the cache.
 export function loadDiceResource(key, load) {

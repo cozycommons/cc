@@ -127,30 +127,22 @@ def _transition_out(transition: DuoTransition) -> DuoTransitionOut:
 
 def _replay(supabase: Client):
     profiles, matches = _source(supabase)
-    # Leaderboard-hidden profiles are omitted from the replay itself, not only
-    # from its output.  Otherwise a visible duo's rating could be influenced by
-    # an undisclosed opponent while its evidence/counts correctly hide that
-    # game, producing an internally inconsistent public result.
-    visible_ids = {
-        row["user_id"] for row in profiles if not row.get("hide_from_leaderboard", False)
-    }
-    public_matches = [
-        match
-        for match in matches
-        if all(member in visible_ids for member in (*match.team1, *match.team2))
-    ]
-    states, transitions = replay_duo_history_with_transitions(public_matches)
+    # Every official game counts. Anonymous players are aliased at the API
+    # boundary (dice/anonymity.py) rather than dropped from the replay, so their
+    # partners' and opponents' duo records stay complete.
+    states, transitions = replay_duo_history_with_transitions(matches)
     ladder = rank_duos(states)
-    synergies = calculate_duo_synergies(public_matches)
-    return profiles, ladder, states, transitions, synergies, public_matches
+    synergies = calculate_duo_synergies(matches)
+    return profiles, ladder, states, transitions, synergies, matches
 
 
 def _visible_states(states: dict[str, DuoRatingState], profiles: list[dict]) -> dict[str, DuoRatingState]:
-    visible_ids = {row["user_id"] for row in profiles if not row.get("hide_from_leaderboard", False)}
+    # Duos whose members still have a profile; anonymity no longer filters.
+    known_ids = {row["user_id"] for row in profiles}
     return {
         duo_id: state
         for duo_id, state in states.items()
-        if all(member in visible_ids for member in state.members)
+        if all(member in known_ids for member in state.members)
     }
 
 
@@ -264,6 +256,12 @@ def get_duo_detail(supabase: Client, duo_id: str) -> DuoDetailOut | None:
     evidence = [_transition_out(transition) for transition in public_own]
     return DuoDetailOut(summary=summary, rating_history=evidence, games=evidence, head_to_head=head_to_head,
                         big_moments=_big_moments(supabase, state.members, matches, summary.game_ids))
+
+
+def duo_ids(supabase: Client) -> list[str]:
+    """Every duo in the replay; used to resolve aliased duo links."""
+    _, _, states, _, _, _ = _replay(supabase)
+    return list(states)
 
 
 def get_best_partner(supabase: Client, user_id: str) -> DuoSummary | None:

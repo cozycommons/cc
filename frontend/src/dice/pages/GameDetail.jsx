@@ -116,7 +116,8 @@ export default function GameDetail({ auth }) {
   const { user, token, isAdmin } = auth;
   const includeDuoOnly = new URLSearchParams(location.search).get('duo') === '1';
   // Duo-only views are viewer-specific, so only public matches use the cache.
-  const gameKey = includeDuoOnly ? null : `game:${gameId}`;
+  // The viewer is part of the key: an anonymous player sees their own name.
+  const gameKey = includeDuoOnly ? null : `game:${gameId}:${user?.id || 'anonymous'}`;
   const [game, setGame] = useState(() => cachedGame(gameKey, gameId));
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -128,7 +129,7 @@ export default function GameDetail({ auth }) {
     setGame((current) => cachedGame(gameKey, gameId) ?? (current && current.id === gameId ? current : null));
     const load = async () => {
       try {
-        const loaded = await loadDiceResource(gameKey, () => diceApi.getGame(gameId, includeDuoOnly, includeDuoOnly ? token : null));
+        const loaded = await loadDiceResource(gameKey, () => diceApi.getGame(gameId, includeDuoOnly, token));
         if (!cancelled) setGame(loaded);
       } catch (loadError) {
         const pending = readPendingDelete(user?.id, gameId);

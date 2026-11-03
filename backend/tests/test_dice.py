@@ -479,6 +479,7 @@ def _profile(user_id, display_name):
         "losses": 0,
         "self_sinks": 0,
         "hide_from_leaderboard": False,
+        "is_anonymous": False,
     }
 
 
@@ -2962,3 +2963,179 @@ def test_best_partner_uses_the_duo_access_boundary_and_positive_result(monkeypat
     assert (response.json()["synergy"]["win_rate"], response.json()["synergy"]["expected_win_rate"]) == (0.8, 0.5)
     monkeypatch.setattr(dice_routes, "get_best_partner", lambda *_args: None)
     assert client.get("/dice/profiles/u1/best-partner", headers=_headers(HOST_TOKEN)).json() is None
+
+
+# --- Anonymous play ---
+
+
+def _anonymous_roster(*user_ids):
+    profiles = deepcopy(ROSTER)
+    for profile in profiles:
+        if profile["user_id"] in user_ids:
+            profile["is_anonymous"] = True
+    return profiles
+
+
+def _log_game(client, players=("u1", "u2", "u3", "u4"), ranked=True):
+    return client.post(
+        "/dice/games",
+        headers=_headers(HOST_TOKEN),
+        json={
+            "ranked": ranked,
+            "team1_score": 5,
+            "team2_score": 3,
+            "players": [
+                {"user_id": players[0], "team": 1}, {"user_id": players[1], "team": 1},
+                {"user_id": players[2], "team": 2}, {"user_id": players[3], "team": 2},
+            ],
+        },
+    ).json()
+
+
+def _seed(value="visit-seed-1"):
+    return {"X-Dice-View-Seed": value}
+
+
+def test_anonymous_player_is_an_animal_on_recorded_results_but_still_counts():
+    client, supabase = _build_client(profiles=_anonymous_roster("u2"), auth_users=AUTH_USERS)
+    game = _log_game(client)
+    supabase.tables["dice_games"][0]["recorded_stats"] = {"players": {"u2": {"outcomes": {"point": 1}}}}
+
+    listed = client.get("/dice/games?limit=10", headers=_seed()).json()[0]
+    detail = client.get(f"/dice/games/{game['id']}", headers=_seed()).json()
+
+    for payload in (listed, detail):
+        anonymous = next(player for player in payload["players"] if player["team"] == 1 and player["user_id"] != "u1")
+        assert anonymous["user_id"].startswith("anon-")
+        assert anonymous["display_name"].startswith("Anonymous ")
+        assert anonymous["avatar_url"] is None
+        assert "u2" not in str(payload)
+        assert list(payload["recorded_stats"]["players"]) == [anonymous["user_id"]]
+    # One visit sees the same alias in every response.
+    assert {p["user_id"] for p in listed["players"]} == {p["user_id"] for p in detail["players"]}
+    assert "Aziz Rahman" not in client.get("/dice/leaderboard/sinks?limit=10&nonzero_only=false", headers=_seed()).text
+
+
+def test_anonymous_aliases_reshuffle_between_visits():
+    client, _ = _build_client(profiles=_anonymous_roster("u2"), auth_users=AUTH_USERS)
+    _log_game(client)
+
+    def alias(seed):
+        players = client.get("/dice/games?limit=1", headers=_seed(seed)).json()[0]["players"]
+        return next(p["user_id"] for p in players if p["user_id"].startswith("anon-"))
+
+    assert alias("visit-seed-1") == alias("visit-seed-1")
+    assert alias("visit-seed-1") != alias("visit-seed-2")
+
+
+def test_anonymous_players_keep_real_names_in_the_picker():
+    client, _ = _build_client(profiles=_anonymous_roster("u2"), auth_users=AUTH_USERS)
+
+    names = {p["display_name"] for p in client.get("/dice/profiles/search?q=&limit=50").json()}
+
+    assert "Aziz Rahman" in names
+
+
+def test_anonymous_profile_is_visible_only_to_its_owner_and_admins():
+    client, _ = _build_client(profiles=_anonymous_roster("u1"), auth_users=AUTH_USERS)
+
+    assert client.get("/dice/profiles/u1").status_code == 404
+    assert client.get("/dice/profiles/u1", headers=_headers(OTHER_TOKEN)).status_code == 404
+    assert client.get("/dice/profiles/u1/games").status_code == 404
+    assert client.get("/dice/profiles/u1/rating-progress").status_code == 404
+    assert client.get("/dice/profiles/u1", headers=_headers(HOST_TOKEN)).json()["display_name"] == "Andrew S"
+    assert client.get("/dice/profiles/u1", headers=_headers(ADMIN_TOKEN)).status_code == 200
+
+
+def test_anonymous_player_sees_their_own_name_and_editors_can_reveal_a_game():
+    client, _ = _build_client(profiles=_anonymous_roster("u1", "u2"), auth_users=AUTH_USERS)
+    game = _log_game(client)
+
+    own = client.get(f"/dice/games/{game['id']}", headers={**_headers(HOST_TOKEN), **_seed()}).json()
+    ids = {p["user_id"] for p in own["players"]}
+    assert "u1" in ids and "u2" not in ids
+    assert own["created_by"] == "u1"
+
+    assert client.get(f"/dice/games/{game['id']}?reveal=1").status_code == 401
+    revealed = client.get(f"/dice/games/{game['id']}?reveal=1", headers=_headers(OTHER_TOKEN)).json()
+    assert {p["user_id"] for p in revealed["players"]} == {"u1", "u2", "u3", "u4"}
+
+
+def test_profile_update_turns_anonymous_play_on_and_ignores_the_old_hide_flag():
+    client, supabase = _build_client(profiles=deepcopy(ROSTER), auth_users=AUTH_USERS)
+
+    on = client.put("/dice/me", headers=_headers(HOST_TOKEN), json={"is_anonymous": True}).json()
+    client.put("/dice/me", headers=_headers(OTHER_TOKEN), json={"hide_from_leaderboard": True})
+
+    assert on["is_anonymous"] is True
+    jaycee = next(row for row in supabase.tables["dice_profiles"] if row["user_id"] == "u4")
+    assert jaycee["hide_from_leaderboard"] is False
+
+
+def test_duo_links_use_aliases_that_resolve_only_within_the_visit(monkeypatch):
+    from dice import duo_repository
+    from dice.duo_rating import DuoMatch
+
+    profiles = _anonymous_roster("u2")
+    matches = [
+        DuoMatch(
+            game_id=f"g{index}", played_at=datetime(2026, 1, index + 1, tzinfo=timezone.utc),
+            team1=("u1", "u2"), team2=("u3", "u4"), winner_team=1, team1_score=5, team2_score=3,
+        )
+        for index in range(3)
+    ]
+    monkeypatch.setattr(duo_repository, "_source", lambda _supabase: (profiles, matches))
+    client, _ = _build_client(profiles=profiles, auth_users=AUTH_USERS)
+    headers = {**_headers(OTHER_TOKEN), **_seed()}
+
+    ladder = client.get("/dice/stats/duos", headers=headers).json()
+    duo = next(row for row in (*ladder["ranked"], *ladder["to_watch"])
+               if any(member["display_name"].startswith("Anonymous ") for member in row["members"]))
+
+    assert "u2" not in duo["duo_id"]
+    assert client.get(f"/dice/stats/duos/{duo['duo_id']}", headers=headers).status_code == 200
+    other_visit = {**_headers(OTHER_TOKEN), **_seed("visit-seed-2")}
+    assert client.get(f"/dice/stats/duos/{duo['duo_id']}", headers=other_visit).status_code == 404
+
+
+def test_tournaments_alias_the_whole_event_for_non_organizers():
+    client, _ = _build_client(profiles=_anonymous_roster("u2"), auth_users=AUTH_USERS)
+    tournament = client.post(
+        "/dice/tournaments", headers=_headers(ADMIN_TOKEN),
+        json={"name": "Cup", "starts_at": "2026-09-01T12:00:00Z"},
+    ).json()
+    enrolled = client.post(
+        f"/dice/tournaments/{tournament['id']}/enroll", headers=_headers(ADMIN_TOKEN), json={"user_id": "u2"},
+    ).json()
+    assert [p["display_name"] for p in enrolled["enrolled_players"]] == ["Aziz Rahman"]
+
+    for response in (
+        client.get(f"/dice/tournaments/{tournament['id']}", headers={**_headers(OTHER_TOKEN), **_seed()}),
+        client.get("/dice/tournaments", headers=_seed()),
+        client.post(f"/dice/tournaments/{tournament['id']}/enroll", headers={**_headers(OTHER_TOKEN), **_seed()}),
+    ):
+        assert "u2" not in response.text and "Aziz Rahman" not in response.text
+
+
+def test_picker_does_not_carry_an_anonymous_players_stats():
+    profiles = _anonymous_roster("u2")
+    next(p for p in profiles if p["user_id"] == "u2").update({"elo_rating": 1612, "sinks": 9, "games_played": 14, "rating_deviation": 297.5})
+    client, _ = _build_client(profiles=profiles, auth_users=AUTH_USERS)
+
+    aziz = next(p for p in client.get("/dice/profiles/search?q=&limit=50").json() if p["user_id"] == "u2")
+
+    assert aziz["display_name"] == "Aziz Rahman"
+    assert (aziz["elo_rating"], aziz["sinks"], aziz["games_played"], aziz["is_anonymous"]) == (1500, 0, 0, False)
+    from dice.rating_deviation import INITIAL_RATING_DEVIATION
+    assert aziz["rating_deviation"] == INITIAL_RATING_DEVIATION
+
+
+def test_exempting_the_viewer_never_changes_anyone_elses_animal():
+    from dice.anonymity import Anonymizer
+
+    everyone = Anonymizer.build({"a", "b", "c"}, "seed-seed-1")
+    as_a = Anonymizer.build({"a", "b", "c"}, "seed-seed-1", exempt={"a"})
+
+    assert "a" not in as_a.aliases
+    assert as_a.aliases == {key: value for key, value in everyone.aliases.items() if key != "a"}
+    assert len({name for _, name in everyone.aliases.values()}) == 3

@@ -59,18 +59,23 @@ def test_fresh_schema_without_legacy_supabase_default_grants(migration_database,
 def test_imported_and_fresh_schemas_are_identical(imported_database, canonical_catalog, reconciliation_release):
     database = imported_database
     receipts_before = database.sql("SELECT version,applied_at,checksum FROM public.dice_schema_migrations ORDER BY version;").stdout
-    profile_before = database.sql("SELECT to_jsonb(p) FROM public.dice_profiles p;").stdout
+    # Columns added after this fixture's release (0086 is_anonymous) are excluded.
+    profile_row = "SELECT to_jsonb(p) - 'is_anonymous' FROM public.dice_profiles p;"
+    profile_before = database.sql(profile_row).stdout
     database.release(reconciliation_release)
     database.release()
     assert database.sql("SELECT version,applied_at,checksum FROM public.dice_schema_migrations WHERE version>=42 AND version<84 ORDER BY version;").stdout == receipts_before
-    assert database.sql("SELECT to_jsonb(p) FROM public.dice_profiles p;").stdout == profile_before
+    assert database.sql(profile_row).stdout == profile_before
+    assert database.sql("SELECT is_anonymous FROM public.dice_profiles;").stdout.strip() == 'f'
     assert catalog_difference(canonical_catalog, database.catalog()) == []
     assert database.sql("SELECT count(*) FROM public.dice_schema_migrations WHERE recorded_via='reconciled' AND reconciled_by=84;").stdout.strip() == '13'
     assert database.sql("SELECT recorded_via FROM public.dice_schema_migrations WHERE version=84;").stdout.strip() == 'executed'
     assert 'Applying ' not in database.release().stdout
     assert database.sql("SET ROLE service_role; SELECT public.dice_release_readiness();").stdout.strip() == 't'
     for role in ('anon', 'authenticated'):
-        assert database.sql(f"SET ROLE {role}; SELECT display_name FROM public.dice_profiles;").stdout.strip() == 'Preserved profile'
+        # 0086: results and profiles are served only through the API's anonymity layer.
+        denied = database.sql(f"SET ROLE {role}; SELECT display_name FROM public.dice_profiles;", check=False)
+        assert denied.returncode != 0 and 'permission denied' in denied.stderr
         denied = database.sql(f"SET ROLE {role}; UPDATE public.dice_profiles SET display_name='forbidden';", check=False)
         assert denied.returncode != 0 and 'permission denied' in denied.stderr
         denied = database.sql(f"SET ROLE {role}; SELECT nextval('public.dice_virtual_picks_id_seq');", check=False)

@@ -21,6 +21,7 @@ begin
     'dice_game_players.counts_for_group_stage',
     'dice_profiles.rating_deviation',
     'dice_profiles.elo_model_version',
+    'dice_profiles.is_anonymous',
     'dice_rating_mutation_receipts.mutation_id',
     'dice_rating_mutation_receipts.actor_id',
     'dice_rating_mutation_receipts.request_fingerprint',
@@ -335,6 +336,17 @@ begin
     if has_table_privilege('anon', 'public.' || object_name, 'select')
        or has_table_privilege('authenticated', 'public.' || object_name, 'select') then
       raise exception 'Dice schema contract: private table public.% is browser-readable', object_name;
+    end if;
+  end loop;
+
+  -- Results and profiles are served only through the API's anonymity layer (0086).
+  foreach object_name in array array[
+    'dice_profiles', 'dice_games', 'dice_game_players',
+    'dice_tournaments', 'dice_tournament_enrollments'
+  ] loop
+    if has_table_privilege('anon', 'public.' || object_name, 'select')
+       or has_table_privilege('authenticated', 'public.' || object_name, 'select') then
+      raise exception 'Dice schema contract: result table public.% is browser-readable', object_name;
     end if;
   end loop;
 end

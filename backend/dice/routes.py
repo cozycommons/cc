@@ -15,9 +15,11 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPExcep
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
+from dice.rating_deviation import INITIAL_RATING_DEVIATION
+from dice.anonymity import anonymizer_for, dump, scrub_live_match
 from dice.notifications import notify_ranked_game
 from dice.feature_access import DiceFeature, feature_state, feature_states
-from dice.duo_repository import get_best_partner, get_duo_detail, list_duo_ladder
+from dice.duo_repository import duo_ids, get_best_partner, get_duo_detail, list_duo_ladder
 from dice.live_probability import MODEL_ID, MODEL_VERSION, project_live_history, project_live_projection
 from dice.live_service import append_command, create_live_match, set_membership
 from dice.live_types import DiceLiveError, DiceLiveProjection, SavedRules
@@ -418,7 +420,8 @@ def get_live_games(request: Request, state: Literal["ongoing"] = Query("ongoing"
 def get_live_game(request: Request, match_id: str, auth: AuthedUser = Depends(require_live_authenticated_user)):
     _require_live(request, auth)
     _repair_pending_live_rating(request, match_id)
-    return _live_output(request, _live_row(request, match_id), detail=True)
+    row = _live_row(request, match_id)
+    return _finished_live_out(request, auth, row, _live_output(request, row, detail=True))
 
 
 @router.put("/live/games/{match_id}/settings", response_model=LiveMatchOut)
@@ -463,8 +466,10 @@ def update_live_settings(request: Request, match_id: str, payload: LiveSettingsR
                 raise
             # The canonical mutation updates the source match in the same database
             # transaction, so a rating change and its UI setting cannot diverge.
-            return _live_output(request, _live_row(request, match_id))
-        return _live_output(request, _live_row(request, match_id))
+            updated = _live_row(request, match_id)
+            return _finished_live_out(request, auth, updated, _live_output(request, updated))
+        updated = _live_row(request, match_id)
+        return _finished_live_out(request, auth, updated, _live_output(request, updated))
 
 
 @router.get("/live/games/{match_id}/prediction", response_model=LivePredictionOut)
@@ -523,7 +528,7 @@ def get_live_pulse(request: Request, match_id: str, auth: AuthedUser = Depends(r
     except Exception:
         logger.warning("Live pulse pick context unavailable", exc_info=True)
         virtual = None
-    return LivePulseOut(
+    return _finished_live_out(request, auth, row, LivePulseOut(
         match_version=row["version"],
         model_id=MODEL_ID,
         model_version=MODEL_VERSION,
@@ -544,7 +549,19 @@ def get_live_pulse(request: Request, match_id: str, auth: AuthedUser = Depends(r
             fifa_actor_id=point.fifa_actor_id,
         ) for point in history],
         virtual=virtual,
-    )
+    ))
+
+
+def _finished_live_out(request: Request, auth: AuthedUser, row: dict, payload):
+    """Live games show real names while they are played. Once finished they are
+    a recorded result: anyone who did not play in or start it, other than an
+    admin, sees anonymous players aliased."""
+    if row.get("status") != "completed" or auth.is_admin:
+        return payload
+    players = {user_id for team in (row.get("teams") or {}).values() for user_id in team or []}
+    if auth.user_id in players or auth.user_id == row.get("created_by"):
+        return payload
+    return scrub_live_match(anonymizer_for(request, auth.user_id), dump(payload))
 
 
 @router.post("/virtual/tournaments/{tournament_id}/bankroll", response_model=VirtualBankrollOut)
@@ -578,6 +595,25 @@ def get_virtual_markets(request: Request, tournament_id: str, auth: AuthedUser =
     _require_live(request, auth)
     return (request.app.state.supabase_admin.table("dice_virtual_markets").select("*")
         .eq("tournament_id", tournament_id).order("created_at", desc=True).execute().data or [])
+
+
+@router.get("/virtual/tournaments/{tournament_id}/eligible-games", response_model=list[str])
+def get_virtual_eligible_games(request: Request, tournament_id: str, auth: AuthedUser = Depends(require_live_authenticated_user)):
+    """Unstarted live games whose players are all enrolled in the tournament.
+
+    Decided here because the browser only has aliased ids for anonymous
+    entrants, while live rosters carry real ids.
+    """
+    _require_live(request, auth)
+    admin = request.app.state.supabase_admin
+    enrolled = {row["user_id"] for row in (admin.table("dice_tournament_enrollments").select("user_id")
+                                          .eq("tournament_id", tournament_id).execute().data or [])}
+    rows = admin.table("dice_live_matches").select("*").eq("status", "active").execute().data or []
+    return [
+        row["id"] for row in rows
+        if not row.get("deleted_at") and row.get("version") == 0
+        and all(player in enrolled for team in row.get("team_order") or [] for player in (row.get("teams") or {}).get(team) or [])
+    ]
 
 
 @router.get("/virtual/tournaments/{tournament_id}/picks", response_model=list[VirtualPickOut])
@@ -790,7 +826,7 @@ def put_my_profile(
             target_user_id,
             payload.display_name,
             payload.avatar_url,
-            payload.hide_from_leaderboard,
+            payload.is_anonymous,
             payload.phone_number,
             payload.sms_notifications_enabled,
         )
@@ -808,7 +844,39 @@ def _without_contact(profile: DiceProfile) -> DiceProfile:
 def get_profiles_search(
     request: Request, q: str = Query(default=""), limit: int = Query(default=20, ge=1, le=500)
 ) -> list[DiceProfile]:
-    return [_without_contact(profile) for profile in search_profiles(request.app.state.supabase, q, limit)]
+    return [_picker_profile(_without_contact(profile)) for profile in search_profiles(request.app.state.supabase, q, limit)]
+
+
+def _picker_profile(profile: DiceProfile) -> DiceProfile:
+    """Pickers show anonymous players by name, so they must not also carry the
+    stats that would match them to their aliased leaderboard rows."""
+    if not profile.is_anonymous:
+        return profile
+    return DiceProfile(
+        user_id=profile.user_id,
+        display_name=profile.display_name,
+        avatar_url=profile.avatar_url,
+        rating_deviation=INITIAL_RATING_DEVIATION,
+        elo_model_version=profile.elo_model_version,
+    )
+
+
+def _can_see_profile(profile: DiceProfile, viewer: AuthedUser | None) -> bool:
+    """Anonymous players' profiles are visible only to themselves and admins."""
+    if not profile.is_anonymous:
+        return True
+    return viewer is not None and (viewer.user_id == profile.user_id or viewer.is_admin)
+
+
+def _require_visible_profile(request: Request, user_id: str, viewer: AuthedUser | None) -> DiceProfile:
+    profile = get_profile(request.app.state.supabase, user_id)
+    if not profile or not _can_see_profile(profile, viewer):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return profile
+
+
+def _viewer_id(viewer: AuthedUser | None) -> str | None:
+    return viewer.user_id if viewer is not None else None
 
 
 @router.get("/profiles/{user_id}", response_model=DiceProfile)
@@ -817,9 +885,7 @@ def get_profile_by_id(
     user_id: str,
     viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
 ) -> DiceProfile:
-    profile = get_profile(request.app.state.supabase, user_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
+    profile = _require_visible_profile(request, user_id, viewer)
     if viewer is not None and viewer.user_id != user_id:
         head_to_head = get_head_to_head(request.app.state.supabase, viewer.user_id, user_id)
         profile = profile.model_copy(update={"head_to_head": head_to_head})
@@ -830,13 +896,23 @@ def get_profile_by_id(
 
 @router.get("/profiles/{user_id}/games", response_model=list[DiceGame])
 def get_profile_games(
-    request: Request, user_id: str, limit: int = Query(default=50, ge=1, le=200)
+    request: Request,
+    user_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
 ) -> list[DiceGame]:
-    return list_games_for_user(request.app.state.supabase, user_id, limit)
+    _require_visible_profile(request, user_id, viewer)
+    games = list_games_for_user(request.app.state.supabase, user_id, limit)
+    return anonymizer_for(request, _viewer_id(viewer)).scrub(dump(games))
 
 
 @router.get("/profiles/{user_id}/rating-progress", response_model=RatingProgress)
-def get_profile_rating_progress(request: Request, user_id: str) -> RatingProgress:
+def get_profile_rating_progress(
+    request: Request,
+    user_id: str,
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
+) -> RatingProgress:
+    _require_visible_profile(request, user_id, viewer)
     try:
         progress = get_rating_progress(request.app.state.supabase, user_id)
     except (RuntimeError, ValueError):
@@ -857,7 +933,9 @@ def get_profile_best_partner(
     auth: AuthedUser = Depends(require_authenticated_user),
 ) -> DuoSummary | None:
     _require_duo_access(request, auth)
-    return get_best_partner(request.app.state.supabase, user_id)
+    _require_visible_profile(request, user_id, auth)
+    partner = get_best_partner(request.app.state.supabase, user_id)
+    return anonymizer_for(request, auth.user_id).scrub(dump(partner))
 
 
 @router.get("/stats/duos", response_model=DuoLadderOut)
@@ -868,7 +946,8 @@ def get_duo_ladder(
     auth: AuthedUser = Depends(require_authenticated_user),
 ) -> DuoLadderOut:
     _require_duo_access(request, auth)
-    return list_duo_ladder(request.app.state.supabase, limit, homepage_eligible)
+    ladder = list_duo_ladder(request.app.state.supabase, limit, homepage_eligible)
+    return anonymizer_for(request, auth.user_id).scrub(dump(ladder))
 
 
 @router.get("/stats/duos/{duo_id}", response_model=DuoDetailOut)
@@ -878,10 +957,13 @@ def get_duo_detail_by_id(
     auth: AuthedUser = Depends(require_authenticated_user),
 ) -> DuoDetailOut:
     _require_duo_access(request, auth)
-    detail = get_duo_detail(request.app.state.supabase, duo_id)
+    anonymizer = anonymizer_for(request, auth.user_id)
+    # Links carry the aliased id; map it back to the real duo for this seed.
+    real_duo_id = anonymizer.real_duo_id(duo_id, duo_ids(request.app.state.supabase)) if anonymizer.active else duo_id
+    detail = get_duo_detail(request.app.state.supabase, real_duo_id) if real_duo_id else None
     if detail is None:
         raise HTTPException(status_code=404, detail="Duo not found")
-    return detail
+    return anonymizer.scrub(dump(detail))
 
 
 @router.get("/leaderboard/elo", response_model=list[LeaderboardEntry])
@@ -890,7 +972,7 @@ def get_elo_leaderboard(
     limit: int = Query(default=5, ge=1, le=500),
     include_provisional: bool = Query(default=False),
 ) -> list[LeaderboardEntry]:
-    return list_elo_leaderboard(request.app.state.supabase, limit, include_provisional)
+    return anonymizer_for(request).scrub(dump(list_elo_leaderboard(request.app.state.supabase, limit, include_provisional)))
 
 
 @router.get("/leaderboard/self-sinks", response_model=list[SelfSinkEntry])
@@ -899,7 +981,7 @@ def get_self_sink_leaderboard(
     limit: int = Query(default=5, ge=1, le=500),
     nonzero_only: bool = Query(default=True),
 ) -> list[SelfSinkEntry]:
-    return list_self_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)
+    return anonymizer_for(request).scrub(dump(list_self_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)))
 
 
 @router.get("/leaderboard/sinks", response_model=list[SinkEntry])
@@ -908,7 +990,7 @@ def get_sink_leaderboard(
     limit: int = Query(default=5, ge=1, le=500),
     nonzero_only: bool = Query(default=True),
 ) -> list[SinkEntry]:
-    return list_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)
+    return anonymizer_for(request).scrub(dump(list_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)))
 
 
 @router.get("/games", response_model=list[DiceGame])
@@ -917,7 +999,7 @@ def get_games(
     limit: int = Query(default=5, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[DiceGame]:
-    return list_games(request.app.state.supabase, limit, offset)
+    return anonymizer_for(request).scrub(dump(list_games(request.app.state.supabase, limit, offset)))
 
 
 @router.get("/games/{game_id}", response_model=DiceGame)
@@ -938,7 +1020,13 @@ def get_game_by_id(
     )
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
-    return game
+    # Editing needs the real players; only someone allowed to edit gets them.
+    if request.query_params.get("reveal") == "1":
+        if auth is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        _assert_can_edit_game(game, auth)
+        return game
+    return anonymizer_for(request, _viewer_id(auth)).scrub(dump(game))
 
 
 @router.post("/games", response_model=DiceGame)
@@ -1081,17 +1169,41 @@ def delete_game_comment(
 
 @router.get("/tournaments", response_model=list[DiceTournament])
 def get_tournaments(
-    request: Request, limit: int = Query(default=20, ge=1, le=200)
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=200),
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
 ) -> list[DiceTournament]:
-    return list_tournaments(request.app.state.supabase, limit)
+    tournaments = list_tournaments(request.app.state.supabase, limit)
+    return [_tournament_out(request, viewer, tournament) for tournament in tournaments]
 
 
 @router.get("/tournaments/{tournament_id}", response_model=DiceTournament)
-def get_tournament_by_id(request: Request, tournament_id: str) -> DiceTournament:
+def get_tournament_by_id(
+    request: Request,
+    tournament_id: str,
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
+) -> DiceTournament:
     tournament = get_tournament(request.app.state.supabase, tournament_id)
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")
-    return tournament
+    return _tournament_out(request, viewer, tournament)
+
+
+def _tournament_out(request: Request, viewer: AuthedUser | None, tournament: DiceTournament):
+    """Every tournament response goes through here.
+
+    Organizers (admins, hosts, the creator) see real names so they can run the
+    event. Everyone else gets the whole tournament aliased with one visit's
+    aliases — roster, schedule, bracket and results together — so standings
+    built from enrollment and games still line up.
+    """
+    if viewer is not None and (
+        viewer.is_admin
+        or viewer.user_id == tournament.created_by
+        or any(host.user_id == viewer.user_id for host in tournament.hosts)
+    ):
+        return tournament
+    return anonymizer_for(request, _viewer_id(viewer)).scrub(dump(tournament))
 
 
 @router.post("/tournaments", response_model=DiceTournament)
@@ -1103,7 +1215,7 @@ def post_tournament(
     if not auth.is_admin:
         raise HTTPException(status_code=403, detail="Only an admin can create a tournament")
     try:
-        return create_tournament(request.app.state.supabase, auth.user_id, payload)
+        return _tournament_out(request, auth, create_tournament(request.app.state.supabase, auth.user_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1121,7 +1233,7 @@ def put_tournament(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(existing, auth)
     try:
-        return update_tournament(supabase, tournament_id, payload)
+        return _tournament_out(request, auth, update_tournament(supabase, tournament_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1156,7 +1268,7 @@ def post_tournament_enroll(
         _assert_can_edit_tournament(tournament, auth)
         target_user_id = payload.user_id
     try:
-        return enroll_in_tournament(supabase, tournament_id, target_user_id)
+        return _tournament_out(request, auth, enroll_in_tournament(supabase, tournament_id, target_user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1171,7 +1283,7 @@ def delete_tournament_enroll(
     if not get_tournament(supabase, tournament_id):
         raise HTTPException(status_code=404, detail="Tournament not found")
     try:
-        return unenroll_from_tournament(supabase, tournament_id, auth.user_id)
+        return _tournament_out(request, auth, unenroll_from_tournament(supabase, tournament_id, auth.user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1189,7 +1301,7 @@ def post_scheduled_match(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return add_scheduled_match(supabase, tournament_id, payload)
+        return _tournament_out(request, auth, add_scheduled_match(supabase, tournament_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1208,7 +1320,7 @@ def put_scheduled_match(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return update_scheduled_match(supabase, tournament_id, match_id, payload)
+        return _tournament_out(request, auth, update_scheduled_match(supabase, tournament_id, match_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1226,7 +1338,7 @@ def delete_scheduled_match_by_id(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return delete_scheduled_match(supabase, tournament_id, match_id)
+        return _tournament_out(request, auth, delete_scheduled_match(supabase, tournament_id, match_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1244,7 +1356,7 @@ def post_finalist(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return add_finalist(supabase, tournament_id, payload.user_id)
+        return _tournament_out(request, auth, add_finalist(supabase, tournament_id, payload.user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1262,7 +1374,7 @@ def delete_finalist(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return remove_finalist(supabase, tournament_id, user_id)
+        return _tournament_out(request, auth, remove_finalist(supabase, tournament_id, user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1280,7 +1392,7 @@ def put_bracket_teams(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return set_bracket_teams(supabase, tournament_id, payload)
+        return _tournament_out(request, auth, set_bracket_teams(supabase, tournament_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1302,6 +1414,6 @@ def post_resolve_bracket_match(
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")
     try:
-        return resolve_bracket_match(supabase, tournament_id, slot_id, payload.game_id)
+        return _tournament_out(request, auth, resolve_bracket_match(supabase, tournament_id, slot_id, payload.game_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

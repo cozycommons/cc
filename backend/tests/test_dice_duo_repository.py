@@ -131,19 +131,20 @@ def test_source_fails_closed_when_snapshot_history_limit_is_exceeded():
         duo_repository._source(client)
 
 
-def test_hidden_member_is_not_exposed_in_ladder_or_detail(monkeypatch):
+def test_anonymous_member_still_counts_in_ladder_and_detail(monkeypatch):
+    # Anonymity is applied at the API boundary; the replay itself keeps everyone.
     profiles = _profiles()
-    profiles[0] = {**profiles[0], "hide_from_leaderboard": True}
+    profiles[0] = {**profiles[0], "is_anonymous": True, "hide_from_leaderboard": True}
     monkeypatch.setattr(duo_repository, "_source", lambda _supabase: (profiles, _matches()))
     duo_id = canonical_duo_id(ALPHA, BRAVO)
 
     ladder = duo_repository.list_duo_ladder(object())
 
-    assert all(item.duo_id != duo_id for item in ladder.ranked)
-    assert duo_repository.get_duo_detail(object(), duo_id) is None
+    assert any(item.duo_id == duo_id and item.games == 5 for item in ladder.ranked)
+    assert duo_repository.get_duo_detail(object(), duo_id).summary.games == 5
 
 
-def test_hidden_opponent_games_do_not_change_visible_duo_replay(monkeypatch):
+def test_games_against_anonymous_opponents_count_toward_duo_records(monkeypatch):
     visible = (ALPHA, BRAVO)
     hidden = (CHARLIE, DELTA)
     matches = [
@@ -170,16 +171,15 @@ def test_hidden_opponent_games_do_not_change_visible_duo_replay(monkeypatch):
         {"user_id": user_id, "display_name": user_id, "avatar_url": None}
         for user_id in ("u-e", "u-f")
     ]
-    profiles[2] = {**profiles[2], "hide_from_leaderboard": True}
-    profiles[3] = {**profiles[3], "hide_from_leaderboard": True}
+    profiles[2] = {**profiles[2], "is_anonymous": True}
+    profiles[3] = {**profiles[3], "is_anonymous": True}
     monkeypatch.setattr(duo_repository, "_source", lambda _supabase: (profiles, matches))
 
     detail = duo_repository.get_duo_detail(object(), canonical_duo_id(*visible))
 
     assert detail is not None
-    assert detail.summary.games == 1
-    assert detail.summary.wins == 1
-    assert [item.game_id for item in detail.games] == ["visible-game"]
+    assert (detail.summary.games, detail.summary.wins, detail.summary.losses) == (2, 1, 1)
+    assert [item.game_id for item in detail.games] == ["hidden-game", "visible-game"]
 
 
 def test_homepage_filter_is_applied_before_the_limit(monkeypatch):
@@ -237,15 +237,15 @@ def test_synergy_lists_are_signed_sorted_and_independent_of_ladder_limit(monkeyp
     assert detail.big_moments is None
 
 
-def test_best_partner_is_positive_only_and_hidden_matches_never_contribute(monkeypatch):
+def test_best_partner_is_positive_only_and_anonymous_matches_still_contribute(monkeypatch):
     monkeypatch.setattr(duo_repository, "_source", lambda _: (_profiles(), _synergy_matches()))
     assert duo_repository.get_best_partner(object(), ALPHA).members[1].user_id == BRAVO
     assert duo_repository.get_best_partner(object(), CHARLIE) is None
     profiles = _profiles()
-    profiles[2]["hide_from_leaderboard"] = True
+    profiles[2]["is_anonymous"] = True
     monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, _synergy_matches()))
-    assert duo_repository.get_best_partner(object(), ALPHA) is None
-    assert duo_repository.list_duo_ladder(object()).best_chemistry == []
+    assert duo_repository.get_best_partner(object(), ALPHA).members[1].user_id == BRAVO
+    assert duo_repository.list_duo_ladder(object()).best_chemistry != []
 
 
 def test_chemistry_and_best_partner_rank_by_win_rate_gap_not_win_count(monkeypatch):

@@ -1125,3 +1125,86 @@ def test_authenticated_replay_domain_error_keeps_target_identity(monkeypatch):
         "code": "dice_live.invalid_replay", "message": "replay_of target is inactive",
         "event_id": "decision-1", "sequence": 3,
     }
+
+
+def _finished_row(created_by, players):
+    return {
+        "id": "m1", "created_by": created_by, "created_at": "2026-01-01T00:00:00Z",
+        "team_order": ["blue", "clay"], "teams": {"blue": players[:2], "clay": players[2:]},
+        "rules_snapshot": {}, "version": 4, "status": "completed", "ranked": True,
+        "score": [5, 3], "detail_coverage": "partial",
+        "projection": {"score": [5, 3], "status": "completed", "stats": {}},
+        "events": [],
+        "player_names": {player: f"Name {player}" for player in players},
+        "player_avatars": {player: f"/{player}.webp" for player in players},
+        "player_stats": {player: {"elo_rating": 1500} for player in players},
+    }
+
+
+def test_finished_live_game_aliases_anonymous_players_for_onlookers(monkeypatch):
+    from dice.anonymity import Anonymizer
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(routes, "has_pending_live_rating_repair", lambda *_args: False)
+    monkeypatch.setattr(routes, "anonymizer_for", lambda _request, viewer_id=None: Anonymizer.build({"p-anon"}, "seed-seed-1", {viewer_id}))
+    monkeypatch.setattr(routes, "_live_output", lambda _request, value, detail=False: value)
+
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: _finished_row("someone-else", ["p-anon", "p2", "p3", "p4"]))
+    onlooker = client.get("/dice/live/games/m1", headers={"Authorization": f"Bearer {TOKEN}"}).json()
+    assert "p-anon" not in str(onlooker)
+    alias = onlooker["teams"]["blue"][0]
+    assert alias.startswith("anon-")
+    assert onlooker["player_names"][alias].startswith("Anonymous ")
+    assert alias not in onlooker["player_avatars"] and alias not in onlooker["player_stats"]
+
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: _finished_row("someone-else", ["p-anon", USER, "p3", "p4"]))
+    player = client.get("/dice/live/games/m1", headers={"Authorization": f"Bearer {TOKEN}"}).json()
+    assert player["teams"]["blue"] == ["p-anon", USER]
+
+
+def test_live_game_in_progress_keeps_real_names(monkeypatch):
+    from dice.anonymity import Anonymizer
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(routes, "has_pending_live_rating_repair", lambda *_args: False)
+    monkeypatch.setattr(routes, "anonymizer_for", lambda _request, viewer_id=None: Anonymizer.build({"p-anon"}, "seed-seed-1"))
+    monkeypatch.setattr(routes, "_live_output", lambda _request, value, detail=False: value)
+    row = {**_finished_row("someone-else", ["p-anon", "p2", "p3", "p4"]), "status": "active"}
+    monkeypatch.setattr(routes, "_live_row", lambda *_args: row)
+
+    response = client.get("/dice/live/games/m1", headers={"Authorization": f"Bearer {TOKEN}"}).json()
+
+    assert response["teams"]["blue"][0] == "p-anon"
+
+
+def test_virtual_eligible_games_are_decided_on_real_enrolled_ids(monkeypatch):
+    class _Rows:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def select(self, *_args):
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=self.rows)
+
+    tables = {
+        "dice_tournament_enrollments": [{"user_id": user_id} for user_id in ("p-anon", "p2", "p3", "p4")],
+        "dice_live_matches": [
+            {"id": "ready", "version": 0, "team_order": ["blue", "clay"], "teams": {"blue": ["p-anon", "p2"], "clay": ["p3", "p4"]}},
+            {"id": "outsider", "version": 0, "team_order": ["blue", "clay"], "teams": {"blue": ["p-anon", "p9"], "clay": ["p3", "p4"]}},
+            {"id": "started", "version": 3, "team_order": ["blue", "clay"], "teams": {"blue": ["p-anon", "p2"], "clay": ["p3", "p4"]}},
+        ],
+    }
+    class EligibilitySupabase(_Supabase):
+        def table(self, name):
+            return _Rows(tables[name])
+
+    client = _client(monkeypatch, supabase=EligibilitySupabase())
+
+    response = client.get("/dice/virtual/tournaments/t1/eligible-games", headers={"Authorization": f"Bearer {TOKEN}"})
+
+    assert response.json() == ["ready"]
