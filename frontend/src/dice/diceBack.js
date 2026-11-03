@@ -12,10 +12,6 @@ const PARENTS = [
   [/^\/dice\/stats$/, (_, search) => (new URLSearchParams(search).get('view') ? '/dice/stats' : '/dice')],
 ];
 
-export function isDiceHome(pathname) {
-  return pathname === '/dice' || pathname === '/dice/';
-}
-
 export function diceParentPath(pathname, search = '') {
   for (const [pattern, parent] of PARENTS) {
     const match = pathname.match(pattern);
