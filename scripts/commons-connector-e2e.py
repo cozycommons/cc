@@ -9,6 +9,7 @@ LOCAL_SUPABASE_SERVICE_ROLE_KEY is read only after both URL guards pass.
 """
 import argparse
 import asyncio
+from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 import json
 import os
@@ -93,6 +94,119 @@ def fake_beli():
     return ThreadingHTTPServer(FAKE_BELI, Beli), state
 
 
+# The serving process routes Resy API calls here too; nothing reaches Resy.
+FAKE_RESY = ('127.0.0.1', 8767)
+RESY_VENUE = {'id': {'resy': 7001}, 'name': 'Synthetic Trattoria', 'type': 'Italian',
+              'location': {'neighborhood': 'West Village', 'locality': 'New York'}}
+RESY_POLICY = ['Cancel at least 24 hours ahead to avoid the fee.']
+
+
+def fake_resy():
+    """Minimal synthetic Resy API in the shapes resy_client.py reads. Records every booking and cancellation.
+
+    Set state['answer_lost'] to record the next booking and then answer 504, as when
+    Resy books the table but the response never arrives.
+    """
+    state = {'sessions': {}, 'cards': {}, 'reservations': {}, 'sends': [], 'answer_lost': False, 'ids': 70000}
+    cut_off = '2099-01-01T00:00:00+00:00'
+
+    def slots(day):
+        taken = {r['slot'] for rows in state['reservations'].values() for r in rows}
+        offered = [('19:00', {'deposit_fee': 25.0, 'cancellation_fee': 50.0}), ('21:00', {})]
+        return [{'config': {'token': f'rgs://resy/7001/1/2/{day}/{day}/{clock}:00/2/Dining Room',
+                            'type': 'Dining Room'},
+                 'date': {'start': f'{day} {clock}:00', 'end': f'{day} 23:00:00'}, 'payment': payment}
+                for clock, payment in offered
+                if f'rgs://resy/7001/1/2/{day}/{day}/{clock}:00/2/Dining Room' not in taken]
+
+    def next_id():
+        state['ids'] += 1
+        return state['ids']
+
+    class Resy(BaseHTTPRequestHandler):
+        def answer(self, payload, status=200):
+            body = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def login(self):
+            return state['sessions'].get(self.headers.get('x-resy-auth-token', ''))
+
+        def query(self):
+            return {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+
+        def do_POST(self):
+            form = {k: v[0] for k, v in parse_qs(self.rfile.read(int(self.headers.get('Content-Length') or 0))
+                                                 .decode()).items()}
+            path = urlsplit(self.path).path
+            if path == '/3/auth/password':
+                token = secrets.token_urlsafe(16)
+                state['sessions'][token] = form['email']
+                state['cards'].setdefault(form['email'], [{'id': next_id(), 'brand': 'visa', 'last_four': '4242',
+                                                           'is_default': True}])
+                return self.answer({'token': token})
+            login = self.login()
+            if login is None:
+                return self.send_error(401)
+            if path == '/3/book':
+                token = form['book_token'].removeprefix('bt:')
+                parts = token.split('/')
+                assert json.loads(form['struct_payment_method'])['id'] in {c['id'] for c in state['cards'][login]}
+                state['sends'].append(('book', login))
+                reservation = {'reservation_id': next_id(), 'resy_token': f'rr://{uuid4().hex}', 'day': parts[6],
+                               'time_slot': parts[8], 'num_seats': int(parts[9]), 'venue': {'id': 7001},
+                               'slot': token, 'status': {'finished': 0, 'no_show': 0},
+                               'cancellation': {'allowed': True, 'fee': {'amount': 50.0, 'date_cut_off': cut_off}},
+                               'cancellation_policy': RESY_POLICY}
+                state['reservations'].setdefault(login, []).append(reservation)
+                if state['answer_lost']:
+                    state['answer_lost'] = False
+                    return self.send_error(504)
+                return self.answer({'resy_token': reservation['resy_token'],
+                                    'reservation_id': reservation['reservation_id']})
+            if path == '/3/cancel':
+                rows = state['reservations'].get(login, [])
+                assert any(r['resy_token'] == form['resy_token'] for r in rows), "never another login's reservation"
+                state['sends'].append(('cancel', login))
+                rows[:] = [r for r in rows if r['resy_token'] != form['resy_token']]
+                return self.answer({})
+            self.send_error(404)
+
+        def do_GET(self):
+            login, path, query = self.login(), urlsplit(self.path).path, self.query()
+            if path == '/4/find':
+                found = query.get('venue_id') == '7001' or 'trattoria' in query.get('query', '').lower()
+                return self.answer({'results': {'venues': [{'venue': RESY_VENUE, 'slots': slots(query['day'])}]
+                                                if found else []}})
+            if login is None:
+                return self.send_error(401)
+            if path == '/2/user':
+                return self.answer({'first_name': 'Synthetic', 'em_address': login,
+                                    'payment_methods': state['cards'][login]})
+            if path == '/3/venue':
+                return self.answer({'venue': RESY_VENUE})
+            if path == '/3/details':
+                slot = next(s for s in slots(query['day']) if s['config']['token'] == query['config_id'])
+                fee = slot['payment'].get('cancellation_fee')
+                return self.answer({
+                    'book_token': {'value': 'bt:' + query['config_id']}, 'venue': {'name': RESY_VENUE['name']},
+                    'payment': {'config': {'type': 'deposit' if fee else 'free'},
+                                'amounts': {'total': slot['payment'].get('deposit_fee', 0.0)}},
+                    'cancellation': {'fee': {'amount': fee, 'date_cut_off': cut_off},
+                                     'display': {'policy': RESY_POLICY}} if fee else {}})
+            if path == '/3/user/reservations':
+                return self.answer({'reservations': state['reservations'].get(login, []),
+                                    'venues': {'7001': {'name': RESY_VENUE['name']}}})
+            self.send_error(404)
+
+        def log_message(self, *_args):
+            pass
+
+    return ThreadingHTTPServer(FAKE_RESY, Resy), state
+
+
 class MemoryTokens:
     tokens = None
     client = None
@@ -158,6 +272,18 @@ async def exercise(args):
                 'password': secrets.token_urlsafe(16)})
         assert response.status_code == 200, f'Beli onboarding: HTTP {response.status_code}'
         return response.json()['token']
+
+    resy_server, resy_state = fake_resy()
+    resy_serving = asyncio.create_task(asyncio.to_thread(resy_server.serve_forever, poll_interval=0.1))
+
+    async def onboard_resy(label):
+        """The real /resy/onboard path, against the fake Resy API. Returns (ccr_ token, synthetic email)."""
+        email = f'resy-e2e-{uuid4().hex}@example.test'
+        async with httpx.AsyncClient(timeout=30) as http:
+            response = await http.post(endpoint[:-len('/mcp')] + '/resy/onboard', json={
+                'label': label, 'email': email, 'password': secrets.token_urlsafe(16)})
+        assert response.status_code == 200, f'Resy onboarding: HTTP {response.status_code}'
+        return response.json()['token'], email
 
     # Guard every browser-style hop before sending any request (including Location
     # and consent response URLs). Never follow redirects to a hosted service.
@@ -399,6 +525,86 @@ async def exercise(args):
                               'used with different details', 'save_restaurant key reuse with new details refused')
                 assert len(beli_state['saved']) == 1
                 print('PASS every Beli tool over real OAuth: link, recs, preview, commit, replay; one Beli write')
+
+                # Resy: off for a new user, then enable, link once, preview with fees, book and cancel.
+                resy = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation',
+                        'link_resy_account'}
+                when = (date.today() + timedelta(days=7)).isoformat()
+                projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+                assert projects['resy']['enabled'] is False and projects['resy']['linked'] is False
+                enabled = await call('enable_project', project_id='resy', evidence='enable_project resy')
+                assert enabled['linked'] is False and 'link_resy_account' in enabled['next_step']
+                assert resy <= await listed(session)
+                print('PASS list_projects/enable_project show Resy unlinked with the link step')
+                await refused(session, 'find_resy_tables', {'date': when, 'venue_id': 7001},
+                              'Link your Resy account first', 'unlinked find_resy_tables refused with the link step')
+                await refused(session, 'book_resy_table', {'venue_id': 7001, 'date': when, 'desired_time': '19:00',
+                              'idempotency_key': 'unlinked', 'terms_id': '0' * 16, 'dry_run': False},
+                              'Link your Resy account first', 'unlinked book_resy_table refused with the link step')
+                resy_token, mine_email = await onboard_resy('e2e-mine')
+                other_resy, other_email = await onboard_resy('e2e-other')
+                print('PASS synthetic Resy onboarding through /resy/onboard (fake loopback Resy API)')
+                from resy.accounts import get_account_row_by_token as resy_account_row
+                assert service.rpc('resy_link_account', {'p_account_id': resy_account_row(service, other_resy)['id'],
+                                   'p_user_id': other.json()['id']}).execute().data == 'linked'
+                await refused(session, 'link_resy_account', {'api_token': other_resy}, 'linked to another Commons user',
+                              "link_resy_account refused for another user's account")
+                await refused(session, 'link_resy_account', {'api_token': 'ccr_' + secrets.token_urlsafe(32)},
+                              'No Resy account matches', 'link_resy_account refused for a wrong token')
+                linked = await call('link_resy_account', api_token=resy_token, evidence='link_resy_account')
+                assert linked['status'] == 'linked' and resy_token not in json.dumps(linked)
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_me = await http.get(endpoint[:-len('/mcp')] + '/resy/me',
+                                               headers={'Authorization': 'Bearer ' + resy_token})
+                assert legacy_me.status_code == 200 and legacy_me.json()['label'] == 'e2e-mine'
+                print('PASS linked account keeps its legacy ccr_ token on /resy')
+                tables = await call('find_resy_tables', date=when, venue_id=7001, evidence='find_resy_tables')
+                first_slot = tables['venues'][0]['slots'][0]
+                assert first_slot['time'] == '19:00' and first_slot['cancellation_fee_cents'] == 5000
+                book = {'venue_id': 7001, 'date': when, 'desired_time': '19:00', 'idempotency_key': f'book-{uuid4()}'}
+                preview = await call('book_resy_table', **book, evidence='book_resy_table dry_run')
+                for text in ('Deposit: USD 25.00 charged to Visa ....4242', 'Cancellation fee: USD 50.00',
+                             'Cancel at least 24 hours ahead'):
+                    assert text in preview['summary'], preview['summary']
+                assert preview['terms']['deposit_cents'] == 2500 and not resy_state['sends']
+                print('PASS booking preview shows deposit, cancellation fee, policy and masked card; nothing sent')
+                await refused(session, 'book_resy_table', {**book, 'dry_run': False}, 'Preview first',
+                              'book_resy_table commit without the previewed terms_id refused')
+                commit = {**book, 'terms_id': preview['terms_id'], 'dry_run': False}
+                resy_state['answer_lost'] = True
+                await refused(session, 'book_resy_table', commit, 'may have gone through',
+                              'book_resy_table unconfirmed POST keeps its key and asks for a same-key retry')
+                booked = await call('book_resy_table', **commit,
+                                    evidence='book_resy_table same-key retry settles from Resy reservations')
+                assert booked['status'] == 'booked' and booked['confirmed_from'] == 'your Resy reservations'
+                assert resy_state['sends'] == [('book', mine_email)], 'exactly one booking request reached the fake Resy'
+                assert await call('book_resy_table', **commit, evidence='book_resy_table idempotent replay') == booked
+                await refused(session, 'book_resy_table', {**commit, 'desired_time': '21:00'}, 'already used for',
+                              'book_resy_table key reuse with new details refused')
+                assert len(resy_state['reservations'][mine_email]) == 1
+                print('PASS uncertain booking POST settled once; no duplicate reservation')
+                listed_reservations = await call('list_resy_reservations', evidence='list_resy_reservations')
+                assert [r['reservation_id'] for r in listed_reservations['reservations']] == [booked['reservation_id']]
+                cancel = {'reservation_id': booked['reservation_id'], 'idempotency_key': f'cancel-{uuid4()}'}
+                cancel_preview = await call('cancel_resy_reservation', **cancel, evidence='cancel_resy_reservation dry_run')
+                assert 'Cancellation fee: USD 50.00' in cancel_preview['summary']
+                assert cancel_preview['terms']['fee_applies'] is False and len(resy_state['sends']) == 1
+                cancelled = await call('cancel_resy_reservation', **cancel, terms_id=cancel_preview['terms_id'],
+                                       dry_run=False, evidence='cancel_resy_reservation commit')
+                assert cancelled['status'] == 'cancelled' and not resy_state['reservations'][mine_email]
+                assert await call('cancel_resy_reservation', **cancel, terms_id=cancel_preview['terms_id'], dry_run=False,
+                                  evidence='cancel_resy_reservation idempotent replay') == cancelled
+                other_booking = {'reservation_id': 1, 'resy_token': 'rr://theirs', 'day': when, 'time_slot': '21:00:00',
+                                 'num_seats': 2, 'venue': {'id': 7001}, 'slot': 'theirs',
+                                 'cancellation': {'allowed': True}, 'status': {}}
+                resy_state['reservations'][other_email] = [other_booking]
+                await refused(session, 'cancel_resy_reservation', {'reservation_id': 1, 'idempotency_key': f'x-{uuid4()}',
+                              'terms_id': '0' * 16, 'dry_run': False}, 'No reservation 1 in your Resy account',
+                              "cancel_resy_reservation refused for another user's reservation")
+                assert resy_state['sends'] == [('book', mine_email), ('cancel', mine_email)]
+                assert resy_state['reservations'][other_email] == [other_booking]
+                print('PASS every Resy tool over real OAuth: link, find, list, preview, book, cancel, replay; '
+                      'one booking and one cancellation sent')
                 access_token = auth.context.current_tokens.access_token
         callback = loop.create_future()
         readonly = provider('commons:read')
@@ -419,6 +625,15 @@ async def exercise(args):
                 assert not (await session.call_tool('get_restaurant_recs', {'neighborhood': 'West Village'})).isError
                 assert len(beli_state['saved']) == 1
                 print('PASS read-only token reads Beli recs; saves refused; no Beli write')
+                await refused(session, 'book_resy_table', {**book, 'idempotency_key': f'denied-{uuid4()}',
+                              'desired_time': '21:00', 'terms_id': '0' * 16, 'dry_run': False},
+                              'commons:edit', 'read-only token denied on book_resy_table')
+                await refused(session, 'cancel_resy_reservation', {'reservation_id': 1, 'idempotency_key': 'denied',
+                              'terms_id': '0' * 16, 'dry_run': False}, 'commons:edit',
+                              'read-only token denied on cancel_resy_reservation')
+                assert not (await session.call_tool('find_resy_tables', {'date': when, 'venue_id': 7001})).isError
+                assert len(resy_state['sends']) == 2
+                print('PASS read-only token finds Resy tables; bookings and cancellations refused; nothing sent')
 
         # A token minted exactly as the M1 deployment did: same signing key and
         # upstream mapping (jti), pre-commons scopes. It keeps its old reach.
@@ -447,6 +662,9 @@ async def exercise(args):
         await asyncio.to_thread(beli_server.shutdown)
         beli_server.server_close()
         await beli_serving
+        await asyncio.to_thread(resy_server.shutdown)
+        resy_server.server_close()
+        await resy_serving
 
 
 if __name__ == '__main__':
