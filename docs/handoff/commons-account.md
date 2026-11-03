@@ -1,6 +1,6 @@
 # M4 plan: Commons account page at `/account`
 
-Status: plan only. Nothing here is built. Branch `commons-account-plan`.
+Status: PR 1 (profile table and backfill) built on `commons-account-profile`; PRs 2 to 5 are plan only.
 
 Owner direction: connector auth and connectors get a home in the UI, managed at
 the profile level. The Dice profile identity becomes the Commons identity for
@@ -161,6 +161,26 @@ fallback for users who have no row yet, so a missing row changes nothing.
 
 Mirroring is cheaper than moving every Dice reader to a join and does not touch
 rating code. A later PR can retire the copy once readers move; not in M4.
+
+### As built in PR 1
+
+Where `0087` and `commons_account/profile.py` refine the sketch above:
+
+- `venmo_username` must match `^[a-z0-9_-]{5,30}$` (the lowercased output of
+  `venmo.usernames.normalize_username`), not only `= lower(...)`. The backfill
+  applies `stored_username`'s URL/`@` stripping in SQL; invalid handles become null.
+- The backfill skips a blank Dice name and a Dice avatar over 2048 characters
+  (Dice has no cap) and falls through to the next source instead of failing.
+- The mirror copies only the column that changed and bumps
+  `dice_profiles.updated_at`. A Venmo-only edit leaves the Dice row alone.
+- `dice_release_readiness()` keeps its name: the 0084 body is renamed to
+  `dice_schema_0084_readiness()` and the entry point now also calls
+  `commons_profiles_readiness()` (the `cc_mcp` 0002 pattern).
+- `own_profile` refuses Supabase anonymous sessions. `default_profile` is the
+  Python twin of the backfill; the DB test asserts they agree per user.
+- Dice players with no Dice avatar get their Google avatar in
+  `commons_profiles`. Nothing reads it until PR 2, which decides whether Trips
+  and the connector show it.
 
 ### Public, private and anonymous
 
@@ -406,23 +426,30 @@ Risks:
   keep working; anything reading the metadata directly (none found outside
   `trips/`) would go stale.
 
-Questions:
+Questions, with the owner's answers (2026-11-03):
 
 1. Should a Commons admin editing another player through `PUT /dice/me
    {user_id}` rename them Commons-wide? Today it renames them in Dice. The plan
    keeps the endpoint, which makes it Commons-wide.
+   **Answer: yes, an admin rename is Commons-wide.**
 2. Is a display name public across all projects acceptable, given
    `/dice/profiles/search` is unauthenticated? Alternative: require sign-in on
    that endpoint, which is a Dice behavior change.
+   **Answer: names stay public; `/dice/profiles/search` is unchanged.**
 3. Move phone and SMS opt-in to the Commons profile now, or leave them Dice-only
    until a second project sends texts?
+   **Answer: phone and SMS stay Dice-only.**
 4. Crowdset (hosted separately) reads names from Auth metadata
    (`crowdset/hosting.py:66`). Switch it to `commons_profiles` in M4, or leave
    it until Crowdset's next release?
+   **Answer: leave Crowdset for its next release.**
 5. ESPN team claims show the real Dice name even for anonymous Dice players
    (`espn/team_claims.py:157` ignores `is_anonymous`). Intended, since anonymity
    is Dice-scoped, or should the claims list respect it?
+   **Answer: claims stay as they are; anonymity is Dice-scoped.**
 6. Disconnect revokes one agent. Do you also want "Disconnect all agents",
    which would also be the moment to sign out the upstream Supabase sessions?
+   **Answer: no "disconnect all" in M4.**
 7. Should Trips' Venmo editor move entirely to `/account`, or keep an inline
    editor in Trips that writes the same field?
+   **Answer: Trips keeps its inline Venmo editor, writing the same field.**
