@@ -51,6 +51,12 @@
 
 ### M3a validation evidence
 
+- Sol review fixes: a pre-commons edit now needs that project's own read and
+  edit grants (another project's translated scope can't stand in for it);
+  tools/list hides tools the token can't call; unregistered or mounted tools
+  are refused at startup and at call time. Regression tests in
+  `tests/test_cc_mcp_tool_safety.py` fail without the fix.
+
 - Backend, all DB/integration opt-ins (isolated `dummi_regression_501_199` +
   real PostgREST, loopback Floor Planner stack, dedicated Trips stack):
   **1903 passed, 0 skipped**. Plain `python -m pytest tests -q`: 1756 passed,

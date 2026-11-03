@@ -134,7 +134,10 @@ def check_access(access: AccessToken | None, provider: ToolProvider, level: Acce
     if scope and scope not in access.scopes:
         raise ToolError(f"Missing permission: {scope}. Reconnect your agent to grant {scope}.")
     grants = legacy_grants(access)
-    if scope and grants is not None and level not in grants.get(provider.name, ()):
+    # Legacy edit tools also required the project's read scope; never let another
+    # project's translated grant stand in for it.
+    needed = {"read", "edit"} if level == "edit" else {level}
+    if scope and grants is not None and not needed.issubset(grants.get(provider.name, ())):
         raise ToolError(
             f"This connection was approved before {provider.display_name} joined the connector. "
             "Reconnect your agent once to grant commons:read and commons:edit."
@@ -169,12 +172,22 @@ class ProjectAccessMiddleware(Middleware):
                 visible |= {name for name, state in states.items() if state["enabled"]}
             except ToolError:
                 pass
-        return [tool for tool in tools if tool.key in self.tools and self.tools[tool.key][0].name in visible]
+
+        def allowed(name):
+            provider, level = self.tools[name]
+            try:
+                check_access(access, provider, level)
+            except ToolError:
+                return False
+            return provider.name in visible
+
+        return [tool for tool in tools if tool.key in self.tools and allowed(tool.key)]
 
     async def on_call_tool(self, context, call_next):
         entry = self.tools.get(context.message.name)
         if entry is None:
-            return await call_next(context)
+            # Only declared, registered tools are callable; this fails closed on mounts.
+            raise ToolError(f"Unknown tool {context.message.name!r}. Call list_projects to see available tools.")
         provider, level = entry
         access = check_access(get_access_token(), provider, level)
         if provider.name != COMMONS:
@@ -580,5 +593,7 @@ def build_server(service_client, providers: tuple[ToolProvider, ...], *, auth=No
             registry[tool] = (provider, level)
         if provider.link and provider.link.tool and provider.link.tool not in provider.tools:
             raise AgentConfigError(f"Link tool {provider.link.tool} is not a {provider.name} tool.")
+    if mcp._mounted_servers:
+        raise AgentConfigError("Providers must register tools directly; mounted servers bypass validation.")
     mcp.add_middleware(ProjectAccessMiddleware(context, registry))
     return mcp

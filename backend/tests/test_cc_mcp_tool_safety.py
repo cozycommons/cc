@@ -173,3 +173,40 @@ async def test_another_users_resource_is_refused(server, monkeypatch, provider, 
 async def test_enabled_project_tools_are_listed(server):
     expected = {tool for provider in PROVIDERS for tool in provider.tools}
     assert await server.listed() == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('provider,tool,level', [
+    case for case in CASES if case.values[2] == 'edit' and case.values[0].name != COMMONS])
+async def test_legacy_edit_needs_its_own_projects_read_grant(server, provider, tool, level):
+    # e.g. trips:read + floor-plans:edit must not edit floor plans (it required floor-plans:read too).
+    others = {p.name: ['read'] for p in PROVIDERS if p.name not in (COMMONS, provider.name)}
+    server.holder.token.claims = {'_legacy_grants': {**others, provider.name: ['edit']}}
+    with pytest.raises(ToolError, match='Reconnect your agent once'):
+        await server.call(tool, FIXTURES[provider.name].args(server.db)[tool])
+    assert tool not in await server.listed()
+    unchanged(server.db, server.db.settings)
+
+
+@pytest.mark.asyncio
+async def test_listing_hides_tools_the_token_cannot_call(server):
+    server.holder.token.scopes[:] = [READ_SCOPE]
+    edit_tools = {case.values[1] for case in CASES if case.values[2] == 'edit'}
+    assert not edit_tools & await server.listed()
+
+
+def test_mounted_servers_are_rejected():
+    from fastmcp import FastMCP
+    from cc_mcp.server import AgentConfigError, ToolProvider
+
+    def mount(mcp, _context):
+        hidden = FastMCP('hidden')
+
+        @hidden.tool
+        def mutate() -> str:
+            return 'unchecked'
+        mcp.mount(hidden)
+
+    rogue = ToolProvider('rogue', mount, tools={})
+    with pytest.raises(AgentConfigError, match='mounted'):
+        build_server(SimpleNamespace(), (*PROVIDERS, rogue))
