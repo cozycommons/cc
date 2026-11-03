@@ -25,7 +25,7 @@ import secrets
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from .espn_client import EspnAuthError, EspnClient, EspnError
+from .espn_client import EspnAuthError, EspnClient, EspnError, RequestCooldown
 
 
 class AccountError(Exception):
@@ -174,10 +174,11 @@ def get_account_by_token(supabase, token: str) -> dict:
     raise AccountError("unknown token")
 
 
-def make_client_for_account(account: dict) -> EspnClient:
+def make_client_for_account(account: dict, *, cooldown: RequestCooldown | None = None) -> EspnClient:
     """Build the per-user client from a resolved account dict."""
     return EspnClient(
-        account["espn_s2"], account["swid"], account["league_id"], account["season"]
+        account["espn_s2"], account["swid"], account["league_id"], account["season"],
+        cooldown=cooldown,
     )
 
 

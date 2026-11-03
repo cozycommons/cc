@@ -193,7 +193,7 @@ curl -s -X POST https://<backend-host>/espn/automation/lineup \
 
 New accounts already have automation on — this endpoint is the
 opt-out / re-enable switch. When it's on, the server-side scheduler
-sets your lineup twice daily (09:00 and 18:30 ET); see
+sets your lineup twice daily (09:00 and 18:00 ET); see
 `docs/espn-scheduler.md` for how it runs. A manual run is still
 available any time via `POST /espn/lineup/run` or the `run_lineup`
 MCP tool.

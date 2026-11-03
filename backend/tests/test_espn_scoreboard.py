@@ -587,6 +587,28 @@ def test_no_date_run_without_current_resolves_today_via_scoreboard():
     assert post["scoring_period_id"] == 1
 
 
+def test_completed_guard_sees_resolved_current_period_without_metadata():
+    today = datetime.now(_ET).date()
+    client = StatefulClient(_no_block_payload(_oct26_roster(1), current=None))
+    db = FakeSupabase()
+    periods = []
+
+    def completed(period):
+        periods.append(period)
+        return True
+
+    run = lineup.run_lineup(
+        db, dict(ACCOUNT), client,
+        scoreboard=FakeScoreboard({today: OCT26_SLATE}, season_start=today),
+        skip_if_completed=completed,
+    )
+    assert periods == [1]
+    assert run["scoring_period_id"] == 1
+    assert run["status"] == "skipped"
+    assert client.posts == []
+    assert db._store == []
+
+
 def test_explicit_period_with_no_current_uses_season_anchor():
     # No currentScoringPeriod (preseason payload), an explicit future
     # period: its date comes from the season-start anchor.
@@ -665,7 +687,7 @@ class KonaClient(StatefulClient):
         self.kona = kona or {}
         self.kona_calls = []
 
-    def get_players_for_period(self, scoring_period_id, limit=1000):
+    def get_league_players_for_period(self, scoring_period_id, limit=1000):
         self.kona_calls.append(scoring_period_id)
         result = self.kona.get(scoring_period_id, [])
         if isinstance(result, Exception):
@@ -838,6 +860,30 @@ def test_kona_auth_failure_records_auth_error_run():
     assert run["status"] == "auth_error"
     assert run["conflicts"][0]["kind"] == "auth"
     assert client.posts == []
+
+
+@pytest.mark.parametrize("source", ["projection", "tipoffs"])
+def test_helper_429_is_recorded_as_error_and_stops_the_pass(source):
+    class LimitedScoreboard(FakeScoreboard):
+        def team_tipoffs_on(self, day):
+            raise EspnError("ESPN scoreboard -> 429", status=429)
+
+    payload = _no_block_payload(_oct26_roster(6))
+    if source == "projection":
+        payload = _no_block_payload(_strip_projections(_oct26_roster(6)))
+    client = KonaClient(payload, kona={6: EspnError("ESPN kona -> 429", status=429)})
+    sb_type = LimitedScoreboard if source == "tipoffs" else FakeScoreboard
+    db = FakeSupabase()
+    run = lineup.run_lineup(
+        db, dict(ACCOUNT), client, date="2026-10-26",
+        scoreboard=sb_type({OCT26: OCT26_SLATE}),
+    )
+    assert run["status"] == "error"
+    assert "429" in run["error"]
+    assert db._store[-1]["status"] == "error"
+    assert client.posts == []
+    if source == "projection":
+        assert client.kona_calls == [6]
 
 
 def test_explicit_period_gate_passes_via_kona():
