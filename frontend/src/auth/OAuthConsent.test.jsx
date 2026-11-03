@@ -52,6 +52,8 @@ describe('OAuth consent', () => {
     expect(screen.getByText('person@example.test')).toBeInTheDocument();
     expect(screen.getByText('openid')).toBeInTheDocument();
     expect(screen.getByText('email')).toBeInTheDocument();
+    expect(screen.getByText(/See your email address/)).toBeInTheDocument();
+    expect(screen.getByText(/only the Cozy Commons projects you enable/)).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(auth.supabase.auth.oauth.approveAuthorization).not.toHaveBeenCalled();
     expect(redirect).not.toHaveBeenCalled();

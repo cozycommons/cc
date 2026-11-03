@@ -5,14 +5,14 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from fastmcp import FastMCP
+from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken
+import mcp.types as mt
 from key_value.aio.stores.memory import MemoryStore
 
-from cc_mcp import commons_tools
-from cc_mcp.server import ToolContext, ToolProvider, AgentConfigError, create_agent_app
-from trips import agent_tools
+from cc_mcp.registry import PROVIDERS
+from cc_mcp.server import EDIT_SCOPE, READ_SCOPE, build_server, create_agent_app
 from trips.ledger import new_group, apply_command
 from tests.test_cc_mcp import settings_environment
 
@@ -21,6 +21,7 @@ class Query:
     def __init__(self, db, table):
         self.db, self.table, self.filters = db, table, {}
         self.head = False
+        self.write = None
 
     def select(self, *args, **kwargs):
         self.head = kwargs.get('head', False)
@@ -37,23 +38,44 @@ class Query:
     def order(self, *args, **kwargs):
         return self
 
-    def in_(self, *args):
+    def in_(self, key, values):
+        self.filters[key] = ('in', list(values))
         return self
 
     def is_(self, *args):
         return self
 
+    def upsert(self, row, on_conflict):
+        self.write = row
+        return self
+
+    def matches(self, row):
+        for key, value in self.filters.items():
+            if isinstance(value, tuple):
+                if row.get(key) not in value[1]:
+                    return False
+            elif isinstance(value, list):
+                if not set(value) <= set(row[key]):
+                    return False
+            elif row.get(key) != value:
+                return False
+        return True
+
     def execute(self):
+        if self.write is not None:
+            assert self.table == 'cc_mcp_project_settings'
+            self.db.settings[(self.write['user_id'], self.write['project_id'])] = deepcopy(self.write)
+            return SimpleNamespace(data=[self.write])
         if self.table == 'trips_groups':
             data = [self.db.row]
         elif self.table == 'trips_agent_receipts':
             data = [{'user_id': uid, 'idempotency_key': key, **receipt}
                     for (uid, key), receipt in self.db.receipts.items()]
+        elif self.table == 'cc_mcp_project_settings':
+            data = list(self.db.settings.values())
         else:
             data = []
-        data = [deepcopy(row) for row in data if all(
-            set(value) <= set(row[key]) if isinstance(value, list) else row.get(key) == value
-            for key, value in self.filters.items())]
+        data = [deepcopy(row) for row in data if self.matches(row)]
         return SimpleNamespace(data=[] if self.head else data, count=len(data))
 
 
@@ -66,6 +88,7 @@ class Database:
         for name in ('Alex', 'Jamie'):
             self.row, _ = apply_command(self.row, self.user.id, 'add_member', {'name': name, 'revision': self.row['revision']})
         self.receipts, self.commits, self.conflicts = {}, 0, 0
+        self.settings = {}
 
     def table(self, table):
         return Query(self, table)
@@ -83,21 +106,25 @@ class Database:
         return SimpleNamespace(execute=lambda: SimpleNamespace(data={'result': result}))
 
 
+def connect(mcp):
+    """Call tools through the full server: access middleware included."""
+    async def call(name, **kwargs):
+        async with Client(mcp) as client:
+            return (await client.call_tool(name, kwargs)).structured_content
+
+    async def listed():
+        async with Client(mcp) as client:
+            return {tool.name for tool in await client.list_tools()}
+
+    return call, listed
+
+
 @pytest_asyncio.fixture
 async def tools(monkeypatch):
     db = Database()
-    token = AccessToken(token='synthetic', client_id='test', scopes=['trips:read', 'trips:edit'])
+    token = AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE])
     monkeypatch.setattr('cc_mcp.server.get_access_token', lambda: token)
-    mcp = FastMCP('test')
-    context = ToolContext(db)
-    commons_tools.register_tools(mcp, context)
-    agent_tools.register_tools(mcp, context)
-    registered = await mcp.get_tools()
-
-    async def call(name, **kwargs):
-        result = await registered[name].run(kwargs)
-        return result.structured_content
-
+    call, _ = connect(build_server(db, PROVIDERS))
     return db, token, call
 
 
@@ -121,21 +148,60 @@ async def test_whoami_and_extensible_registry_without_feature_scopes(tools):
     assert await call('whoami') == {'id': db.user.id, 'email': db.user.email, 'display_name': 'Sam'}
     projects = {p['id']: p for p in (await call('list_projects'))['projects']}
     assert {'trips', 'floor-planner', 'dice', 'beli', 'resy', 'partiful', 'espn', 'fantasy', 'crowdset', 'design'} == set(projects)
-    assert projects['trips']['status']['trip_count'] == 1
-    assert projects['floor-planner']['status']['setup'] is False
-    assert all(p['status']['next_step'] for p in projects.values())
+    # Existing users keep their projects without a stored choice.
+    assert projects['trips']['enabled'] is True and projects['trips']['status']['trip_count'] == 1
+    assert projects['trips']['enabled_reason'] == 'default: you already use it'
+    assert projects['trips']['next_step'] == 'Call get_trip_overview.'
+    assert projects['floor-planner']['enabled'] is False
+    assert projects['floor-planner']['next_step'] == "Call enable_project('floor-planner') to add its 4 tools."
+    assert {t['name']: t['access'] for t in projects['trips']['tools']} == {
+        'get_trip_overview': 'read', 'add_expense': 'edit', 'record_repayment': 'edit'}
+    assert all(p['next_step'] for p in projects.values())
     assert projects['beli']['on_connector'] is False
-    assert '/beli/mcp' in projects['beli']['status']['next_step']
+    assert '/beli/mcp' in projects['beli']['next_step']
 
 
 @pytest.mark.asyncio
-async def test_registry_failure_is_best_effort(tools, monkeypatch):
+async def test_enable_and_disable_persist_a_choice_and_gate_calls(tools):
+    db, _, call = tools
+    disabled = await call('disable_project', project_id='trips')
+    assert disabled['enabled'] is False and 'enable_project' in disabled['next_step']
+    assert db.settings[(db.user.id, 'trips')]['enabled'] is False
+    with pytest.raises(ToolError, match=r"Cozy Trips is not enabled; call enable_project\('trips'\)"):
+        await call('get_trip_overview')
+    projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+    assert projects['trips']['enabled'] is False and projects['trips']['enabled_reason'] == 'your choice'
+    enabled = await call('enable_project', project_id='trips')
+    assert [t['name'] for t in enabled['tools']] == ['get_trip_overview', 'add_expense', 'record_repayment']
+    assert all(t['description'] for t in enabled['tools'])
+    assert 'refresh the tool list' in enabled['tool_list']
+    assert (await call('get_trip_overview'))['trips'][0]['id'] == db.row['id']
+    plans = await call('enable_project', project_id='floor-planner')
+    assert plans['next_step'].startswith('Create a plan')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('project_id,message', [('commons', 'Unknown project'), ('nope', 'Unknown project'),
+    ('beli', 'not on this connector yet'), ('dice', 'no agent tools yet')])
+async def test_enable_project_errors_name_the_fix(tools, project_id, message):
+    db, _, call = tools
+    with pytest.raises(ToolError, match=message):
+        await call('enable_project', project_id=project_id)
+    assert not db.settings
+
+
+@pytest.mark.asyncio
+async def test_status_failure_is_best_effort_but_settings_failure_fails_closed(tools, monkeypatch):
     db, _, call = tools
     def unavailable(*args):
         raise RuntimeError('unavailable')
-    monkeypatch.setattr(db, 'table', unavailable)
-    result = await call('list_projects')
-    assert result['projects'][0]['status']['setup'] == 'unknown'
+    original = db.table
+    monkeypatch.setattr(db, 'table', lambda name: unavailable() if name == 'trips_groups' and not db.settings else original(name))
+    projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+    assert projects['trips']['status']['unavailable'] is True and projects['trips']['enabled'] is False
+    monkeypatch.setattr(db, 'table', lambda name: unavailable() if name == 'cc_mcp_project_settings' else original(name))
+    with pytest.raises(ToolError, match='Could not check your enabled projects'):
+        await call('get_trip_overview')
 
 
 @pytest.mark.asyncio
@@ -166,12 +232,12 @@ async def test_unauthenticated_denied(tools, monkeypatch, tool):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('tool,scope', [('get_trip_overview', 'trips:read'), ('add_expense', 'trips:edit'), ('record_repayment', 'trips:edit')])
+@pytest.mark.parametrize('tool,scope', [('get_trip_overview', READ_SCOPE), ('add_expense', EDIT_SCOPE), ('record_repayment', EDIT_SCOPE)])
 async def test_missing_scope_names_reconnect_fix(tools, tool, scope):
     db, token, call = tools
     token.scopes.remove(scope)
     args = expense_args(db) if tool == 'add_expense' else repayment_args(db) if tool == 'record_repayment' else {}
-    with pytest.raises(ToolError, match=f'Reconnect to grant {scope}'):
+    with pytest.raises(ToolError, match=f'Reconnect your agent to grant {scope}'):
         await call(tool, **args)
     assert not db.commits
 
@@ -180,6 +246,8 @@ async def test_missing_scope_names_reconnect_fix(tools, tool, scope):
 @pytest.mark.parametrize('tool', ['get_trip_overview', 'add_expense', 'record_repayment'])
 async def test_cross_trip_denied(tools, tool):
     db, _, call = tools
+    # Enabled by choice, so the request reaches the trip membership check.
+    db.settings[(db.user.id, 'trips')] = {'user_id': db.user.id, 'project_id': 'trips', 'enabled': True}
     db.row['member_user_ids'] = [str(uuid4())]
     args = expense_args(db, dry_run=False) if tool == 'add_expense' else repayment_args(db, dry_run=False) if tool == 'record_repayment' else {'trip_id': db.row['id']}
     with pytest.raises(ToolError, match='not a member'):
@@ -254,12 +322,10 @@ async def test_strict_input_rejects_unsafe_money(tools, overrides):
     assert not db.commits
 
 
-def test_scopeless_provider_and_nonempty_unique_scope_union():
-    app = create_agent_app(object(), providers=(commons_tools.provider, agent_tools.provider),
-                           environment=settings_environment(), storage=MemoryStore())
+def test_connector_instructions_lead_with_discovery():
+    app = create_agent_app(object(), providers=PROVIDERS, environment=settings_environment(), storage=MemoryStore())
     assert 'Call list_projects first' in app.state.cc_mcp.instructions
-    with pytest.raises(AgentConfigError, match='at least one scope'):
-        create_agent_app(object(), providers=(commons_tools.provider,), environment=settings_environment(), storage=MemoryStore())
+    assert 'enable_project' in app.state.cc_mcp.instructions
 
 
 @pytest.mark.asyncio
@@ -272,7 +338,7 @@ async def test_sdk_streamable_http_all_tools_with_proxy_token_and_synthetic_stor
     from tests.test_cc_mcp import FixedTokenVerifier, OAUTH_CLIENT_ID
 
     db = Database()
-    app = create_agent_app(db, providers=(commons_tools.provider, agent_tools.provider),
+    app = create_agent_app(db, providers=PROVIDERS,
         environment=settings_environment(), token_verifier=FixedTokenVerifier(), storage=MemoryStore())
     oauth = app.state.cc_mcp_oauth
     upstream_id, jti = uuid4().hex, uuid4().hex
@@ -282,7 +348,12 @@ async def test_sdk_streamable_http_all_tools_with_proxy_token_and_synthetic_stor
         client_id=OAUTH_CLIENT_ID, created_at=1), ttl=3600)
     await oauth._jti_mapping_store.put(key=jti,
         value=JTIMapping(jti=jti, upstream_token_id=upstream_id, created_at=1), ttl=3600)
-    token = oauth.jwt_issuer.issue_access_token('sdk-test-client', ['trips:read', 'trips:edit'], jti, 3600)
+    token = oauth.jwt_issuer.issue_access_token('sdk-test-client', [READ_SCOPE, EDIT_SCOPE], jti, 3600)
+    notifications = []
+
+    async def on_message(message):
+        if isinstance(message, mt.ServerNotification):
+            notifications.append(message.root.method)
 
     def factory(**kwargs):
         return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), **kwargs)
@@ -290,9 +361,26 @@ async def test_sdk_streamable_http_all_tools_with_proxy_token_and_synthetic_stor
     async with app.router.lifespan_context(app):
         async with streamablehttp_client('http://127.0.0.1:8000/mcp',
             headers={'Authorization': f'Bearer {token}'}, httpx_client_factory=factory) as (read, write, _):
-            async with ClientSession(read, write) as session:
+            async with ClientSession(read, write, message_handler=on_message) as session:
                 initialized = await session.initialize()
                 assert 'Call list_projects first' in initialized.instructions
+                assert initialized.capabilities.tools.listChanged is True
+
+                async def listed():
+                    return {tool.name for tool in (await session.list_tools()).tools}
+
+                commons = {'whoami', 'list_projects', 'enable_project', 'disable_project'}
+                trips = {'get_trip_overview', 'add_expense', 'record_repayment'}
+                plans = {'list_floor_plans', 'get_floor_plan', 'describe_floor_plan_schema', 'edit_floor_plan'}
+                # Stateless HTTP: filtering runs per request, defaults enable Trips only.
+                assert await listed() == commons | trips
+                await session.call_tool('enable_project', {'project_id': 'floor-planner'})
+                assert notifications == ['notifications/tools/list_changed']
+                assert await listed() == commons | trips | plans
+                await session.call_tool('disable_project', {'project_id': 'floor-planner'})
+                assert await listed() == commons | trips
+                hidden = await session.call_tool('list_floor_plans', {})
+                assert hidden.isError and "enable_project('floor-planner')" in hidden.content[0].text
 
                 async def call(name, **kwargs):
                     result = await session.call_tool(name, kwargs)
@@ -314,3 +402,43 @@ async def test_sdk_streamable_http_all_tools_with_proxy_token_and_synthetic_stor
                 repaid = await call('record_repayment', **repayment, dry_run=False)
                 assert await call('record_repayment', **repayment, dry_run=False) == repaid
                 assert db.row['revision'] == initial['revision'] + 2
+
+
+@pytest.mark.asyncio
+async def test_linked_account_projects_require_the_link_step_first(monkeypatch):
+    """The M3 contract: project tools resolve the account server-side, after one link step."""
+    from cc_mcp.server import AccountLink, ToolProvider
+
+    db = Database()
+    accounts = {}
+
+    def register(mcp, context):
+        @mcp.tool()
+        async def link_example_account(code: str) -> dict:
+            user = await context.signed_in_user(context.need_scope(EDIT_SCOPE))
+            accounts[user.id] = {'account_id': 'acct-1'}
+            return {'linked': True}
+
+        @mcp.tool()
+        async def get_example_data() -> dict:
+            user = await context.signed_in_user(context.need_scope(READ_SCOPE))
+            return {'account_id': accounts[user.id]['account_id']}
+
+    linked = ToolProvider(
+        'example', register, {'link_example_account': 'edit', 'get_example_data': 'read'},
+        title='Example', status=lambda client, user: {'in_use': user.id in accounts},
+        link=AccountLink('Call link_example_account(code) with the code from https://example.test/link.',
+                         linked=lambda client, user: accounts.get(user.id), tool='link_example_account'))
+    token = AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE])
+    monkeypatch.setattr('cc_mcp.server.get_access_token', lambda: token)
+    call, listed = connect(build_server(db, (*PROVIDERS, linked)))
+    assert 'get_example_data' not in await listed()
+    enabled = await call('enable_project', project_id='example')
+    assert enabled['linked'] is False and enabled['next_step'].startswith('Call link_example_account')
+    assert {'link_example_account', 'get_example_data'} <= await listed()
+    with pytest.raises(ToolError, match='Link your Example account first: Call link_example_account'):
+        await call('get_example_data')
+    project = next(p for p in (await call('list_projects'))['projects'] if p['id'] == 'example')
+    assert project['linked'] is False and project['next_step'].startswith('Call link_example_account')
+    assert await call('link_example_account', code='one-time') == {'linked': True}
+    assert await call('get_example_data') == {'account_id': 'acct-1'}

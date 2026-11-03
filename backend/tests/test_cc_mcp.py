@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from fastmcp.server.auth import AccessToken, JWTVerifier, TokenVerifier
+from fastmcp.server.auth import AccessToken, JWTVerifier, OAuthProxy, TokenVerifier
 from fastmcp.server.auth.oauth_proxy import (
     JTIMapping,
     RefreshTokenMetadata,
@@ -23,7 +23,6 @@ from mcp.shared.auth import OAuthClientInformationFull
 
 from cc_mcp.server import (
     ToolProvider,
-    ToolContext,
     AgentConfigError,
     AgentSettings,
     ResourceBoundOAuthProxy,
@@ -32,9 +31,10 @@ from cc_mcp.server import (
 )
 from cc_mcp.mount import mount_agent_app
 
-READ_SCOPE = "example:read"
-EDIT_SCOPE = "example:edit"
-provider = ToolProvider("example", (READ_SCOPE, EDIT_SCOPE), lambda mcp, context: None)
+READ_SCOPE = "commons:read"
+EDIT_SCOPE = "commons:edit"
+provider = ToolProvider("example", lambda mcp, context: None, {},
+                        legacy_scopes={"example:read": "read", "example:edit": "edit"})
 
 SUPABASE_URL = "http://127.0.0.1:54321"
 OAUTH_CLIENT_ID = "11111111-1111-4111-8111-111111111111"
@@ -166,6 +166,12 @@ async def test_resource_tokens_reject_refresh_jwts_raw_supabase_tokens_and_other
     assert signin_access is not None and signin_access.scopes == []
     unknown = oauth.jwt_issuer.issue_access_token("mcp-test-client", ["unknown:read"], jti, 3600)
     assert await oauth.load_access_token(unknown) is None
+    assert "_legacy_grants" not in loaded.claims
+    # Pre-commons tokens map to commons scopes but keep their old project reach.
+    legacy = oauth.jwt_issuer.issue_access_token("mcp-test-client", ["example:read"], jti, 3600)
+    legacy_access = await oauth.load_access_token(legacy)
+    assert legacy_access.scopes == [READ_SCOPE]
+    assert legacy_access.claims["_legacy_grants"] == {"example": ["read"]}
     assert await oauth.load_access_token(refresh) is None
     assert await oauth.load_access_token(wrong_audience) is None
     assert await oauth.load_access_token("a raw Supabase session token") is None
@@ -218,7 +224,9 @@ async def test_supabase_jwt_verifier_checks_signature_issuer_audience_client_and
 
 
 @pytest.mark.asyncio
-async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tokens(monkeypatch):
+@pytest.mark.parametrize("scopes", [[READ_SCOPE, EDIT_SCOPE], ["example:read", "example:edit"]])
+async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tokens(monkeypatch, scopes):
+    """Legacy refresh tokens keep refreshing until their fixed window ends."""
     import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
 
     app = make_agent_app()
@@ -226,12 +234,11 @@ async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tok
     client = OAuthClientInformationFull(
         client_id="mcp-refresh-client",
         redirect_uris=["http://localhost/callback"],
-        scope=f"{READ_SCOPE} {EDIT_SCOPE}",
+        scope=" ".join(scopes),
     )
     upstream_id = uuid4().hex
     old_access_jti = uuid4().hex
     refresh_jti = uuid4().hex
-    scopes = [READ_SCOPE, EDIT_SCOPE]
     refresh_jwt = oauth.jwt_issuer.issue_refresh_token(
         client.client_id, scopes, refresh_jti, 3600
     )
@@ -294,14 +301,16 @@ async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tok
     assert calls[0]["auth_method"] == "client_secret_basic"
     assert calls[0]["request"]["scope"] is None
     assert calls[0]["request"]["refresh_token"] == "upstream-refresh-token"
-    assert rotated.scope == f"{READ_SCOPE} {EDIT_SCOPE}"
+    assert rotated.scope == " ".join(scopes)
     assert rotated.access_token
     assert rotated.refresh_token
 
     new_access_claims = oauth.jwt_issuer.verify_token(rotated.access_token)
     assert "token_use" not in new_access_claims
     assert oauth.jwt_issuer.verify_token(rotated.refresh_token)["token_use"] == "refresh"
-    assert await oauth.load_access_token(rotated.access_token) is not None
+    refreshed = await oauth.load_access_token(rotated.access_token)
+    assert refreshed.scopes == [READ_SCOPE, EDIT_SCOPE]
+    assert ("_legacy_grants" in refreshed.claims) == (scopes[0] != READ_SCOPE)
     assert await oauth.load_access_token(rotated.refresh_token) is None
 
     await oauth.revoke_token(
@@ -320,44 +329,56 @@ async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tok
 
 
 @pytest.mark.asyncio
-async def test_independent_feature_providers_share_auth_but_keep_permission_boundaries(monkeypatch):
-    from fastmcp.exceptions import ToolError
+async def test_legacy_clients_and_authorization_requests_move_to_commons_scopes(monkeypatch):
+    from mcp.server.auth.provider import AuthorizationParams
+    from pydantic import AnyUrl
 
-    def register_first(mcp, context):
-        @mcp.tool()
-        def read_example():
-            context.need_scope(READ_SCOPE)
-            return "example"
-
-    def register_second(mcp, context):
-        @mcp.tool()
-        def read_other_feature():
-            context.need_scope("other:read")
-            return "other"
-
-    first = ToolProvider("example", (READ_SCOPE, EDIT_SCOPE), register_first)
-    second = ToolProvider("other", ("other:read",), register_second)
-    app = create_agent_app(
-        object(), providers=(first, second), environment=settings_environment(),
-        token_verifier=FixedTokenVerifier(), storage=MemoryStore(),
-    )
-    tools = await app.state.cc_mcp.get_tools()
-    assert set(tools) == {"read_example", "read_other_feature"}
-    monkeypatch.setattr("cc_mcp.server.get_access_token", lambda: AccessToken(
-        token="upstream-test-access-token", client_id="client", scopes=[READ_SCOPE],
+    app = make_agent_app()
+    oauth: ResourceBoundOAuthProxy = app.state.cc_mcp_oauth
+    await oauth.register_client(OAuthClientInformationFull(
+        client_id="m1-era-client", redirect_uris=["http://localhost/callback"],
+        scope="example:read example:edit",
     ))
-    assert (await tools["read_example"].run({})).content[0].text == "example"
-    with pytest.raises(ToolError, match="other:read"):
-        await tools["read_other_feature"].run({})
-    with TestClient(app) as client:
+    client = await oauth.get_client("m1-era-client")
+    # A client registered with M1 scopes can reconnect asking for commons scopes.
+    assert client.validate_scope("commons:read commons:edit") == [READ_SCOPE, EDIT_SCOPE]
+    seen = {}
+
+    async def capture(_self, _client, params):
+        seen["scopes"] = params.scopes
+        return "http://127.0.0.1:8000/consent"
+
+    monkeypatch.setattr(OAuthProxy, "authorize", capture)
+    await oauth.authorize(client, AuthorizationParams(
+        state="s", scopes=["example:read", "example:edit", READ_SCOPE], code_challenge="c" * 43,
+        redirect_uri=AnyUrl("http://localhost/callback"), redirect_uri_provided_explicitly=True,
+    ))
+    assert seen["scopes"] == [READ_SCOPE, EDIT_SCOPE]
+
+
+def declared(name, tools, register=None, **kwargs):
+    def default_register(mcp, context):
+        for tool in tools:
+            mcp.tool(name=tool)(lambda: tool)
+    return ToolProvider(name, register or default_register, tools, **kwargs)
+
+
+def test_startup_requires_unique_providers_and_exactly_declared_tools():
+    environment = settings_environment()
+    for providers in (
+        (provider, provider),
+        (declared("one", {"read_one": "read"}), declared("two", {"other": "read"}, register=lambda mcp, context: None)),
+        (declared("one", {"read_one": "read"}, register=lambda mcp, context: (mcp.tool(name="read_one")(lambda: 1),
+                                                                             mcp.tool(name="sneaky")(lambda: 2))),),
+        (declared("one", {"read_one": "signin"}),),
+        (declared("one", {"read_one": "admin"}),),
+        (declared("one", {}, legacy_scopes={"commons:read": "read"}),),
+    ):
+        with pytest.raises(AgentConfigError):
+            create_agent_app(object(), providers=providers, environment=environment, storage=MemoryStore())
+    with TestClient(make_agent_app()) as client:
         scopes = client.get("/.well-known/oauth-authorization-server").json()["scopes_supported"]
-    assert set(scopes) == {READ_SCOPE, EDIT_SCOPE, "other:read"}
-
-
-def test_duplicate_provider_names_and_scopes_fail_at_startup():
-    for providers in ((provider, provider), (provider, ToolProvider("other", (READ_SCOPE,), lambda mcp, context: None))):
-        with pytest.raises(AgentConfigError, match="unique"):
-            create_agent_app(object(), providers=providers, environment=settings_environment(), storage=MemoryStore())
+    assert set(scopes) == {READ_SCOPE, EDIT_SCOPE}
 
 
 def test_unconfigured_shared_mount_preserves_explicit_routes_and_unknown_404s():

@@ -3,6 +3,13 @@ import { useSearchParams } from 'react-router-dom';
 import { useCozyAuth } from './useCozyAuth';
 import './oauth-consent.css';
 
+const SCOPE_LABELS = {
+  openid: 'Confirm it is you',
+  email: 'See your email address',
+  'commons:read': 'Read your data in the projects you enable',
+  'commons:edit': 'Save changes you confirm in the projects you enable',
+};
+
 function redirectBrowser(value) {
   window.location.assign(value);
 }
@@ -89,7 +96,8 @@ export default function OAuthConsent({ onRedirect = redirectBrowser }) {
           : ready ? <>
             <p><strong>{details.client.name || details.client.client_name || details.client.id || details.client.client_id}</strong> is requesting access to your Cozy Commons account.</p>
             <p className="cc-oauth-account">{user.email}</p>
-            {details.scope && <><h2>Requested scopes</h2><ul>{details.scope.split(/\s+/).filter(Boolean).map((scope) => <li key={scope}>{scope}</li>)}</ul></>}
+            {details.scope && <><h2>Requested scopes</h2><ul>{details.scope.split(/\s+/).filter(Boolean).map((scope) => <li key={scope}>{SCOPE_LABELS[scope] && <>{SCOPE_LABELS[scope]}: </>}<code>{scope}</code></li>)}</ul></>}
+            <p className="cc-oauth-note">Your agent can use only the Cozy Commons projects you enable, with the read (<code>commons:read</code>) and edit (<code>commons:edit</code>) permissions you approved for the connector. New projects never need a new approval.</p>
             <div className="cc-oauth-actions"><button className="cc-oauth-button" disabled={busy} onClick={() => decide(true)}>{busy ? 'Continuing…' : 'Allow connection'}</button><button className="cc-oauth-button cc-oauth-secondary" disabled={busy} onClick={() => decide(false)}>Deny</button></div>
           </> : !error && <p role="status">Loading connection request…</p>}
     {error && <div role="alert"><p>{error}</p>{!ready && user && <button className="cc-oauth-button" disabled={busy} onClick={() => setAttempt((value) => value + 1)}>Retry</button>}</div>}

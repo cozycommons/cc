@@ -8,7 +8,7 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field, StringConstraints
 from starlette.concurrency import run_in_threadpool
 
-from cc_mcp.server import ToolProvider
+from cc_mcp.server import EDIT_SCOPE, READ_SCOPE, ToolProvider
 from venmo.links import transaction_link
 from .ledger import LedgerError, apply_command, require_member
 from .profiles import render_group
@@ -22,6 +22,13 @@ MemberId = Annotated[str, StringConstraints(min_length=1, max_length=100)]
 class Payer(Input):
     member_id: MemberId
     amount_cents: Money
+
+
+def status(client, user):
+    count = (client.table('trips_groups').select('id', count='exact', head=True)
+             .contains('member_user_ids', [user.id]).execute()).count
+    return {'in_use': bool(count), 'trip_count': count,
+            'next_step': 'Call get_trip_overview.' if count else 'Create a trip at https://cozycommons.dev/trips.'}
 
 
 def trip_rows(client, user):
@@ -147,7 +154,7 @@ def register_tools(mcp, context):
         Settlement uses the existing exact fewest-payment solver up to 16 nonzero balances;
         larger trips use the existing deterministic greedy fallback. Venmo links require USD and handles.
         """
-        return await invoke('trips:read', overview, trip_id)
+        return await invoke(READ_SCOPE, overview, trip_id)
 
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'openWorldHint': False})
     async def add_expense(
@@ -170,16 +177,21 @@ def register_tools(mcp, context):
                      'payers': [p.model_dump() for p in payers], 'member_ids': member_ids,
                      'split_mode': split_mode, 'parts': parts or {},
                      'date': date.isoformat() if date else None, 'category': category}
-        return await invoke('trips:edit', write, trip_id, 'add_expense', arguments, idempotency_key, dry_run)
+        return await invoke(EDIT_SCOPE, write, trip_id, 'add_expense', arguments, idempotency_key, dry_run)
 
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'openWorldHint': False})
     async def record_repayment(trip_id: UUID, from_member_id: MemberId, to_member_id: MemberId,
                                amount_cents: Money, idempotency_key: Key,
                                dry_run: Annotated[bool, Field(strict=True)] = True) -> dict:
         """Preview first, then record a repayment already made; this does not send money."""
-        return await invoke('trips:edit', write, trip_id, 'add_repayment',
+        return await invoke(EDIT_SCOPE, write, trip_id, 'add_repayment',
                             {'from_member_id': from_member_id, 'to_member_id': to_member_id,
                              'amount_cents': amount_cents}, idempotency_key, dry_run)
 
 
-provider = ToolProvider('trips', ('trips:read', 'trips:edit'), register_tools)
+provider = ToolProvider(
+    'trips', register_tools,
+    {'get_trip_overview': 'read', 'add_expense': 'edit', 'record_repayment': 'edit'},
+    title='Cozy Trips', description='Shared trip expenses, balances and repayments.',
+    url='https://cozycommons.dev/trips', status=status,
+    legacy_scopes={'trips:read': 'read', 'trips:edit': 'edit'})

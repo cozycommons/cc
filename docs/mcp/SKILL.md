@@ -1,6 +1,6 @@
 ---
 name: cozy-commons
-description: Use the Cozy Commons remote MCP connector to discover projects, read trip balances, split expenses and record repayments with confirmed previews.
+description: Use the Cozy Commons remote MCP connector to discover and enable projects, read trip balances, split expenses and record repayments with confirmed previews.
 ---
 
 # Cozy Commons connector
@@ -9,9 +9,15 @@ Connect to `https://api.cozycommons.dev/mcp` using Streamable HTTP and OAuth
 (dynamic client registration + PKCE). Human setup: https://cozycommons.dev/connect.
 Google sign-in and consent determine access; do not request pasted API keys.
 
-Call `list_projects` first. Follow its setup status and next steps. Trips and
-Floor Planner are registered here; other projects may direct you elsewhere.
-Use `whoami` when you need to check the signed-in identity.
+Call `list_projects` first. Each project shows whether it is enabled for this
+user, its tools and the exact `next_step`; follow it. Your tool list contains
+only the enabled projects' tools. To use a project that is off, call
+`enable_project(project_id)` (ask the user first if they did not ask for that
+project). It returns the project's tools and any one-time link step. If the new
+tools do not appear in your tool list, refresh it; if your client cannot, ask
+the user to reconnect the connector. `disable_project` hides a project's tools
+and keeps its data. Trips and Floor Planner are on this connector; other
+projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
 
 ## Rules
 
@@ -31,9 +37,12 @@ Use `whoami` when you need to check the signed-in identity.
 - Read error messages: they name the fix. Use suggested exact IDs only after
   resolving ambiguity with the user. After a repeated revision conflict, reread
   the trip and review a fresh preview before retrying.
-- Scope errors mean the user must reconnect and consent to the named permission
-  (`trips:read` / `trips:edit`, or the requested Floor Planner scope). Do not retry
-  with guessed credentials or another endpoint.
+- "Not enabled" errors name the fix: call `enable_project` as stated.
+- Permission errors mean the user must reconnect and approve the named scope
+  (`commons:read` / `commons:edit`). A connection approved before these scopes
+  works only for Trips and Floor Planner; for other projects the error asks the
+  user to reconnect once. Do not retry with guessed credentials or another
+  endpoint.
 - `record_repayment` records money already paid. Venmo settlement links do not
   send money; do not claim a payment happened from opening a link.
 

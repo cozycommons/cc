@@ -231,6 +231,7 @@ async def test_mounted_streamable_http_lists_reads_and_atomically_edits(local_fl
                     plans = await session.call_tool("list_floor_plans", {})
                     assert plans.structuredContent["mine"][0]["id"] == plan_id
                     current = await session.call_tool("get_floor_plan", {"plan_id": plan_id})
+                    assert not current.isError, current.content
                     assert current.structuredContent["revision"] == 1
 
                     element = {

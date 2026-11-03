@@ -3,7 +3,7 @@
 .cc-oauth-card h1 { margin: 28px 0 20px; font-size: 28px; }
 .cc-oauth-card h2 { margin-top: 24px; font-size: 15px; }
 .cc-oauth-card p, .cc-oauth-card li { line-height: 1.6; overflow-wrap: anywhere; }
-.cc-oauth-account { color: #68685f; font-size: 14px; }
+.cc-oauth-account, .cc-oauth-note { color: #68685f; font-size: 14px; }
 .cc-oauth-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 
 .cc-oauth-brand { color: inherit; font-size: 12px; letter-spacing: 0.16em; text-decoration: none; }

@@ -57,8 +57,11 @@ server](../mcp/README.md). Its provider lives in
 `backend/floor_planner/agent_tools.py`; authentication and OAuth persistence
 belong to `backend/cc_mcp` and its independent migration family.
 
-The provider requires `floor-plans:read` for reads, and both that scope and
-`floor-plans:edit` for changes. It verifies the current Supabase user and email,
+The provider requires `commons:read` for reads, and both that scope and
+`commons:edit` for changes, and is on for a user who owns or accepted a plan or
+who enabled it with `enable_project('floor-planner')`. Pre-commons
+`floor-plans:*` tokens keep this reach until they expire (see the connector
+README). It verifies the current Supabase user and email,
 rechecks document access, and uses the existing revision-checked RPC for saves.
 The schema tool returns no private data. Knowing a plan ID does not authorize
 access. Sharing, visibility, ownership, scans, and document deletion are not

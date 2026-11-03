@@ -1,8 +1,11 @@
 # Cozy Commons MCP
 
-One connection and browser sign-in serves deliberately registered feature tool
-sets: Commons discovery, Floor Planner, and Trips. Existing Beli, Resy, Partiful
-and ESPN MCP endpoints keep their separate pasted-token authentication.
+One connection and browser sign-in serves every registered project: Commons
+discovery and enablement, Trips and Floor Planner. Two stable scopes,
+`commons:read` and `commons:edit`, cover all of them, and each user enables the
+projects whose tools their agent sees. Adding a project or tool therefore never
+changes the scope set or forces existing users to reconnect. Existing Beli, Resy,
+Partiful and ESPN MCP endpoints keep their separate pasted-token authentication.
 
 ## Connect an agent
 
@@ -21,9 +24,11 @@ public URL, client setup, consent and disconnect instructions. Agents can load
 - Generic client: Streamable HTTP + OAuth with dynamic client registration and
   PKCE. API-key-only and stdio-only clients cannot use this endpoint.
 
-Sign in with Google to Cozy Commons, then review the application, account and
-requested scopes on `/oauth/consent`. Choose Allow connection or Deny. Call
-`list_projects` first; preview writes and get user confirmation before committing.
+The connector's approval page names the agent and the requested scopes
+(`commons:read commons:edit` by default). Sign in with Google to Cozy Commons,
+then review the application and account on `/oauth/consent`. Choose Allow
+connection or Deny. Call `list_projects` first, then `enable_project` for any
+project that is off; preview writes and get user confirmation before committing.
 Remove the connector in the agent to disconnect. There is currently no in-app
 application-grant revocation page; contact the Cozy Commons administrator to
 revoke the Supabase Auth grant. Already-issued tokens may last until expiry
@@ -73,11 +78,11 @@ them. Browser roles receive no table access.
 
 The OAuth server's OIDC scopes are `openid email`. These scopes identify the
 user; they do not limit Supabase database permissions. The proxy issues its
-own JWTs with audience bound to the `/mcp` resource and keeps
-`floor-plans:read`, `floor-plans:edit`, `trips:read`, and `trips:edit` scopes in those local tokens. Raw
+own JWTs with audience bound to the `/mcp` resource and keeps the
+`commons:read` and `commons:edit` scopes in those local tokens. Raw
 Supabase session tokens are rejected by MCP. Tools use the shared context to
 validate the current user with Supabase Auth.
-Each feature owns its account binding, authorization, and write validation.
+Each project owns its account binding, authorization, and write validation.
 Floor Planner additionally requires a verified email and revision-checked
 writes. The upstream JWT
 verifier accepts asymmetric ES256 or RS256 signatures and checks the Supabase
@@ -97,53 +102,122 @@ Production OAuth settings are configured separately from this code;
 the application must remain unavailable until an administrator registers and
 configures its confidential Supabase OAuth client and the deployment keys.
 
-## Adding a feature
+## Scopes, enablement and the tool list
 
-The composition root in `backend/main.py` explicitly passes providers into
-`create_agent_app`. The shared server never imports feature modules; the Commons
-registry owns its feature status callbacks. A provider
-supplies a unique name, its unique permission scopes, and a registration function:
+Every tool declares one access level. `signin` tools (the `commons` provider
+only: `whoami`, `list_projects`, `enable_project`, `disable_project`) need a
+valid connection and no scope. `read` tools need `commons:read`; `edit` tools
+need `commons:edit`. Clients that omit scopes at registration get both.
+
+`ProjectAccessMiddleware` (FastMCP 2.14 middleware, `backend/cc_mcp/server.py`)
+filters `tools/list` to `commons` plus the projects enabled for the signed-in
+user, and checks every `tools/call` again: missing sign-in, then scope, then
+enablement, then any account link. Hiding a tool is not authorization; a call to
+a disabled project's tool returns, for example, “Cozy Trips is not enabled; call
+enable_project('trips').” The connector runs with `stateless_http=True`, so the
+filter runs on every request and needs no session state.
+
+`cc_mcp_project_settings` (migration `0002_cc_mcp_project_settings.sql`) stores a
+user's explicit choice per project: user, project, enabled and timestamps. It is
+service-role only with RLS enabled and no browser access; `/ready` attests it.
+Without a stored row a project is enabled when its status callback reports
+`in_use` (Trips: the user belongs to a trip; Floor Planner: the user owns or
+accepted a plan), so existing users lose nothing. A status failure leaves a
+default project off (fail closed) but never overrides a stored choice; a settings
+lookup failure refuses the call and asks the agent to retry. Disabling hides
+tools and keeps all project data.
+
+`enable_project` and `disable_project` send `notifications/tools/list_changed`
+on the response stream of that call (with its request ID). Stateless HTTP has no
+standalone server stream, so this is best effort: the MCP Python SDK receives it
+(see the local exercise), while some clients only refetch tools on reconnect.
+Both results therefore tell the agent to refresh its tool list or reconnect if
+the new tools do not appear; the setting is saved either way.
+
+### Connections approved before commons scopes
+
+M1 tokens carry `trips:read`, `trips:edit`, `floor-plans:read` and/or
+`floor-plans:edit`. They keep working: on load the proxy maps each one to the
+matching commons scope and records the old per-project grant, and the middleware
+allows such a token only within those projects. A pre-commons token cannot reach
+a project added later; the call says “Reconnect your agent once to grant
+commons:read and commons:edit.” Refreshing keeps the old scopes, and FastMCP
+caps the refresh family at 30 days after the original approval (Supabase returns
+no refresh lifetime), so every pre-commons connection ends within 30 days of its
+approval. Nobody has to reconnect at deploy; users reconnect when a token family
+expires or when they want a newly added project. Clients registered with the old
+scopes may request the commons scopes on reconnect, and an authorization request
+that still names old scopes is granted the commons equivalents, which the
+approval page shows.
+
+## Adding a project
+
+`backend/cc_mcp/registry.py` lists every provider served at `/mcp`;
+`backend/main.py` passes it to `create_agent_app`. A provider is the project
+contract (`ToolProvider` in `backend/cc_mcp/server.py`):
 
 ```python
-from cc_mcp.server import ToolProvider
-
-
-def register_tools(mcp, context):
-    @mcp.tool(annotations={"readOnlyHint": True})
-    async def list_trips():
-        access = context.need_scope("trips:read")
-        user = await context.signed_in_user(access)
-        # Query only trips this user is authorized to read.
-        return await list_authorized_trips(user.id)
-
-
-provider = ToolProvider("trips", ("trips:read",), register_tools)
+provider = ToolProvider(
+    "beli", register_tools,
+    {"get_restaurant_recs": "read", "save_restaurant": "edit", "link_beli_account": "edit"},
+    title="Beli", description="Restaurant recommendations and your Want to Try list.",
+    url="https://cozycommons.dev/beli",
+    status=beli_status,  # cheap, read-only; {"in_use": bool, "next_step": "..."}
+    link=AccountLink(
+        "Call link_beli_account(api_token) once with your existing ccb_ token.",
+        linked=linked_beli_account,  # (service_client, user) -> non-secret summary or None
+        tool="link_beli_account",
+    ),
+)
 ```
 
-This minimal example illustrates the provider interface; the implemented Trips
-provider is `backend/trips/agent_tools.py`. Every feature-data tool must
-check its scope, obtain a current user, and enforce its feature's membership
-rules. A connection does not grant access to every record or bypass existing
-permissions. Tool names, provider names and scopes must be unique across providers. A provider
-may declare zero scopes (Commons does); the combined scope set must be nonempty.
-A valid proxy token with no feature scopes can use the sign-in-only tools;
-unknown scopes remain rejected.
+Startup fails unless the provider declares exactly the tools it registers, each
+project tool is `read` or `edit`, names are unique and any link tool belongs to
+the provider. `tests/test_cc_mcp_tool_safety.py` enumerates every registered tool
+and fails until the project has a fixture with valid arguments and either an
+“another user's resource” case or a stated reason it has none. For each tool it
+asserts: no token is refused; a token without the tool's scope is refused (so a
+read-only token cannot call any edit tool); a disabled project's tool is hidden
+and refused; a pre-commons token for another project is refused; another user's
+resource is refused. None of these changes the scope set, so existing
+connections keep working and see the new project in `list_projects`.
 
-Clients should request only the scopes needed for their task. Clients that omit
-scopes are prompted for the currently registered scopes; adding a provider does
-not expand existing tokens. Reconnect and consent to acquire new permissions.
+Checklist:
 
-The shared `cc_mcp` migration family has no dependency on Floor Planner tables.
+1. Keep it to about five well-combined tools. Merge reads that differ only by a
+   filter into one tool with a parameter.
+2. Declare each tool `read` or `edit`, and call `context.need_scope(READ_SCOPE)`
+   or `EDIT_SCOPE` in the tool as well. Resolve the user with
+   `context.signed_in_user`, then enforce the project's own ownership rules.
+3. Writes take `dry_run` (default `true`) and a required `idempotency_key`, with
+   a durable receipt so a retry returns the original result (see Trips).
+4. Money is integer cents (or minor units with the currency named). Use exact
+   IDs; never resolve names silently.
+5. Errors name the fix: an exact ID suggestion, `enable_project('…')`, the link
+   step or “Reconnect your agent…”.
+6. Accounts that are not Commons users (Beli, Resy, Partiful, ESPN) declare an
+   `AccountLink`. The link lives in the project's own tables, keyed by the
+   Commons user ID; tools resolve the account from the signed-in user server-side
+   and never accept a pasted token after linking. Until linked, every tool except
+   the link tool returns the link instructions, and `list_projects` shows them as
+   the next step.
+7. Provide a cheap `status` callback whose `in_use` means “this user already uses
+   the project”; it enables the project by default.
+8. Add the provider to the registry, add its safety fixture, and leave the
+   project's legacy endpoint unchanged.
+
+The shared `cc_mcp` migration family has no dependency on project tables.
 Run the canonical migration runner with `--family cc_mcp`, or use the shared
 release runner which applies all families. `/ready` attests its service-only
-OAuth table and grants. Keep signing/encryption keys stable across replicas and
-restarts; rotating them invalidates existing connections. Never put those keys
-or upstream credentials in the frontend.
+OAuth and project-settings tables and grants. Keep signing/encryption keys stable
+across replicas and restarts; rotating them invalidates existing connections.
+Never put those keys or upstream credentials in the frontend.
 
 ## Validation and limitations
 
 Shared auth tests cover JWT issuer/audience/client checks, scoped tokens,
-refresh isolation, revocation, and discovery. The Floor Planner protocol test
+pre-commons tokens and clients, refresh isolation, revocation, discovery,
+enablement and the per-tool safety gates. The Floor Planner protocol test
 uses real loopback Supabase state to exercise its provider through the shared
 endpoint. Local browser OAuth, tool edits, refresh, and restart persistence were
 verified during development. Native Codex and Claude client setup and production
@@ -152,15 +226,17 @@ to collaborators and are not exposed by the MCP tools.
 
 ## Commons discovery and Trips
 
-Call `list_projects` first. `whoami` and `list_projects` require a current Commons
-sign-in without any additional feature scope. The project registry includes all
-public frontend projects plus the four separate MCP integrations. Read-only,
-cheap status callbacks report trip counts and owned/accepted shared plans;
-other projects return an explicit setup URL or unknown status. Status lookup
-failures do not prevent discovery. M3 can attach a status callback to each
-`Project` without changing the shared server.
+Call `list_projects` first. `whoami`, `list_projects`, `enable_project` and
+`disable_project` require a current Commons sign-in and no scope. For each
+connector project, `list_projects` returns whether it is enabled and why
+(`your choice`, `default: you already use it` or `default: off until enabled`),
+whether its account is linked (projects with an account link), its tools with
+their access level, its status and the exact next step. Other public projects
+and the four separate MCP integrations are listed with their URL or endpoint.
+Status lookup failures do not prevent discovery. `enable_project(project_id)`
+returns the project's tools and any one-time link step.
 
-`get_trip_overview` needs `trips:read`. Omit `trip_id` to list authorized trips;
+`get_trip_overview` needs `commons:read`. Omit `trip_id` to list authorized trips;
 pass it to get member IDs, names, Venmo usernames, currency, revision, integer
 balances and settlement payments. Trips does not currently store travel dates;
 list entries therefore return `dates: null`. Settlement reuses the canonical
@@ -169,7 +245,7 @@ fallback above that limit. Venmo links use existing handle validation and URL
 helpers, and require USD and the appropriate payer/payee handle. A missing link
 is null. Links do not execute a payment.
 
-`add_expense` and `record_repayment` need `trips:edit`, exact trip/member IDs,
+`add_expense` and `record_repayment` need `commons:edit`, exact trip/member IDs,
 positive integer cents and a required `idempotency_key` (1–200 characters).
 Preview with `dry_run=true` (the default), review with the user, then submit
 `dry_run=false` with the same key and arguments. Preview does not reserve a key
@@ -199,11 +275,10 @@ deleted. Concurrent retries serialize on the key; the ledger update and receipt
 commit together. A revision conflict rereads and reapplies once; a second
 conflict asks the agent to read/review the trip before retrying.
 
-DCR requests omitting scope receive all registered provider scopes. Existing
-Floor Planner grants do **not** gain Trips permissions automatically. Reconnect
-and consent to the new scopes: a missing write permission says, for example,
-“Reconnect to grant trips:edit.” The unrelated `/beli/mcp`, `/resy/mcp`,
-`/partiful/mcp`, and `/espn/mcp` endpoints remain unchanged.
+DCR requests omitting scope receive `commons:read commons:edit`. A missing
+permission says, for example, “Reconnect your agent to grant commons:edit.”
+The unrelated `/beli/mcp`, `/resy/mcp`, `/partiful/mcp`, and `/espn/mcp`
+endpoints remain unchanged.
 
 ## Local real OAuth exercise
 
@@ -245,12 +320,18 @@ APIs as `frontend/src/auth/OAuthConsent.jsx`, authenticated with that user's
 session. Every redirect is checked for HTTP loopback before following it.
 The pinned SDK replaces requested scopes during discovery, so this exercise
 selects its explicit scopes immediately before the normal authorization flow.
-It also obtains a separate `trips:read` grant and verifies that a fresh committed
-expense is denied without `trips:edit`, leaving the ledger unchanged.
+It also obtains a separate `commons:read` grant and verifies that both Trips
+writes are denied without `commons:edit`, leaving the ledger unchanged.
 
-The script creates a synthetic trip with guests, calls all five new tools
-(both overview forms), previews and commits both write types, replays both keys,
-and asserts previews/replays did not advance revisions. Synthetic users and
+The script checks that a new user sees only commons tools, that joining a
+synthetic trip enables Trips by default, and that `enable_project` /
+`disable_project` change `tools/list`, deliver `notifications/tools/list_changed`
+and refuse a disabled project's calls. It calls every Trips tool (both overview
+forms), previews and commits both write types, replays both keys, and asserts
+previews/replays did not advance revisions. Finally it signs a pre-commons
+`trips:*` token with the server's key and the session's real upstream mapping,
+exactly as M1 issued them, and checks it still works for Trips and is refused for
+Floor Planner with the reconnect step. Synthetic users and
 trips remain in the loopback sandbox for inspection. Tokens and keys are never
 printed or committed. For interactive mode, also run the normal local frontend
 on port 8080 (for example `scripts/start-local-dice-frontend.sh`) and sign in
