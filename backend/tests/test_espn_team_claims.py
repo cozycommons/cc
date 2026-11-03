@@ -112,6 +112,7 @@ class FakeSupabase:
             "espn_team_claims": [],
             "fantasy_leagues": [],
             "commons_profiles": [{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}],
+            "dice_profiles": [{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}],
         }
         self.users = {
             "owner": ("owner-id", "owner@example.test", {"full_name": "Jordan Lee"}),
@@ -332,7 +333,7 @@ def test_delete_unknown_claim(client):
 ])
 def test_public_list_joins_profiles_and_limits_output(client, avatar, expected):
     db = client.app.state.supabase
-    db.tables["commons_profiles"][0]["avatar_url"] = avatar
+    db.tables["dice_profiles"][0]["avatar_url"] = avatar
     db.add_claim(1)
     db.add_claim(2, "deleted-profile-id")
     response = client.get("/espn/public/claims?season=2027")
@@ -341,6 +342,18 @@ def test_public_list_joins_profiles_and_limits_output(client, avatar, expected):
     assert response.json() == [{"team_id": 1, "display_name": "Jord", "avatar_url": expected}]
     for secret in ("user_id", "email", "owner-id", "deleted-profile-id", "@"):
         assert secret not in response.text
+
+
+@pytest.mark.parametrize("dice", [[{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}], []])
+def test_public_list_never_shows_the_commons_only_google_avatar(client, dice):
+    """The 0087 backfill stored Google photos for Dice players without one; signed-out viewers never see them."""
+    db = client.app.state.supabase
+    db.tables["commons_profiles"][0]["avatar_url"] = "https://lh3.googleusercontent.com/a/photo"
+    db.tables["dice_profiles"][:] = dice
+    db.add_claim(1)
+    response = client.get("/espn/public/claims?season=2027")
+    assert response.json() == [{"team_id": 1, "display_name": "Jord", "avatar_url": None}]
+    assert "googleusercontent" not in response.text
 
 
 @pytest.mark.parametrize("query", ["", "?season=1999", "?season=2099"])

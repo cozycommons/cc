@@ -185,20 +185,44 @@ Where `0087` and `commons_account/profile.py` refine the sketch above:
 
 ### As built in PR 2
 
-- **Avatar decision: Trips and the connector show the Google avatar** of Dice
-  players who have no Dice avatar. Readers take `commons_profiles.avatar_url`
-  as stored; nothing re-checks the Dice row. Dice has no "remove photo"
-  control, so a null Dice avatar was never a choice, and Trips already showed
-  the Google avatar for every non-Dice user and in link suggestions. Dice
-  itself keeps its own copy, so those players still show initials in Dice
-  until they next change their avatar. The ESPN public claims list now shows
-  that Google avatar too (https only, as before).
+- **Avatar decision: signed-in readers show the Google avatar** of Dice
+  players who have no Dice avatar. Trips and the connector take
+  `commons_profiles.avatar_url` as stored; nothing re-checks the Dice row. Dice
+  has no "remove photo" control, so a null Dice avatar was never a choice, and
+  Trips already showed the Google avatar for every non-Dice user and in link
+  suggestions. Dice itself keeps its own copy, so those players still show
+  initials in Dice until they next change their avatar.
+- **Unauthenticated output stays on the Dice avatar.** The Commons avatar is a
+  `shared` field, not `public`: `public_profiles` returns the Commons name with
+  `dice_profiles.avatar_url` (already readable by anyone), and `None` without a
+  Dice row. The ESPN public claims list is its only caller, so a backfilled
+  Google photo never reaches a signed-out viewer.
 - **`0088_dice_commons_profiles_catch_up.sql`** (dice contract 88). PR 1 shipped
   while the old code still wrote names and avatars to `dice_profiles` and Venmo
   to Auth metadata. 0088 re-runs the 0087 backfill as an upsert with the mirror
   trigger disabled for that statement, so those edits survive and `dice_profiles`
   and `auth.users` are untouched. Safe because nothing wrote `commons_profiles`
   before this release.
+- **Temporary reverse sync in 0088.** Migrations run before the new API starts
+  (`release.py`), so old workers keep accepting edits after the catch-up.
+  `commons_profiles_sync_from_dice` (on `dice_profiles` name and avatar
+  updates) and `commons_profiles_sync_from_auth` (on `auth.users` Venmo
+  metadata updates) copy those edits into an existing Commons row. Both are
+  created before the catch-up, so their table locks leave no gap. A blank name
+  or an over-long avatar is skipped instead of failing the old worker's write.
+  The recursion guard is a transaction-local `commons.profile_sync` setting:
+  the mirror and the Dice sync each set it around their own write and skip
+  while it is on. `commons_profiles_readiness()` now wraps the 0087 checks
+  (`commons_profiles_0087_readiness`) and also attests both triggers, the guard
+  and the sync functions' grants. The Auth trigger is the repo's first on
+  `auth.users`; it is `SECURITY DEFINER` because the Auth service's role has no
+  Commons grants.
+- **Follow-up: remove the reverse sync** in a later Dice migration once the
+  0088 deploy has settled (no old workers left). It drops both triggers,
+  `commons_profiles_sync_from_dice`, `commons_profiles_sync_from_auth` and
+  `commons_profiles_auth_venmo`, restores `commons_profiles_mirror_dice` to its
+  0087 body, and points `commons_profiles_readiness` back at the 0087 checks.
+  Not written yet.
 - `commons_account.profile.update_profile` is the only writer. It rejects a
   blank name or an avatar over 2048 characters (`PUT /dice/me` returns 400; it
   used to store a whitespace name) and creates a missing row first, so the
@@ -422,6 +446,8 @@ and get one external review.
    claims and `whoami`; existing Dice API tests unchanged and passing; anonymous
    player stays aliased after an avatar change; `PUT /trips/me` writes
    `commons_profiles` and no longer calls `update_user_by_id`.
+   Follow-up migration: remove 0088's temporary reverse sync once the deploy
+   has settled (see "As built in PR 2").
 3. **Connection index and server-side disconnect** (`0003_cc_mcp_connections.sql`,
    proxy overrides, `commons_account` connections endpoints).
    Tests: unit (touch throttle, lazy index of a pre-M4 connection, revoke marks

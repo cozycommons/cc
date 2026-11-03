@@ -1,8 +1,12 @@
 """Commons profile: one row of cross-project identity per account (0087).
 
 Visibility lives here so every reader selects the same fields:
-- public: anyone who sees you in any project.
+- public: anyone who sees you in any project, signed out included.
 - shared: people who share something with you; the caller proves that relationship.
+
+The Commons avatar is shared, not public: for Dice players without a Dice photo the
+0087 backfill stored their Google photo, which may appear only behind sign-in. Public
+readers get the Dice avatar instead, which dice_profiles already serves to anyone.
 """
 from datetime import datetime, timezone
 
@@ -13,7 +17,7 @@ from trips.venmo import account_venmo
 TABLE = 'commons_profiles'
 FIELDS = {
     'display_name': 'public',
-    'avatar_url': 'public',
+    'avatar_url': 'shared',
     'venmo_username': 'shared',
     'venmo_owner_confirmed': 'shared',
     'venmo_confirmed_name': 'shared',
@@ -36,7 +40,15 @@ def _rows(client, fields, user_ids):
 
 
 def public_profiles(client, user_ids) -> dict[str, dict]:
-    return _rows(client, PUBLIC_FIELDS, user_ids)
+    """Commons name and Dice avatar (None without a Dice row or photo)."""
+    profiles = _rows(client, PUBLIC_FIELDS, user_ids)
+    ids = list(profiles)
+    avatars = {}
+    for start in range(0, len(ids), 100):
+        rows = (client.table('dice_profiles').select('user_id,avatar_url')
+                .in_('user_id', ids[start:start + 100]).execute().data)
+        avatars.update((row['user_id'], row.get('avatar_url')) for row in rows)
+    return {user_id: {**profile, 'avatar_url': avatars.get(user_id)} for user_id, profile in profiles.items()}
 
 
 def shared_profiles(client, user_ids) -> dict[str, dict]:

@@ -83,11 +83,19 @@ def test_anonymous_sessions_get_no_row():
 
 
 def test_public_reads_never_include_shared_fields():
-    client = Client(commons_profiles=[{'user_id': 'u1', 'display_name': 'Sam', 'avatar_url': None,
-                                       'venmo_username': 'sam-pays', 'venmo_owner_confirmed': True,
-                                       'venmo_confirmed_name': 'Sam P'}])
-    assert public_profiles(client, ['u1', 'missing']) == {'u1': {'display_name': 'Sam', 'avatar_url': None}}
-    assert shared_profiles(client, ['u1'])['u1']['venmo_username'] == 'sam-pays'
+    google = 'https://google.example/sam.png'
+    client = Client(commons_profiles=[
+        {'user_id': 'u1', 'display_name': 'Sam', 'avatar_url': google, 'venmo_username': 'sam-pays',
+         'venmo_owner_confirmed': True, 'venmo_confirmed_name': 'Sam P'},
+        {'user_id': 'u2', 'display_name': 'Dee', 'avatar_url': 'https://dice.example/dee.png'},
+    ], dice_profiles=[{'user_id': 'u2', 'avatar_url': 'https://dice.example/dee.png'}])
+    # The Commons avatar (here a backfilled Google photo) is shared; public readers get the Dice one.
+    assert public_profiles(client, ['u1', 'u2', 'missing']) == {
+        'u1': {'display_name': 'Sam', 'avatar_url': None},
+        'u2': {'display_name': 'Dee', 'avatar_url': 'https://dice.example/dee.png'},
+    }
+    shared = shared_profiles(client, ['u1'])['u1']
+    assert (shared['venmo_username'], shared['avatar_url']) == ('sam-pays', google)
 
 
 def test_a_lost_creation_race_keeps_the_winning_row(monkeypatch):
