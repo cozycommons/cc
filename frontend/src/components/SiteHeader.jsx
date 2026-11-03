@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import CozyMascot from './CozyMascot.jsx';
 import './SiteHeader.css';
 
 // BrowserRouter records each entry's position in history.state.idx: 0 for the
-// first page of this visit, and still 0 after a replace. MemoryRouter (tests)
-// has no such state, so fall back to its "default" first-entry key.
-function hasInAppHistory(location) {
+// first page of this visit, and still 0 after a replace. A plain #anchor link
+// (such as a skip link) adds an entry with no state, so navigations seen while
+// the header is mounted count too. MemoryRouter (tests) has no state; its first
+// entry has the key "default".
+function hasInAppHistory(location, navigatedWhileMounted) {
   const index = typeof window !== 'undefined' ? window.history.state?.idx : undefined;
-  return typeof index === 'number' ? index > 0 : location.key !== 'default';
+  if (typeof index === 'number') return index > 0;
+  return navigatedWhileMounted || location.key !== 'default';
 }
 
 function normalizePath(path) {
@@ -22,9 +25,14 @@ function normalizePath(path) {
 function BackButton({ home, fallback, disabled }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const firstKey = useRef(location.key);
+  const navigated = useRef(false);
+  useEffect(() => {
+    if (location.key !== firstKey.current) navigated.current = true;
+  }, [location.key]);
   if (normalizePath(location.pathname) === normalizePath(home)) return null;
   const goBack = () => {
-    if (hasInAppHistory(location)) {
+    if (hasInAppHistory(location, navigated.current)) {
       navigate(-1);
       return;
     }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import SiteHeader from './SiteHeader.jsx';
 
@@ -22,6 +22,11 @@ describe('SiteHeader back button', () => {
   it('appears by default below a product home, and not on the home itself', () => {
     renderAt(['/trips']);
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  });
+
+  it('shows on a page below the product home', () => {
+    renderAt(['/trips/t1']);
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
   });
 
   it('steps back through in-app history', () => {
@@ -55,5 +60,24 @@ describe('SiteHeader back button', () => {
   it('never shows on the site home header, which has no product', () => {
     render(<MemoryRouter initialEntries={['/design']}><SiteHeader /></MemoryRouter>);
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  });
+});
+
+describe('SiteHeader back button after an in-page anchor', () => {
+  it('still steps back when the current entry has no router state', () => {
+    function Harness() {
+      const navigate = useNavigate();
+      return <button type="button" onClick={() => navigate('/trips/t1?tab=expenses')}>open expenses</button>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/trips/t1']}>
+        <SiteHeader product="Trips" to="/trips" />
+        <Harness />
+        <Where />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText('open expenses'));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('/trips/t1')).toBeInTheDocument();
   });
 });

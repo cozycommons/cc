@@ -27,6 +27,11 @@
 .cc-sitebar-back { margin-left: -10px; margin-right: -4px; }
 .cc-sitebar-back:disabled { opacity: .4; cursor: default; }
 .cc-sitebar-back:disabled:hover { border-color: transparent; background: none; color: var(--ink-soft); }
+/* Products style bare buttons (e.g. `.crowdset button`); keep header icons on the shared look. */
+.crowdset .cc-sitebar-icon { display: inline-grid; place-items: center; gap: 0; min-height: 0; padding: 0; border: 1px solid transparent; border-radius: 999px; background: none; color: var(--ink-soft); font-size: inherit; }
+.crowdset .cc-sitebar-icon:hover { border-color: var(--line); background: var(--paper-light); color: var(--ink); }
+.crowdset .cc-sitebar-back:disabled { opacity: .4; cursor: default; }
+.crowdset .cc-sitebar-back:disabled:hover { border-color: transparent; background: none; color: var(--ink-soft); }
 
 /* Mascot idles: closed lids flash over the eyes every 6s, the screen cursor blinks every 1s and
    the z drifts. Opacity and a 1px nudge only, so they stay on under reduced motion by design. */
