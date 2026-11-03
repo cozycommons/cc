@@ -391,3 +391,6 @@ DO $$ BEGIN
   RAISE EXCEPTION 'Commons role boundary missing';
  END IF;
 END $$;
+
+-- 0087: the Commons profile is server-only and mirrors name and avatar into Dice.
+SELECT public.commons_profiles_readiness();
