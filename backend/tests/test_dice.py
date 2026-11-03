@@ -2959,5 +2959,6 @@ def test_best_partner_uses_the_duo_access_boundary_and_positive_result(monkeypat
     response = client.get("/dice/profiles/u1/best-partner", headers=_headers(HOST_TOKEN))
     assert response.status_code == 200
     assert response.json()["synergy"]["wins_above_expected"] == 1.5
+    assert (response.json()["synergy"]["win_rate"], response.json()["synergy"]["expected_win_rate"]) == (0.8, 0.5)
     monkeypatch.setattr(dice_routes, "get_best_partner", lambda *_args: None)
     assert client.get("/dice/profiles/u1/best-partner", headers=_headers(HOST_TOKEN)).json() is None

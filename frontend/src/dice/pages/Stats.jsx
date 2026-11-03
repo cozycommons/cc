@@ -1,10 +1,13 @@
+import { useDuoLadder } from '../useDuoLadder.js';
+import { isTiedDuo } from '../duoRanks.js';
+import DuoLoadError from '../components/DuoLoadError.jsx';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import EloDistribution from '../components/EloDistribution.jsx';
 import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { diceApi } from '../api.js';
-import { synergyDescription } from '../duoSynergy.js';
+import { synergyDescription, synergyRates } from '../duoSynergy.js';
 import { rankLeaderboard } from '../leaderboard.js';
 import { aggregateRecordedStats, metricLeaders } from '../recordedStats.js';
 import { calculateStreaks } from './Home.jsx';
@@ -317,34 +320,32 @@ function StreakView({ games }) {
   );
 }
 
-function DuoRow({ duo, rank, chemistry = false }) {
+function DuoRow({ duo, rank = duo.rank, tied = false, chemistry = false, provisional = false }) {
   const record = chemistry ? duo.synergy : duo;
   return (
-    <Link to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-row flex items-center gap-3 px-3 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-      {!chemistry && <span className="jk-label w-5 text-center">{duo.rank || rank}</span>}
+    <Link to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className={`jk-row flex items-center gap-3 px-3 py-3${!chemistry && rank === 1 ? ' jk-leaderboard-row-me' : ''}`} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      {!chemistry && <span className="jk-label w-5 shrink-0 text-center" style={provisional ? { color: 'var(--text-secondary)' } : undefined}>
+        <span aria-hidden="true">{provisional ? '—' : `${tied ? 'T' : ''}${rank}`}</span>
+        <span className="sr-only">{provisional ? 'Unranked' : `${tied ? 'Tied rank' : 'Rank'} ${rank}`}</span>
+      </span>}
       <div className="flex -space-x-2 shrink-0">{duo.members.map((member) => <PlayerAvatar key={member.user_id} profile={member} size={34} linkToProfile={false} />)}</div>
       <div className="min-w-0 flex-1">
         <p className="font-semibold text-sm truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p>
-        <p className="jk-label mt-1" style={{ fontSize: 10 }}>{record.wins}–{record.losses}{chemistry ? ' together' : ` · ${duo.games} games`}</p>
+        <p className="jk-label mt-1" style={{ fontSize: 10 }}>{provisional ? `${duo.games} of 3 games` : <>{record.wins}–{record.losses}{chemistry ? ' together' : ` · ${duo.games} games`}</>}</p>
       </div>
-      <p className="jk-display text-xl tabular-nums shrink-0 text-right">{chemistry ? synergyDescription(duo.synergy, { short: true }) : duo.elo}</p>
+      {chemistry ? <ChemistryRate synergy={duo.synergy} /> : <p className="jk-display text-xl tabular-nums shrink-0 text-right" style={provisional ? { color: 'var(--text-secondary)' } : undefined}>{duo.elo}</p>}
     </Link>
   );
 }
 
-function ProvisionalDuo({ duo }) {
+function ChemistryRate({ synergy }) {
+  const { together, expected } = synergyRates(synergy);
   return (
-    <Link to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-provisional-duo">
-      <div className="flex -space-x-2 shrink-0">{duo.members.map((member) => <PlayerAvatar key={member.user_id} profile={member} size={32} linkToProfile={false} />)}</div>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold text-sm truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p>
-        <p className="jk-label" style={{ fontSize: 9 }}>{duo.games} of 3 games</p>
-      </div>
-      <div className="text-right shrink-0">
-        <p className="jk-display text-lg tabular-nums">{duo.elo}</p>
-        <p className="jk-label" style={{ fontSize: 8 }}>PROVISIONAL</p>
-      </div>
-    </Link>
+    <div className="shrink-0 text-right">
+      <p className="jk-display text-xl tabular-nums" aria-hidden="true">{together}%</p>
+      <p className="jk-label mt-1 tabular-nums" style={{ fontSize: 10, color: 'var(--text-secondary)' }} aria-hidden="true">{expected}% expected</p>
+      <span className="sr-only">{synergyDescription(synergy)}</span>
+    </div>
   );
 }
 
@@ -359,73 +360,23 @@ function ChemistryList({ title, duos }) {
 }
 
 function DuoView({ auth }) {
-  const [ladder, setLadder] = useState(null);
-  const [error, setError] = useState(false);
-  const registered = Boolean(auth?.token && auth?.profile);
-
-  useEffect(() => {
-    if (!registered) return;
-    if (typeof diceApi.getDuoLadder !== 'function') {
-      setLadder({ ranked: [], to_watch: [] });
-      return;
-    }
-    setError(false);
-    diceApi.getDuoLadder(auth.token).then(setLadder).catch(() => setError(true));
-  }, [auth?.token, registered]);
+  const { ladder, error, registered, retry } = useDuoLadder(auth);
 
   if (!registered) return <div className="jk-card p-4 text-sm">Sign in with a registered Dice profile to view duo ratings.</div>;
-  if (error) return <div className="jk-card p-4 text-sm">Could not load duo ratings.</div>;
+  if (error) return <DuoLoadError onRetry={retry} />;
   if (!ladder) return <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading duos…</div>;
 
-  const leaders = ladder.ranked.filter((duo, index) => (duo.rank ?? index + 1) === 1);
-  const leader = leaders[0];
-  const ranked = ladder.ranked.slice(leaders.length);
   return (
     <section className="jk-stats-panel space-y-7" aria-label="Duo stats">
-      {leaders.length > 1 ? (
-        <div className="jk-stats-tie-card is-duos" aria-label={`${leaders.length} duos tied for first`}>
-          <div>
-            <p className="jk-label">#1 TIE</p>
-            <h2 className="jk-display text-2xl">{leaders.length} duos tied</h2>
-          </div>
-          <div className="jk-stats-tie-list">
-            {leaders.map((duo) => (
-              <Link key={duo.duo_id} to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-stats-tie-entry">
-                <div className="flex -space-x-2 shrink-0">{duo.members.map((member) => <PlayerAvatar key={member.user_id} profile={member} size={34} linkToProfile={false} />)}</div>
-                <span className="font-semibold text-sm truncate flex-1">{duo.members.map((member) => member.display_name).join(' + ')}</span>
-                <span className="jk-display text-lg tabular-nums">{duo.elo}</span>
-              </Link>
-            ))}
-          </div>
-          <p className="jk-label">Equal ELO means an equal rank.</p>
-        </div>
-      ) : leader ? (
-        <Link to={`/dice/stats/duos/${encodeURIComponent(leader.duo_id)}`} className="jk-stats-hero is-duos">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex -space-x-3 shrink-0">{leader.members.map((member) => <PlayerAvatar key={member.user_id} profile={member} size={54} linkToProfile={false} />)}</div>
-            <div className="min-w-0">
-              <p className="jk-label">#1 DUO</p>
-              <h2 className="jk-display text-2xl truncate">{leader.members.map((member) => member.display_name).join(' + ')}</h2>
-              <p className="text-sm">{leader.wins}–{leader.losses} · {Math.round(leader.win_rate * 100)}%</p>
-              <p className="jk-label mt-1" style={{ fontSize: 8 }}>RANKED BY ELO</p>
-            </div>
-          </div>
-          <div className="text-right shrink-0">
-            <p className="jk-display text-4xl tabular-nums">{leader.elo}</p>
-            <p className="jk-label">ELO</p>
-          </div>
-        </Link>
-      ) : (
-        <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No duo has completed three ranked games yet.</div>
-      )}
-
-      {ranked.length > 0 && (
-        <div>
-          <SectionLabel>Ranked duos</SectionLabel>
-          <p className="text-xs -mt-1 mb-3" style={{ color: 'var(--text-tertiary)' }}>Highest ELO ranks first.</p>
-          <div className="jk-card overflow-hidden">{ranked.map((duo, index) => <DuoRow key={duo.duo_id} duo={duo} rank={duo.rank ?? leaders.length + index + 1} />)}</div>
-        </div>
-      )}
+      <div>
+        <SectionLabel>Ranked duos</SectionLabel>
+        <p className="text-xs -mt-1 mb-3" style={{ color: 'var(--text-tertiary)' }}>Highest ELO ranks first.</p>
+        {ladder.ranked.length ? (
+          <div className="jk-card overflow-hidden">{ladder.ranked.map((duo, index) => <DuoRow key={duo.duo_id} duo={duo} rank={duo.rank ?? index + 1} tied={isTiedDuo(ladder.ranked, duo)} />)}</div>
+        ) : (
+          <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No duo has completed three ranked games yet.</div>
+        )}
+      </div>
 
       {(ladder.best_chemistry?.length > 0 || ladder.better_apart?.length > 0) && (
         <div className={`jk-card overflow-hidden grid grid-cols-1 ${ladder.best_chemistry?.length && ladder.better_apart?.length ? 'md:grid-cols-2' : ''}`} aria-label="Duo chemistry">
@@ -435,9 +386,9 @@ function DuoView({ auth }) {
       )}
 
       <div>
-        <SectionLabel to="/dice/elo-explained">Provisional duos</SectionLabel>
+        <SectionLabel>Provisional duos</SectionLabel>
         {ladder.to_watch.length > 0 ? (
-          <div className="jk-provisional-grid">{ladder.to_watch.map((duo) => <ProvisionalDuo key={duo.duo_id} duo={duo} />)}</div>
+          <div className="jk-card overflow-hidden">{ladder.to_watch.map((duo) => <DuoRow key={duo.duo_id} duo={duo} provisional />)}</div>
         ) : (
           <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No provisional duos right now.</div>
         )}

@@ -427,6 +427,16 @@ class DuoSynergy(BaseModel):
     wins_above_expected: float
     apart: list[DuoApartRecord]
 
+    @computed_field
+    @property
+    def win_rate(self) -> float:
+        return self.wins / self.games if self.games else 0.0
+
+    @computed_field
+    @property
+    def expected_win_rate(self) -> float:
+        return self.expected_wins / self.games if self.games else 0.0
+
 
 class BigMomentsMember(BaseModel):
     user_id: str

@@ -205,6 +205,7 @@ def test_homepage_filter_is_applied_before_the_limit(monkeypatch):
     ladder = duo_repository.list_duo_ladder(object(), limit=1, homepage_eligible_only=True)
 
     assert len(ladder.ranked) == 1
+    assert {duo.rank for duo in ladder.ranked} == {1}
     assert ladder.ranked[0].games == 5
 
 
@@ -226,7 +227,8 @@ def test_synergy_lists_are_signed_sorted_and_independent_of_ladder_limit(monkeyp
                             elo_before=dict.fromkeys((*left, *right), 1500)) for i, match in enumerate(_synergy_matches())]
     monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, matches))
     ladder = duo_repository.list_duo_ladder(object(), limit=1)
-    assert len(ladder.ranked) == 1
+    assert len(ladder.ranked) == 4
+    assert {duo.rank for duo in ladder.ranked} == {1}
     assert len(ladder.best_chemistry) == len(ladder.better_apart) == 3
     assert [row.synergy.wins_above_expected for row in ladder.best_chemistry] == [2.5] * 3
     assert [row.synergy.wins_above_expected for row in ladder.better_apart] == [-2.5] * 3
@@ -244,6 +246,29 @@ def test_best_partner_is_positive_only_and_hidden_matches_never_contribute(monke
     monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, _synergy_matches()))
     assert duo_repository.get_best_partner(object(), ALPHA) is None
     assert duo_repository.list_duo_ladder(object()).best_chemistry == []
+
+
+def test_chemistry_and_best_partner_rank_by_win_rate_gap_not_win_count(monkeypatch):
+    from dice.duo_synergy import SynergyMatch
+    echo, foxtrot, golf = "u-echo", "u-foxtrot", "u-golf"
+    profiles = _profiles() + [{"user_id": member, "display_name": member} for member in (echo, foxtrot, golf)]
+
+    def games(prefix, team1, team2, wins, losses):
+        return [SynergyMatch(
+            game_id=f"{prefix}-{index}", played_at=datetime(2026, 1, 1, index % 24, tzinfo=timezone.utc),
+            team1=team1, team2=team2, winner_team=1 if index < wins else 2,
+            team1_score=11 if index < wins else 5, team2_score=5 if index < wins else 11, elo_before=dict.fromkeys((*team1, *team2), 1500),
+        ) for index in range(wins + losses)]
+
+    # 20-1 is 9.5 wins over expected but 95% vs 50%; 5-0 is 2.5 over but 100% vs 50%.
+    matches = games("volume", (ALPHA, BRAVO), (CHARLIE, DELTA), 20, 1) + games("rate", (ALPHA, echo), (foxtrot, golf), 5, 0)
+    monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, matches))
+    ladder = duo_repository.list_duo_ladder(object())
+    assert [row.duo_id for row in ladder.best_chemistry] == [canonical_duo_id(ALPHA, echo), canonical_duo_id(ALPHA, BRAVO)]
+    assert [row.duo_id for row in ladder.better_apart] == [canonical_duo_id(foxtrot, golf), canonical_duo_id(CHARLIE, DELTA)]
+    volume = ladder.best_chemistry[1].synergy
+    assert (volume.wins, volume.losses, volume.win_rate, volume.expected_win_rate) == (20, 1, 20 / 21, 0.5)
+    assert echo in {member.user_id for member in duo_repository.get_best_partner(object(), ALPHA).members}
 
 
 def test_big_moments_does_not_read_live_tables_below_gate():
@@ -349,7 +374,7 @@ def test_detail_rank_matches_displayed_elo_ladder(monkeypatch):
         assert detail.summary.rank == duo.rank
 
 
-def test_mixed_duo_history_counts_only_complete_normal_games():
+def test_mixed_duo_history_counts_the_same_games_as_the_ladder():
     games, players = [], []
     for index in range(8):
         game_id = f"mixed-{index}"
@@ -363,12 +388,12 @@ def test_mixed_duo_history_counts_only_complete_normal_games():
                               "games": games, "players": players})
     detail = duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO))
     assert detail.summary.games == 8
-    assert detail.summary.synergy.games == detail.summary.synergy.wins == 5
-    assert detail.summary.synergy.expected_wins == 2.5
+    assert detail.summary.synergy.games == detail.summary.synergy.wins == 8
+    assert detail.summary.synergy.expected_wins == 4.0
     assert detail.summary.synergy.apart == []
-    # The threshold applies to complete normal games, not the ladder total.
+    # Missing snapshots keep the same game set using starting ratings.
     client.snapshot["players"][0]["elo_before"] = None
-    assert duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO)).summary.synergy is None
+    assert duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO)).summary.synergy.games == 8
 
 
 def test_big_moments_batches_pages_and_caps_recent_matches(monkeypatch):

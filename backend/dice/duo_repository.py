@@ -7,8 +7,8 @@ from dataclasses import asdict, replace
 import logging
 
 from dice.duo_synergy import (
-    BIG_MOMENTS_MIN_LIVE_GAMES, DUO_SYNERGY_NEUTRAL_MARGIN, SynergyMatch, calculate_big_moments, calculate_duo_synergies,
-    project_big_moment_points,
+    BIG_MOMENTS_MIN_LIVE_GAMES, SynergyMatch, calculate_big_moments, calculate_duo_synergies,
+    project_big_moment_points, synergy_point_gap, synergy_rank_key,
 )
 from supabase import Client
 
@@ -50,12 +50,15 @@ def _source(supabase: Client) -> tuple[list[dict], list[DuoMatch]]:
     players = snapshot.get("players") or []
     players_by_game: dict[str, dict[int, list[str]]] = defaultdict(lambda: defaultdict(list))
     ratings_by_game: dict[str, dict] = defaultdict(dict)
+    after_by_game: dict[str, dict] = defaultdict(dict)
     for player in players:
+        after_by_game[player["game_id"]][player["user_id"]] = player.get("elo_after")
         ratings_by_game[player["game_id"]][player["user_id"]] = player.get("elo_before")
         players_by_game[player["game_id"]][player["team"]].append(player["user_id"])
     matches = [
         SynergyMatch(
             elo_before=ratings_by_game[game["id"]],
+            elo_after=after_by_game[game["id"]],
             duo_only=game.get("duo_only", False),
             game_id=game["id"],
             played_at=game["played_at"],
@@ -173,7 +176,10 @@ def list_duo_ladder(
     ranked_states = [state for state in ladder.ranked if state.duo_id in visible]
     if homepage_eligible_only:
         ranked_states = [state for state in ranked_states if state.homepage_eligible]
-    ranked_states = ranked_states[:limit]
+    if len(ranked_states) > limit:
+        cutoff_elo = ranked_states[limit - 1].elo
+        ranked_states = [state for index, state in enumerate(ranked_states)
+                         if index < limit or state.elo == cutoff_elo]
     ranks = _competition_ranks([state for state in ladder.ranked if state.duo_id in visible])
     ranked = [_summary(state, profile_map, ranks[state.duo_id], game_ids_by_duo.get(state.duo_id), synergies.get(state.duo_id)) for state in ranked_states]
     to_watch = [
@@ -182,21 +188,21 @@ def list_duo_ladder(
         if state.duo_id in visible
     ]
     to_watch = to_watch[:limit]
-    chemistry = sorted(
-        (state for state in visible.values() if state.duo_id in synergies),
-        key=lambda state: (-synergies[state.duo_id]["wins_above_expected"], state.duo_id),
-    )
+    chemistry = [state for state in visible.values() if state.duo_id in synergies]
+    def ranked_by_rate(positive):
+        sign = 1 if positive else -1
+        return sorted(
+            (state for state in chemistry if sign * synergy_point_gap(synergies[state.duo_id]) > 0),
+            key=lambda state: synergy_rank_key(synergies[state.duo_id], state.duo_id, descending=positive),
+        )[:3]
     def summaries(candidates):
         return [_summary(state, profile_map, ranks.get(state.duo_id),
                          game_ids_by_duo.get(state.duo_id), synergies[state.duo_id])
                 for state in candidates]
     return DuoLadderOut(
         ranked=ranked, to_watch=to_watch,
-        best_chemistry=summaries([state for state in chemistry if synergies[state.duo_id]["wins_above_expected"] >= DUO_SYNERGY_NEUTRAL_MARGIN][:3]),
-        better_apart=summaries(sorted(
-            (state for state in chemistry if synergies[state.duo_id]["wins_above_expected"] <= -DUO_SYNERGY_NEUTRAL_MARGIN),
-            key=lambda state: (synergies[state.duo_id]["wins_above_expected"], state.duo_id),
-        )[:3]),
+        best_chemistry=summaries(ranked_by_rate(True)),
+        better_apart=summaries(ranked_by_rate(False)),
     )
 
 
@@ -262,10 +268,10 @@ def get_duo_detail(supabase: Client, duo_id: str) -> DuoDetailOut | None:
 def get_best_partner(supabase: Client, user_id: str) -> DuoSummary | None:
     profiles, _, states, _, synergies, _ = _replay(supabase)
     candidates = [state for state in states.values() if user_id in state.members
-                  and synergies.get(state.duo_id, {}).get("wins_above_expected", 0) >= DUO_SYNERGY_NEUTRAL_MARGIN]
+                  and state.duo_id in synergies and synergy_point_gap(synergies[state.duo_id]) > 0]
     if not candidates:
         return None
-    best = min(candidates, key=lambda state: (-synergies[state.duo_id]["wins_above_expected"], state.duo_id))
+    best = min(candidates, key=lambda state: synergy_rank_key(synergies[state.duo_id], state.duo_id))
     return _summary(best, {row["user_id"]: row for row in profiles}, synergy=synergies[best.duo_id])
 
 

@@ -144,16 +144,18 @@ describe('PlayerProfile released experience', () => {
 });
 
 
-it.each([2.44, 0.02, -2.4, null])('only shows a positive best partner (%s)', async (difference) => {
-  mocks.getBestPartner.mockResolvedValue(difference == null ? null : {
+it.each([[20, 1, 10.5], [100, 100, 100.9], [1, 20, 10.5], null])('only shows a positive best partner (%s)', async (record) => {
+  const [wins, losses, expectedWins] = record ?? [];
+  mocks.getBestPartner.mockResolvedValue(record == null ? null : {
     duo_id: 'best:pair', members: [{ user_id: 'u1', display_name: 'Alpha' }, { user_id: 'u2', display_name: 'Bravo' }],
-    synergy: { wins: 9, losses: 3, wins_above_expected: difference },
+    synergy: { wins, losses, games: wins + losses, expected_wins: expectedWins, wins_above_expected: wins - expectedWins },
   });
   renderProfile({});
   await screen.findByText('Player u1');
-  if (difference >= 0.05) {
+  if (wins === 20) {
     expect(await screen.findByRole('link', { name: 'Best partner' })).toHaveAttribute('href', '/dice/stats/duos/best%3Apair');
-    expect(screen.getByText('Bravo · 9–3 together, 2.4 over expected')).toBeInTheDocument();
+    expect(screen.getByText('Bravo · 20–1 together')).toBeInTheDocument();
+    expect(screen.getByText('95% wins, 50% expected')).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'Best partner' });
     expect(within(link).getByText('Bravo avatar')).toHaveAttribute('data-size', '34');
     expect(within(link).getByText('→')).toBeInTheDocument();
@@ -168,7 +170,7 @@ it.each([2.44, 0.02, -2.4, null])('only shows a positive best partner (%s)', asy
 it('keeps the partner row directly above head to head', async () => {
   mocks.getBestPartner.mockResolvedValue({ duo_id: 'best',
     members: [{ user_id: 'u1', display_name: 'Alpha' }, { user_id: 'u2', display_name: 'Bravo' }],
-    synergy: { wins: 9, losses: 3, wins_above_expected: 1.6 } });
+    synergy: { wins: 9, losses: 3, games: 12, expected_wins: 6, wins_above_expected: 3 } });
   renderProfile({ viewedUserId: 'u2', headToHead: { total_games: 1,
     opponent_wins: 1, opponent_losses: 0, teammate_wins: 0, teammate_losses: 0 } });
   const row = await screen.findByRole('link', { name: 'Best partner' });

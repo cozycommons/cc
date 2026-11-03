@@ -330,3 +330,26 @@ describe('Dice home dashboard', () => {
     expect(mocks.getSelfSinkLeaderboard).toHaveBeenCalledWith(500, false);
   });
 });
+
+it('shows all duos returned at the third-place tie', async () => {
+  arrange({ duos: { ranked: [1, 2, 3, 3].map((rank, index) => ({
+    duo_id: `pair-${index}`, rank, homepage_eligible: true, games: 5, wins: 4, losses: 1, elo: 1600 - rank,
+    members: [{ user_id: `a-${index}`, display_name: `Alpha ${index}` }, { user_id: `b-${index}`, display_name: `Bravo ${index}` }],
+  })), to_watch: [] } });
+  renderHome(releasedAuth);
+  expect(await screen.findByText('Alpha 3 + Bravo 3')).toBeInTheDocument();
+  expect(screen.getAllByText('Tied rank 3')).toHaveLength(2);
+  expect(screen.getAllByText('T3')).toHaveLength(2);
+});
+
+it('keeps a failed Top duos section visible and recovers through Retry', async () => {
+  mocks.getDuoLadder.mockReset();
+  arrange();
+  mocks.getDuoLadder.mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValueOnce({ ranked: [{ duo_id: 'recovered', rank: 1, homepage_eligible: true, games: 5, wins: 4, losses: 1, elo: 1600, members: [{ user_id: 'alpha', display_name: 'Alpha' }, { user_id: 'bravo', display_name: 'Bravo' }] }], to_watch: [] });
+  renderHome(releasedAuth);
+  const retry = await screen.findByRole('button', { name: 'Retry' });
+  expect(screen.getByText('// TOP DUOS')).toBeInTheDocument();
+  fireEvent.click(retry);
+  expect(await screen.findByText('Alpha + Bravo')).toBeInTheDocument();
+  expect(mocks.getDuoLadder).toHaveBeenCalledTimes(2);
+});

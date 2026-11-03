@@ -1,17 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { isOnExpected, synergyDescription } from './duoSynergy.js';
+import { isOnExpected, synergyDescription, synergyGap, synergyRates, synergyTitle, wholePercent } from './duoSynergy.js';
+
+const synergy = (wins, games, expectedWins) => ({ wins, losses: games - wins, games, expected_wins: expectedWins });
 
 describe('duo comparison wording', () => {
-  it.each([-0.049, 0, 0.049])('treats %s as right on expected', (difference) => {
-    const synergy = { wins_above_expected: difference };
-    expect(isOnExpected(synergy)).toBe(true);
-    expect(synergyDescription(synergy)).toBe('Right on expected');
-    expect(synergyDescription(synergy, { short: true })).toBe('Right on expected');
+  it('compares the together win rate with the expected rate', () => {
+    const record = synergy(20, 21, 10.5);
+    expect(synergyRates(record)).toEqual({ together: 95, expected: 50 });
+    expect(synergyDescription(record)).toBe('95% wins, 50% expected');
+    expect(synergyTitle(record)).toBe('Better together');
+    expect(synergyTitle(synergy(1, 21, 10.5))).toBe('Better apart');
   });
-  it.each([[1, '1.0 win over expected'], [-1, '1.0 win under expected'], [2.44, '2.4 wins over expected'], [-3.14, '3.1 wins under expected']])('rounds and uses the appropriate unit for %s', (difference, wording) => {
-    expect(synergyDescription({ wins_above_expected: difference })).toBe(wording);
+
+  it('is independent of game volume', () => {
+    expect(synergyGap(synergy(5, 5, 2.5))).toBe(50);
+    expect(synergyGap(synergy(20, 21, 10.5))).toBe(45);
   });
-  it.each([0.05, -0.05])('keeps the neutral boundary strict (%s)', (difference) => {
-    expect(isOnExpected({ wins_above_expected: difference })).toBe(false);
+
+  it.each([[101, 200, 101], [100, 200, 100.9]])('is neutral when both rates display the same (%s of %s)', (wins, games, expectedWins) => {
+    const record = synergy(wins, games, expectedWins);
+    expect(isOnExpected(record)).toBe(true);
+    expect(synergyTitle(record)).toBe('Right on expected');
+  });
+
+  it('labels a one-point displayed gap', () => {
+    const record = synergy(101, 200, 100.9);
+    expect(synergyDescription(record)).toBe('51% wins, 50% expected');
+    expect(synergyTitle(record)).toBe('Better together');
+  });
+
+  it('rounds half up like the backend', () => {
+    expect([0.125, 0.5, 0.004, 0.994, 20 / 21].map(wholePercent)).toEqual([13, 50, 0, 99, 95]);
   });
 });
