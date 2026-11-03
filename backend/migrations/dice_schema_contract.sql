@@ -394,3 +394,5 @@ END $$;
 
 -- 0087: the Commons profile is server-only and mirrors name and avatar into Dice.
 SELECT public.commons_profiles_readiness();
+
+-- 0088: data-only catch-up of commons_profiles; the 0087 attestation above still applies.

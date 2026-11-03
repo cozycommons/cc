@@ -1,4 +1,4 @@
-"""Real PostgreSQL checks for the Commons profile table, backfill and Dice mirror (0087).
+"""Real PostgreSQL checks for the Commons profile table, backfill and Dice mirror (0087) and its catch-up (0088).
 
 Synthetic users in disposable databases on the allowlisted test server.
 Locally: DICE_TEST_DATABASE=1 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_<n>_<n>.
@@ -13,6 +13,7 @@ from commons_account.profile import default_profile
 from tests.migration_harness import REPO, checkout_release, disposable_migration_database, migration_database  # noqa: F401
 
 PRE_PROFILE_RELEASE = "97a87f08eb018c54a83ea3d3a4e962ede869faaa"  # main at Dice 0086
+PROFILE_RELEASE = "9be51e076ade2c8c75d921a536536df567aaa82f"  # main at Dice 0087 (M4 PR 1)
 CONTRACT = (REPO / "backend/migrations/dice_schema_contract.sql").read_text()
 COLUMNS = "display_name,avatar_url,venmo_username,venmo_owner_confirmed,venmo_confirmed_name"
 LONG_AVATAR = "https://example.test/" + "a" * 3000
@@ -115,7 +116,7 @@ def service(database, statement, *, check=True):
 
 def test_fresh_install_backfills_from_account_metadata(fresh_database):
     database, ids = fresh_database
-    assert database.sql("SELECT max(version) FROM public.dice_schema_migrations;").stdout.strip() == "87"
+    assert database.sql("SELECT max(version) FROM public.dice_schema_migrations;").stdout.strip() == "88"
     assert_backfill(database, ids)
     assert service(database, "SELECT public.dice_release_readiness();").stdout.strip().endswith("t")
     assert "Applying " not in database.release().stdout
@@ -135,6 +136,36 @@ def test_upgrade_from_86_backfills_and_leaves_sources_untouched(migration_databa
     assert database.sql(sources).stdout == before
     assert_backfill(database, ids)
     assert service(database, "SELECT public.dice_release_readiness();").stdout.strip().endswith("t")
+
+
+def test_upgrade_from_87_keeps_edits_the_old_writers_made(migration_database, tmp_path):  # noqa: F811
+    """0087 shipped before the API wrote commons_profiles: Dice names and Venmo kept going to the old stores."""
+    database = migration_database
+    database.release(checkout_release(PRE_PROFILE_RELEASE, tmp_path / "pre-profile"))
+    player = str(uuid4())
+    database.sql(f"""INSERT INTO auth.users(id,raw_user_meta_data) VALUES ('{player}','{{"full_name":"Google Pat"}}');
+        INSERT INTO public.dice_profiles(user_id,display_name,avatar_url) VALUES ('{player}','Dice Pat',NULL);""")
+    database.release(checkout_release(PROFILE_RELEASE, tmp_path / "profile"))
+    assert profile(database, player) == ("Dice Pat", None, None, False, None)
+    ids = seed_users(database, with_dice=False)  # Accounts made after the 0087 backfill: no rows yet.
+    assert all(profile(database, user_id) is None for user_id in ids.values())
+    # Since then the 0087-era code renamed Pat in Dice and saved a Venmo handle in Auth metadata.
+    database.sql(f"""UPDATE public.dice_profiles SET display_name='Pat Renamed In Dice' WHERE user_id='{player}';
+        UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{{"venmo_username":"Pat-Pays",
+         "venmo_username_provenance":{{"owner_confirmed":true,"handle":"pat-pays"}}}}' WHERE id='{player}';""")
+    sources = ("SELECT id,email,raw_user_meta_data::text,raw_app_meta_data::text FROM auth.users ORDER BY id;"
+               "SELECT to_jsonb(d)::text FROM public.dice_profiles d ORDER BY user_id;")
+    before = database.sql(sources).stdout
+    result = database.release()
+    assert "Applying 0088_dice_commons_profiles_catch_up.sql" in result.stdout
+    assert database.sql(sources).stdout == before  # The mirror stayed paused: Dice rows are untouched.
+    assert profile(database, player) == ("Pat Renamed In Dice", None, "pat-pays", True, None)
+    assert_backfill(database, ids)
+    assert service(database, "SELECT public.dice_release_readiness();").stdout.strip().endswith("t")
+    # Re-running is a no-op and the mirror is live again for API writes.
+    assert "Applying " not in database.release().stdout
+    service(database, f"UPDATE public.commons_profiles SET display_name='Pat Via API' WHERE user_id='{player}';")
+    assert dice_profile(database, player).startswith("Pat Via API|")
 
 
 def dice_profile(database, user_id):
