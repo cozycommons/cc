@@ -182,30 +182,57 @@ and consent to the new scopes: a missing write permission says, for example,
 
 ## Local real OAuth exercise
 
-Start the isolated loopback stack with `scripts/dice-dev.sh setup` and
-`scripts/dice-dev.sh local`, apply all shared migration families including
-Trips and cc_mcp, then configure the confidential local Supabase OAuth app and
-MCP settings described above. Keep callbacks and the authorization page on the
-loopback origins. Use a synthetic sandbox account for browser consent.
-
-Run (the service key comes from your local stack, never from production):
+Use Python 3.12/3.13, Node 22, Docker and psql. Start the isolated stack;
+setup applies all migration families, including Trips and cc_mcp:
 
 ```bash
-export LOCAL_SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
-backend/.venv/bin/python scripts/commons-connector-e2e.py \
-  --endpoint http://127.0.0.1:8000/mcp \
-  --supabase-url http://127.0.0.1:54321
+scripts/dice-dev.sh setup
+scripts/commons-connector-local.sh setup
+scripts/commons-connector-local.sh serve
 ```
 
-The script uses the MCP SDK's real OAuth provider (DCR, authorization code and
-PKCE), an ephemeral loopback callback and in-memory tokens. Approve the browser
-consent. It creates a uniquely named synthetic trip with synthetic guests, calls
-all five new tools (both overview forms), previews and commits both write types,
-replays both keys, and asserts that previews/replays did not advance revisions.
-It leaves that synthetic trip in the loopback sandbox for inspection. It refuses
-non-loopback URLs before loading the service key. No tokens or keys are printed
-or saved. The script is a reusable verification procedure, not evidence that a
-real OAuth run succeeded; see the handoff status for actual execution evidence.
+In another terminal:
+
+```bash
+scripts/commons-connector-local.sh test
+# Optional human browser consent instead of unattended approval:
+scripts/commons-connector-local.sh test --interactive
+```
+
+The checked-in `supabase/config.toml` enables the local OAuth server, disables
+upstream dynamic registration, and sets Site URL `http://localhost:8080` with
+`/oauth/consent` as its authorization page. The Bash 3.2 helper registers a
+confidential local app with callback `http://127.0.0.1:8000/auth/callback` through
+the local Auth admin API. It creates proxy signing/encryption keys and writes
+only the local MCP settings to ignored `.dice-dev/commons-mcp.json` (mode 0600).
+The service key is read from the exact loopback stack at runtime. `serve` starts
+the shared API on loopback with dotenv loading and scheduled jobs disabled and
+an explicitly scrubbed environment. No production configuration is used.
+After resetting the stack, remove that local JSON file and run the helper's
+`setup` again. Keep it stable across ordinary API restarts.
+
+The test uses the MCP SDK's real OAuth provider for DCR, authorization code,
+PKCE and Streamable HTTP with an ephemeral loopback callback and in-memory
+tokens. By default it creates a uniquely named synthetic local user through
+Auth admin, signs in by email/password, approves the proxy's CSRF-protected
+consent form, then calls the same authorization-details and approve-consent
+APIs as `frontend/src/auth/OAuthConsent.jsx`, authenticated with that user's
+session. Every redirect is checked for HTTP loopback before following it.
+The pinned SDK replaces requested scopes during discovery, so this exercise
+selects its explicit scopes immediately before the normal authorization flow.
+It also obtains a separate `trips:read` grant and verifies that a fresh committed
+expense is denied without `trips:edit`, leaving the ledger unchanged.
+
+The script creates a synthetic trip with guests, calls all five new tools
+(both overview forms), previews and commits both write types, replays both keys,
+and asserts previews/replays did not advance revisions. Synthetic users and
+trips remain in the loopback sandbox for inspection. Tokens and keys are never
+printed or committed. For interactive mode, also run the normal local frontend
+on port 8080 (for example `scripts/start-local-dice-frontend.sh`) and sign in
+with a synthetic sandbox account. The script can also run directly with
+`backend/.venv/bin/python scripts/commons-connector-e2e.py --interactive`, using
+`LOCAL_SUPABASE_SERVICE_ROLE_KEY` from the local stack. Non-loopback endpoints
+are refused before loading that key. See the handoff status for PASS evidence.
 
 Any agent supporting remote MCP + OAuth and Streamable HTTP can connect.
 “Grokbot” and “Dots” remain unidentified clients; compatibility with their

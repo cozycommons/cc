@@ -2,19 +2,79 @@
 
 ## Status
 
-- M1: PR opened for review from `commons-connector-m1`; implementation and source validation complete. External auth/money review and the blocked real OAuth exercise remain for the orchestrator; do not merge yet.
+- M1: implementation and both local verification gates complete on 2026-11-03.
+  The external auth/money review reported no code bugs; its database and real
+  OAuth gates are now satisfied. PR #197 remains open; do not merge in this task.
 - M2: not started.
 - M3: not started.
-- Local OAuth e2e blocked: `scripts/dice-dev.sh setup` fails with `Missing required command: docker`. No live Supabase, DCR, PKCE, consent or Streamable HTTP e2e success is claimed. Reusable exercise: `scripts/commons-connector-e2e.py`.
+- Loopback Supabase and the configured shared MCP API are left running. Generated
+  OAuth client credentials and signing/encryption keys live only in ignored
+  `.dice-dev/commons-mcp.json` (0600). No production connection was used.
 
 ### Validation evidence
 
-- Backend: `python -m pytest tests -v` — 1707 passed, 145 skipped. Database-backed tests (including receipt concurrency/grants) skipped because no isolated database is available.
-- New provider tests: 31 passed, including the MCP SDK over in-process Streamable HTTP with a proxy-issued token, synthetic storage and a test upstream verifier. Covered all five tools, overview both forms, both previews/commits and both idempotent replays. This bypasses DCR/browser OAuth and does not replace the required real OAuth run.
-- Frontend: Node 22, `npm test -- --run` — 96 files, 754 tests passed. `npm run build` passed with loopback URLs and a nonfunctional local placeholder publishable key. No frontend source changes.
-- Migration SQL parsed with pglast; Commons historical migration contract and `git diff --check` passed. Historical migrations were not changed.
-- `scripts/dice-dev.sh setup`: `Missing required command: docker`. `scripts/dice-dev.sh local`: local Supabase is not running. No production operations or live connector smoke test were attempted.
-- Reusable OAuth exercise script help/import/compile checked; real OAuth consent and live ledger persistence remain unverified locally.
+- Full backend suite: **1854 passed, 0 skipped** with the isolated disposable
+  database, real REST fixture, analytics, Floor Planner and dedicated Trips
+  integration opt-ins enabled. This runs **147 database/integration cases** that
+  were previously skipped or newly added: the prior **145 skipped** plus **2 new
+  receipt cases**. The earlier source-only result was 1707 passed / 145 skipped.
+- `tests/test_trips_migrations.py`: **19 passed, 0 skipped** (previously 17 skipped).
+  Eight concurrent identical requests produce exactly one actual ledger UPDATE
+  and one receipt; different users can reuse a key independently; reuse by the
+  same user on another trip returns an idempotency conflict without leaking the
+  earlier receipt; forced receipt-insert failure rolls back ledger data/revision.
+  Real database role checks confirm 0003 receipt RLS is enabled and both browser
+  roles lack table/RPC access. Live Trips and cc_mcp readiness return true.
+- Fixed the existing CI release assertion to expect Trips migration 3 rather than
+  2; the old assertion caused the previous backend CI failure. Verified migration
+  version/readiness against loopback. Historical migrations are unchanged.
+- Frontend on Node 22: **96 files, 754 tests passed**; `npm run build` passed with
+  loopback URLs and a nonfunctional local publishable-key placeholder.
+- cc_mcp and historical Commons migration contract scripts, Bash 3.2 parsing,
+  script help/compile checks and `git diff --check` passed.
+- Real OAuth via `scripts/commons-connector-local.sh test`: synthetic local
+  email/password sign-in, proxy consent, Supabase user-session consent, MCP SDK
+  DCR, PKCE token exchange and real Streamable HTTP. All M1 tools, both overview
+  forms, both previews/commits/replays, revision assertions and a separate
+  read-only grant's write denial passed. `--interactive` retains browser consent;
+  the successful run used unattended consent. Local setup is documented in
+  `docs/mcp/README.md`.
+
+Full backend command after bootstrapping the disposable database and starting
+CI's loopback REST adapter (the test JWT comes from its synthetic local signer):
+
+```bash
+cd backend
+source .venv/bin/activate
+DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_501_197 \
+DICE_TEST_DATABASE=1 DICE_REQUIRE_DATABASE_TESTS=1 RUN_ANALYTICS_DB_TESTS=1 \
+FLOOR_PLANNER_INTEGRATION=1 TRIPS_INTEGRATION=1 \
+API_URL=http://127.0.0.1:55431 DICE_TEST_REST_URL=http://127.0.0.1:55431 \
+python -m pytest tests -q
+```
+
+Captured unattended OAuth PASS output:
+
+```text
+PASS synthetic local email/password sign-in
+PASS Supabase OAuth authorization consent with user session
+PASS list_projects
+PASS whoami
+PASS get_trip_overview list
+PASS get_trip_overview details
+PASS add_expense dry_run
+PASS get_trip_overview
+PASS add_expense commit
+PASS add_expense idempotent replay
+PASS record_repayment dry_run
+PASS get_trip_overview
+PASS record_repayment commit
+PASS record_repayment idempotent replay
+PASS get_trip_overview
+PASS real OAuth DCR + PKCE and all M1 tools, previews and replay assertions
+PASS Supabase OAuth authorization consent with user session
+PASS token without trips:edit denied on write; ledger unchanged
+```
 
 ## Brief
 
