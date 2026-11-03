@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import CozyMascot from './CozyMascot.jsx';
 import './SiteHeader.css';
 
-// Shared Cozy Commons navbar: mascot with an optional product sticker, and a right-hand slot for account or admin controls.
-export default function SiteHeader({ product, to, icon, children, onProductClick, productDisabled = false }) {
+// Shared Cozy Commons navbar: mascot with an optional product sticker, an optional leading control
+// (such as a back button) and a right-hand slot for account or admin controls.
+export default function SiteHeader({ product, to, icon, children, leading, onProductClick, productDisabled = false }) {
   return (
     <header className={`cc-sitebar${product ? ' cc-sitebar--product' : ''}`}>
       {/* One lockup: the mascot, then the product's sticker and name. */}
       <div className="cc-sitebar-lockup">
+        {leading}
         <Link to="/" className="cc-sitebar-home" aria-label="Cozy Commons home">
           {/* The site has no dark theme, so the header keeps the light palette in every colour scheme. */}
           <CozyMascot size={32} tone="light" animated className="cc-sitebar-mascot" />

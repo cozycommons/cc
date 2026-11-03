@@ -1,9 +1,32 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { BarChart3, Plus, Users } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, BarChart3, Plus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import PlayerAvatar from './components/PlayerAvatar.jsx';
 import SiteHeader from '../components/SiteHeader.jsx';
+import { diceParentPath, isDiceHome } from './diceBack.js';
+
+// Steps back through in-app history (including Stats tabs). With no earlier
+// in-app page, e.g. a shared link, it goes to the page's parent instead of
+// leaving the site.
+function DiceBackButton() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  if (isDiceHome(location.pathname)) return null;
+  const goBack = () => {
+    // BrowserRouter records each entry's position in history.state.idx (0 for
+    // the first page of this visit, and still 0 after a replace).
+    const index = window.history.state?.idx;
+    const hasInAppHistory = typeof index === 'number' ? index > 0 : location.key !== 'default';
+    if (hasInAppHistory) navigate(-1);
+    else navigate(diceParentPath(location.pathname, location.search), { replace: true });
+  };
+  return (
+    <button type="button" className="cc-sitebar-icon jk-dice-back" onClick={goBack} aria-label="Back" title="Back">
+      <ArrowLeft className="w-5 h-5" aria-hidden="true" />
+    </button>
+  );
+}
 
 export default function DiceHeader({ auth }) {
   const { user, profile, loading, signIn } = auth;
@@ -15,7 +38,7 @@ export default function DiceHeader({ auth }) {
       className="jk-dice-header w-full px-4 sm:px-6 py-3"
       style={{ background: 'var(--surface-page)' }}
     >
-      <SiteHeader product="Dice" to="/dice" icon="🎲">
+      <SiteHeader product="Dice" to="/dice" icon="🎲" leading={<DiceBackButton />}>
         {isSandbox && (
           <span
             className="jk-label px-2 py-1 rounded-full"

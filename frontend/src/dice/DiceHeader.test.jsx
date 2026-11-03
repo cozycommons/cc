@@ -69,3 +69,41 @@ describe('DiceHeader match action', () => {
     expect(screen.queryByRole('button', { name: 'Log Match' })).not.toBeInTheDocument();
   });
 });
+
+describe('DiceHeader back button', () => {
+  function renderAt(entries, index = entries.length - 1) {
+    const auth = { user: null, profile: null, loading: false, signIn: vi.fn() };
+    render(
+      <MemoryRouter initialEntries={entries} initialIndex={index}>
+        <DiceHeader auth={auth} />
+        <LocationWithSearch />
+      </MemoryRouter>,
+    );
+  }
+
+  function LocationWithSearch() {
+    const location = useLocation();
+    return <output>{`${location.pathname}${location.search}`}</output>;
+  }
+
+  it('is hidden on the Dice home page', () => {
+    renderAt(['/dice']);
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  });
+
+  it('steps back through in-app history, including Stats views', () => {
+    renderAt(['/dice', '/dice/stats', '/dice/stats?view=duos', '/dice/stats/duos/a-b']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('/dice/stats?view=duos')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('/dice/stats')).toBeInTheDocument();
+  });
+
+  it('goes to the parent page when opened directly from a link', () => {
+    renderAt(['/dice/game/g1/edit']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('/dice/game/g1')).toBeInTheDocument();
+  });
+});
