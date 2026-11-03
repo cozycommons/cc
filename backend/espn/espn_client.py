@@ -61,6 +61,7 @@ accounts). Cookies are never logged.
 
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 import time
@@ -88,6 +89,18 @@ class EspnError(Exception):
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
+
+
+class EspnWriteUncertain(EspnError):
+    """The request may have reached ESPN; callers must reconcile, never retry."""
+
+    uncertain = True
+
+
+class EspnWriteUnknown(EspnError):
+    """An HTTP success did not identify the outcome; callers must reread ESPN."""
+
+    unknown = True
 
 
 class EspnAuthError(EspnError):
@@ -174,9 +187,10 @@ class EspnClient:
     def _post(self, url: str, body: dict, what: str = "ESPN write"):
         """One paced POST round-trip; returns the parsed JSON body.
 
-        Same failure mapping as :meth:`_get`: 401/403 and HTML-login
-        200s are auth failures (re-onboard), other HTTP errors carry
-        their status, and non-JSON bodies are never returned as data.
+        401/403 and HTML-login responses are auth failures. Lost responses
+        and server errors are uncertain writes; malformed success
+        acknowledgments are unknown. Empty responses stay empty: callers
+        must verify by rereading ESPN.
         """
         self._pace()
         data = json.dumps(body).encode("utf-8")
@@ -196,9 +210,10 @@ class EspnClient:
                 detail = e.read().decode("utf-8", errors="replace")[:200]
             except Exception:
                 detail = ""
-            raise EspnError(f"{what} -> {e.code} {detail}", status=e.code) from e
-        except urllib.error.URLError as e:
-            raise EspnError(f"{what}: network error {e}") from e
+            error_type = EspnWriteUncertain if e.code >= 500 or e.code == 408 else EspnError
+            raise error_type(f"{what} -> {e.code} {detail}", status=e.code) from e
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+            raise EspnWriteUncertain(f"{what}: network error {e}") from e
         text = raw.strip()
         if not text:
             return {}
@@ -208,7 +223,7 @@ class EspnClient:
             lowered = text.lower()
             if text.startswith("<") or "<html" in lowered or "login" in lowered:
                 raise EspnAuthError(f"{what}: {AUTH_EXPIRED_MESSAGE}") from e
-            raise EspnError(f"ESPN returned non-JSON: {e}") from e
+            raise EspnWriteUnknown(f"ESPN returned non-JSON: {e}") from e
 
     # -- public read API ----------------------------------------------------
     def league_url(self) -> str:
@@ -489,7 +504,7 @@ class EspnClient:
             self.transactions_url(), body, what="ESPN roster transaction"
         )
         if not isinstance(data, dict):
-            raise EspnError(
+            raise EspnWriteUnknown(
                 "ESPN roster transaction: unexpected response (expected object)"
             )
         return data
@@ -561,7 +576,7 @@ class EspnClient:
             self.transactions_url(), body, what="ESPN trade transaction"
         )
         if not isinstance(data, dict):
-            raise EspnError(
+            raise EspnWriteUnknown(
                 "ESPN trade transaction: unexpected response (expected object)"
             )
         return data

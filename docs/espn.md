@@ -230,9 +230,12 @@ edit (30-minute expiry) with a human-readable preview. Nothing is
 submitted to ESPN. `POST /espn/roster/edits/{id}/approve` then executes
 that exact edit as ONE ESPN transaction and records the outcome on the
 edit: `executed`, `waiver_pending` (the add target was on waivers, so the
-approval filed a waiver claim at bid 0 — no FAAB support), or `failed`
-with ESPN's error. Approving twice, or after expiry, is rejected and
-never double-submits. Edits are per-account: your token only ever sees
+approval filed a waiver claim at bid 0 — no FAAB support), `failed`
+for a definite rejection, `unknown` for an empty or ambiguous response,
+or `uncertain` after a transport failure or server error. A waiver-state
+change between preview and approval requires a fresh proposal and preview;
+approval never silently changes an immediate add into a claim. Resolved
+edits reject a second approval, and expired pending edits cannot submit. Edits are per-account: your token only ever sees
 your own. Migration `0014_beli_espn_roster_edits.sql` adds the audit
 table through the normal release step.
 
@@ -252,12 +255,31 @@ a human-readable preview. Nothing is submitted to ESPN. `POST
 /espn/trades/{id}/approve` re-validates, then submits that exact
 offer as ONE ESPN `TRADE` transaction and records the outcome:
 `offered` (ESPN accepted the offer; the counterparty accepts or
-declines on ESPN — that is not tracked here) or `failed` with ESPN's
-error. A proposal that went stale since proposal (a player moved, the
+declines on ESPN — that is not tracked here), `failed` for a definite
+rejection, `unknown` for an empty or ambiguous response, or `uncertain`
+after a transport failure or server error. A proposal that went stale since proposal (a player moved, the
 deadline passed) fails closed at approve time instead of submitting.
 Proposals are per-account, like edits. Migration
 `0015_beli_espn_trade_proposals.sql` adds the audit table through the
 normal release step.
+
+Unresolved roster edits and trades are never automatically resubmitted.
+GET of an individual row, a repeated approval, and a new overlapping proposal
+attempt read-only reconciliation. Roster verification checks the submission
+scoring period and the following period for after-lock changes, requiring the
+whole swap and the expected remaining roster. Exact new `mTransactions2`
+records can confirm an edit or offer; a pre-submit transaction-ID baseline
+prevents an older identical offer from confirming a new submission. A missing
+player, unchanged roster, missing offer, or failed read cannot prove rejection.
+If no positive evidence is available, the row retains `unknown` or `uncertain`
+and `executed_at` stays empty.
+
+While any `unknown`, `uncertain`, or `executing` row remains unresolved,
+proposing or approving either kind of write involving the same players in the
+same account, league and season returns 409. This includes `executing` rows
+left by a process crash. Unrelated players and other accounts are unaffected.
+Both audit list endpoints accept these statuses in their `status` filter.
+Status columns are unconstrained text; this lifecycle needs no schema change.
 
 ## Public predictions
 

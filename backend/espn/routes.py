@@ -707,6 +707,8 @@ def propose_roster_edit(
             add_player_id=body.add_player_id,
             drop_player_id=body.drop_player_id,
         )
+    except roster_edits.EditStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except roster_edits.EditError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except EspnAuthError as e:
@@ -726,10 +728,10 @@ def approve_roster_edit(
     """Approve and execute one pending roster edit.
 
     Executes the edit as ONE ESPN transaction and records the outcome
-    on the edit (executed / waiver_pending / failed). Approving an
-    edit that is not pending (already executed, failed, or expired)
-    is a 409, and an edit belonging to another account is a 404 —
-    approving twice never double-submits.
+    on the edit (executed / waiver_pending / failed / unknown / uncertain).
+    Resolved or expired edits return 409; another account's edit returns
+    404. Repeating an unresolved approval only reconciles by rereading
+    ESPN and never resubmits.
     """
     client = _client(account)
     try:
@@ -776,8 +778,10 @@ def get_roster_edit(
     request: Request,
     account: dict = Depends(_account),  # noqa: B008
 ):
-    """One roster edit for this account (404 when it is not theirs)."""
-    edit = roster_edits.get_edit(_supabase(request), account["id"], edit_id)
+    """One own-account edit; reconcile unresolved outcomes without submitting."""
+    edit = roster_edits.get_edit(
+        _supabase(request), account["id"], edit_id, account=account, client=_client(account)
+    )
     if edit is None:
         raise HTTPException(
             status_code=404, detail="no roster edit with that id for this account"
@@ -828,6 +832,8 @@ def propose_trade(
             give_player_ids=body.give_player_ids,
             receive_player_ids=body.receive_player_ids,
         )
+    except trades.TradeStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except trades.TradeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except EspnAuthError as e:
@@ -847,11 +853,11 @@ def approve_trade(
     """Approve and submit one pending trade proposal's offer.
 
     Submits the offer as ONE ESPN TRADE transaction and records the
-    outcome on the proposal (offered / failed); whether the
-    counterparty accepts happens later, on ESPN. Approving a proposal
-    that is not pending (already offered, failed, or expired) is a
-    409, and a proposal belonging to another account is a 404 —
-    approving twice never double-submits.
+    outcome (offered / failed / unknown / uncertain); whether the
+    counterparty accepts happens later on ESPN. Resolved or expired
+    proposals return 409; another account's proposal returns 404.
+    Repeating an unresolved approval only reconciles by rereading ESPN
+    and never resubmits.
     """
     client = _client(account)
     try:
@@ -898,9 +904,9 @@ def get_trade(
     request: Request,
     account: dict = Depends(_account),  # noqa: B008
 ):
-    """One trade proposal for this account (404 when it is not theirs)."""
+    """One own-account proposal; reconcile unresolved outcomes without submitting."""
     proposal = trades.get_proposal(
-        _supabase(request), account["id"], proposal_id
+        _supabase(request), account["id"], proposal_id, account=account, client=_client(account)
     )
     if proposal is None:
         raise HTTPException(

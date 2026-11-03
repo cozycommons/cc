@@ -22,7 +22,8 @@ enforced server-side here):
      twice — or two approvals racing — can never double-submit. The
      outcome is recorded back on the row: ``executed``,
      ``waiver_pending`` (ESPN parked the add as a waiver claim; bid 0,
-     no FAAB support), or ``failed`` with ESPN's error. League state
+     no FAAB support), ``failed`` for rejection, ``unknown`` for an ambiguous
+     acknowledgment, or ``uncertain`` after a lost response. League state
      is re-validated at approve time: an edit whose add target got
      rostered (or whose drop target left the roster) since proposal
      fails closed instead of submitting.
@@ -42,7 +43,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from . import lineup, waivers
+from . import lineup, waivers, write_safety
 from .espn_client import EspnAuthError, EspnError
 
 EDIT_TTL_MINUTES = 30
@@ -53,6 +54,8 @@ STATUS_EXECUTED = "executed"
 STATUS_WAIVER_PENDING = "waiver_pending"
 STATUS_FAILED = "failed"
 STATUS_EXPIRED = "expired"
+STATUS_UNCERTAIN = write_safety.UNCERTAIN
+STATUS_UNKNOWN = write_safety.UNKNOWN
 
 _EDIT_COLUMNS = (
     "id,league_id,season,team_id,add_player_id,drop_player_id,"
@@ -317,7 +320,7 @@ def _update_edit(supabase, edit_id, fields: dict) -> dict:
     return stored
 
 
-def get_edit(supabase, account_id, edit_id) -> dict | None:
+def get_edit(supabase, account_id, edit_id, *, account=None, client=None) -> dict | None:
     """One edit belonging to this account (and only this account)."""
     res = (
         supabase.table("espn_roster_edits")
@@ -327,7 +330,10 @@ def get_edit(supabase, account_id, edit_id) -> dict | None:
         .execute()
     )
     rows = res.data or []
-    return _public(rows[0]) if rows else None
+    row = _public(rows[0]) if rows else None
+    if row and row["status"] in write_safety.UNRESOLVED and client is not None:
+        return _reconcile(supabase, account, client, row)
+    return row
 
 
 def list_edits(supabase, account_id, limit: int = 25,
@@ -391,6 +397,11 @@ def propose_edit(supabase, account: dict, client,
     if add_id is not None and add_id == drop_id:
         raise EditError("add_player_id and drop_player_id are the same player")
 
+    write_safety.check_unresolved(
+        supabase, account, client, {pid for pid in (add_id, drop_id) if pid is not None},
+        EditStateError,
+    )
+
     payload = client.get_league(["mSettings", "mTeam", "mRoster"]) or {}
     team = lineup.find_member_team(payload, account["swid"])
     team_id = team.get("id")
@@ -450,24 +461,22 @@ def _classify_outcome(response: dict, add_snapshot) -> tuple:
     executed — possibly effective from the next scoring period, but
     executed; it is never a waiver claim.
     """
+    if not isinstance(response, dict) or not response:
+        return STATUS_UNKNOWN, write_safety.UNCERTAIN_MESSAGE
     raw_status = str(response.get("status") or "").upper()
     if raw_status.startswith("FAILED") or response.get("error"):
         detail = response.get("error") or raw_status
         return STATUS_FAILED, f"ESPN rejected the transaction: {detail}"
     raw_type = str(response.get("type") or "").upper()
     if (
-        raw_type == "WAIVER"
+        (raw_type == "WAIVER" and raw_status == "EXECUTED")
         or raw_status.startswith("PENDING")
         or raw_status == "PROCESSING"
     ):
         return STATUS_WAIVER_PENDING, None
     if raw_status == "EXECUTED":
         return STATUS_EXECUTED, None
-    if add_snapshot is not None and add_snapshot.get("on_waivers"):
-        # A waiver claim ESPN accepted without a status echo is still
-        # a claim: it cannot have executed immediately.
-        return STATUS_WAIVER_PENDING, None
-    return STATUS_EXECUTED, None
+    return STATUS_UNKNOWN, write_safety.UNCERTAIN_MESSAGE
 
 
 def approve_edit(supabase, account: dict, client, edit_id,
@@ -478,15 +487,18 @@ def approve_edit(supabase, account: dict, client, edit_id,
     and be unexpired; anything else raises EditNotFound (404) or
     EditStateError (409) BEFORE anything is submitted, and the atomic
     claim means a second approval can never double-submit. ESPN
-    submission failures are recorded on the edit (status ``failed``)
-    and returned, not raised — the same philosophy as lineup runs —
-    except auth failures, which propagate as EspnAuthError after being
-    recorded (the user must re-onboard; a fresh proposal follows).
+    rejections are recorded as ``failed``; ambiguous acknowledgments are
+    ``unknown`` and lost responses/server errors are ``uncertain`` until
+    read-only verification proves an outcome. Repeating an approval for an
+    unresolved row only reconciles it. Auth failures propagate after being
+    recorded so the user can re-onboard.
     """
     now = now or datetime.now(timezone.utc)
     edit = get_edit(supabase, account["id"], edit_id)
     if edit is None:
         raise EditNotFound("no roster edit with that id for this account")
+    if edit["status"] in write_safety.UNRESOLVED:
+        return _reconcile(supabase, account, client, edit, now)
     if edit["status"] != STATUS_PENDING:
         raise EditStateError(
             f"edit is {edit['status']}, not pending; "
@@ -498,6 +510,10 @@ def approve_edit(supabase, account: dict, client, edit_id,
         raise EditStateError(
             "edit has expired; propose it again to re-validate it"
         )
+    write_safety.check_unresolved(
+        supabase, account, client, write_safety.player_ids(edit), EditStateError,
+        exclude=("espn_roster_edits", edit["id"]),
+    )
     if not _claim_edit(supabase, edit["id"]):
         raise EditStateError("edit is already being executed")
 
@@ -552,8 +568,10 @@ def _execute(supabase, account: dict, client, edit: dict, scoreboard,
     try:
         if edit.get("add_player_id") is not None:
             fresh = _validate_add(client, payload, edit["add_player_id"])
-            if fresh.get("on_waivers") is not None:
-                add_snapshot = fresh
+            if fresh.get("on_waivers") != (add_snapshot or {}).get("on_waivers"):
+                raise EditError(
+                    "waiver state changed since preview; propose again for a new preview"
+                )
         if (
             edit.get("drop_player_id") is not None
             and edit["drop_player_id"] not in roster
@@ -581,6 +599,14 @@ def _execute(supabase, account: dict, client, edit: dict, scoreboard,
         moves.append({"action": "ADD", "playerId": edit["add_player_id"]})
     if edit.get("drop_player_id") is not None:
         moves.append({"action": "DROP", "playerId": edit["drop_player_id"]})
+    baseline_ids = write_safety.baseline(client)
+    audit = write_safety.metadata(None, baseline_ids, period)
+    expected_ids = set(roster) - {edit.get("drop_player_id")}
+    if edit.get("add_player_id") is not None:
+        expected_ids.add(edit["add_player_id"])
+    audit["expected_roster_ids"] = sorted(expected_ids)
+    # Persist evidence before the wire call so a crash can be reconciled safely.
+    _update_edit(supabase, edit_id, {"espn_transaction": audit})
     on_waivers = bool(add_snapshot and add_snapshot.get("on_waivers"))
     try:
         response = client.post_roster_transaction(
@@ -591,20 +617,24 @@ def _execute(supabase, account: dict, client, edit: dict, scoreboard,
             on_waivers=on_waivers,
         )
     except EspnError as e:
-        # EspnAuthError subclasses EspnError: let it propagate to
-        # approve_edit's auth handling; a plain failure is recorded
-        # and returned as the failed edit.
         if isinstance(e, EspnAuthError):
             raise
-        stored = _update_edit(
-            supabase,
-            edit_id,
-            {"status": STATUS_FAILED, "error": str(e)},
-        )
-        return _public({**edit, **stored, "status": STATUS_FAILED,
-                        "error": str(e)})
+        if write_safety.may_have_submitted(e):
+            fields = {"status": STATUS_UNKNOWN if getattr(e, "unknown", False) else STATUS_UNCERTAIN,
+                      "error": write_safety.UNCERTAIN_MESSAGE,
+                      "espn_transaction": {**audit, "submission_error": str(e)}}
+            _update_edit(supabase, edit_id, fields)
+            return _reconcile(supabase, account, client, {**edit, **fields}, now)
+        fields = {"status": STATUS_FAILED, "error": str(e)}
+        _update_edit(supabase, edit_id, fields)
+        return _public({**edit, **fields})
 
     status, error = _classify_outcome(response, add_snapshot)
+    if status == STATUS_UNKNOWN:
+        fields = {"status": status, "error": error,
+                  "espn_transaction": {**audit, "response": response}}
+        _update_edit(supabase, edit_id, fields)
+        return _reconcile(supabase, account, client, {**edit, **fields}, now)
     if (
         status == STATUS_EXECUTED
         and on_waivers
@@ -628,8 +658,8 @@ def _execute(supabase, account: dict, client, edit: dict, scoreboard,
             }
             if edit["add_player_id"] not in after_ids:
                 status = STATUS_WAIVER_PENDING
-        except EspnError:
-            pass  # Verification is best-effort; ESPN's status stands.
+        except (EspnError, ValueError, OSError):
+            pass  # Verification is best-effort; ESPN's explicit status stands.
 
     fields = {
         "status": status,
@@ -640,3 +670,59 @@ def _execute(supabase, account: dict, client, edit: dict, scoreboard,
         fields["executed_at"] = now.isoformat()
     stored = _update_edit(supabase, edit_id, fields)
     return _public({**edit, **stored, **fields})
+
+
+def _reconcile(supabase, account, client, edit, now=None):
+    """Read-only ESPN verification; absence never proves rejection.
+
+    Verify the entire swap in one roster snapshot. ESPN can apply a move
+    from the next scoring period after games lock, so inspect both periods.
+    """
+    now = now or datetime.now(timezone.utc)
+    status, error = edit["status"], edit.get("error")
+    audit = edit.get("espn_transaction") or {}
+    period = audit.get("scoring_period_id")
+    evidence = None
+    periods = [period, period + 1] if isinstance(period, int) else [None]
+    for check_period in periods:
+        try:
+            payload = client.get_league(["mTeam", "mRoster"], scoring_period_id=check_period) or {}
+            team = lineup.find_member_team(payload, account["swid"])
+            if team.get("id") != edit["team_id"] or not isinstance(team.get("roster", {}).get("entries"), list):
+                continue
+            ids = {p["player_id"] for p in lineup._parse_roster(team)}
+            add, drop = edit.get("add_player_id"), edit.get("drop_player_id")
+            expected_ids = audit.get("expected_roster_ids")
+            # An empty or partial roster is not evidence that a drop-only
+            # transaction executed. Preserve the expected unaffected players.
+            complete = (set(expected_ids).issubset(ids) if isinstance(expected_ids, list)
+                        else add is not None)
+            if complete and (add is None or add in ids) and (drop is None or drop not in ids):
+                status, error = STATUS_EXECUTED, None
+                break
+        except (EspnError, ValueError, OSError):
+            continue
+    if status != STATUS_EXECUTED:
+        try:
+            payload = client.get_league(["mTransactions2"]) or {}
+            expected = []
+            if edit.get("add_player_id") is not None:
+                expected.append((edit["add_player_id"], "ADD", 0, edit["team_id"]))
+            if edit.get("drop_player_id") is not None:
+                expected.append((edit["drop_player_id"], "DROP", edit["team_id"], 0))
+            txn = write_safety.matching_transaction(payload, edit, {"FREEAGENT", "WAIVER"}, expected)
+            if txn:
+                candidate, detail = _classify_outcome(txn, edit.get("add_player"))
+                if candidate not in write_safety.UNRESOLVED:
+                    status, error, evidence = candidate, detail, txn
+        except (EspnError, ValueError, OSError):
+            pass
+    if status in write_safety.UNRESOLVED:
+        return _public(edit)
+    fields = {"status": status, "error": error}
+    if status in (STATUS_EXECUTED, STATUS_WAIVER_PENDING):
+        fields["executed_at"] = now.isoformat()
+    if evidence:
+        fields["espn_transaction"] = {**audit, "verified_transaction": evidence}
+    _update_edit(supabase, edit["id"], fields)
+    return _public({**edit, **fields})

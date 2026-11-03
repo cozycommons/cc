@@ -28,7 +28,8 @@ both teams. The gate:
      passed since proposal fails closed instead of submitting. The
      recorded outcome is ``offered`` (ESPN accepted the submission;
      the counterparty's accept/decline happens on ESPN and is not
-     tracked here) or ``failed`` with ESPN's error.
+     tracked here), ``failed`` for rejection, ``unknown`` for an ambiguous
+     acknowledgment, or ``uncertain`` after a lost response.
 
 Tenant isolation is the module-wide rule: every read and write is
 scoped by ``account_id``, and the account comes from the caller's
@@ -44,7 +45,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from . import lineup, roster_edits
+from . import lineup, roster_edits, write_safety
 from .espn_client import EspnAuthError, EspnError
 
 PROPOSAL_TTL_MINUTES = 30
@@ -54,6 +55,8 @@ STATUS_EXECUTING = "executing"
 STATUS_OFFERED = "offered"
 STATUS_FAILED = "failed"
 STATUS_EXPIRED = "expired"
+STATUS_UNCERTAIN = write_safety.UNCERTAIN
+STATUS_UNKNOWN = write_safety.UNKNOWN
 
 _PROPOSAL_COLUMNS = (
     "id,league_id,season,team_id,counterparty_team_id,"
@@ -275,7 +278,7 @@ def _update_proposal(supabase, proposal_id, fields: dict) -> dict:
     return stored
 
 
-def get_proposal(supabase, account_id, proposal_id) -> dict | None:
+def get_proposal(supabase, account_id, proposal_id, *, account=None, client=None) -> dict | None:
     """One proposal belonging to this account (and only this account)."""
     res = (
         supabase.table("espn_trade_proposals")
@@ -285,7 +288,10 @@ def get_proposal(supabase, account_id, proposal_id) -> dict | None:
         .execute()
     )
     rows = res.data or []
-    return _public(rows[0]) if rows else None
+    row = _public(rows[0]) if rows else None
+    if row and row["status"] in write_safety.UNRESOLVED and client is not None:
+        return _reconcile(supabase, account, client, row)
+    return row
 
 
 def list_proposals(supabase, account_id, limit: int = 25,
@@ -340,6 +346,10 @@ def propose_trade(supabase, account: dict, client,
     )
     now = now or datetime.now(timezone.utc)
 
+    write_safety.check_unresolved(
+        supabase, account, client, set(give_ids + receive_ids), TradeStateError,
+    )
+
     payload = client.get_league(["mSettings", "mTeam", "mRoster"]) or {}
     own_team = lineup.find_member_team(payload, account["swid"])
     team_id = own_team.get("id")
@@ -385,14 +395,18 @@ def _classify_outcome(response: dict) -> tuple:
     """(status, error) from ESPN's transaction response.
 
     A trade submission that ESPN accepts is an OFFER — it stays open
-    until the counterparty accepts or declines on ESPN — so anything
-    that is not an explicit rejection classifies as ``offered``.
+    until the counterparty accepts or declines on ESPN. Only an explicit
+    recognized acknowledgment classifies as ``offered``; silence is unknown.
     """
+    if not isinstance(response, dict) or not response:
+        return STATUS_UNKNOWN, write_safety.UNCERTAIN_MESSAGE
     raw_status = str(response.get("status") or "").upper()
     if raw_status.startswith("FAILED") or response.get("error"):
         detail = response.get("error") or raw_status
         return STATUS_FAILED, f"ESPN rejected the transaction: {detail}"
-    return STATUS_OFFERED, None
+    if raw_status in {"PENDING", "EXECUTED", "ACCEPTED", "OFFERED", "PENDING_ACCEPTANCE"}:
+        return STATUS_OFFERED, None
+    return STATUS_UNKNOWN, write_safety.UNCERTAIN_MESSAGE
 
 
 def approve_trade(supabase, account: dict, client, proposal_id,
@@ -403,11 +417,10 @@ def approve_trade(supabase, account: dict, client, proposal_id,
     ``pending`` and be unexpired; anything else raises TradeNotFound
     (404) or TradeStateError (409) BEFORE anything is submitted, and
     the atomic claim means a second approval can never double-submit.
-    ESPN submission failures are recorded on the proposal (status
-    ``failed``) and returned, not raised — the same philosophy as
-    roster edits — except auth failures, which propagate as
-    EspnAuthError after being recorded (the user must re-onboard; a
-    fresh proposal follows).
+    Definite rejections are ``failed``; empty/ambiguous acknowledgments
+    are ``unknown`` and lost responses/server errors are ``uncertain``.
+    An unresolved proposal is only reconciled on subsequent approvals,
+    never resubmitted. Auth failures propagate after being recorded.
     """
     now = now or datetime.now(timezone.utc)
     proposal = get_proposal(supabase, account["id"], proposal_id)
@@ -415,6 +428,8 @@ def approve_trade(supabase, account: dict, client, proposal_id,
         raise TradeNotFound(
             "no trade proposal with that id for this account"
         )
+    if proposal["status"] in write_safety.UNRESOLVED:
+        return _reconcile(supabase, account, client, proposal, now)
     if proposal["status"] != STATUS_PENDING:
         raise TradeStateError(
             f"proposal is {proposal['status']}, not pending; "
@@ -428,6 +443,10 @@ def approve_trade(supabase, account: dict, client, proposal_id,
         raise TradeStateError(
             "proposal has expired; propose it again to re-validate it"
         )
+    write_safety.check_unresolved(
+        supabase, account, client, write_safety.player_ids(proposal), TradeStateError,
+        exclude=("espn_trade_proposals", proposal["id"]),
+    )
     if not _claim_proposal(supabase, proposal["id"]):
         raise TradeStateError("proposal is already being executed")
 
@@ -512,6 +531,9 @@ def _execute(supabase, account: dict, client, proposal: dict, scoreboard,
         ) from e
 
     period = roster_edits._current_period(client, payload, scoreboard)
+    baseline_ids = write_safety.baseline(client)
+    audit = write_safety.metadata(None, baseline_ids, period)
+    _update_proposal(supabase, proposal_id, {"espn_transaction": audit})
     try:
         response = client.post_trade_transaction(
             member_id=account["swid"],
@@ -522,20 +544,24 @@ def _execute(supabase, account: dict, client, proposal: dict, scoreboard,
             receive_player_ids=proposal["receive_player_ids"],
         )
     except EspnError as e:
-        # EspnAuthError subclasses EspnError: let it propagate to
-        # approve_trade's auth handling; a plain failure is recorded
-        # and returned as the failed proposal.
         if isinstance(e, EspnAuthError):
             raise
-        stored = _update_proposal(
-            supabase,
-            proposal_id,
-            {"status": STATUS_FAILED, "error": str(e)},
-        )
-        return _public({**proposal, **stored, "status": STATUS_FAILED,
-                        "error": str(e)})
+        if write_safety.may_have_submitted(e):
+            fields = {"status": STATUS_UNKNOWN if getattr(e, "unknown", False) else STATUS_UNCERTAIN,
+                      "error": write_safety.UNCERTAIN_MESSAGE,
+                      "espn_transaction": write_safety.metadata(None, baseline_ids, period, e)}
+            _update_proposal(supabase, proposal_id, fields)
+            return _reconcile(supabase, account, client, {**proposal, **fields}, now)
+        fields = {"status": STATUS_FAILED, "error": str(e)}
+        _update_proposal(supabase, proposal_id, fields)
+        return _public({**proposal, **fields})
 
     status, error = _classify_outcome(response)
+    if status == STATUS_UNKNOWN:
+        fields = {"status": status, "error": error,
+                  "espn_transaction": write_safety.metadata(response, baseline_ids, period)}
+        _update_proposal(supabase, proposal_id, fields)
+        return _reconcile(supabase, account, client, {**proposal, **fields}, now)
     transaction_id = response.get("id")
     fields = {
         "status": status,
@@ -551,3 +577,37 @@ def _execute(supabase, account: dict, client, proposal: dict, scoreboard,
         fields["executed_at"] = now.isoformat()
     stored = _update_proposal(supabase, proposal_id, fields)
     return _public({**proposal, **stored, **fields})
+
+
+def _reconcile(supabase, account, client, proposal, now=None):
+    """Confirm a new exact offer without submitting anything to ESPN.
+
+    Unchanged rosters or a missing offer are inconclusive. Old identical
+    offers are excluded by the pre-submit transaction-id baseline.
+    """
+    now = now or datetime.now(timezone.utc)
+    audit = proposal.get("espn_transaction") or {}
+    expected = [
+        (pid, "TRADE", proposal["team_id"], proposal["counterparty_team_id"])
+        for pid in proposal["give_player_ids"]
+    ] + [
+        (pid, "TRADE", proposal["counterparty_team_id"], proposal["team_id"])
+        for pid in proposal["receive_player_ids"]
+    ]
+    fields = {}
+    try:
+        payload = client.get_league(["mTransactions2"]) or {}
+        txn = write_safety.matching_transaction(payload, proposal, {"TRADE"}, expected)
+        if txn:
+            status, error = _classify_outcome(txn)
+            if status not in write_safety.UNRESOLVED:
+                fields = {"status": status, "error": error,
+                          "espn_transaction": {**audit, "verified_transaction": txn},
+                          "espn_transaction_id": str(txn["id"])}
+                if status == STATUS_OFFERED:
+                    fields["executed_at"] = now.isoformat()
+    except (EspnError, ValueError, OSError):
+        pass
+    if fields:
+        _update_proposal(supabase, proposal["id"], fields)
+    return _public({**proposal, **fields})
