@@ -21,6 +21,7 @@ import VirtualDice from './pages/VirtualDice.jsx';
 import Stats from './pages/Stats.jsx';
 import DuoDetail from './pages/DuoDetail.jsx';
 import StreakDetail from './pages/StreakDetail.jsx';
+import Settings from './pages/Settings.jsx';
 import './dice-theme.css';
 
 export default function DiceApp() {
@@ -60,6 +61,7 @@ export default function DiceApp() {
         <Route path="tournament/:tournamentId/edit" element={<TournamentForm auth={auth} editMode />} />
         <Route path="live" element={privateRoute(<LiveLobby auth={auth} />)} />
         <Route path="live/:matchId" element={privateRoute(<LiveGame auth={auth} />)} />
+        <Route path="settings" element={privateRoute(<Settings auth={auth} />)} />
       </Routes>
       </div>
     </div>

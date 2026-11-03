@@ -196,18 +196,10 @@ describe('PlayerProfile anonymous play', () => {
     expect(await screen.findByText('Profile not found')).toBeInTheDocument();
   });
 
-  it('asks before turning on anonymous play and saves the new setting', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
-    mocks.updateMyProfile.mockResolvedValue({ ...profile('u1'), is_anonymous: true });
+  it('keeps the anonymous toggle off the profile and links to Settings instead', async () => {
     renderProfile({});
-    const toggle = await screen.findByRole('checkbox', { name: 'Play anonymously' });
 
-    fireEvent.click(toggle);
-    expect(mocks.updateMyProfile).not.toHaveBeenCalled();
-    fireEvent.click(toggle);
-
-    await waitFor(() => expect(mocks.updateMyProfile).toHaveBeenCalledWith('token', { is_anonymous: true }));
-    expect(confirm).toHaveBeenCalledTimes(2);
-    confirm.mockRestore();
+    expect(await screen.findByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/dice/settings');
+    expect(screen.queryByRole('checkbox', { name: 'Play anonymously' })).not.toBeInTheDocument();
   });
 });

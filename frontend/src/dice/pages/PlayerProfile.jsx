@@ -95,8 +95,6 @@ function PersonalRecordedStats({ games, userId }) {
   );
 }
 
-const ANONYMOUS_CONFIRM = 'Play anonymously? Your games still count everywhere, but on results, leaderboards and stats others will see a random animal instead of your name. Player pickers and live games still show your name.';
-
 export default function PlayerProfile({ auth }) {
   const { userId } = useParams();
   const { supabase } = useSupabase();
@@ -115,7 +113,6 @@ export default function PlayerProfile({ auth }) {
   const [name, setName] = useState(() => peekDiceResource(profileKey)?.display_name ?? '');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [savingSetting, setSavingSetting] = useState(false);
   const [error, setError] = useState(null);
   const [phone, setPhone] = useState(() => peekDiceResource(profileKey)?.phone_number || '');
   const [smsEnabled, setSmsEnabled] = useState(() => peekDiceResource(profileKey)?.sms_notifications_enabled ?? false);
@@ -245,25 +242,6 @@ export default function PlayerProfile({ auth }) {
       setError(expectedMessage ? err.message : 'Failed to upload photo.');
     } finally {
       setUploading(false);
-    }
-  };
-
-  const toggleAnonymous = async () => {
-    if (!token) return;
-    const turningOn = !profile.is_anonymous;
-    if (turningOn && !window.confirm(ANONYMOUS_CONFIRM)) return;
-    setSavingSetting(true);
-    setError(null);
-    try {
-      const payload = { is_anonymous: turningOn };
-      if (!isOwnProfile && isAdmin) payload.user_id = userId;
-      const updated = await diceApi.updateMyProfile(token, payload);
-      setProfile(updated);
-      if (isOwnProfile) await refreshProfile();
-    } catch (err) {
-      setError('Failed to save setting.');
-    } finally {
-      setSavingSetting(false);
     }
   };
 
@@ -463,28 +441,6 @@ export default function PlayerProfile({ auth }) {
         </div>
       </div>
 
-      {canEdit && (
-        <div className="mb-8">
-          <p className="jk-label mb-3">// SETTINGS</p>
-          <div className="jk-card p-4">
-            <label className="flex items-center gap-2" style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--text-primary)' }}>
-              <input
-                type="checkbox"
-                checked={Boolean(profile.is_anonymous)}
-                onChange={toggleAnonymous}
-                disabled={savingSetting}
-              />
-              Play anonymously
-            </label>
-            <p className="text-xs mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Your games and ratings still count everywhere. On results, leaderboards and stats others see a
-              random animal (like “Anonymous Otter”) that reshuffles each visit. Player pickers and live games
-              still show your name, and your profile becomes private.
-            </p>
-          </div>
-        </div>
-      )}
-
       {isOwnProfile && (
         <div className="mb-8">
           <p className="jk-label mb-3">// NOTIFICATIONS</p>
@@ -533,7 +489,8 @@ export default function PlayerProfile({ auth }) {
       </div>
 
       {isOwnProfile && (
-        <div className="flex justify-center mt-8">
+        <div className="flex justify-center items-center gap-2 mt-8">
+          <Link to="/dice/settings" className="jk-label underline px-2">Settings</Link>
           <Button size="sm" variant="ghost" onClick={signOut} className="flex items-center gap-2">
             <LogOut className="w-3.5 h-3.5" />
             Sign out
