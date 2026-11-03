@@ -214,3 +214,37 @@ insert into public.dice_tournament_enrollments (tournament_id, user_id) values
   ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003'),
   ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004'),
   ('30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000005');
+
+
+-- Synergy: India + Juliet lose together while both win with other partners.
+-- Separate exact pairs avoid the older duo-only fixtures, whose intentionally
+-- absent individual Elo snapshots cannot support an expected-wins comparison.
+do $$
+declare
+  game_id uuid;
+  winner smallint;
+  roster uuid[];
+begin
+  for scenario in 1..3 loop
+    roster := case scenario
+      when 1 then array['10000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000011',
+                        '10000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000001']::uuid[]
+      when 2 then array['10000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000008',
+                        '10000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000012']::uuid[]
+      else array['10000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000009',
+                 '10000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001']::uuid[]
+    end;
+    for i in 1..12 loop
+      game_id := md5('dice-synergy-' || scenario || '-' || i)::uuid;
+      winner := case when (scenario = 1 and i <= 3) or (scenario > 1 and i <= 9) then 1 else 2 end;
+      insert into public.dice_games (id, created_by, ranked, team1_score, team2_score, winner_team, played_at)
+      values (game_id, '10000000-0000-0000-0000-000000000001', true,
+              case when winner = 1 then 11 else 6 end, case when winner = 2 then 11 else 6 end, winner,
+              timestamptz '2026-06-01 00:00:00+00' + (scenario * 12 + i) * interval '1 hour');
+      insert into public.dice_game_players (game_id, user_id, team, elo_before)
+      select game_id, roster[position], case when position <= 2 then 1 else 2 end, 1500
+      from generate_series(1, 4) as position;
+    end loop;
+  end loop;
+end
+$$;

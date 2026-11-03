@@ -8,7 +8,6 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from math import isclose
 from threading import Lock
 from typing import Literal
 
@@ -18,12 +17,11 @@ from pydantic import ValidationError
 
 from dice.notifications import notify_ranked_game
 from dice.feature_access import DiceFeature, feature_state, feature_states
-from dice.duo_repository import get_duo_detail, list_duo_ladder
+from dice.duo_repository import get_best_partner, get_duo_detail, list_duo_ladder
 from dice.live_probability import MODEL_ID, MODEL_VERSION, project_live_history, project_live_projection
 from dice.live_service import append_command, create_live_match, set_membership
 from dice.live_types import DiceLiveError, DiceLiveProjection, SavedRules
-from dice.prediction_model import SUPPORTED_MODELS, predict_features
-from dice.rating_prior import RatingSnapshot, team_average_prior
+from dice.live_pregame import pregame_probability as _pregame_probability
 from dice.virtual_currency import (
     fixed_winner_selections,
     reconcile_match_winner_markets,
@@ -81,6 +79,7 @@ from dice.schemas import (
     DiceGame,
     DuoDetailOut,
     DuoLadderOut,
+    DuoSummary,
     DiceFeatureState,
     DiceFeatures,
     DiceFeatureUpdate,
@@ -282,45 +281,6 @@ def _note_live_rating_repair_failure(request: Request, match_id: str, error: Exc
         record_live_rating_repair_failure(request.app.state.supabase_admin, match_id, error)
     except Exception:  # noqa: BLE001 - the durable queue already exists
         logger.exception("Could not annotate Dice live rating repair for match %s", match_id)
-
-
-def _pregame_probability(row: dict) -> tuple[float, str, str, str, datetime | None]:
-    """Read an immutable creation snapshot, preferring the independent model."""
-
-    fallback = (0.5, "neutral_fallback", "neutral", "1.0.0", None)
-    snapshot = row.get("prediction_snapshot") or {}
-    try:
-        captured_at = datetime.fromisoformat(snapshot["captured_at"].replace("Z", "+00:00"))
-        created_at = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
-        model = SUPPORTED_MODELS.get((snapshot["model_id"], snapshot["model_version"], snapshot["dataset_version"]))
-        if model is None:
-            return fallback
-        prior1 = float(snapshot["team1_prior_win_rate"])
-        prior2 = float(snapshot["team2_prior_win_rate"])
-        probability = float(snapshot["team1_probability"])
-        expected_probability = predict_features(model, prior1 - prior2)
-        if (not 0 <= prior1 <= 1 or not 0 <= prior2 <= 1 or not 0 <= probability <= 1
-                or not isclose(probability, expected_probability, rel_tol=0, abs_tol=1e-12)
-                or abs((captured_at - created_at).total_seconds()) > 300):
-            return fallback
-        if captured_at > datetime.now(timezone.utc):
-            return fallback
-        return (probability, "independent_model_snapshot", snapshot["model_id"],
-                snapshot["model_version"], captured_at)
-    except (KeyError, TypeError, ValueError):
-        if snapshot:
-            return fallback
-    # Matches created before migration 0054 keep their already-immutable Elo
-    # snapshot for the life of that match. New matches never take this path.
-    try:
-        legacy = row["rating_snapshot"]
-        teams = {team_id: tuple(RatingSnapshot(**item) for item in legacy[team_id])
-                 for team_id in row["team_order"]}
-        probability = team_average_prior(teams[row["team_order"][0]], teams[row["team_order"][1]])
-        created_at = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
-        return probability, "legacy_elo_snapshot", "elo-team-average", "1.0.0", created_at
-    except (KeyError, TypeError, ValueError, DiceLiveError):
-        return fallback
 
 
 def _live_pulse_virtual(request: Request, match_id: str, user_id: str) -> LivePulseVirtualOut | None:
@@ -889,6 +849,15 @@ def get_profile_rating_progress(request: Request, user_id: str) -> RatingProgres
 def _require_duo_access(request: Request, auth: AuthedUser) -> None:
     if not get_profile(request.app.state.supabase, auth.user_id):
         raise HTTPException(status_code=404, detail="Dice stats are not available")
+
+
+@router.get("/profiles/{user_id}/best-partner", response_model=DuoSummary | None)
+def get_profile_best_partner(
+    request: Request, user_id: str,
+    auth: AuthedUser = Depends(require_authenticated_user),
+) -> DuoSummary | None:
+    _require_duo_access(request, auth)
+    return get_best_partner(request.app.state.supabase, user_id)
 
 
 @router.get("/stats/duos", response_model=DuoLadderOut)

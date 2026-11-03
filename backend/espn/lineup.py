@@ -39,7 +39,8 @@ block, or the scoreboard in the fallback path — and records each
 exclusion in the plan's ``locked_skips`` (kind ``player_locked``):
 never a conflict, never a run failure. As a safety net for a game
 tipping between plan and submit, a 409 that names a locked player is
-answered by dropping that player's moves and retrying the rest
+answered by excluding that player's moves, reconciling retained
+slot occupancy, and retrying the legal remainder
 (bounded: each retry removes at least one player's moves).
 
 The roster cap is a second legality the planner itself must respect:
@@ -369,7 +370,7 @@ def _kona_projected_teams(client, scoring_period_id: int):
     errored), which callers must NOT treat as "checked, empty".
     Auth failures propagate: dead cookies stop the run.
     """
-    getter = getattr(client, "get_players_for_period", None)
+    getter = getattr(client, "get_league_players_for_period", None)
     if getter is None:
         return set(), "kona_unavailable"
     try:
@@ -377,6 +378,8 @@ def _kona_projected_teams(client, scoring_period_id: int):
     except EspnAuthError:
         raise
     except EspnError as e:
+        if e.status == 429:
+            raise
         return set(), f"kona_error: {e}"
     return _projected_teams_from_entries(entries, scoring_period_id), None
 
@@ -475,7 +478,9 @@ capacity fallbacks) are not lock-caused and are left alone.
         return None
     try:
         tipoffs = getter(target_date)
-    except EspnError:
+    except EspnError as e:
+        if e.status == 429:
+            raise
         return None
     if not tipoffs:
         return None
@@ -1395,21 +1400,26 @@ def _reconcile_lock_exclusions(plan, locked_ids, tipoffs, counts):
     return to_submit, skips
 
 
-def _submit_lineup(client, account, team_id, period, items, plan_by_id):
+def _submit_lineup(client, account, team_id, period, items, plan,
+                   locked_ids, tipoffs, counts):
     """Submit LINEUP moves, shedding locked players on a 409.
 
-    Returns (response, submitted_items, extra_skips). ESPN validates
+    Returns (response, submitted_items, reconciled_skips). ESPN validates
     a transaction atomically and a player can lock between planning
     and submitting, so a 409 naming a locked player ("<name> is
-    locked") drops only that player's moves and retries the rest —
+    locked") retains that player in his original slot and reconciles
+    all inbound moves (including cascades) before retrying —
     each retry removes at least one player's moves, so there is at
     most one retry per rostered player. Any other failure (auth
     included) propagates to the run's normal error handling. When
     every move is shed, returns (None, [], skips): nothing was
     written, and that is not an error.
     """
+    plan_by_id = {p["player_id"]: p for p in plan["players"]}
+    locked_ids = set(locked_ids)
     remaining = list(items)
     extra_skips = []
+    espn_skips = {}
     while remaining:
         try:
             response = client.post_lineup_transaction(
@@ -1435,15 +1445,19 @@ def _submit_lineup(client, account, team_id, period, items, plan_by_id):
                 m["playerId"] != culprit for m in remaining
             ):
                 raise
-            extra_skips.append(_locked_skip(plan_by_id[culprit], "espn_409", None))
-            remaining = [m for m in remaining if m["playerId"] != culprit]
+            locked_ids.add(culprit)
+            espn_skips[culprit] = _locked_skip(plan_by_id[culprit], "espn_409", None)
+            remaining, extra_skips = _reconcile_lock_exclusions(
+                plan, locked_ids, tipoffs, counts
+            )
+            extra_skips = [espn_skips.get(s["player_id"], s) for s in extra_skips]
     return None, [], extra_skips
 
 
 def run_lineup(supabase, account: dict, client, dry_run: bool = False,
                scoring_period_id: int | None = None,
                date: str | None = None, scoreboard=None,
-               now: datetime | None = None) -> dict:
+               now: datetime | None = None, skip_if_completed=None) -> dict:
     """Plan (and, unless dry_run, submit + verify) one day's lineup.
 
     The target day comes from ``scoring_period_id``, or ``date``
@@ -1456,6 +1470,11 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
 
     Always persists and returns the run record — including auth and
     other failures — so conflicts are pullable afterwards.
+
+    The scheduler may supply ``skip_if_completed(period)``. It runs
+    after resolving the actual target period, before planning/writing.
+    A completed period returns an unpersisted ``skipped`` result;
+    dedupe query failures fail the pass before any write.
     """
     run = {
         "account_id": account["id"],
@@ -1544,6 +1563,9 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
             else:
                 period = resolve_scoring_period(base)
         run["scoring_period_id"] = period
+        if skip_if_completed is not None and skip_if_completed(period):
+            run["status"] = "skipped"
+            return run
         current = (base.get("status") or {}).get("currentScoringPeriod")
         if payload is None:
             payload = base
@@ -1603,9 +1625,9 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
         locked_ids, tipoffs = _locked_players(
             team, payload, base, period, schedule_info, moment
         )
-        plan_by_id = {p["player_id"]: p for p in plan["players"]}
+        counts = lineup_slot_counts(payload)
         to_submit, skips = _reconcile_lock_exclusions(
-            plan, locked_ids, tipoffs, lineup_slot_counts(payload)
+            plan, locked_ids, tipoffs, counts
         )
         plan["locked_skips"] = skips
 
@@ -1623,10 +1645,13 @@ def run_lineup(supabase, account: dict, client, dry_run: bool = False,
                     team.get("id"),
                     period,
                     to_submit,
-                    plan_by_id,
+                    plan,
+                    locked_ids,
+                    tipoffs,
+                    counts,
                 )
                 if retry_skips:
-                    skips = skips + retry_skips
+                    skips = retry_skips
                     plan["locked_skips"] = skips
             run["moves"] = submitted
             if response is not None:

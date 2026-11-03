@@ -138,8 +138,18 @@ class DiceApiClient {
     return api.get(`/dice/profiles/${userId}/rating-progress`);
   }
 
-  getDuoLadder(token, limit = 100, homepageEligible = false) {
-    return api.get(`/dice/stats/duos?limit=${limit}&homepage_eligible=${homepageEligible}`, token);
+  async getDuoLadder(token, limit = 100, homepageEligible = false) {
+    const path = `/dice/stats/duos?limit=${limit}&homepage_eligible=${homepageEligible}`;
+    try {
+      return await api.get(path, token);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return api.get(path, token);
+    }
+  }
+
+  getBestPartner(token, userId) {
+    return api.get(`/dice/profiles/${encodeURIComponent(userId)}/best-partner`, token);
   }
 
   getDuoDetail(token, duoId) {

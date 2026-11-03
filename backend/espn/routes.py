@@ -45,9 +45,10 @@ to ESPN, where the counterparty can accept or decline it.
 
 Onboarding stores the caller's ESPN cookies (espn_s2 + SWID) encrypted at
 rest (see accounts.py):
-  POST /onboard {label?, league_id, season, espn_s2, swid}
+  POST /onboard {label?, league_id, season, espn_s2, swid, enable_automation?}
       -> {"id", "label", "league_id", "season", "token"}
-The token is shown ONCE.
+The token is shown ONCE. Both routes honor enable_automation (default true)
+in the initial insert.
 
 There is also a login front door for users who can't extract cookies:
   POST /onboard/login {email, password, label?, league_id?, season?,
@@ -208,6 +209,9 @@ class OnboardBody(BaseModel):
     label: str = Field(default="espn", max_length=80)
     league_id: int = Field(description="ESPN fantasy league id")
     season: int = Field(description="Season year, e.g. 2027")
+    enable_automation: bool = Field(
+        default=True, description="Enable automatic daily lineups for this account"
+    )
     espn_s2: str = Field(description="espn_s2 cookie value")
     swid: str = Field(description="SWID cookie value, e.g. {XXXXXXXX-...}")
 
@@ -229,6 +233,7 @@ def onboard(body: OnboardBody, request: Request):
             body.season,
             body.espn_s2,
             body.swid,
+            enable_automation=body.enable_automation,
         )
     except AccountError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -256,10 +261,8 @@ class OnboardLoginBody(BaseModel):
         "season by the July 1 rollover",
     )
     enable_automation: bool = Field(
-        default=False,
-        description="Deprecated and ignored: lineup automation is "
-        "enabled for every new account at onboarding; opt out via "
-        "POST /espn/automation/lineup",
+        default=True,
+        description="Enable automatic daily lineups for this account",
     )
 
 
@@ -371,17 +374,14 @@ def onboard_login(body: OnboardLoginBody, request: Request):
             season,
             espn_s2,
             swid,
+            enable_automation=body.enable_automation,
         )
     except AccountError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except EspnError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    # Automation is part of onboarding: create_account stored the
-    # account with lineup_automation_enabled = true (product decision,
-    # 2026-10-29), so there is no post-create opt-in step here. The
-    # opt-out / re-enable switch is POST /espn/automation/lineup.
-    automation = True
+    automation = created["lineup_automation_enabled"]
     logger.info(
         "espn onboard/login ok: account=%s league=%s automation=%s",
         created.get("id"),
@@ -707,6 +707,8 @@ def propose_roster_edit(
             add_player_id=body.add_player_id,
             drop_player_id=body.drop_player_id,
         )
+    except roster_edits.EditStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except roster_edits.EditError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except EspnAuthError as e:
@@ -726,10 +728,10 @@ def approve_roster_edit(
     """Approve and execute one pending roster edit.
 
     Executes the edit as ONE ESPN transaction and records the outcome
-    on the edit (executed / waiver_pending / failed). Approving an
-    edit that is not pending (already executed, failed, or expired)
-    is a 409, and an edit belonging to another account is a 404 —
-    approving twice never double-submits.
+    on the edit (executed / waiver_pending / failed / unknown / uncertain).
+    Resolved or expired edits return 409; another account's edit returns
+    404. Repeating an unresolved approval only reconciles by rereading
+    ESPN and never resubmits.
     """
     client = _client(account)
     try:
@@ -776,8 +778,10 @@ def get_roster_edit(
     request: Request,
     account: dict = Depends(_account),  # noqa: B008
 ):
-    """One roster edit for this account (404 when it is not theirs)."""
-    edit = roster_edits.get_edit(_supabase(request), account["id"], edit_id)
+    """One own-account edit; reconcile unresolved outcomes without submitting."""
+    edit = roster_edits.get_edit(
+        _supabase(request), account["id"], edit_id, account=account, client=_client(account)
+    )
     if edit is None:
         raise HTTPException(
             status_code=404, detail="no roster edit with that id for this account"
@@ -828,6 +832,8 @@ def propose_trade(
             give_player_ids=body.give_player_ids,
             receive_player_ids=body.receive_player_ids,
         )
+    except trades.TradeStateError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except trades.TradeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except EspnAuthError as e:
@@ -847,11 +853,11 @@ def approve_trade(
     """Approve and submit one pending trade proposal's offer.
 
     Submits the offer as ONE ESPN TRADE transaction and records the
-    outcome on the proposal (offered / failed); whether the
-    counterparty accepts happens later, on ESPN. Approving a proposal
-    that is not pending (already offered, failed, or expired) is a
-    409, and a proposal belonging to another account is a 404 —
-    approving twice never double-submits.
+    outcome (offered / failed / unknown / uncertain); whether the
+    counterparty accepts happens later on ESPN. Resolved or expired
+    proposals return 409; another account's proposal returns 404.
+    Repeating an unresolved approval only reconciles by rereading ESPN
+    and never resubmits.
     """
     client = _client(account)
     try:
@@ -898,9 +904,9 @@ def get_trade(
     request: Request,
     account: dict = Depends(_account),  # noqa: B008
 ):
-    """One trade proposal for this account (404 when it is not theirs)."""
+    """One own-account proposal; reconcile unresolved outcomes without submitting."""
     proposal = trades.get_proposal(
-        _supabase(request), account["id"], proposal_id
+        _supabase(request), account["id"], proposal_id, account=account, client=_client(account)
     )
     if proposal is None:
         raise HTTPException(

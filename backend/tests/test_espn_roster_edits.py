@@ -188,8 +188,7 @@ class FakeSupabase:
         self._store = []
 
     def table(self, name):
-        assert name == "espn_roster_edits"
-        return FakeTable(self._store)
+        return FakeTable(self._store if name == "espn_roster_edits" else [])
 
 
 class FakeClient:
@@ -456,12 +455,12 @@ def test_expired_edit_rejected_and_marked():
 
 def test_approve_submit_failure_recorded_as_failed_edit():
     db, client = FakeSupabase(), FakeClient()
-    client.post_error = EspnError("ESPN exploded", status=500)
+    client.post_error = EspnError("ESPN rejected the request", status=400)
     edit = _propose(db, client, add_player_id=FA_ID, drop_player_id=DROP_ID)
     result = roster_edits.approve_edit(db, ACCOUNT, client, edit["id"],
                                        now=NOW)
     assert result["status"] == "failed"
-    assert "ESPN exploded" in result["error"]
+    assert "ESPN rejected the request" in result["error"]
     assert db._store[0]["status"] == "failed"
 
 

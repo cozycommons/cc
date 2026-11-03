@@ -39,10 +39,10 @@ def test_morning_slot_boundaries():
 
 
 def test_evening_slot_boundaries():
-    assert _due_names(_utc(2026, 10, 29, 22, 29)) == []  # 18:29 ET
-    assert _due_names(_utc(2026, 10, 29, 22, 30)) == ["evening"]  # 18:30 ET
-    assert _due_names(_utc(2026, 10, 30, 1, 29)) == ["evening"]  # 21:29 ET
-    assert _due_names(_utc(2026, 10, 30, 1, 30)) == []  # 21:30 ET: window over
+    assert _due_names(_utc(2026, 10, 29, 21, 59)) == []  # 17:59 ET
+    assert _due_names(_utc(2026, 10, 29, 22, 0)) == ["evening"]  # 18:00 ET
+    assert _due_names(_utc(2026, 10, 30, 0, 59)) == ["evening"]  # 20:59 ET
+    assert _due_names(_utc(2026, 10, 30, 1, 0)) == []  # 21:00 ET: window over
 
 
 def test_nothing_due_outside_windows():
@@ -149,13 +149,16 @@ def _account(aid, enabled=True):
 
 
 def _run_row(account_id, status="ok", mode="live",
-             created="2026-10-29T13:15:00+00:00"):
+             created="2026-10-29T13:15:00+00:00", period=9):
     # 13:15 UTC = 09:15 ET: inside the reference morning window.
     return {
         "account_id": account_id,
         "mode": mode,
         "status": status,
         "created_at": created,
+        "scoring_period_id": period,
+        "league_id": 111,
+        "season": 2027,
     }
 
 
@@ -164,7 +167,10 @@ class RunnerStub:
         self.calls = []
         self.behavior = behavior or {}
 
-    def __call__(self, supabase, account, client, scoreboard=None):
+    def __call__(self, supabase, account, client, scoreboard=None,
+                 skip_if_completed=None):
+        if skip_if_completed and skip_if_completed(9):
+            return {"status": "skipped", "scoring_period_id": 9}
         self.calls.append(
             {"account": account["id"], "client": client,
              "scoreboard": scoreboard}
@@ -185,8 +191,8 @@ def _tick(runs=(), accounts_list=(), runner=None, now=NOW):
         now,
         accounts_loader=lambda supabase: list(accounts_list),
         runner=runner,
-        client_factory=lambda account: f"client-{account['id']}",
-        scoreboard_factory=lambda: "scoreboard",
+        client_factory=lambda account, **kw: f"client-{account['id']}",
+        scoreboard_factory=lambda **kw: "scoreboard",
     )
     return summary, runner
 
@@ -206,7 +212,7 @@ def test_nothing_due_never_loads_accounts():
     )
     assert summary == {
         "due_slots": [], "considered": 0, "ran": 0, "skipped": 0,
-        "failed": 0,
+        "failed": 0, "deferred": 0,
     }
 
 
@@ -251,6 +257,92 @@ def test_dedupe_counts_noop_and_conflict_as_completed():
         )
         assert runner.calls == [], status
         assert summary["skipped"] == 1, status
+
+
+@pytest.mark.parametrize("period", [10, None])
+def test_future_or_unknown_period_manual_run_does_not_suppress_today(period):
+    summary, runner = _tick(
+        runs=[_run_row("acc-1", period=period)],
+        accounts_list=[_account("acc-1")],
+    )
+    assert summary["ran"] == 1
+    assert [call["account"] for call in runner.calls] == ["acc-1"]
+
+
+def test_scheduler_shares_one_cooldown_across_accounts():
+    cooldowns = []
+
+    def factory(account, *, cooldown=None):
+        cooldowns.append(cooldown)
+        return object()
+
+    scheduler.run_tick(
+        FakeSupabase(), NOW,
+        accounts_loader=lambda db: [_account("acc-1"), _account("acc-2")],
+        runner=RunnerStub(), client_factory=factory,
+        scoreboard_factory=lambda **kw: "scoreboard",
+    )
+    assert len(cooldowns) == 2
+    assert cooldowns[0] is not None and cooldowns[0] is cooldowns[1]
+
+
+def test_documented_cron_reaches_evening_slot_in_both_timezones():
+    from pathlib import Path
+    import re
+
+    doc = (Path(__file__).resolve().parents[2] / "docs/espn-scheduler.md").read_text()
+    cron = re.search(r"\*\*Frequency:\*\* `([^`]+)`", doc).group(1)
+    assert cron == "0 * * * *"
+    assert "18:30" not in doc
+    for now in [_utc(2026, 10, 31, 22), _utc(2026, 11, 1, 23)]:
+        assert now.minute == 0
+        assert _due_names(now) == ["evening"]
+
+
+@pytest.mark.parametrize("source", ["fantasy", "scoreboard"])
+def test_429_returned_as_run_error_defers_remaining_accounts(monkeypatch, source):
+    import io
+    import urllib.error
+    from espn.espn_client import EspnClient
+    from tests.test_espn_lineup import _full_coverage_payload
+    from tests.test_espn_client import FakeHTTPResponse
+
+    requests = []
+
+    def limited(req, **kw):
+        requests.append(req)
+        if source == "scoreboard" and "fantasy.espn.com" in req.full_url:
+            payload = _full_coverage_payload()
+            payload.pop("proGamesByScoringPeriod")
+            return FakeHTTPResponse(payload)
+        raise urllib.error.HTTPError(req.full_url, 429, "limited", {"Retry-After": "120"}, io.BytesIO())
+
+    monkeypatch.setattr("urllib.request.urlopen", limited)
+    monkeypatch.setattr("espn.espn_client.time.sleep", lambda s: pytest.fail("must not sleep"))
+
+    class RunsTable(FakeRunsTable):
+        def insert(self, row):
+            self._store.append(row)
+            self._rows = [row]
+            return self
+
+    class DB(FakeSupabase):
+        def table(self, name):
+            assert name == "espn_lineup_runs"
+            return RunsTable(self._runs)
+
+    db = DB()
+    summary = scheduler.run_tick(
+        db, NOW,
+        accounts_loader=lambda db: [{**_account(aid), "swid": "{SWID-1}"}
+                                    for aid in ("acc-1", "acc-2")],
+        client_factory=lambda account, **kw: EspnClient("synthetic", "{TEST}", 111, 2027, **kw),
+    )
+    assert summary["failed"] == 1
+    assert summary["deferred"] == 1
+    assert summary["ran"] == 0
+    assert len(requests) == (1 if source == "fantasy" else 2)
+    assert db._runs[0]["status"] == "error"
 
 
 def test_dedupe_ignores_failed_other_mode_and_other_account_rows():

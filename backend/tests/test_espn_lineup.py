@@ -1729,6 +1729,42 @@ def test_all_moves_locked_no_write_noop_with_skips():
     assert {s["player_id"] for s in run["plan"]["locked_skips"]} == planned
 
 
+def test_write_409_lock_reconciles_retained_slot_before_retry():
+    from collections import Counter
+
+    client = LockedOnceClient(_lock_payload(past_game=False), "Player 104")
+    run = lineup.run_lineup(FakeSupabase(), dict(ACCOUNT), client, now=LOCK_NOW)
+    assert run["status"] == "ok"
+    assert len(client.posts) == 2
+    retried = {m["playerId"] for m in client.posts[1]["items"]}
+    assert 104 not in retried
+    assert 116 not in retried  # 104 is still occupying C
+    skips = {s["player_id"]: s for s in run["plan"]["locked_skips"]}
+    assert skips[104]["detail"]["source"] == "espn_409"
+    assert skips[116]["detail"]["source"] == "blocked_by_lock"
+    assert skips[116]["detail"]["blocked_by_player_id"] == 104
+    occupancy = Counter(e["lineupSlotId"] for e in client.payload["teams"][0]["roster"]["entries"])
+    counts = lineup.lineup_slot_counts(client.payload)
+    for slot in STARTING:
+        assert occupancy[slot] <= counts[slot]
+
+
+def test_completed_period_guard_skips_without_write_or_run_log():
+    db = FakeSupabase()
+    client = StatefulClient(_full_coverage_payload())
+    checked = []
+
+    def completed(period):
+        checked.append(period)
+        return True
+
+    run = lineup.run_lineup(db, dict(ACCOUNT), client, skip_if_completed=completed)
+    assert checked == [PERIOD]
+    assert run["status"] == "skipped"
+    assert client.posts == []
+    assert db._store == []
+
+
 def test_locked_players_from_scoreboard_schedule_info():
     # The fallback lock source: schedule_info carries the scoreboard
     # tip-offs as {str(team_id): ISO} when the payload has no block.

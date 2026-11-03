@@ -26,7 +26,7 @@ vi.mock('../components/LeaderboardRow.jsx', () => ({
 vi.mock('../components/TournamentRow.jsx', () => ({ default: ({ tournament }) => <div>Tournament {tournament.name}</div> }));
 vi.mock('../components/PlayerAvatar.jsx', () => ({ default: ({ profile }) => <span>{profile.display_name} avatar</span> }));
 
-import Home, { calculateStreaks, calculateSynergies, matchStory, splitTournaments } from './Home.jsx';
+import Home, { calculateStreaks, matchStory, splitTournaments } from './Home.jsx';
 
 const releasedAuth = {
   token: 'token',
@@ -170,15 +170,6 @@ describe('Dice home dashboard', () => {
     expect(within(streak).getByText('Jason avatar')).toBeInTheDocument();
     expect(within(streak).getByText('2')).toBeInTheDocument();
     expect(within(streak.closest('section')).getByRole('link', { name: 'View all →' })).toHaveAttribute('href', '/dice/stats?view=streaks');
-  });
-
-  it('ranks teammate pairings by their combined record', () => {
-    const games = [
-      { winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }, { user_id: 'u2', display_name: 'Jaycee', team: 1 }] },
-      { winner_team: 2, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }, { user_id: 'u2', display_name: 'Jaycee', team: 1 }] },
-      { winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }, { user_id: 'u2', display_name: 'Jaycee', team: 1 }] },
-    ];
-    expect(calculateSynergies(games)[0]).toMatchObject({ players: ['Jason', 'Jaycee'], wins: 2, losses: 1 });
   });
 
   it('puts live activity first for a signed-in profile', async () => {
@@ -338,4 +329,27 @@ describe('Dice home dashboard', () => {
     expect(mocks.getSinkLeaderboard).toHaveBeenCalledWith(500, false);
     expect(mocks.getSelfSinkLeaderboard).toHaveBeenCalledWith(500, false);
   });
+});
+
+it('shows all duos returned at the third-place tie', async () => {
+  arrange({ duos: { ranked: [1, 2, 3, 3].map((rank, index) => ({
+    duo_id: `pair-${index}`, rank, homepage_eligible: true, games: 5, wins: 4, losses: 1, elo: 1600 - rank,
+    members: [{ user_id: `a-${index}`, display_name: `Alpha ${index}` }, { user_id: `b-${index}`, display_name: `Bravo ${index}` }],
+  })), to_watch: [] } });
+  renderHome(releasedAuth);
+  expect(await screen.findByText('Alpha 3 + Bravo 3')).toBeInTheDocument();
+  expect(screen.getAllByText('Tied rank 3')).toHaveLength(2);
+  expect(screen.getAllByText('T3')).toHaveLength(2);
+});
+
+it('keeps a failed Top duos section visible and recovers through Retry', async () => {
+  mocks.getDuoLadder.mockReset();
+  arrange();
+  mocks.getDuoLadder.mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValueOnce({ ranked: [{ duo_id: 'recovered', rank: 1, homepage_eligible: true, games: 5, wins: 4, losses: 1, elo: 1600, members: [{ user_id: 'alpha', display_name: 'Alpha' }, { user_id: 'bravo', display_name: 'Bravo' }] }], to_watch: [] });
+  renderHome(releasedAuth);
+  const retry = await screen.findByRole('button', { name: 'Retry' });
+  expect(screen.getByText('// TOP DUOS')).toBeInTheDocument();
+  fireEvent.click(retry);
+  expect(await screen.findByText('Alpha + Bravo')).toBeInTheDocument();
+  expect(mocks.getDuoLadder).toHaveBeenCalledTimes(2);
 });

@@ -205,4 +205,216 @@ def test_homepage_filter_is_applied_before_the_limit(monkeypatch):
     ladder = duo_repository.list_duo_ladder(object(), limit=1, homepage_eligible_only=True)
 
     assert len(ladder.ranked) == 1
+    assert {duo.rank for duo in ladder.ranked} == {1}
     assert ladder.ranked[0].games == 5
+
+
+def _synergy_matches():
+    from dice.duo_synergy import SynergyMatch
+    from dataclasses import asdict
+    return [SynergyMatch(**asdict(match), elo_before=dict.fromkeys((*match.team1, *match.team2), 1500)) for match in _matches()]
+
+
+def test_synergy_lists_are_signed_sorted_and_independent_of_ladder_limit(monkeypatch):
+    from dataclasses import replace
+    matches = _synergy_matches()
+    profiles = _profiles()
+    for index in range(4):
+        left, right = (f"left{index}", f"mate{index}"), (f"right{index}", f"other{index}")
+        profiles += [{"user_id": member, "display_name": member} for member in (*left, *right)]
+        matches += [replace(match, game_id=f"pair{index}-{i}", team1=left, team2=right,
+                            winner_team=1, team1_score=11, team2_score=2,
+                            elo_before=dict.fromkeys((*left, *right), 1500)) for i, match in enumerate(_synergy_matches())]
+    monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, matches))
+    ladder = duo_repository.list_duo_ladder(object(), limit=1)
+    assert len(ladder.ranked) == 4
+    assert {duo.rank for duo in ladder.ranked} == {1}
+    assert len(ladder.best_chemistry) == len(ladder.better_apart) == 3
+    assert [row.synergy.wins_above_expected for row in ladder.best_chemistry] == [2.5] * 3
+    assert [row.synergy.wins_above_expected for row in ladder.better_apart] == [-2.5] * 3
+    detail = duo_repository.get_duo_detail(object(), canonical_duo_id(ALPHA, BRAVO))
+    assert detail.summary.synergy.wins_above_expected == 0.5
+    assert detail.big_moments is None
+
+
+def test_best_partner_is_positive_only_and_hidden_matches_never_contribute(monkeypatch):
+    monkeypatch.setattr(duo_repository, "_source", lambda _: (_profiles(), _synergy_matches()))
+    assert duo_repository.get_best_partner(object(), ALPHA).members[1].user_id == BRAVO
+    assert duo_repository.get_best_partner(object(), CHARLIE) is None
+    profiles = _profiles()
+    profiles[2]["hide_from_leaderboard"] = True
+    monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, _synergy_matches()))
+    assert duo_repository.get_best_partner(object(), ALPHA) is None
+    assert duo_repository.list_duo_ladder(object()).best_chemistry == []
+
+
+def test_chemistry_and_best_partner_rank_by_win_rate_gap_not_win_count(monkeypatch):
+    from dice.duo_synergy import SynergyMatch
+    echo, foxtrot, golf = "u-echo", "u-foxtrot", "u-golf"
+    profiles = _profiles() + [{"user_id": member, "display_name": member} for member in (echo, foxtrot, golf)]
+
+    def games(prefix, team1, team2, wins, losses):
+        return [SynergyMatch(
+            game_id=f"{prefix}-{index}", played_at=datetime(2026, 1, 1, index % 24, tzinfo=timezone.utc),
+            team1=team1, team2=team2, winner_team=1 if index < wins else 2,
+            team1_score=11 if index < wins else 5, team2_score=5 if index < wins else 11, elo_before=dict.fromkeys((*team1, *team2), 1500),
+        ) for index in range(wins + losses)]
+
+    # 20-1 is 9.5 wins over expected but 95% vs 50%; 5-0 is 2.5 over but 100% vs 50%.
+    matches = games("volume", (ALPHA, BRAVO), (CHARLIE, DELTA), 20, 1) + games("rate", (ALPHA, echo), (foxtrot, golf), 5, 0)
+    monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, matches))
+    ladder = duo_repository.list_duo_ladder(object())
+    assert [row.duo_id for row in ladder.best_chemistry] == [canonical_duo_id(ALPHA, echo), canonical_duo_id(ALPHA, BRAVO)]
+    assert [row.duo_id for row in ladder.better_apart] == [canonical_duo_id(foxtrot, golf), canonical_duo_id(CHARLIE, DELTA)]
+    volume = ladder.best_chemistry[1].synergy
+    assert (volume.wins, volume.losses, volume.win_rate, volume.expected_win_rate) == (20, 1, 20 / 21, 0.5)
+    assert echo in {member.user_id for member in duo_repository.get_best_partner(object(), ALPHA).members}
+
+
+def test_big_moments_does_not_read_live_tables_below_gate():
+    assert duo_repository._big_moments(object(), (ALPHA, BRAVO), [], [str(i) for i in range(9)]) is None
+
+
+class _LiveLedgerClient:
+    def __init__(self, live_rows, events):
+        self.live_rows = live_rows
+        self.events = events
+        self.reads = []
+
+    def table(self, table):
+        client = self
+        class Query:
+            def __init__(self):
+                self.filter = None
+                self.orders = []
+                self.bounds = (0, 999)
+            def select(self, *_): return self
+            def in_(self, key, ids):
+                self.filter = (key, ids)
+                return self
+            def eq(self, *_): return self
+            def is_(self, *_): return self
+            def order(self, key):
+                self.orders.append(key)
+                return self
+            def range(self, start, end):
+                self.bounds = (start, end)
+                return self
+            def execute(self):
+                client.reads.append((table, self.filter, self.orders, self.bounds))
+                if table == "dice_live_matches":
+                    rows = [row for row in client.live_rows if row[self.filter[0]] in self.filter[1]]
+                else:
+                    rows = [{"match_id": match_id, "event": event}
+                            for match_id, events in sorted(client.events.items())
+                            if match_id in self.filter[1]
+                            for event in sorted(events, key=lambda event: event["sequence"])]
+                return _RpcResponse(rows[self.bounds[0]:self.bounds[1] + 1])
+        return Query()
+
+
+def test_live_ledger_adapter_returns_split_only_at_ten_games():
+    from dataclasses import replace
+    rules = {"contract_version": 1, "ruleset_version": 1, "scoring_version": 1,
+             "target_score": 11, "win_by": 2, "call_policy": {
+                 "low_call_deadline": "before_surface_contact", "low_call_exceptions": [],
+                 "short_boundary": "center_line_is_short", "midline_remedy": "consume_attempt",
+                 "dispute_authority": "teams_or_designated_referee", "uncertain_call_remedy": "retoss"}}
+    matches = [replace(_synergy_matches()[0], game_id=f"game-{i}") for i in range(10)]
+    live_rows = [{"id": f"live-{i}", "official_result_id": match.game_id, "status": "completed",
+                  "team_order": ["blue", "clay"], "teams": {"blue": [ALPHA, BRAVO], "clay": [CHARLIE, DELTA]},
+                  "rules_snapshot": rules} for i, match in enumerate(matches)]
+    events = {}
+    for row in live_rows:
+        common = {"match_id": row["id"], "recorded_by": "ref", "recorded_at": "2026-08-24T12:00:00Z", "match_elapsed_ms": 0}
+        # A mistaken Alpha point is replaced with Bravo's point. Only Bravo
+        # should receive positive swing in the final split.
+        events[row["id"]] = [
+            {**common, "id": "e1", "match_version": 1, "sequence": 1, "client_command_id": "c1", "command_index": 0,
+             "kind": "observation", "thrower_id": ALPHA, "throwing_team_id": "blue", "outcome": "point", "score_delta": [1, 0]},
+            {**common, "id": "e2", "match_version": 2, "sequence": 2, "client_command_id": "c2", "command_index": 0,
+             "kind": "correction", "target_event_id": "e1", "reason": "mistaken_entry"},
+            {**common, "id": "e3", "match_version": 2, "sequence": 3, "client_command_id": "c2", "command_index": 1,
+             "kind": "observation", "thrower_id": BRAVO, "throwing_team_id": "blue", "outcome": "point",
+             "score_delta": [1, 0], "replacement_for": "e1"},
+        ]
+
+
+    client = _LiveLedgerClient(live_rows, events)
+    live_rows.pop()
+    assert duo_repository._big_moments(client, (ALPHA, BRAVO), matches, [m.game_id for m in matches]) is None
+    live_rows.append({**live_rows[0], "id": "live-9", "official_result_id": "game-9"})
+    result = duo_repository._big_moments(client, (ALPHA, BRAVO), matches, [m.game_id for m in matches])
+    assert result is not None
+    assert result["games"] == 10
+    assert [row["share"] for row in result["members"]] == [0.0, 1.0]
+    event_reads = [read for read in client.reads if read[0] == "dice_live_events"]
+    assert len(event_reads) == 1
+    assert event_reads[0][1][0] == "match_id"
+    assert len(event_reads[0][1][1]) == 10
+    assert event_reads[0][2] == ["match_id", "sequence"]
+
+
+
+def test_detail_rank_matches_displayed_elo_ladder(monkeypatch):
+    from dataclasses import replace
+    profiles = _profiles() + [{"user_id": member, "display_name": member} for member in ("e", "f", "g", "h")]
+    matches = [replace(match, game_id=f"long-{batch}-{index}")
+               for batch in range(6) for index, match in enumerate(_synergy_matches())]
+    matches += [replace(match, game_id=f"short-{index}", team1=("e", "f"), team2=("g", "h"))
+                for index, match in enumerate(_synergy_matches()[:3])]
+    monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, matches))
+    ladder = duo_repository.list_duo_ladder(object())
+    # The new pair has higher displayed Elo but wider uncertainty; ordering by
+    # conservative score here would disagree with the ladder.
+    assert ladder.ranked[0].duo_id == canonical_duo_id("e", "f")
+    assert ladder.ranked[0].conservative_score < ladder.ranked[1].conservative_score
+    for duo in ladder.ranked:
+        detail = duo_repository.get_duo_detail(object(), duo.duo_id)
+        assert detail.summary.rank == duo.rank
+
+
+def test_mixed_duo_history_counts_the_same_games_as_the_ladder():
+    games, players = [], []
+    for index in range(8):
+        game_id = f"mixed-{index}"
+        games.append({"id": game_id, "ranked": True, "duo_only": 5 <= index < 7,
+                      "team1_score": 11, "team2_score": 3, "winner_team": 1,
+                      "played_at": f"2026-01-{index + 1:02}T00:00:00Z"})
+        for member, team in [(ALPHA, 1), (BRAVO, 1), (CHARLIE, 2), (DELTA, 2)]:
+            players.append({"game_id": game_id, "user_id": member, "team": team,
+                            "elo_before": 1500 if index < 5 else None})
+    client = _SnapshotClient({"snapshot_version": "dice-rating-analytics/v1", "profiles": _profiles(),
+                              "games": games, "players": players})
+    detail = duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO))
+    assert detail.summary.games == 8
+    assert detail.summary.synergy.games == detail.summary.synergy.wins == 8
+    assert detail.summary.synergy.expected_wins == 4.0
+    assert detail.summary.synergy.apart == []
+    # Missing snapshots keep the same game set using starting ratings.
+    client.snapshot["players"][0]["elo_before"] = None
+    assert duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO)).summary.synergy.games == 8
+
+
+def test_big_moments_batches_pages_and_caps_recent_matches(monkeypatch):
+    from dataclasses import replace
+    from dice.live_probability import LiveProbabilityPoint
+    count = duo_repository.MAX_BIG_MOMENTS_MATCHES + 7
+    matches = [replace(_synergy_matches()[0], game_id=f"game-{i}") for i in range(count)]
+    live_rows = [{"id": f"live-{i}", "official_result_id": match.game_id,
+                  "teams": {}, "team_order": [], "rules_snapshot": {}}
+                 for i, match in enumerate(matches)]
+    events = {row["id"]: [{"sequence": i} for i in range(20)] for row in live_rows}
+    client = _LiveLedgerClient(live_rows, events)
+    projected = {}
+    def project(match, rules, events, prior):
+        projected[match["match_id"]] = events
+        return [LiveProbabilityPoint(1, (1, 0), 0.6, 0.4, 0.1, "play", thrower_id=ALPHA)]
+    monkeypatch.setattr(duo_repository, "project_big_moment_points", project)
+    result = duo_repository._big_moments(client, (ALPHA, BRAVO), matches, [match.game_id for match in matches])
+    assert result["games"] == duo_repository.MAX_BIG_MOMENTS_MATCHES
+    assert set(projected) == {f"live-{i}" for i in range(7, count)}
+    assert all([event["sequence"] for event in events] == list(range(20)) for events in projected.values())
+    event_reads = [read for read in client.reads if read[0] == "dice_live_events"]
+    assert len(event_reads) == 2
+    assert [read[3] for read in event_reads] == [(0, 499), (500, 999)]

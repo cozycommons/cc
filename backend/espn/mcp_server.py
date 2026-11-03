@@ -257,10 +257,12 @@ def approve_roster_edit(api_token: str, edit_id: str) -> str:
 
     Executes the edit as a single ESPN transaction and records the
     outcome on the edit: executed, waiver_pending (the add became a
-    waiver claim, bid 0), or failed with ESPN's error. Only call this
+    waiver claim, bid 0), failed for rejection, unknown for an ambiguous
+    acknowledgment, or uncertain after a lost response/server error. Only call this
     after the user has explicitly approved the exact edit shown by
     propose_roster_edit. Approving an already-executed or expired
-    edit is an error and never double-submits.
+    edit is an error and never double-submits. Repeating an unresolved
+    approval only rereads ESPN to reconcile its outcome.
     """
     supabase, account, client = _account_and_client(api_token)
     result = roster_edits.approve_edit(
@@ -279,11 +281,14 @@ def get_roster_edits(
 ) -> str:
     """Roster edits for your account, newest first (the audit trail).
 
-    Pass edit_id to fetch just that one edit's current status.
+    Pass edit_id to fetch one edit and reconcile an unresolved outcome
+    by rereading ESPN. This never submits or resubmits a transaction.
     """
-    supabase, account, _ = _account_and_client(api_token)
+    supabase, account, client = _account_and_client(api_token)
     if edit_id is not None:
-        edit = roster_edits.get_edit(supabase, account["id"], edit_id)
+        edit = roster_edits.get_edit(
+            supabase, account["id"], edit_id, account=account, client=client
+        )
         if edit is None:
             raise ValueError("no roster edit with that id for this account")
         return json.dumps(edit)
@@ -329,10 +334,12 @@ def approve_trade(api_token: str, proposal_id: str) -> str:
 
     Submits the offer as a single ESPN TRADE transaction and records
     the outcome on the proposal: offered (ESPN accepted the offer; the
-    counterparty accepts or declines on ESPN) or failed with ESPN's
-    error. Only call this after the user has explicitly approved the
+    counterparty accepts or declines on ESPN), failed for rejection,
+    unknown for an ambiguous acknowledgment, or uncertain after a lost
+    response/server error. Only call this after the user has explicitly approved the
     exact offer shown by propose_trade. Approving an already-offered
-    or expired proposal is an error and never double-submits.
+    or expired proposal is an error and never double-submits. Repeating an
+    unresolved approval only rereads ESPN to reconcile its outcome.
     """
     supabase, account, client = _account_and_client(api_token)
     result = trades.approve_trade(
@@ -351,11 +358,14 @@ def get_trades(
 ) -> str:
     """Trade proposals for your account, newest first (the audit trail).
 
-    Pass proposal_id to fetch just that one proposal's current status.
+    Pass proposal_id to fetch one proposal and reconcile an unresolved
+    outcome by rereading ESPN. This never submits or resubmits an offer.
     """
-    supabase, account, _ = _account_and_client(api_token)
+    supabase, account, client = _account_and_client(api_token)
     if proposal_id is not None:
-        proposal = trades.get_proposal(supabase, account["id"], proposal_id)
+        proposal = trades.get_proposal(
+            supabase, account["id"], proposal_id, account=account, client=client
+        )
         if proposal is None:
             raise ValueError(
                 "no trade proposal with that id for this account"

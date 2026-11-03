@@ -2943,3 +2943,22 @@ def test_commons_role_controls_admin_access_and_me_without_email_fallback():
     supabase.auth._users_by_token[ADMIN_TOKEN]['email'] = 'jason.keungg@gmail.com'
     assert client.get('/dice/me', headers=headers).json()['is_admin'] is False
     assert client.put('/dice/admin/features/u1', headers=headers, json={'feature':'dice_live_referee','enabled':True}).status_code == 403
+
+
+def test_best_partner_uses_the_duo_access_boundary_and_positive_result(monkeypatch):
+    from dice import routes as dice_routes
+    from dice.schemas import DuoSynergy
+    summary = _duo_api_summary()
+    summary.synergy = DuoSynergy(wins=4, losses=1, games=5, expected_wins=2.5,
+                                wins_above_expected=1.5, apart=[])
+    monkeypatch.setattr(dice_routes, "get_best_partner", lambda *_args: summary)
+    client, _ = _build_client(auth_users=AUTH_USERS)
+    assert client.get("/dice/profiles/u1/best-partner").status_code == 403
+    assert client.get("/dice/profiles/u1/best-partner", headers=_headers(HOST_TOKEN)).status_code == 404
+    client, _ = _build_client(profiles=ROSTER, auth_users=AUTH_USERS)
+    response = client.get("/dice/profiles/u1/best-partner", headers=_headers(HOST_TOKEN))
+    assert response.status_code == 200
+    assert response.json()["synergy"]["wins_above_expected"] == 1.5
+    assert (response.json()["synergy"]["win_rate"], response.json()["synergy"]["expected_win_rate"]) == (0.8, 0.5)
+    monkeypatch.setattr(dice_routes, "get_best_partner", lambda *_args: None)
+    assert client.get("/dice/profiles/u1/best-partner", headers=_headers(HOST_TOKEN)).json() is None

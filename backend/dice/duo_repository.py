@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import replace
+from dataclasses import asdict, replace
+import logging
+
+from dice.duo_synergy import (
+    BIG_MOMENTS_MIN_LIVE_GAMES, SynergyMatch, calculate_big_moments, calculate_duo_synergies,
+    project_big_moment_points, synergy_point_gap, synergy_rank_key,
+)
 from supabase import Client
 from supabase_cache import read_snapshot_rpc
 
@@ -24,6 +30,7 @@ from dice.schemas import (
 )
 
 MAX_DUO_REPLAY_GAMES = 5000
+MAX_BIG_MOMENTS_MATCHES = 30
 
 
 def _source(supabase: Client) -> tuple[list[dict], list[DuoMatch]]:
@@ -43,10 +50,17 @@ def _source(supabase: Client) -> tuple[list[dict], list[DuoMatch]]:
     games = snapshot.get("games") or []
     players = snapshot.get("players") or []
     players_by_game: dict[str, dict[int, list[str]]] = defaultdict(lambda: defaultdict(list))
+    ratings_by_game: dict[str, dict] = defaultdict(dict)
+    after_by_game: dict[str, dict] = defaultdict(dict)
     for player in players:
+        after_by_game[player["game_id"]][player["user_id"]] = player.get("elo_after")
+        ratings_by_game[player["game_id"]][player["user_id"]] = player.get("elo_before")
         players_by_game[player["game_id"]][player["team"]].append(player["user_id"])
     matches = [
-        DuoMatch(
+        SynergyMatch(
+            elo_before=ratings_by_game[game["id"]],
+            elo_after=after_by_game[game["id"]],
+            duo_only=game.get("duo_only", False),
             game_id=game["id"],
             played_at=game["played_at"],
             created_at=game.get("created_at"),
@@ -68,6 +82,7 @@ def _summary(
     profiles: dict[str, dict],
     rank: int | None = None,
     game_ids: list[str] | None = None,
+    synergy: dict | None = None,
 ) -> DuoSummary:
     members = tuple(
         DuoMember(
@@ -79,6 +94,7 @@ def _summary(
     )
     return DuoSummary(
         duo_id=state.duo_id,
+        synergy=synergy,
         members=members,  # type: ignore[arg-type]
         elo=state.elo,
         rating_deviation=round(state.deviation, 2),
@@ -125,7 +141,8 @@ def _replay(supabase: Client):
     ]
     states, transitions = replay_duo_history_with_transitions(public_matches)
     ladder = rank_duos(states)
-    return profiles, ladder, states, transitions
+    synergies = calculate_duo_synergies(public_matches)
+    return profiles, ladder, states, transitions, synergies, public_matches
 
 
 def _visible_states(states: dict[str, DuoRatingState], profiles: list[dict]) -> dict[str, DuoRatingState]:
@@ -151,7 +168,7 @@ def _competition_ranks(states: list[DuoRatingState]) -> dict[str, int]:
 def list_duo_ladder(
     supabase: Client, limit: int = 100, homepage_eligible_only: bool = False
 ) -> DuoLadderOut:
-    profiles, ladder, _, transitions = _replay(supabase)
+    profiles, ladder, _, transitions, synergies, _ = _replay(supabase)
     visible = _visible_states({state.duo_id: state for state in (*ladder.ranked, *ladder.to_watch)}, profiles)
     profile_map = {row["user_id"]: row for row in profiles}
     game_ids_by_duo: dict[str, list[str]] = defaultdict(list)
@@ -160,20 +177,38 @@ def list_duo_ladder(
     ranked_states = [state for state in ladder.ranked if state.duo_id in visible]
     if homepage_eligible_only:
         ranked_states = [state for state in ranked_states if state.homepage_eligible]
-    ranked_states = ranked_states[:limit]
+    if len(ranked_states) > limit:
+        cutoff_elo = ranked_states[limit - 1].elo
+        ranked_states = [state for index, state in enumerate(ranked_states)
+                         if index < limit or state.elo == cutoff_elo]
     ranks = _competition_ranks([state for state in ladder.ranked if state.duo_id in visible])
-    ranked = [_summary(state, profile_map, ranks[state.duo_id], game_ids_by_duo.get(state.duo_id)) for state in ranked_states]
+    ranked = [_summary(state, profile_map, ranks[state.duo_id], game_ids_by_duo.get(state.duo_id), synergies.get(state.duo_id)) for state in ranked_states]
     to_watch = [
         _summary(state, profile_map, game_ids=game_ids_by_duo.get(state.duo_id))
         for state in ladder.to_watch
         if state.duo_id in visible
     ]
     to_watch = to_watch[:limit]
-    return DuoLadderOut(ranked=ranked, to_watch=to_watch)
+    chemistry = [state for state in visible.values() if state.duo_id in synergies]
+    def ranked_by_rate(positive):
+        sign = 1 if positive else -1
+        return sorted(
+            (state for state in chemistry if sign * synergy_point_gap(synergies[state.duo_id]) > 0),
+            key=lambda state: synergy_rank_key(synergies[state.duo_id], state.duo_id, descending=positive),
+        )[:3]
+    def summaries(candidates):
+        return [_summary(state, profile_map, ranks.get(state.duo_id),
+                         game_ids_by_duo.get(state.duo_id), synergies[state.duo_id])
+                for state in candidates]
+    return DuoLadderOut(
+        ranked=ranked, to_watch=to_watch,
+        best_chemistry=summaries(ranked_by_rate(True)),
+        better_apart=summaries(ranked_by_rate(False)),
+    )
 
 
 def get_duo_detail(supabase: Client, duo_id: str) -> DuoDetailOut | None:
-    profiles, _, states, transitions = _replay(supabase)
+    profiles, _, states, transitions, synergies, matches = _replay(supabase)
     state = states.get(duo_id)
     visible = _visible_states(states, profiles)
     if state is None or duo_id not in visible:
@@ -182,7 +217,7 @@ def get_duo_detail(supabase: Client, duo_id: str) -> DuoDetailOut | None:
     public_states = {candidate.duo_id: candidate for candidate in states.values() if candidate.duo_id in visible}
     placed = sorted(
         (candidate for candidate in public_states.values() if candidate.placed),
-        key=lambda candidate: (-candidate.conservative_score, -candidate.elo, candidate.duo_id),
+        key=lambda candidate: (-candidate.elo, candidate.duo_id),
     )
     ranks = _competition_ranks(placed)
     rank = ranks.get(duo_id)
@@ -203,7 +238,7 @@ def get_duo_detail(supabase: Client, duo_id: str) -> DuoDetailOut | None:
         current_streak=public_current,
         best_streak=public_best,
     )
-    summary = _summary(public_state, profile_map, rank, [transition.game_id for transition in public_own])
+    summary = _summary(public_state, profile_map, rank, [transition.game_id for transition in public_own], synergies.get(duo_id))
     grouped: dict[str, list[DuoTransition]] = defaultdict(list)
     for transition in public_own:
         grouped[transition.opponent_duo_id].append(transition)
@@ -227,7 +262,70 @@ def get_duo_detail(supabase: Client, duo_id: str) -> DuoDetailOut | None:
         for opponent_id, opponent_transitions in sorted(grouped.items())
     ]
     evidence = [_transition_out(transition) for transition in public_own]
-    return DuoDetailOut(summary=summary, rating_history=evidence, games=evidence, head_to_head=head_to_head)
+    return DuoDetailOut(summary=summary, rating_history=evidence, games=evidence, head_to_head=head_to_head,
+                        big_moments=_big_moments(supabase, state.members, matches, summary.game_ids))
 
 
-__all__ = ["get_duo_detail", "list_duo_ladder"]
+def get_best_partner(supabase: Client, user_id: str) -> DuoSummary | None:
+    profiles, _, states, _, synergies, _ = _replay(supabase)
+    candidates = [state for state in states.values() if user_id in state.members
+                  and state.duo_id in synergies and synergy_point_gap(synergies[state.duo_id]) > 0]
+    if not candidates:
+        return None
+    best = min(candidates, key=lambda state: synergy_rank_key(synergies[state.duo_id], state.duo_id))
+    return _summary(best, {row["user_id"]: row for row in profiles}, synergy=synergies[best.duo_id])
+
+
+def _big_moments(supabase: Client, members, matches, game_ids) -> dict | None:
+    if len(game_ids) < BIG_MOMENTS_MIN_LIVE_GAMES:
+        return None
+    # The ledger is the persisted source; pulse points are derived, not stored.
+    from dice.live_pregame import pregame_probability
+
+    try:
+        # Match IDs arrive in replay order. Bound projection work to the latest
+        # live games, finding them in batches without truncating sparse history.
+        live = []
+        latest_ids = list(reversed(game_ids))
+        for start in range(0, len(latest_ids), 200):
+            batch_ids = latest_ids[start:start + 200]
+            rows = (supabase.table("dice_live_matches").select("*")
+                    .in_("official_result_id", batch_ids)
+                    .eq("status", "completed").is_("deleted_at", "null").execute().data or [])
+            order = {game_id: index for index, game_id in enumerate(batch_ids)}
+            live.extend(sorted(rows, key=lambda row: order[row["official_result_id"]]))
+            if len(live) >= MAX_BIG_MOMENTS_MATCHES:
+                break
+        live = live[:MAX_BIG_MOMENTS_MATCHES]
+        if len(live) < BIG_MOMENTS_MIN_LIVE_GAMES:
+            return None
+
+        # Page one ordered batch of ledger rows, rather than querying each game.
+        live_ids = [row["id"] for row in live]
+        events_by_match = defaultdict(list)
+        offset = 0
+        while True:
+            batch = (supabase.table("dice_live_events").select("match_id, event")
+                     .in_("match_id", live_ids).order("match_id").order("sequence")
+                     .range(offset, offset + 499).execute().data or [])
+            for item in batch:
+                events_by_match[item["match_id"]].append(item["event"])
+            if len(batch) < 500:
+                break
+            offset += len(batch)
+        timelines = {}
+        for row in live:
+            events = events_by_match[row["id"]]
+            points = project_big_moment_points(
+                {"match_id": row["id"], "teams": row["teams"], "team_order": row["team_order"]},
+                row["rules_snapshot"], events, pregame_probability(row)[0],
+            )
+            timelines[row["official_result_id"]] = [asdict(point) for point in points]
+        return calculate_big_moments(members, matches, timelines)
+    except Exception:
+        # Optional enrichment must never take the pair's rating page offline.
+        logging.getLogger(__name__).warning("Duo big moments unavailable", exc_info=True)
+        return None
+
+
+__all__ = ["get_best_partner", "get_duo_detail", "list_duo_ladder"]

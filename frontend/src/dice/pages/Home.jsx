@@ -1,3 +1,6 @@
+import { useDuoLadder } from '../useDuoLadder.js';
+import { isTiedDuo } from '../duoRanks.js';
+import DuoLoadError from '../components/DuoLoadError.jsx';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { diceApi } from '../api.js';
@@ -88,28 +91,6 @@ function rankedStreakGames(games, gameIds) {
   return [...(games || [])]
     .filter((game) => wanted.has(game.id))
     .sort((left, right) => new Date(left.played_at) - new Date(right.played_at));
-}
-
-function calculateSynergies(games) {
-  const pairs = new Map();
-  (games || []).forEach((game) => {
-    const teams = [1, 2].map((team) => (game.players || []).filter((player) => player.team === team));
-    teams.forEach((players) => {
-      for (let index = 0; index < players.length; index += 1) {
-        for (let other = index + 1; other < players.length; other += 1) {
-          const pair = [players[index], players[other]].sort((left, right) => left.user_id.localeCompare(right.user_id));
-          const key = pair.map((player) => player.user_id).join(':');
-          const record = pairs.get(key) || { user_id: key, players: pair.map((player) => player.display_name), wins: 0, losses: 0 };
-          if (game.winner_team === pair[0].team) record.wins += 1;
-          else record.losses += 1;
-          pairs.set(key, record);
-        }
-      }
-    });
-  });
-  return [...pairs.values()]
-    .filter((record) => record.wins + record.losses >= 2)
-    .sort((left, right) => right.wins - left.wins || left.losses - right.losses);
 }
 
 function livePlayerLabel(game, playerId) {
@@ -228,22 +209,25 @@ function EloSection({ entries, currentUserId }) {
   );
 }
 
-function DuoHomeSection({ ladder }) {
-  const duos = ladder?.ranked?.filter((duo) => duo.homepage_eligible)?.slice(0, 3) || [];
-  if (!duos.length) return null;
+function DuoHomeSection({ ladder, error, retry, loading }) {
+  const duos = ladder?.ranked?.filter((duo) => duo.homepage_eligible) || [];
+  if (!duos.length && !error && !loading) return null;
   return (
     <section className="mb-10">
       <SectionHeader label="// TOP DUOS" viewAllTo="/dice/stats?view=duos" />
-      <div className="jk-card overflow-hidden">
+      {error ? <DuoLoadError onRetry={retry} /> : loading ? <div className="jk-card px-3 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>Loading duos…</div> : <div className="jk-card overflow-hidden">
         {duos.map((duo, index) => (
           <Link key={duo.duo_id} to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-row flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-            <span className="jk-label w-4 text-center">{index + 1}</span>
+            <span className="jk-label w-5 shrink-0 text-center">
+              <span aria-hidden="true">{isTiedDuo(duos, duo) ? 'T' : ''}{duo.rank ?? index + 1}</span>
+              <span className="sr-only">{`${isTiedDuo(duos, duo) ? 'Tied rank' : 'Rank'} ${duo.rank ?? index + 1}`}</span>
+            </span>
             <div className="flex -space-x-2 shrink-0">{duo.members.map((member) => <PlayerAvatar key={member.user_id} profile={member} size={30} linkToProfile={false} />)}</div>
             <div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p><p className="jk-label mt-0.5" style={{ fontSize: 9 }}>{duo.wins}–{duo.losses} · {duo.games} games</p></div>
             <span className="jk-display text-lg tabular-nums">{duo.elo}</span>
           </Link>
         ))}
-      </div>
+      </div>}
     </section>
   );
 }
@@ -352,10 +336,11 @@ function TournamentHighlights({ tournaments }) {
   );
 }
 
-export { calculateStreaks, calculateSynergies, rankedStreakGames, HistoricalRecordsSection, CurrentStreaksSection, matchStory, splitTournaments };
+export { calculateStreaks, rankedStreakGames, HistoricalRecordsSection, CurrentStreaksSection, matchStory, splitTournaments };
 
 function ReleasedHome({ auth }) {
   const [liveGames, setLiveGames] = useState(null);
+  const { ladder: duoLadder, error: duoError, retry: retryDuos } = useDuoLadder(auth, 3, true);
   const [livePredictions, setLivePredictions] = useState({});
   const signedIn = Boolean(auth?.token && auth?.profile);
   const currentUserId = auth?.profile?.user_id || auth?.user?.id;
@@ -364,9 +349,6 @@ function ReleasedHome({ auth }) {
   const [sinks] = useDiceResource(`sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
   const [selfSinks] = useDiceResource(`self-sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSelfSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
   const [tournaments] = useDiceResource('tournaments:20', () => diceApi.getTournaments(20), { fallback: [] });
-  const duoKey = signedIn && typeof diceApi.getDuoLadder === 'function' ? `duos:home:${currentUserId}` : null;
-  const [cachedDuoLadder] = useDiceResource(duoKey, () => diceApi.getDuoLadder(auth.token, 3, true), { fallback: { ranked: [], to_watch: [] } });
-  const duoLadder = duoKey ? cachedDuoLadder : null;
 
   useEffect(() => {
     if (!signedIn) {
@@ -406,7 +388,7 @@ function ReleasedHome({ auth }) {
       </section>;
   const streaksSection = <CurrentStreaksSection games={games} />;
   const eloSection = <EloSection entries={elo} currentUserId={currentUserId} />;
-  const duoSection = <DuoHomeSection ladder={duoLadder} />;
+  const duoSection = <DuoHomeSection ladder={duoLadder} error={duoError} retry={retryDuos} loading={signedIn && !duoLadder && !duoError} />;
   const tournamentSection = tournaments === null ? (
         <section className="mb-10"><SectionHeader label="// TOURNAMENTS" viewAllTo="/dice/tournaments" /><div className="jk-card overflow-hidden"><LoadingRows rows={2} /></div></section>
       ) : <TournamentHighlights tournaments={tournaments} />;
