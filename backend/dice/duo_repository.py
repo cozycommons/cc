@@ -7,7 +7,7 @@ from dataclasses import asdict, replace
 import logging
 
 from dice.duo_synergy import (
-    BIG_MOMENTS_MIN_LIVE_GAMES, SynergyMatch, calculate_big_moments, calculate_duo_synergies,
+    BIG_MOMENTS_MIN_LIVE_GAMES, DUO_SYNERGY_NEUTRAL_MARGIN, SynergyMatch, calculate_big_moments, calculate_duo_synergies,
     project_big_moment_points,
 )
 from supabase import Client
@@ -29,6 +29,7 @@ from dice.schemas import (
 )
 
 MAX_DUO_REPLAY_GAMES = 5000
+MAX_BIG_MOMENTS_MATCHES = 30
 
 
 def _source(supabase: Client) -> tuple[list[dict], list[DuoMatch]]:
@@ -55,6 +56,7 @@ def _source(supabase: Client) -> tuple[list[dict], list[DuoMatch]]:
     matches = [
         SynergyMatch(
             elo_before=ratings_by_game[game["id"]],
+            duo_only=game.get("duo_only", False),
             game_id=game["id"],
             played_at=game["played_at"],
             created_at=game.get("created_at"),
@@ -190,9 +192,9 @@ def list_duo_ladder(
                 for state in candidates]
     return DuoLadderOut(
         ranked=ranked, to_watch=to_watch,
-        best_chemistry=summaries([state for state in chemistry if synergies[state.duo_id]["wins_above_expected"] > 0][:3]),
+        best_chemistry=summaries([state for state in chemistry if synergies[state.duo_id]["wins_above_expected"] >= DUO_SYNERGY_NEUTRAL_MARGIN][:3]),
         better_apart=summaries(sorted(
-            (state for state in chemistry if synergies[state.duo_id]["wins_above_expected"] < 0),
+            (state for state in chemistry if synergies[state.duo_id]["wins_above_expected"] <= -DUO_SYNERGY_NEUTRAL_MARGIN),
             key=lambda state: (synergies[state.duo_id]["wins_above_expected"], state.duo_id),
         )[:3]),
     )
@@ -257,13 +259,10 @@ def get_duo_detail(supabase: Client, duo_id: str) -> DuoDetailOut | None:
                         big_moments=_big_moments(supabase, state.members, matches, summary.game_ids))
 
 
-__all__ = ["get_best_partner", "get_duo_detail", "list_duo_ladder"]
-
-
 def get_best_partner(supabase: Client, user_id: str) -> DuoSummary | None:
     profiles, _, states, _, synergies, _ = _replay(supabase)
     candidates = [state for state in states.values() if user_id in state.members
-                  and synergies.get(state.duo_id, {}).get("wins_above_expected", 0) > 0]
+                  and synergies.get(state.duo_id, {}).get("wins_above_expected", 0) >= DUO_SYNERGY_NEUTRAL_MARGIN]
     if not candidates:
         return None
     best = min(candidates, key=lambda state: (-synergies[state.duo_id]["wins_above_expected"], state.duo_id))
@@ -277,23 +276,39 @@ def _big_moments(supabase: Client, members, matches, game_ids) -> dict | None:
     from dice.live_pregame import pregame_probability
 
     try:
+        # Match IDs arrive in replay order. Bound projection work to the latest
+        # live games, finding them in batches without truncating sparse history.
         live = []
-        for start in range(0, len(game_ids), 200):
-            live.extend(supabase.table("dice_live_matches").select("*")
-                        .in_("official_result_id", game_ids[start:start + 200])
-                        .eq("status", "completed").is_("deleted_at", "null").execute().data or [])
+        latest_ids = list(reversed(game_ids))
+        for start in range(0, len(latest_ids), 200):
+            batch_ids = latest_ids[start:start + 200]
+            rows = (supabase.table("dice_live_matches").select("*")
+                    .in_("official_result_id", batch_ids)
+                    .eq("status", "completed").is_("deleted_at", "null").execute().data or [])
+            order = {game_id: index for index, game_id in enumerate(batch_ids)}
+            live.extend(sorted(rows, key=lambda row: order[row["official_result_id"]]))
+            if len(live) >= MAX_BIG_MOMENTS_MATCHES:
+                break
+        live = live[:MAX_BIG_MOMENTS_MATCHES]
         if len(live) < BIG_MOMENTS_MIN_LIVE_GAMES:
             return None
+
+        # Page one ordered batch of ledger rows, rather than querying each game.
+        live_ids = [row["id"] for row in live]
+        events_by_match = defaultdict(list)
+        offset = 0
+        while True:
+            batch = (supabase.table("dice_live_events").select("match_id, event")
+                     .in_("match_id", live_ids).order("match_id").order("sequence")
+                     .range(offset, offset + 499).execute().data or [])
+            for item in batch:
+                events_by_match[item["match_id"]].append(item["event"])
+            if len(batch) < 500:
+                break
+            offset += len(batch)
         timelines = {}
         for row in live:
-            events = []
-            while True:
-                batch = (supabase.table("dice_live_events").select("event")
-                         .eq("match_id", row["id"]).order("sequence")
-                         .range(len(events), len(events) + 499).execute().data or [])
-                events.extend(item["event"] for item in batch)
-                if len(batch) < 500:
-                    break
+            events = events_by_match[row["id"]]
             points = project_big_moment_points(
                 {"match_id": row["id"], "teams": row["teams"], "team_order": row["team_order"]},
                 row["rules_snapshot"], events, pregame_probability(row)[0],
@@ -304,3 +319,6 @@ def _big_moments(supabase: Client, members, matches, game_ids) -> dict | None:
         # Optional enrichment must never take the pair's rating page offline.
         logging.getLogger(__name__).warning("Duo big moments unavailable", exc_info=True)
         return None
+
+
+__all__ = ["get_best_partner", "get_duo_detail", "list_duo_ladder"]

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
-import { synergyDescription } from '../duoSynergy.js';
+import { isOnExpected, synergyDescription } from '../duoSynergy.js';
 import { diceApi } from '../api.js';
 
 export default function DuoDetail({ auth }) {
@@ -25,6 +25,12 @@ export default function DuoDetail({ auth }) {
     );
   const { summary, big_moments: bigMoments } = detail;
   const { synergy } = summary;
+  const shortenApartNames = summary.members.map((member) => member.display_name).join(' ').length > 16;
+  const apart = synergy?.apart.map((record) => {
+    const name = summary.members.find((member) => member.user_id === record.user_id)?.display_name || '';
+    return `${shortenApartNames ? name.split(/\s+/)[0] : name} ${record.wins}–${record.losses}`;
+  }).join(' · ');
+  const firstMomentPercent = bigMoments ? Math.round(bigMoments.members[0].share * 100) : 0;
   const gameLink = (gameId) => `/dice/game/${gameId}?duo=1`;
   return (
     <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
@@ -46,28 +52,25 @@ export default function DuoDetail({ auth }) {
       </div>
       {synergy && (
         <section className="jk-card p-4 mt-6" aria-label="Duo synergy">
-          <h2 className="jk-display text-2xl">{synergy.wins_above_expected < 0 ? 'Better apart' : synergy.wins_above_expected > 0 ? 'Better together' : 'Together'}</h2>
-          <p className="text-sm font-semibold mt-2">{synergy.wins}–{synergy.losses} together · {synergyDescription(synergy)}</p>
-          {synergy.apart.map((record) => (
-            <p key={record.user_id} className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
-              {summary.members.find((member) => member.user_id === record.user_id)?.display_name} · {record.wins}–{record.losses} with other partners
-            </p>
-          ))}
+          <h2 className="jk-label">{isOnExpected(synergy) ? 'Right on expected' : synergy.wins_above_expected < 0 ? 'Better apart' : 'Better together'}</h2>
+          {!isOnExpected(synergy) && <p className="jk-display text-3xl mt-2">{synergyDescription(synergy)}</p>}
+          {apart && <p className="jk-label mt-3 break-words" style={{ color: 'var(--text-secondary)' }}>Apart: {apart}</p>}
         </section>
       )}
       {bigMoments && (
         <section className="jk-card p-4 mt-4" aria-label="Big moments">
           <h2 className="jk-display text-xl">Big moments</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Share of big swings</p>
           <div className="grid grid-cols-2 gap-3 text-sm mt-3">
-            {bigMoments.members.map((record) => (
+            {bigMoments.members.map((record, index) => (
               <p key={record.user_id} className="min-w-0 break-words">
-                {summary.members.find((member) => member.user_id === record.user_id)?.display_name} · {(record.share * 100).toFixed(1)}%
+                {summary.members.find((member) => member.user_id === record.user_id)?.display_name} · {index === 0 ? firstMomentPercent : 100 - firstMomentPercent}%
               </p>
             ))}
           </div>
           <div className="flex h-3 rounded overflow-hidden mt-2" aria-hidden="true">
             {bigMoments.members.map((record, index) => (
-              <div key={record.user_id} style={{ width: `${record.share * 100}%`, background: index === 0 ? 'var(--text-secondary)' : 'var(--border-subtle)' }} />
+              <div key={record.user_id} style={{ width: `${record.share * 100}%`, background: index === 0 ? 'var(--team1-color)' : 'var(--team2-color)' }} />
             ))}
           </div>
         </section>

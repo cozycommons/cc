@@ -1,10 +1,10 @@
-import { synergyDescription } from '../duoSynergy.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import EloDistribution from '../components/EloDistribution.jsx';
 import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { diceApi } from '../api.js';
+import { synergyDescription } from '../duoSynergy.js';
 import { rankLeaderboard } from '../leaderboard.js';
 import { aggregateRecordedStats, metricLeaders } from '../recordedStats.js';
 import { calculateStreaks } from './Home.jsx';
@@ -317,16 +317,17 @@ function StreakView({ games }) {
   );
 }
 
-function DuoRow({ duo, rank }) {
+function DuoRow({ duo, rank, chemistry = false }) {
+  const record = chemistry ? duo.synergy : duo;
   return (
     <Link to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-row flex items-center gap-3 px-3 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-      <span className="jk-label w-5 text-center">{duo.rank || rank}</span>
+      {!chemistry && <span className="jk-label w-5 text-center">{duo.rank || rank}</span>}
       <div className="flex -space-x-2 shrink-0">{duo.members.map((member) => <PlayerAvatar key={member.user_id} profile={member} size={34} linkToProfile={false} />)}</div>
       <div className="min-w-0 flex-1">
         <p className="font-semibold text-sm truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p>
-        <p className="jk-label mt-1" style={{ fontSize: 10 }}>{duo.wins}–{duo.losses} · {duo.games} games</p>
+        <p className="jk-label mt-1" style={{ fontSize: 10 }}>{record.wins}–{record.losses}{chemistry ? ' together' : ` · ${duo.games} games`}</p>
       </div>
-      <p className="jk-display text-xl tabular-nums shrink-0">{duo.elo}</p>
+      <p className="jk-display text-xl tabular-nums shrink-0 text-right">{chemistry ? synergyDescription(duo.synergy, { short: true }) : duo.elo}</p>
     </Link>
   );
 }
@@ -351,15 +352,8 @@ function ChemistryList({ title, duos }) {
   if (!duos?.length) return null;
   return (
     <section aria-label={title}>
-      <SectionLabel>{title}</SectionLabel>
-      <div className="jk-card overflow-hidden">
-        {duos.map((duo) => (
-          <Link key={duo.duo_id} to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-row block px-3 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-            <p className="font-semibold text-sm truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{synergyDescription(duo.synergy)}</p>
-          </Link>
-        ))}
-      </div>
+      <div className="px-3 pt-4"><SectionLabel>{title}</SectionLabel></div>
+      {duos.map((duo) => <DuoRow key={duo.duo_id} duo={duo} chemistry />)}
     </section>
   );
 }
@@ -388,8 +382,6 @@ function DuoView({ auth }) {
   const ranked = ladder.ranked.slice(leaders.length);
   return (
     <section className="jk-stats-panel space-y-7" aria-label="Duo stats">
-      <ChemistryList title="Best chemistry" duos={ladder.best_chemistry} />
-      <ChemistryList title="Better apart" duos={ladder.better_apart} />
       {leaders.length > 1 ? (
         <div className="jk-stats-tie-card is-duos" aria-label={`${leaders.length} duos tied for first`}>
           <div>
@@ -432,6 +424,13 @@ function DuoView({ auth }) {
           <SectionLabel>Ranked duos</SectionLabel>
           <p className="text-xs -mt-1 mb-3" style={{ color: 'var(--text-tertiary)' }}>Highest ELO ranks first.</p>
           <div className="jk-card overflow-hidden">{ranked.map((duo, index) => <DuoRow key={duo.duo_id} duo={duo} rank={duo.rank ?? leaders.length + index + 1} />)}</div>
+        </div>
+      )}
+
+      {(ladder.best_chemistry?.length > 0 || ladder.better_apart?.length > 0) && (
+        <div className={`jk-card overflow-hidden grid grid-cols-1 ${ladder.best_chemistry?.length && ladder.better_apart?.length ? 'md:grid-cols-2' : ''}`} aria-label="Duo chemistry">
+          <ChemistryList title="Best chemistry" duos={ladder.best_chemistry} />
+          <ChemistryList title="Better apart" duos={ladder.better_apart} />
         </div>
       )}
 

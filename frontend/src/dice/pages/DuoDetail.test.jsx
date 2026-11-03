@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -64,9 +64,9 @@ function renderSynergy(detail) {
 it.each([[2.44, 'Better together', '2.4 wins over expected'], [-3.14, 'Better apart', '3.1 wins under expected']])('shows pair comparison for %s', async (difference, title, description) => {
   renderSynergy(synergyDetail(difference, { apart: [{ user_id: 'u1', wins: 8, losses: 2, games: 10 }, { user_id: 'u2', wins: 7, losses: 1, games: 8 }] }));
   expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
-  expect(screen.getByText(`3–9 together · ${description}`)).toBeInTheDocument();
-  expect(screen.getByText('Alpha · 8–2 with other partners')).toBeInTheDocument();
-  expect(screen.getByText('Bravo · 7–1 with other partners')).toBeInTheDocument();
+  expect(screen.getByText(description)).toBeInTheDocument();
+  expect(screen.getByText('Apart: Alpha 8–2 · Bravo 7–1')).toBeInTheDocument();
+  expect(within(screen.getByLabelText('Duo synergy')).queryByText(/together ·/)).not.toBeInTheDocument();
   expect(screen.queryByText(/0–0/)).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Big moments')).not.toBeInTheDocument();
 });
@@ -83,6 +83,28 @@ it('omits an unavailable comparison and live split', async () => {
 it('shows both names and percentages without ranking the big moments split', async () => {
   renderSynergy(synergyDetail(2.4, { bigMoments: { games: 10, members: [{ user_id: 'u1', share: 0.625 }, { user_id: 'u2', share: 0.375 }] } }));
   expect(await screen.findByRole('heading', { name: 'Big moments' })).toBeInTheDocument();
-  expect(screen.getByText('Alpha · 62.5%')).toBeInTheDocument();
-  expect(screen.getByText('Bravo · 37.5%')).toBeInTheDocument();
+  expect(screen.getByText('Alpha · 63%')).toBeInTheDocument();
+  expect(screen.getByText('Bravo · 37%')).toBeInTheDocument();
+  expect(screen.getByText('Share of big swings')).toBeInTheDocument();
+  const tones = screen.getByLabelText('Big moments').querySelector('[aria-hidden="true"]').children;
+  expect(tones[0].style.background).toBe('var(--team1-color)');
+  expect(tones[1].style.background).toBe('var(--team2-color)');
+});
+
+
+it.each([-0.049, 0, 0.049])('shows a neutral label without a hero number for %s', async (difference) => {
+  renderSynergy(synergyDetail(difference));
+  expect(await screen.findByRole('heading', { name: 'Right on expected' })).toBeInTheDocument();
+  const card = screen.getByLabelText('Duo synergy');
+  expect(within(card).queryByText(/wins? (over|under) expected/)).not.toBeInTheDocument();
+  expect(card.querySelector('.jk-display')).toBeNull();
+});
+
+it('uses short names in one apart line when full names are long', async () => {
+  const detail = synergyDetail(1, { apart: [{ user_id: 'u1', wins: 8, losses: 2 }, { user_id: 'u2', wins: 3, losses: 9 }] });
+  detail.summary.members[0].display_name = 'Golf Guard';
+  detail.summary.members[1].display_name = 'India In';
+  renderSynergy(detail);
+  expect(await screen.findByText('1.0 win over expected')).toBeInTheDocument();
+  expect(screen.getByText('Apart: Golf 8–2 · India 3–9')).toBeInTheDocument();
 });

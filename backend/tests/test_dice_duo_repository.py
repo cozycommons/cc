@@ -250,6 +250,44 @@ def test_big_moments_does_not_read_live_tables_below_gate():
     assert duo_repository._big_moments(object(), (ALPHA, BRAVO), [], [str(i) for i in range(9)]) is None
 
 
+class _LiveLedgerClient:
+    def __init__(self, live_rows, events):
+        self.live_rows = live_rows
+        self.events = events
+        self.reads = []
+
+    def table(self, table):
+        client = self
+        class Query:
+            def __init__(self):
+                self.filter = None
+                self.orders = []
+                self.bounds = (0, 999)
+            def select(self, *_): return self
+            def in_(self, key, ids):
+                self.filter = (key, ids)
+                return self
+            def eq(self, *_): return self
+            def is_(self, *_): return self
+            def order(self, key):
+                self.orders.append(key)
+                return self
+            def range(self, start, end):
+                self.bounds = (start, end)
+                return self
+            def execute(self):
+                client.reads.append((table, self.filter, self.orders, self.bounds))
+                if table == "dice_live_matches":
+                    rows = [row for row in client.live_rows if row[self.filter[0]] in self.filter[1]]
+                else:
+                    rows = [{"match_id": match_id, "event": event}
+                            for match_id, events in sorted(client.events.items())
+                            if match_id in self.filter[1]
+                            for event in sorted(events, key=lambda event: event["sequence"])]
+                return _RpcResponse(rows[self.bounds[0]:self.bounds[1] + 1])
+        return Query()
+
+
 def test_live_ledger_adapter_returns_split_only_at_ten_games():
     from dataclasses import replace
     rules = {"contract_version": 1, "ruleset_version": 1, "scoring_version": 1,
@@ -276,30 +314,21 @@ def test_live_ledger_adapter_returns_split_only_at_ten_games():
              "score_delta": [1, 0], "replacement_for": "e1"},
         ]
 
-    class Query:
-        def __init__(self, table):
-            self.table = table
-            self.match_id = None
-        def select(self, *_): return self
-        def in_(self, *_): return self
-        def eq(self, key, value):
-            if key == "match_id": self.match_id = value
-            return self
-        def is_(self, *_): return self
-        def order(self, *_): return self
-        def range(self, *_): return self
-        def execute(self):
-            return _RpcResponse(live_rows if self.table == "dice_live_matches" else [{"event": event} for event in events[self.match_id]])
-    class Client:
-        def table(self, table): return Query(table)
 
+    client = _LiveLedgerClient(live_rows, events)
     live_rows.pop()
-    assert duo_repository._big_moments(Client(), (ALPHA, BRAVO), matches, [m.game_id for m in matches]) is None
+    assert duo_repository._big_moments(client, (ALPHA, BRAVO), matches, [m.game_id for m in matches]) is None
     live_rows.append({**live_rows[0], "id": "live-9", "official_result_id": "game-9"})
-    result = duo_repository._big_moments(Client(), (ALPHA, BRAVO), matches, [m.game_id for m in matches])
+    result = duo_repository._big_moments(client, (ALPHA, BRAVO), matches, [m.game_id for m in matches])
     assert result is not None
     assert result["games"] == 10
     assert [row["share"] for row in result["members"]] == [0.0, 1.0]
+    event_reads = [read for read in client.reads if read[0] == "dice_live_events"]
+    assert len(event_reads) == 1
+    assert event_reads[0][1][0] == "match_id"
+    assert len(event_reads[0][1][1]) == 10
+    assert event_reads[0][2] == ["match_id", "sequence"]
+
 
 
 def test_detail_rank_matches_displayed_elo_ladder(monkeypatch):
@@ -318,3 +347,49 @@ def test_detail_rank_matches_displayed_elo_ladder(monkeypatch):
     for duo in ladder.ranked:
         detail = duo_repository.get_duo_detail(object(), duo.duo_id)
         assert detail.summary.rank == duo.rank
+
+
+def test_mixed_duo_history_counts_only_complete_normal_games():
+    games, players = [], []
+    for index in range(8):
+        game_id = f"mixed-{index}"
+        games.append({"id": game_id, "ranked": True, "duo_only": 5 <= index < 7,
+                      "team1_score": 11, "team2_score": 3, "winner_team": 1,
+                      "played_at": f"2026-01-{index + 1:02}T00:00:00Z"})
+        for member, team in [(ALPHA, 1), (BRAVO, 1), (CHARLIE, 2), (DELTA, 2)]:
+            players.append({"game_id": game_id, "user_id": member, "team": team,
+                            "elo_before": 1500 if index < 5 else None})
+    client = _SnapshotClient({"snapshot_version": "dice-rating-analytics/v1", "profiles": _profiles(),
+                              "games": games, "players": players})
+    detail = duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO))
+    assert detail.summary.games == 8
+    assert detail.summary.synergy.games == detail.summary.synergy.wins == 5
+    assert detail.summary.synergy.expected_wins == 2.5
+    assert detail.summary.synergy.apart == []
+    # The threshold applies to complete normal games, not the ladder total.
+    client.snapshot["players"][0]["elo_before"] = None
+    assert duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO)).summary.synergy is None
+
+
+def test_big_moments_batches_pages_and_caps_recent_matches(monkeypatch):
+    from dataclasses import replace
+    from dice.live_probability import LiveProbabilityPoint
+    count = duo_repository.MAX_BIG_MOMENTS_MATCHES + 7
+    matches = [replace(_synergy_matches()[0], game_id=f"game-{i}") for i in range(count)]
+    live_rows = [{"id": f"live-{i}", "official_result_id": match.game_id,
+                  "teams": {}, "team_order": [], "rules_snapshot": {}}
+                 for i, match in enumerate(matches)]
+    events = {row["id"]: [{"sequence": i} for i in range(20)] for row in live_rows}
+    client = _LiveLedgerClient(live_rows, events)
+    projected = {}
+    def project(match, rules, events, prior):
+        projected[match["match_id"]] = events
+        return [LiveProbabilityPoint(1, (1, 0), 0.6, 0.4, 0.1, "play", thrower_id=ALPHA)]
+    monkeypatch.setattr(duo_repository, "project_big_moment_points", project)
+    result = duo_repository._big_moments(client, (ALPHA, BRAVO), matches, [match.game_id for match in matches])
+    assert result["games"] == duo_repository.MAX_BIG_MOMENTS_MATCHES
+    assert set(projected) == {f"live-{i}" for i in range(7, count)}
+    assert all([event["sequence"] for event in events] == list(range(20)) for events in projected.values())
+    event_reads = [read for read in client.reads if read[0] == "dice_live_events"]
+    assert len(event_reads) == 2
+    assert [read[3] for read in event_reads] == [(0, 499), (500, 999)]

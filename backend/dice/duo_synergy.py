@@ -11,23 +11,27 @@ from dice.duo_rating import DuoMatch, canonical_duo_id, eligible_duo_matches
 from dice.elo import expected_score
 
 DUO_SYNERGY_MIN_GAMES = 5
+DUO_SYNERGY_NEUTRAL_MARGIN = 0.05
 BIG_MOMENTS_MIN_LIVE_GAMES = 10
 
 
 @dataclass(frozen=True, slots=True)
 class SynergyMatch(DuoMatch):
+    duo_only: bool = False
     elo_before: Mapping[str, float | None] = field(default_factory=dict)
 
 
 def calculate_duo_synergies(matches: Iterable[DuoMatch]) -> dict[str, dict]:
     """Compare every exact pair; never substitute today's Elo for missing history.
 
-    A pair with incomplete rating snapshots has no comparison. Its games still
-    count in apart records, which do not depend on ratings.
+    Duo-only games and games without all four pregame ratings count toward
+    neither together nor apart records. Apply the gate to the counted games.
     """
     pairs: dict[str, dict] = {}
     individual = defaultdict(lambda: {"wins": 0, "losses": 0})
-    for match, team1, team2 in eligible_duo_matches(matches):
+    for match, team1, team2 in eligible_duo_matches(
+        match for match in matches if not getattr(match, "duo_only", False)
+    ):
         if match.live_result_state not in (None, "official"):
             continue
         ratings = getattr(match, "elo_before", {})
@@ -36,25 +40,25 @@ def calculate_duo_synergies(matches: Iterable[DuoMatch]) -> dict[str, dict]:
             isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
             for value in values
         )
-        probability = expected_score(sum(values[:2]) / 2, sum(values[2:]) / 2) if complete else None
+        if not complete:
+            continue
+        probability = expected_score(sum(values[:2]) / 2, sum(values[2:]) / 2)
         for team, members in enumerate((team1, team2), 1):
             duo_id = canonical_duo_id(*members)
             record = pairs.setdefault(duo_id, {
                 "members": members, "wins": 0, "losses": 0, "games": 0,
-                "expected_wins": 0.0, "complete": True,
+                "expected_wins": 0.0,
             })
             result = "wins" if match.winner_team == team else "losses"
             record[result] += 1
             record["games"] += 1
-            record["complete"] &= complete
-            if probability is not None:
-                record["expected_wins"] += probability if team == 1 else 1 - probability
+            record["expected_wins"] += probability if team == 1 else 1 - probability
             for member in members:
                 individual[member][result] += 1
 
     result = {}
     for duo_id, record in pairs.items():
-        if record["games"] < DUO_SYNERGY_MIN_GAMES or not record["complete"]:
+        if record["games"] < DUO_SYNERGY_MIN_GAMES:
             continue
         apart = []
         for member in record["members"]:

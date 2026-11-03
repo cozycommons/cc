@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -189,15 +189,26 @@ describe('Dice Stats', () => {
   });
 });
 
-it('links both signed chemistry lists to the exact pair', async () => {
-  const duo = (id, names, difference) => ({
+it('places shared chemistry rows after the ladder and before provisional duos', async () => {
+  const duo = (id, names, difference, rank) => ({
     duo_id: id, members: names.map((display_name, index) => ({ user_id: `${id}-${index}`, display_name })),
-    synergy: { wins_above_expected: difference },
+    wins: 9, losses: 3, games: 12, elo: 1600, win_rate: 0.75, rank,
+    synergy: { wins: 9, losses: 3, games: 12, wins_above_expected: difference },
   });
-  mocks.getDuoLadder.mockResolvedValue({ ranked: [], to_watch: [], best_chemistry: [duo('positive:pair', ['Alpha', 'Bravo'], 2.44)], better_apart: [duo('negative:pair', ['Charlie', 'Delta'], -3.14)] });
+  const positive = duo('positive:pair', ['Alpha', 'Bravo'], 2.44, 1);
+  const negative = duo('negative:pair', ['Charlie', 'Delta'], -3.14, 2);
+  mocks.getDuoLadder.mockResolvedValue({ ranked: [positive, negative], to_watch: [], best_chemistry: [positive], better_apart: [negative] });
   render(<MemoryRouter initialEntries={['/dice/stats?view=duos']}><Stats auth={{ token: 'token', profile: { user_id: 'u1' } }} /></MemoryRouter>);
-  expect(await screen.findByLabelText('Best chemistry')).toBeInTheDocument();
-  expect(screen.getByLabelText('Better apart')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Alpha + Bravo 2.4 wins over expected' })).toHaveAttribute('href', '/dice/stats/duos/positive%3Apair');
-  expect(screen.getByRole('link', { name: 'Charlie + Delta 3.1 wins under expected' })).toHaveAttribute('href', '/dice/stats/duos/negative%3Apair');
+  const chemistry = await screen.findByLabelText('Duo chemistry');
+  const positiveRow = within(screen.getByLabelText('Best chemistry')).getByRole('link');
+  const negativeRow = within(screen.getByLabelText('Better apart')).getByRole('link');
+  expect(positiveRow).toHaveAttribute('href', '/dice/stats/duos/positive%3Apair');
+  expect(negativeRow).toHaveAttribute('href', '/dice/stats/duos/negative%3Apair');
+  expect(within(positiveRow).getByText('Alpha avatar')).toBeInTheDocument();
+  expect(within(positiveRow).getByText('9–3 together')).toBeInTheDocument();
+  expect(within(positiveRow).getByText('2.4 over')).toBeInTheDocument();
+  expect(within(negativeRow).getByText('3.1 under')).toBeInTheDocument();
+  expect(chemistry.contains(positiveRow) && chemistry.contains(negativeRow)).toBe(true);
+  expect(screen.getByText('// Ranked duos').compareDocumentPosition(chemistry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(chemistry.compareDocumentPosition(screen.getByText('// Provisional duos')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

@@ -19,26 +19,34 @@ outside their cards. The expected API source is the authenticated
 
 ## Together and apart
 
-6. Use pairs with at least five ranked, official 2v2 games and complete stored
-   individual pregame Elo snapshots. Confirm the comparison card appears above
-   the Elo grid: **Better together** uses wins over expected and **Better apart**
-   uses wins under expected, rounded to one decimal. A pair's record is shown
-   together; each member's nonempty record with other partners appears below.
+6. Use pairs with at least five counted ranked, official 2v2 games. Duo-only
+   games and games missing any of the four stored pregame Elo ratings contribute
+   to neither together nor apart records; they do not disqualify the pair's
+   other complete games. Confirm the comparison card appears above the Elo grid.
+   **Better together** / **Better apart** is a small label above the one-decimal
+   wins-over/under-expected figure. Differences below 0.05 in magnitude show
+   **Right on expected** with no hero number. One win uses the singular unit.
 7. The synthetic seed includes **Golf Guard + India In** (positive) and
    **India In + Juliet Jump** (negative). India and Juliet each win with other
-   partners. Open both pairs, reload, and check the card at 390px and 320px.
-   Below five games or with missing historical ratings, the card is absent.
-8. In **Stats → Duos**, confirm **Best chemistry** and **Better apart** each
-   contain up to three eligible pairs and link to the matching duo detail.
-   The first list orders positive wins above expected descending; the second
-   orders negative values ascending. Names and descriptions stay inside cards.
-9. Open India's player profile while signed in. **Best partner** links to the
-   positive pair and shows the positive comparison. Profiles without a positive
-   eligible pairing have no partner row. There is no negative partner callout.
+   partners. Open both pairs, reload, and check the card at 390px, 320px, and
+   desktop. The nonempty apart records share one line, wrap cleanly, and shorten
+   long names to first names. The Record tile shows the pair's overall record.
+8. In **Stats → Duos**, the ladder stays first. Below Ranked duos and above
+   Provisional, one card contains **Best chemistry** and **Better apart**: two
+   columns on desktop, stacked on mobile. Each list links up to three pairs,
+   with a 34px avatar stack, names, the counted together record, and an aligned
+   short over/under figure. Check that names truncate and numbers stay inside
+   their rows at 320px. Positive values descend; negative values ascend.
+9. Open India's player profile while signed in. **Best partner** sits directly
+   above Head to head, with a 34px partner avatar and an arrow. Its link shows
+   the counted together record and the positive over-expected figure without a
+   plus sign. Profiles without a positive eligible pair have no partner row.
 10. **Big moments** is absent until ten completed, ranked live-refereed games
-    together have a timeline and positive attributed swing. When present, both
-    names and one-decimal percentages accompany a neutral split bar. Corrections
-    and retosses must not award swing to removed throws. No ranking terms appear.
+    together have a timeline and positive attributed swing. At most the latest
+    30 such matches are considered; their ledger events are fetched in ordered
+    batches. When present, **Share of big swings** accompanies both names,
+    whole percentages summing to 100, and two equal-weight team tones.
+    Corrections and retosses must not award swing to removed throws.
 
 Synergy and partner endpoints use the same authenticated registered-profile
 boundary as the duo ladder; they do not add data to public profile responses.

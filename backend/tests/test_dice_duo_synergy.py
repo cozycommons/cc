@@ -68,9 +68,24 @@ def test_ineligible_games_do_not_count_together_or_apart(changes):
 
 
 @pytest.mark.parametrize("bad_rating", [None, float("nan"), float("inf"), True])
-def test_missing_or_invalid_snapshots_never_use_a_fallback_rating(bad_rating):
-    matches = [game(i) for i in range(4)] + [game(4, ratings={"a": bad_rating, "b": 1500, "c": 1500, "d": 1500})]
-    assert calculate_duo_synergies(matches) == {}
+def test_missing_or_invalid_snapshots_skip_the_game_for_both_records(bad_rating):
+    matches = [game(i) for i in range(5)]
+    matches += [game(5, winner=2, ratings={"a": bad_rating, "b": 1500, "c": 1500, "d": 1500}),
+                game(6, team1=("a", "e"), ratings={"a": 1500, "e": bad_rating, "c": 1500, "d": 1500})]
+    result = calculate_duo_synergies(matches)[canonical_duo_id("a", "b")]
+    assert result["games"] == 5
+    assert result["wins"] == 5
+    assert result["expected_wins"] == 2.5
+    assert result["apart"] == []
+    assert calculate_duo_synergies(matches[1:]) == {}
+
+
+def test_duo_only_games_never_count_even_with_rating_snapshots():
+    matches = [game(i) for i in range(5)] + [game(5, duo_only=True, winner=2),
+                game(6, duo_only=True, team1=("a", "e"))]
+    result = calculate_duo_synergies(matches)[canonical_duo_id("a", "b")]
+    assert result["wins"] == result["games"] == 5
+    assert result["apart"] == []
 
 
 def test_big_moments_gate_uses_only_distinct_live_ranked_games_together():
