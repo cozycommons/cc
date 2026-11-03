@@ -74,7 +74,11 @@ export default function SiteHeader({
           </Link>
         )}
       </div>
-      {children && <div className="cc-sitebar-end">{children}</div>}
+      <div className="cc-sitebar-end">{children}
+        <details className="cc-sitebar-account"><summary>Account</summary>
+          <nav aria-label="Account"><Link to="/connect" onClick={event => event.currentTarget.closest('details').removeAttribute('open')}>Connect your agent</Link></nav>
+        </details>
+      </div>
     </header>
   );
 }

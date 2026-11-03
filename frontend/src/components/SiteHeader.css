@@ -54,3 +54,9 @@
 
 .jk-dice .cc-sitebar { width: 100%; }
 
+.cc-sitebar-account { position: relative; }
+.cc-sitebar-account summary { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; cursor: pointer; }
+.cc-sitebar-account summary:hover { background: var(--paper-light); }
+.cc-sitebar-account nav { position: absolute; z-index: 20; right: 0; top: 100%; width: 200px; padding: 8px; border: var(--hairline); border-radius: 10px; background: var(--paper-light); box-shadow: var(--paper-shadow); }
+.cc-sitebar-account nav a { display: flex; align-items: center; min-height: 44px; padding: 8px; border-radius: 6px; text-decoration: none; }
+.cc-sitebar-account nav a:hover { background: var(--paper); }

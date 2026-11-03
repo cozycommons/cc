@@ -5,7 +5,18 @@
 - M1: implementation and both local verification gates complete on 2026-11-03.
   The external auth/money review reported no code bugs; its database and real
   OAuth gates are now satisfied. PR #197 remains open; do not merge in this task.
-- M2: not started.
+- M2: in progress on `commons-connector-m2`: public `/connect` guide, shared
+  account menu and Trips links, agent skill and client documentation implemented.
+  Verification complete; opening a non-draft PR against main, stacked on #197
+  if it is still open. Do not merge or enable auto-merge in this task.
+  Node 22 frontend: **98 files, 770 tests passed**; production build passed with
+  loopback configuration and a nonfunctional local publishable-key placeholder.
+  Standard backend suite: **1707 passed, 147 skipped** (integration opt-ins not
+  enabled); no backend changes. Desktop 1440px and phone 390px render checks
+  passed, with no horizontal overflow; phone client rows and Copy control stack.
+  Browser Copy confirmed “Copied.” Clipboard denial/manual fallback covered by
+  tests. Muse/Grok menus remain generic and unverified; official Claude/ChatGPT
+  guides are linked. Reused existing loopback services without a data reset.
 - M3: not started.
 - Loopback Supabase and the configured shared MCP API are left running. Generated
   OAuth client credentials and signing/encryption keys live only in ignored
