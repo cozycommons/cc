@@ -46,6 +46,14 @@ describe('top-level routes', () => {
     expect(window.location.pathname).toBe('/trips/trip-id');
   });
 
+  it('serves agent setup without requiring the Supabase provider', async () => {
+    window.history.replaceState({}, '', '/connect');
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'Connect your agent' })).toBeInTheDocument();
+    expect(screen.queryByTestId('supabase-provider')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/connect');
+  });
+
   it('serves the admin workspace at its direct URL', async () => {
     window.history.replaceState({}, '', '/admin');
     render(<App />);

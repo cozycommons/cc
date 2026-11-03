@@ -81,3 +81,10 @@ describe('SiteHeader back button after an in-page anchor', () => {
     expect(screen.getByText('/trips/t1')).toBeInTheDocument();
   });
 });
+
+it('links to agent setup from the shared account menu', () => {
+  render(<MemoryRouter><SiteHeader /></MemoryRouter>);
+  fireEvent.click(screen.getByText('Account'));
+  expect(screen.getByRole('navigation', { name: 'Account' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Connect your agent' })).toHaveAttribute('href', '/connect');
+});

@@ -1,0 +1,21 @@
+body.cc-connect-body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
+.cc-connect main { max-width: 780px; margin: 48px auto 0; font-size: 15px; line-height: 1.65; }
+.cc-connect h1 { margin: 0 0 32px; font-size: clamp(30px, 5vw, 44px); line-height: 1.15; letter-spacing: -.035em; }
+.cc-connect h2 { margin: 0 0 12px; font-size: 20px; line-height: 1.3; letter-spacing: -.02em; }
+.cc-connect section { padding: 28px 0; border-top: var(--hairline); }
+.cc-connect p { margin: 12px 0 0; }
+.cc-connect a { color: var(--espresso); text-underline-offset: 3px; }
+.cc-connect code { font-size: .9em; overflow-wrap: anywhere; }
+.cc-connect-copy { display: flex; gap: 12px; align-items: center; }
+.cc-connect-copy input { min-width: 0; flex: 1; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-light); color: var(--ink); font: 14px/1.5 var(--mono); }
+.cc-connect-status { min-height: 24px; color: var(--ink-soft); font-size: 13px; }
+.cc-connect-clients { margin: 0; }
+.cc-connect-clients > div { display: grid; grid-template-columns: 115px 1fr; gap: 16px; padding: 14px 0; }
+.cc-connect-clients dt { font-weight: 600; }
+.cc-connect-clients dd { margin: 0; }
+@media (max-width: 640px) {
+  .cc-connect main { margin-top: 32px; }
+  .cc-connect-clients > div { grid-template-columns: 1fr; gap: 4px; }
+  .cc-connect-copy { flex-wrap: wrap; }
+  .cc-connect-copy input { flex-basis: 100%; }
+}

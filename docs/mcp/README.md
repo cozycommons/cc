@@ -4,6 +4,31 @@ One connection and browser sign-in serves deliberately registered feature tool
 sets: Commons discovery, Floor Planner, and Trips. Existing Beli, Resy, Partiful
 and ESPN MCP endpoints keep their separate pasted-token authentication.
 
+## Connect an agent
+
+Open [Connect your agent](https://cozycommons.dev/connect) (`/connect`) for the
+public URL, client setup, consent and disconnect instructions. Agents can load
+[SKILL.md](SKILL.md) for discovery, safe writes and worked Trips examples.
+
+- Claude: Settings → Connectors → Add custom connector; paste the URL. Labels
+  vary by plan/version. Choose remote/web OAuth and automatic registration.
+  [Official guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp).
+- ChatGPT: enable developer mode where available and add a custom MCP
+  connector/app with OAuth. Workspace permissions may require an administrator.
+  [Official guide](https://developers.openai.com/api/docs/guides/custom-mcp-server).
+- Muse and Grok: add a custom/remote MCP connector if the client supports the
+  protocol below. Exact menus and compatibility are not verified.
+- Generic client: Streamable HTTP + OAuth with dynamic client registration and
+  PKCE. API-key-only and stdio-only clients cannot use this endpoint.
+
+Sign in with Google to Cozy Commons, then review the application, account and
+requested scopes on `/oauth/consent`. Choose Allow connection or Deny. Call
+`list_projects` first; preview writes and get user confirmation before committing.
+Remove the connector in the agent to disconnect. There is currently no in-app
+application-grant revocation page; contact the Cozy Commons administrator to
+revoke the Supabase Auth grant. Already-issued tokens may last until expiry
+(see the revocation details below).
+
 ## Connection and deployment
 
 The deployment endpoint is `https://api.cozycommons.dev/mcp`.

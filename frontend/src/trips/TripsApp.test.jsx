@@ -252,3 +252,8 @@ it('opens the joined trip itself after accepting an invite, not the trip list', 
   expect(screen.getByRole('tab', { name: 'Balances', selected: true })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Your trips' })).not.toBeInTheDocument();
 });
+
+it('links signed-out Trips visitors to agent setup', () => {
+  open();
+  expect(screen.getAllByRole('link', { name: 'Connect your agent' }).every(link => link.getAttribute('href') === '/connect')).toBe(true);
+});

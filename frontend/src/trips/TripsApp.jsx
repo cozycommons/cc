@@ -190,7 +190,7 @@ export default function TripsApp() {
       </>}
     </SiteHeader>
     {(error || auth.error) && <p className="trips-error" role="alert">{error || auth.error}</p>}
-    <main id="trips-main">{auth.loading ? <p className="trips-loading" role="status">Loading…</p> : auth.user
+    <main id="trips-main"><p><Link to="/connect">Connect your agent</Link></p>{auth.loading ? <p className="trips-loading" role="status">Loading…</p> : auth.user
       ? <Workspace key={workspaceKey} auth={auth} tripId={tripId} joinId={joinId} invitation={invitation.current} onEditProfile={() => setProfileOpen(true)} />
       : <section className="trips-welcome"><span className="trips-welcome-mark" aria-hidden="true"><Suitcase size={40} /></span><h1>Cozy Trips</h1><p className="trips-intro">Split trip costs with friends, then square up.</p>{joinId && <p>Sign in to accept your invite.</p>}
         {!localDemo && <Button variant="primary" disabled={signingIn} onClick={() => signIn()}>Continue with Google <ArrowRight size={17} aria-hidden="true" /></Button>}
