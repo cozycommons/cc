@@ -81,6 +81,11 @@ else:
     os.environ['BELI_CREDENTIALS_KEY'] = Fernet.generate_key().decode()
     from ig_logger.sinks.beli import beli_client
     beli_client.API_HOST = beli_client.ONBOARD_HOST = 'http://127.0.0.1:8766'
+    # Resy calls likewise go to the exercise's fake on 8767 with a synthetic API key.
+    os.environ['RESY_CREDENTIALS_KEY'] = Fernet.generate_key().decode()
+    os.environ['RESY_API_KEY'] = 'synthetic-local-resy-key'
+    from resy import resy_client
+    resy_client.API_BASE, resy_client.MIN_GAP_S = 'http://127.0.0.1:8767', 0.0
     import uvicorn
     uvicorn.run('main:app', host='127.0.0.1', port=8000, access_log=False)
 PY

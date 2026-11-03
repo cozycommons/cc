@@ -6,9 +6,10 @@
 - M2: merged in #198 (`/connect` page, `docs/mcp/SKILL.md`).
 - M3a: merged in #199 (connector foundation: commons scopes, per-user
   enablement, filtered tool list, account-link contract, generic safety test).
-- M3b (this PR, `commons-connector-m3b-beli`): Beli on `/mcp`. Opened non-draft
-  against main; the orchestrator runs the external review and merges.
-- M3c–M3e: not started. Plan below; one PR each, in order.
+- M3b: #200 (`commons-connector-m3b-beli`, Beli on `/mcp`).
+- M3c (this PR, `commons-connector-m3c-resy`): Resy on `/mcp`, built on #200.
+  Opened non-draft; the orchestrator runs the external review and merges.
+- M3d–M3e: not started. Plan below; one PR each, in order.
 - Loopback only. Local OAuth client credentials and signing/encryption keys live
   only in ignored `.dice-dev/commons-mcp.json` (0600). No production connection.
 
@@ -174,6 +175,83 @@ PASS read-only token reads Beli recs; saves refused; no Beli write
 
 - Follow-up (not changed here): Trips readiness (`trips` 0002/0003) checks
   service grants with privilege lists, so it passes when any one is still held.
+
+### M3c decisions
+
+- **Tools (4 + link).** `find_resy_tables` (read; search or one venue, slots with
+  listed fees in cents, optional `time` window), `list_resy_reservations` (read;
+  no Resy tokens returned), `book_resy_table` and `cancel_resy_reservation`
+  (edit; dry_run default true, required idempotency_key), and
+  `link_resy_account`. Payment methods are not a tool: the booking preview lists
+  the masked cards and `payment_method_id` must be one of them.
+- **Link.** Migration `0018_beli_resy_account_owner.sql` (beli family, contract
+  18) copies 0017: `resy_accounts.owner_user_id`, partial unique index,
+  `resy_link_account`, 10 attempts per user per hour, no onboarding-time link (no
+  Resy web onboarding page). `/resy/*`, `/resy/mcp` and `ccr_` tokens unchanged.
+- **Fees and confirmation.** Previews return `terms` (deposit, cancellation fee,
+  fee deadline, policy lines, masked card; `null` when Resy states nothing) and a
+  `summary` sentence. A commit must pass the preview's `terms_id` (16-hex hash of
+  the terms); the commit re-reads the terms and sends nothing if they differ,
+  returning the new summary and `terms_id`. For a cancel, the fee deadline
+  passing changes `fee_applies` and therefore the terms.
+- **At most once.** `resy_agent_receipts` row (payload = request fingerprint,
+  target = confirmed terms) is written immediately before the one Resy POST and
+  is never deleted: service_role has no DELETE (0018 revokes the Supabase
+  default grant) and the contract fails if it gains one. Lost answers keep the
+  key; a same-key retry only reads Resy's reservations (booking: venue/date/
+  time/party match; cancel: reservation gone) and records the outcome, else asks
+  for a same-key retry later. No message suggests a new key for a retry.
+- **Cancel scope.** Only reservation ids in the linked account's own Resy list;
+  not-cancellable-online and past reservations are refused.
+- **Local exercise.** `serve` points `resy_client.API_BASE` at the e2e's fake
+  Resy on 8767 (synthetic API key, no pacing); nothing reaches Resy.
+
+### M3c validation evidence
+
+- Backend, all DB/integration opt-ins (fresh bootstrapped
+  `dummi_regression_501_1803` + real PostgREST, loopback Floor Planner stack,
+  dedicated Trips stack, analytics opt-in): **2064 passed, 0 skipped**.
+- New: `tests/test_resy_agent_tools.py` (27), `tests/test_resy_owner_database.py`
+  (26, real Postgres: link outcomes, unique owner, user deletion, receipts not
+  deletable and need a target, browser denial, contract tampering including a
+  DELETE grant, upgrade from the 0017 release with an existing account left
+  unlinked). Safety test: 97 cases over 19 tools (30 Resy). Mutation checks: an
+  owner-ignoring account lookup fails 5 tests; a cancel that ignores the id
+  fails 1.
+- Frontend: 98 files, 770 tests; production build and lint passed.
+- 0017 and 0018 applied to the shared loopback stack for the e2e, then rolled
+  back (ledger at 16, main's contract passes).
+- Real OAuth e2e: 84 PASS lines, none failed; the Resy lines:
+
+```text
+PASS enable_project resy
+PASS list_projects/enable_project show Resy unlinked with the link step
+PASS unlinked find_resy_tables refused with the link step
+PASS unlinked book_resy_table refused with the link step
+PASS synthetic Resy onboarding through /resy/onboard (fake loopback Resy API)
+PASS link_resy_account refused for another user's account
+PASS link_resy_account refused for a wrong token
+PASS link_resy_account
+PASS linked account keeps its legacy ccr_ token on /resy
+PASS find_resy_tables
+PASS book_resy_table dry_run
+PASS booking preview shows deposit, cancellation fee, policy and masked card; nothing sent
+PASS book_resy_table commit without the previewed terms_id refused
+PASS book_resy_table unconfirmed POST keeps its key and asks for a same-key retry
+PASS book_resy_table same-key retry settles from Resy reservations
+PASS book_resy_table idempotent replay
+PASS book_resy_table key reuse with new details refused
+PASS uncertain booking POST settled once; no duplicate reservation
+PASS list_resy_reservations
+PASS cancel_resy_reservation dry_run
+PASS cancel_resy_reservation commit
+PASS cancel_resy_reservation idempotent replay
+PASS cancel_resy_reservation refused for another user's reservation
+PASS every Resy tool over real OAuth: link, find, list, preview, book, cancel, replay; one booking and one cancellation sent
+PASS read-only token denied on book_resy_table
+PASS read-only token denied on cancel_resy_reservation
+PASS read-only token finds Resy tables; bookings and cancellations refused; nothing sent
+```
 
 ## M3 plan: one PR per project
 

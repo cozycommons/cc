@@ -72,8 +72,9 @@ export default function Connect() {
         <p>Ask your agent to call <code>list_projects</code> first. It shows each project, whether it is on for you, and your next step. Projects you already use, such as Trips when you belong to a trip, are on already. Your agent turns others on with <code>enable_project</code> and off with <code>disable_project</code>. Turning a project off hides its tools and keeps its data. If new tools do not appear, refresh the agent’s tool list or reconnect.</p>
         <ul><li><Link to="/trips">Trips</Link>: read balances and settlement links, split expenses, and record repayments already made. It does not send money.</li>
           <li><Link to="/floor-planner">Floor Planner</Link>: read and edit plans you have access to.</li>
-          <li>Beli: get restaurant recommendations and save places to your Beli Want to Try list. The first time, your agent links your Beli account with your existing Beli token using <code>link_beli_account</code>; after that you don’t paste the token again.</li></ul>
-        <p>Writes always need a preview first (<code>dry_run=true</code>) and your confirmation before saving. For trip expenses, review the per-person amounts.</p>
+          <li>Beli: get restaurant recommendations and save places to your Beli Want to Try list. The first time, your agent links your Beli account with your existing Beli token using <code>link_beli_account</code>; after that you don’t paste the token again.</li>
+          <li>Resy: find open tables, list your reservations, and book or cancel real reservations. Bookings and cancellations can charge a deposit or cancellation fee to your card; your agent shows each fee, the policy and the card first. Link once with your existing Resy token using <code>link_resy_account</code>.</li></ul>
+        <p>Writes always need a preview first (<code>dry_run=true</code>) and your confirmation before saving. For trip expenses, review the per-person amounts. For Resy, review the fees and card before you say yes.</p>
       </section>
       <section aria-labelledby="reconnect-heading">
         <h2 id="reconnect-heading">Connected before projects could be switched on?</h2>

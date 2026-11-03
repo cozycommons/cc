@@ -1,6 +1,6 @@
 ---
 name: cozy-commons
-description: Use the Cozy Commons remote MCP connector to discover and enable projects, read trip balances, split expenses, record repayments, and get and save Beli restaurants, with confirmed previews.
+description: Use the Cozy Commons remote MCP connector to discover and enable projects, read trip balances, split expenses, record repayments, get and save Beli restaurants, and find, book and cancel Resy tables, with confirmed previews.
 ---
 
 # Cozy Commons connector
@@ -16,7 +16,7 @@ only the enabled projects' tools. To use a project that is off, call
 project). It returns the project's tools and any one-time link step. If the new
 tools do not appear in your tool list, refresh it; if your client cannot, ask
 the user to reconnect the connector. `disable_project` hides a project's tools
-and keeps its data. Trips, Floor Planner and Beli are on this connector; other
+and keeps its data. Trips, Floor Planner, Beli and Resy are on this connector; other
 projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
 
 ## Beli
@@ -36,6 +36,32 @@ user, the user must sign in as that user; do not retry other tokens.
   the user confirms. `ambiguous` returns candidates and saves nothing: ask the
   user, then preview the refined name. `already_bookmarked` and `already_ranked`
   mean no change was needed.
+
+## Resy
+
+Resy books real tables and can charge a deposit and a cancellation fee to the
+user's card. Link once exactly like Beli, with the user's existing `ccr_` token
+and `link_resy_account(api_token)`; onboarding is `POST
+https://api.cozycommons.dev/resy/onboard`.
+
+- `find_resy_tables(date, query or venue_id, party_size, time?)`: open slots with
+  their `slot_token` and listed fees in cents.
+- `list_resy_reservations(scope)`: the user's reservations and their
+  `reservation_id`.
+- `book_resy_table(venue_id, date, idempotency_key, slot_token or desired_time,
+  party_size, payment_method_id?, dry_run)` and
+  `cancel_resy_reservation(reservation_id, idempotency_key, dry_run)`: always
+  preview first. Show the user the preview's `summary` word for word, including
+  the deposit, cancellation fee, deadline, policy and card, and get an explicit
+  yes. Then call again with the same arguments, `dry_run=false` and the
+  preview's `terms_id`. If the terms changed, nothing happened; show the new
+  summary and ask again. If two slots share a time, ask which one and pass its
+  `slot_token`.
+- If a booking or cancellation says it may have gone through, or is not
+  confirmed yet, call again with the same `idempotency_key` and the same
+  arguments, later if asked. Never switch to a new key and never book the same
+  table another way: the retry checks Resy and never sends twice. If it stays
+  unconfirmed, ask the user to check the Resy app.
 
 ## Rules
 
