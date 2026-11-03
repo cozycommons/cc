@@ -202,6 +202,7 @@ PASS read-only token reads Beli recs; saves refused; no Beli write
   key; a same-key retry only reads Resy's reservations (booking: venue/date/
   time/party match; cancel: reservation gone) and records the outcome, else asks
   for a same-key retry later. No message suggests a new key for a retry.
+- **Review fixes.** A cancel within 60s (`CANCEL_MARGIN_S`) of the fee deadline counts the fee, so a "costs nothing" preview gets new terms instead of a send; a booking receipt stores the ids the user already held at that slot (`target.held`) and settlement never matches them.
 - **Cancel scope.** Only reservation ids in the linked account's own Resy list;
   not-cancellable-online and past reservations are refused.
 - **Local exercise.** `serve` points `resy_client.API_BASE` at the e2e's fake

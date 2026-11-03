@@ -40,16 +40,19 @@ RELINK_STEP = (f'Resy rejected the stored login. Onboard again at POST {ONBOARD_
 RECEIPTS = 'resy_agent_receipts'
 MAX_VENUES = 10
 NEAR_MINUTES = 60
+# A cancel sent this close to the fee deadline may reach Resy after it, so it is
+# treated as fee-applying. 60s covers the receipt write and Resy's round trip.
+CANCEL_MARGIN_S = 60
 
 # A receipt is written just before the request to Resy and never released, so a
 # key whose outcome was not recorded can only be settled by reading Resy.
 UNCONFIRMED = ('Resy did not confirm the {action}, so it may have gone through. Call {tool} again with the same '
                'idempotency_key and arguments; it checks your Resy reservations and never sends it twice.')
 UNSETTLED = {
-    'book': ('A booking with this idempotency_key is not confirmed: your Resy reservations do not show {where}. '
-             'The earlier attempt may still be running or may have failed. Call book_resy_table again with the '
-             'same idempotency_key and arguments in a minute; it never books twice. If the reservation never '
-             'appears, ask the user to check the Resy app before booking anything else.'),
+    'book': ('A booking with this idempotency_key is not confirmed: your Resy reservations do not show a new '
+             'reservation at {where}. The earlier attempt may still be running or may have failed. Call '
+             'book_resy_table again with the same idempotency_key and arguments in a minute; it never books twice. '
+             'If the reservation never appears, ask the user to check the Resy app before booking anything else.'),
     'cancel': ('A cancellation with this idempotency_key is not confirmed: your Resy reservations still show '
                '{where}. The earlier attempt may still be running or may have failed. Call '
                'cancel_resy_reservation again with the same idempotency_key and arguments in a minute; it never '
@@ -277,7 +280,7 @@ def fee_applies(fee, after):
         return True  # A fee without a readable deadline may apply now.
     if cutoff.tzinfo is None:
         cutoff = cutoff.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) >= cutoff
+    return (cutoff - datetime.now(timezone.utc)).total_seconds() <= CANCEL_MARGIN_S
 
 
 def cancelled(reservation):
@@ -294,7 +297,12 @@ def own_reservation(resy, reservation_id):
 
 
 def cancel_terms(resy, reservation_id):
-    """Read what cancelling would cost. Reads only: nothing is cancelled here."""
+    """Read what cancelling would cost. Reads only: nothing is cancelled here.
+
+    A commit calls this right before its receipt and POST, so a deadline that falls
+    within CANCEL_MARGIN_S flips fee_applies and the terms_id instead of letting a
+    "costs nothing" cancel land after the deadline.
+    """
     reservation, venue = own_reservation(resy, reservation_id)
     if reservation is None or not reservation.get('resy_token'):
         raise ToolError(f'No reservation {reservation_id} in your Resy account. Call list_resy_reservations '
@@ -341,6 +349,13 @@ def record(client, user, key, result):
      .eq('user_id', user.id).eq('idempotency_key', key).is_('result', 'null').execute())
 
 
+def same_slot(resy, terms):
+    """Upcoming reservations of the user's at the booked venue, date, time and party size."""
+    return [row for row in list_reservations(resy, 'upcoming')
+            if str(row['venue_id']) == str(terms['venue_id']) and row['day'] == terms['date']
+            and row['time'] == terms['time'] and row['party_size'] == terms['party_size']]
+
+
 def settle(client, user, resy, key, found):
     """Settle a key whose Resy outcome was not recorded, by reading the user's reservations.
 
@@ -350,9 +365,9 @@ def settle(client, user, resy, key, found):
     action, terms = found['payload']['action'], found['target']['terms']
     try:
         if action == 'book':
-            match = next((row for row in list_reservations(resy, 'upcoming')
-                          if str(row['venue_id']) == str(terms['venue_id']) and row['day'] == terms['date']
-                          and row['time'] == terms['time'] and row['party_size'] == terms['party_size']), None)
+            # A reservation the user already held at this slot is not this booking.
+            held = {str(held_id) for held_id in found['target']['held']}
+            match = next((row for row in same_slot(resy, terms) if str(row['reservation_id']) not in held), None)
             done = match is not None
         else:
             match, _venue = own_reservation(resy, terms['reservation_id'])
@@ -388,11 +403,12 @@ def replay(client, user, resy, key, found, fingerprint):
     return settle(client, user, resy, key, found)
 
 
-def commit(client, user, resy, key, fingerprint, terms, terms_id, send, tool, summarize):
+def commit(client, user, resy, key, fingerprint, terms, terms_id, send, tool, summarize, held=()):
     """Send one confirmed write to Resy at most once per key: (Resy's answer, None) or (None, a replay).
 
     The receipt is written immediately before the request and is never released:
-    once Resy may have the request, only settle() can finish the key.
+    once Resy may have the request, only settle() can finish the key. held lists
+    the reservation ids a booking's settle() must not mistake for its own.
     """
     current = digest(terms)
     if terms_id != current:
@@ -401,7 +417,7 @@ def commit(client, user, resy, key, fingerprint, terms, terms_id, send, tool, su
                         f"idempotency_key and terms_id='{current}'.")
     reserved = (client.table(RECEIPTS).upsert(
         {'user_id': user.id, 'idempotency_key': key, 'payload': fingerprint,
-         'target': {'terms_id': current, 'terms': terms}},
+         'target': {'terms_id': current, 'terms': terms, 'held': list(held)}},
         on_conflict='user_id,idempotency_key', ignore_duplicates=True).execute().data)
     if not reserved:
         return None, replay(client, user, resy, key, receipt(client, user, key), fingerprint)
@@ -437,9 +453,10 @@ def book(client, user, venue_id, day, party_size, slot_token, desired_time, paym
                 'summary': booking_summary(terms), 'payment_methods': methods,
                 'next_step': 'Show the user the summary, including every fee and the card. If they confirm, call '
                              'book_resy_table again with the same arguments, dry_run=false and this terms_id.'}
+    held = [row['reservation_id'] for row in resy_call(same_slot, resy, terms)]
     booked, replayed = commit(client, user, resy, key, fingerprint, terms, terms_id,
                               lambda: resy.book(book_token, terms['payment_method']['id']), 'book_resy_table',
-                              booking_summary)
+                              booking_summary, held)
     if replayed:
         return replayed
     result = {'dry_run': False, 'status': 'booked', 'reservation_id': booked.get('reservation_id'),

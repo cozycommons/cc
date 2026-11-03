@@ -302,11 +302,30 @@ async def test_unrecorded_booking_keeps_the_key_and_never_sends_again(resy, fail
         await call('book_resy_table', date=day(), **BOOK, terms_id=terms_id, dry_run=False)
     db.resy_lost_write = None
     for _ in range(2):
-        with pytest.raises(ToolError, match='reservations do not show Synthetic Trattoria') as error:
+        with pytest.raises(ToolError, match='reservations do not show a new reservation at Synthetic Trattoria') \
+                as error:
             await call('book_resy_table', date=day(), **BOOK, terms_id=terms_id, dry_run=False)
-        assert 'new' not in str(error.value) and 'same idempotency_key' in str(error.value)
+        assert 'new key' not in str(error.value) and 'same idempotency_key' in str(error.value)
     assert len(db.resy_sends) == 1 and not db.resy_writes
     assert db.resy_receipts[(db.user.id, 'book-1')]['result'] is None
+
+
+@pytest.mark.asyncio
+async def test_lost_booking_never_settles_on_a_reservation_you_already_held(resy):
+    # The user already holds this exact venue/date/time/party; the new POST never reached Resy.
+    db, call, _ = resy
+    row = await linked_user(db, call)
+    held = resy_fakes.add_reservation(db, row['email'])
+    terms_id = (await preview(call))['terms_id']
+    db.resy_lost_write = TimeoutError('timed out')
+    with pytest.raises(ToolError, match='may have gone through'):
+        await call('book_resy_table', date=day(), **BOOK, terms_id=terms_id, dry_run=False)
+    db.resy_lost_write = None
+    assert db.resy_receipts[(db.user.id, 'book-1')]['target']['held'] == [held['reservation_id']]
+    with pytest.raises(ToolError, match='do not show a new reservation at Synthetic Trattoria') as error:
+        await call('book_resy_table', date=day(), **BOOK, terms_id=terms_id, dry_run=False)
+    assert 'check the Resy app' in str(error.value) and 'new key' not in str(error.value)
+    assert db.resy_receipts[(db.user.id, 'book-1')]['result'] is None and len(db.resy_sends) == 1
 
 
 @pytest.mark.asyncio
@@ -319,7 +338,7 @@ async def test_concurrent_holder_of_the_key_never_sends(resy):
                    'party_size': 2, 'slot_token': None, 'desired_time': '19:00', 'payment_method_id': None}
     db.resy_receipts[(db.user.id, 'book-1')] = {
         'user_id': db.user.id, 'idempotency_key': 'book-1', 'payload': fingerprint, 'result': None,
-        'target': {'terms_id': terms['terms_id'], 'terms': terms['terms']}}
+        'target': {'terms_id': terms['terms_id'], 'terms': terms['terms'], 'held': []}}
     with pytest.raises(ToolError, match='not confirmed'):
         await call('book_resy_table', date=day(), **BOOK, terms_id=terms['terms_id'], dry_run=False)
     assert not db.resy_sends
@@ -377,6 +396,31 @@ async def test_cancel_after_the_deadline_shows_the_fee_and_refuses_stale_terms(r
         await call('cancel_resy_reservation', reservation_id=reservation['reservation_id'],
                    idempotency_key='cancel-1', terms_id=before['terms_id'], dry_run=False)
     assert 'Cancelling now costs USD 50.00' in str(error.value)
+    assert not db.resy_sends and not db.resy_receipts
+
+
+@pytest.mark.asyncio
+async def test_cancel_inside_the_deadline_margin_counts_the_fee_and_sends_nothing(resy, monkeypatch):
+    # Previewed 2 minutes before the fee deadline; committed 30s before it, too close to promise no fee.
+    db, call, _ = resy
+    row = await linked_user(db, call)
+    reservation = resy_fakes.add_reservation(db, row['email'])
+    deadline = datetime.fromisoformat(reservation['cancellation']['fee']['date_cut_off'])
+    clock = [deadline - timedelta(minutes=2)]
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock[0]
+    monkeypatch.setattr(agent_tools, 'datetime', Clock)
+    before = await call('cancel_resy_reservation', reservation_id=reservation['reservation_id'],
+                        idempotency_key='cancel-1')
+    assert before['terms']['fee_applies'] is False
+    clock[0] = deadline - timedelta(seconds=agent_tools.CANCEL_MARGIN_S // 2)
+    with pytest.raises(ToolError, match='terms changed since the preview') as error:
+        await call('cancel_resy_reservation', reservation_id=reservation['reservation_id'],
+                   idempotency_key='cancel-1', terms_id=before['terms_id'], dry_run=False)
+    assert 'Cancelling now costs USD 50.00' in str(error.value) and 'costs nothing' not in str(error.value)
     assert not db.resy_sends and not db.resy_receipts
 
 
