@@ -1,6 +1,6 @@
 ---
 name: cozy-commons
-description: Use the Cozy Commons remote MCP connector to discover and enable projects, read trip balances, split expenses, record repayments, get and save Beli restaurants, and find, book and cancel Resy tables, with confirmed previews.
+description: Use the Cozy Commons remote MCP connector to discover and enable projects, read trip balances, split expenses, record repayments, get and save Beli restaurants, find, book and cancel Resy tables, and read Partiful events, with confirmed previews.
 ---
 
 # Cozy Commons connector
@@ -16,7 +16,7 @@ only the enabled projects' tools. To use a project that is off, call
 project). It returns the project's tools and any one-time link step. If the new
 tools do not appear in your tool list, refresh it; if your client cannot, ask
 the user to reconnect the connector. `disable_project` hides a project's tools
-and keeps its data. Trips, Floor Planner, Beli and Resy are on this connector; other
+and keeps its data. Trips, Floor Planner, Beli, Resy and Partiful are on this connector; other
 projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
 
 ## Beli
@@ -62,6 +62,23 @@ https://api.cozycommons.dev/resy/onboard`.
   arguments, later if asked. Never switch to a new key and never book the same
   table another way: the retry checks Resy and never sends twice. If it stays
   unconfirmed, ask the user to check the Resy app.
+
+## Partiful
+
+Partiful is read-only. Link once exactly like Beli, with the user's existing
+`ccp_` token and `link_partiful_account(api_token)`. A user without a token
+onboards with their phone number: `POST
+https://api.cozycommons.dev/partiful/onboard/start`, then
+`/partiful/onboard/verify` with the SMS code.
+
+- `get_partiful_events(scope?, start?, end?)`: the user's events. `scope` is
+  `all` (default), `hosted`, `rsvps` or `invited`; `start`/`end` are inclusive
+  `YYYY-MM-DD` bounds on the event date. Each event has its `id` and the user's
+  own `rsvp_status`.
+- `get_partiful_events(event_id)`: one event's details. Pass the ID alone.
+  Guest lists are never returned. "Event not found" means the user's Partiful
+  session cannot see it; list events to find the right ID.
+- If Partiful rejects the stored session, the user onboards again and relinks.
 
 ## Rules
 

@@ -86,6 +86,12 @@ else:
     os.environ['RESY_API_KEY'] = 'synthetic-local-resy-key'
     from resy import resy_client
     resy_client.API_BASE, resy_client.MIN_GAP_S = 'http://127.0.0.1:8767', 0.0
+    # Partiful API functions, sign-in and token refresh go to the exercise's fake on 8768.
+    os.environ['PARTIFUL_CREDENTIALS_KEY'] = Fernet.generate_key().decode()
+    from partiful import partiful_client
+    partiful_client.API_BASE, partiful_client.MIN_GAP_S = 'http://127.0.0.1:8768', 0.0
+    partiful_client.IDENTITY_TOOLKIT_URL = 'http://127.0.0.1:8768/identitytoolkit'
+    partiful_client.SECURE_TOKEN_URL = 'http://127.0.0.1:8768/securetoken'
     import uvicorn
     uvicorn.run('main:app', host='127.0.0.1', port=8000, access_log=False)
 PY

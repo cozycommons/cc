@@ -19,6 +19,7 @@ it('renders signed out with client instructions, permissions and disconnect guid
   expect(screen.getByRole('link', { name: 'Floor Planner' })).toHaveAttribute('href', '/floor-planner');
   expect(screen.getByText('link_beli_account')).toBeInTheDocument();
   expect(screen.getByText('link_resy_account')).toBeInTheDocument();
+  expect(screen.getByText('link_partiful_account')).toBeInTheDocument();
 });
 it('copies the connector URL and confirms success', async () => {
   const writeText = vi.fn().mockResolvedValue();

@@ -1,9 +1,9 @@
 # Cozy Commons MCP
 
 One connection and browser sign-in serves every registered project: Commons
-discovery and enablement, Trips, Floor Planner, Beli and Resy. Two stable scopes,
-`commons:read` and `commons:edit`, cover all of them, and each user enables the
-projects whose tools their agent sees. Adding a project or tool therefore never
+discovery and enablement, Trips, Floor Planner, Beli, Resy and Partiful. Two
+stable scopes, `commons:read` and `commons:edit`, cover all of them, and each
+user enables the projects whose tools their agent sees. Adding a project or tool therefore never
 changes the scope set or forces existing users to reconnect. The existing Beli,
 Resy, Partiful and ESPN MCP endpoints keep their separate pasted-token
 authentication.
@@ -233,7 +233,7 @@ connector project, `list_projects` returns whether it is enabled and why
 (`your choice`, `default: you already use it` or `default: off until enabled`),
 whether its account is linked (projects with an account link), its tools with
 their access level, its status and the exact next step. Other public projects
-and the separate MCP integrations not yet here (Partiful, ESPN) are listed
+and the separate MCP integration not yet here (ESPN) are listed
 with their URL or endpoint.
 Status lookup failures do not prevent discovery. `enable_project(project_id)`
 returns the project's tools and any one-time link step.
@@ -396,6 +396,39 @@ Replays return the original result even after the slot is gone. Reads that fail
 before the write (Resy errors, expired login) spend no key and say nothing was
 booked or cancelled; a dead login asks the user to onboard again and relink.
 
+## Partiful
+
+Provider `backend/partiful/agent_tools.py`, read-only, one tool plus the link
+step:
+
+- `get_partiful_events(event_id? | scope?, start?, end?)` (`read`): without
+  `event_id`, the legacy `list_events` (`scope` `all` (default), `hosted`,
+  `rsvps` or `invited`; inclusive `YYYY-MM-DD` `start`/`end` on the event date);
+  with it, the legacy `get_event`. Pass `event_id` alone. Both return exactly
+  what the legacy tools return: no guest lists. An event the user's own
+  Partiful session cannot see is "Event not found"; the connector never uses
+  another account's session.
+- `link_partiful_account(api_token)` (`edit`): the one-time link step with the
+  existing `ccp_` token.
+
+Linking mirrors Beli and Resy: migration `0019_beli_partiful_account_owner.sql`
+adds `partiful_accounts.owner_user_id` (partial unique index, `on delete set
+null`) and `partiful_link_account(account, user)`, which refuses another owner's
+account and moves the caller's earlier link in one transaction. The token is
+hashed and compared in constant time, never stored or returned, and limited to
+10 attempts per user per hour. Linking changes only `owner_user_id`; the stored
+Firebase refresh token and uid are untouched. `/partiful/*`, `/partiful/mcp` and
+`ccp_` tokens are unchanged; existing accounts stay unlinked. Partiful is on by
+default once linked. Onboarding is SMS-based and has no web page, so linking
+happens only through the tool. There are no writes and so no receipts table.
+
+Partiful may rotate the refresh token on any read, and every path (`/partiful`,
+`/partiful/mcp`, `/mcp`) persists the new one. The `/partiful` routes therefore
+read accounts through an uncached client (`app.state.partiful_supabase`), not
+the shared 120-second read cache, which would otherwise hand them a refresh
+token another path had already retired. A dead session asks the user to
+onboard again and relink.
+
 ## Local real OAuth exercise
 
 Use Python 3.12/3.13, Node 22, Docker and psql. Start the isolated stack;
@@ -473,9 +506,21 @@ call reports an unconfirmed booking, and the same-key retry settles it from the
 reservations list with exactly one booking request sent. It replays the key,
 refuses the key with new details, lists reservations, previews, cancels and
 replays the cancellation, and refuses cancelling another user's reservation id.
-The read-only grant finds tables and is refused on both Resy writes. Synthetic
-users, trips and Beli and Resy accounts remain in the loopback sandbox for
-inspection. Tokens and keys are never printed or committed. For interactive mode, also run the normal local frontend
+The read-only grant finds tables and is refused on both Resy writes.
+
+For Partiful, `serve` points the Partiful API, Firebase sign-in and token refresh
+at a fake on `127.0.0.1:8768` (per-process credentials key, no pacing), so
+nothing reaches Partiful or Google. The fake rotates the refresh token on every
+refresh and retires the old one. The test checks that Partiful starts off and
+unlinked, onboards two synthetic phone numbers through the real
+`/partiful/onboard/start` and `/verify`, refuses linking the one linked to the
+second user and a wrong token, links its own without changing the stored
+session, and checks the `ccp_` token on `/partiful/me`. It lists events (no
+guest data), filters by scope, reads one event, is refused another user's
+event, and then calls the legacy `/partiful/events`, which must still work after
+the connector's rotations. The read-only grant reads events and cannot link.
+Synthetic users, trips and Beli, Resy and Partiful accounts remain in the
+loopback sandbox for inspection. Tokens and keys are never printed or committed. For interactive mode, also run the normal local frontend
 on port 8080 (for example `scripts/start-local-dice-frontend.sh`) and sign in
 with a synthetic sandbox account. The script can also run directly with
 `backend/.venv/bin/python scripts/commons-connector-e2e.py --interactive`, using
