@@ -205,6 +205,7 @@ def test_homepage_filter_is_applied_before_the_limit(monkeypatch):
     ladder = duo_repository.list_duo_ladder(object(), limit=1, homepage_eligible_only=True)
 
     assert len(ladder.ranked) == 1
+    assert {duo.rank for duo in ladder.ranked} == {1}
     assert ladder.ranked[0].games == 5
 
 
@@ -226,7 +227,8 @@ def test_synergy_lists_are_signed_sorted_and_independent_of_ladder_limit(monkeyp
                             elo_before=dict.fromkeys((*left, *right), 1500)) for i, match in enumerate(_synergy_matches())]
     monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, matches))
     ladder = duo_repository.list_duo_ladder(object(), limit=1)
-    assert len(ladder.ranked) == 1
+    assert len(ladder.ranked) == 4
+    assert {duo.rank for duo in ladder.ranked} == {1}
     assert len(ladder.best_chemistry) == len(ladder.better_apart) == 3
     assert [row.synergy.wins_above_expected for row in ladder.best_chemistry] == [2.5] * 3
     assert [row.synergy.wins_above_expected for row in ladder.better_apart] == [-2.5] * 3
@@ -349,7 +351,7 @@ def test_detail_rank_matches_displayed_elo_ladder(monkeypatch):
         assert detail.summary.rank == duo.rank
 
 
-def test_mixed_duo_history_counts_only_complete_normal_games():
+def test_mixed_duo_history_counts_the_same_games_as_the_ladder():
     games, players = [], []
     for index in range(8):
         game_id = f"mixed-{index}"
@@ -363,12 +365,12 @@ def test_mixed_duo_history_counts_only_complete_normal_games():
                               "games": games, "players": players})
     detail = duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO))
     assert detail.summary.games == 8
-    assert detail.summary.synergy.games == detail.summary.synergy.wins == 5
-    assert detail.summary.synergy.expected_wins == 2.5
+    assert detail.summary.synergy.games == detail.summary.synergy.wins == 8
+    assert detail.summary.synergy.expected_wins == 4.0
     assert detail.summary.synergy.apart == []
-    # The threshold applies to complete normal games, not the ladder total.
+    # Missing snapshots keep the same game set using starting ratings.
     client.snapshot["players"][0]["elo_before"] = None
-    assert duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO)).summary.synergy is None
+    assert duo_repository.get_duo_detail(client, canonical_duo_id(ALPHA, BRAVO)).summary.synergy.games == 8
 
 
 def test_big_moments_batches_pages_and_caps_recent_matches(monkeypatch):

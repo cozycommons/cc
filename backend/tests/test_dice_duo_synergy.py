@@ -58,7 +58,7 @@ def test_apart_records_exclude_same_pair_on_opposite_team():
 
 @pytest.mark.parametrize("changes", [
     {"ranked": False}, {"completed": False}, {"live_result_state": "reopened"},
-    {"live_result_state": "completed"}, {"team1": ("a",)}, {"team2": ("a", "d")},
+    {"team1": ("a",)}, {"team2": ("a", "d")},
     {"team1_score": 1, "team2_score": 11}, {"winner_team": None},
 ])
 def test_ineligible_games_do_not_count_together_or_apart(changes):
@@ -67,7 +67,7 @@ def test_ineligible_games_do_not_count_together_or_apart(changes):
     assert calculate_duo_synergies(matches) == {}
 
 
-@pytest.mark.parametrize("bad_rating", [None, float("nan"), float("inf"), True])
+@pytest.mark.parametrize("bad_rating", [float("nan"), float("inf"), True])
 def test_missing_or_invalid_snapshots_skip_the_game_for_both_records(bad_rating):
     matches = [game(i) for i in range(5)]
     matches += [game(5, winner=2, ratings={"a": bad_rating, "b": 1500, "c": 1500, "d": 1500}),
@@ -80,12 +80,29 @@ def test_missing_or_invalid_snapshots_skip_the_game_for_both_records(bad_rating)
     assert calculate_duo_synergies(matches[1:]) == {}
 
 
-def test_duo_only_games_never_count_even_with_rating_snapshots():
-    matches = [game(i) for i in range(5)] + [game(5, duo_only=True, winner=2),
-                game(6, duo_only=True, team1=("a", "e"))]
+def test_duo_only_pairs_get_synergy_and_apart_records():
+    matches = [game(i, duo_only=True, ratings={}) for i in range(5)]
+    matches += [game(5, duo_only=True, team1=("a", "e"), ratings={})]
     result = calculate_duo_synergies(matches)[canonical_duo_id("a", "b")]
     assert result["wins"] == result["games"] == 5
-    assert result["apart"] == []
+    assert result["expected_wins"] == 2.5
+    assert result["apart"] == [{"user_id": "a", "wins": 1, "losses": 0, "games": 1}]
+
+
+def test_missing_snapshots_use_latest_strictly_earlier_ranked_individual_rating():
+    def at(day, **changes):
+        return replace(game(day, **changes), played_at=datetime(2026, 1, day, tzinfo=timezone.utc))
+    # Input order, future games, same-time games, unranked and duo-only snapshots
+    # cannot change the individual rating used at the target game's timestamp.
+    matches = [at(10, duo_only=True, ratings={}) for _ in range(5)]
+    matches = [replace(m, game_id=f"target-{i}") for i, m in enumerate(matches)]
+    matches += [at(2, elo_after={"a": 1700}), at(4, elo_after={"a": 1800}),
+                at(8, ranked=False, elo_after={"a": 2200}),
+                at(9, duo_only=True, elo_after={"a": 2400}),
+                at(10, elo_after={"a": 2600}), at(11, elo_after={"a": 2800})]
+    result = calculate_duo_synergies(reversed(matches))[canonical_duo_id("a", "b")]
+    expected = 5 * expected_score(1650, 1500) + 5 * 0.5
+    assert result["expected_wins"] == pytest.approx(expected)
 
 
 def test_big_moments_gate_uses_only_distinct_live_ranked_games_together():

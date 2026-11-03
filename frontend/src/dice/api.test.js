@@ -66,3 +66,28 @@ describe('Dice API', () => {
     );
   });
 });
+
+it('retries a failed duo read once with the same authenticated request', async () => {
+  const fetchMock = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ranked: [] }) });
+  vi.stubGlobal('fetch', fetchMock);
+  try {
+    expect(await diceApi.getDuoLadder('token', 3, true)).toEqual({ ranked: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]).toEqual(fetchMock.mock.calls[1]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('stops after the second failed duo read', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ detail: 'Unavailable' }) });
+  vi.stubGlobal('fetch', fetchMock);
+  try {
+    await expect(diceApi.getDuoLadder('token')).rejects.toThrow('Unavailable');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

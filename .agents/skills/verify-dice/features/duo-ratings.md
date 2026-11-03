@@ -8,7 +8,7 @@ Use the clean synthetic sandbox and sign in as `referee@dice.local`.
    rating history links to source matches.
 3. Open one source match, then return to **Stats → Duos**.
 4. Confirm ranked and provisional pairs are distinct. Confirm placed duos are
-   ordered by their displayed Elo and equal Elo values share a rank.
+   ordered by their displayed Elo, first place is a highlighted row, and equal Elo values show T ranks. Home includes every duo tied at its third-row cutoff. Provisional pairs share a single row list with muted Elo and no View all link.
 5. Reload the duo detail page and confirm the same rating, record, rank, and
    evidence remain.
 
@@ -20,9 +20,9 @@ outside their cards. The expected API source is the authenticated
 ## Together and apart
 
 6. Use pairs with at least five counted ranked, official 2v2 games. Duo-only
-   games and games missing any of the four stored pregame Elo ratings contribute
-   to neither together nor apart records; they do not disqualify the pair's
-   other complete games. Confirm the comparison card appears above the Elo grid.
+   games count in both together and apart records. Missing individual pregame
+   Elo uses each player's latest Elo after a strictly earlier ranked game, or
+   starting 1500. Confirm the comparison card appears above the Elo grid.
    **Better together** / **Better apart** is a small label above the one-decimal
    wins-over/under-expected figure. Differences below 0.05 in magnitude show
    **Right on expected** with no hero number. One win uses the singular unit.
@@ -51,3 +51,7 @@ outside their cards. The expected API source is the authenticated
 Synergy and partner endpoints use the same authenticated registered-profile
 boundary as the duo ladder; they do not add data to public profile responses.
 The retired feature preference remains true-only, as on the rest of Dice.
+
+11. Fail a duo ladder read: it retries once automatically. After two failures,
+    Home retains Top duos with **Couldn't load duos · Retry**; Stats has the same
+    recovery row. Retry restores the actual ladder after the service recovers.

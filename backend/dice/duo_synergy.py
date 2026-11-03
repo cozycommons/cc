@@ -1,14 +1,15 @@
-"""Pure pair comparisons using stored individual pregame ratings."""
+"""Pure pair comparisons using individual ratings at each game's timestamp."""
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import defaultdict
 from dataclasses import dataclass, field
 from math import isfinite
 from typing import Iterable, Mapping, Sequence
 
-from dice.duo_rating import DuoMatch, canonical_duo_id, eligible_duo_matches
-from dice.elo import expected_score
+from dice.duo_rating import DuoMatch, _as_utc, canonical_duo_id, eligible_duo_matches
+from dice.elo import STARTING_ELO, expected_score
 
 DUO_SYNERGY_MIN_GAMES = 5
 DUO_SYNERGY_NEUTRAL_MARGIN = 0.05
@@ -19,23 +20,36 @@ BIG_MOMENTS_MIN_LIVE_GAMES = 10
 class SynergyMatch(DuoMatch):
     duo_only: bool = False
     elo_before: Mapping[str, float | None] = field(default_factory=dict)
+    elo_after: Mapping[str, float | None] = field(default_factory=dict)
 
 
 def calculate_duo_synergies(matches: Iterable[DuoMatch]) -> dict[str, dict]:
-    """Compare every exact pair; never substitute today's Elo for missing history.
+    """Compare the ladder's game set using individual ratings at game time."""
+    matches = list(matches)
+    history = defaultdict(list)
+    for match in sorted(matches, key=lambda m: (
+        _as_utc(m.played_at), _as_utc(m.created_at or m.played_at), m.game_id,
+    )):
+        if (not match.ranked or not match.completed or getattr(match, "duo_only", False)
+                or match.live_result_state not in (None, "official", "completed")
+                or match.winner_team not in (1, 2)):
+            continue
+        for member, rating in getattr(match, "elo_after", {}).items():
+            if isinstance(rating, (int, float)) and not isinstance(rating, bool) and isfinite(rating):
+                history[member].append((_as_utc(match.played_at), rating))
+    times = {member: [time for time, _ in rows] for member, rows in history.items()}
 
-    Duo-only games and games without all four pregame ratings count toward
-    neither together nor apart records. Apply the gate to the counted games.
-    """
+    def rating_before(match, member):
+        stored = getattr(match, "elo_before", {}).get(member)
+        if stored is not None:
+            return stored
+        index = bisect_left(times.get(member, []), _as_utc(match.played_at)) - 1
+        return history[member][index][1] if index >= 0 else STARTING_ELO
+
     pairs: dict[str, dict] = {}
     individual = defaultdict(lambda: {"wins": 0, "losses": 0})
-    for match, team1, team2 in eligible_duo_matches(
-        match for match in matches if not getattr(match, "duo_only", False)
-    ):
-        if match.live_result_state not in (None, "official"):
-            continue
-        ratings = getattr(match, "elo_before", {})
-        values = [ratings.get(member) for member in (*team1, *team2)]
+    for match, team1, team2 in eligible_duo_matches(matches):
+        values = [rating_before(match, member) for member in (*team1, *team2)]
         complete = all(
             isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
             for value in values
