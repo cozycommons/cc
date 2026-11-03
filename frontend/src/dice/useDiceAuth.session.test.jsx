@@ -68,6 +68,30 @@ describe('useDiceAuth session loading', () => {
     expect(mocks.getMyProfile).toHaveBeenCalledTimes(1);
   });
 
+  it('swaps the token in place when the same user refreshes or signs in again', async () => {
+    arrange();
+    let authChange;
+    mocks.onAuthStateChange.mockImplementation((handler) => {
+      authChange = handler;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+    const { result } = renderHook(() => useDiceAuth());
+    await waitFor(() => expect(result.current.profile?.user_id).toBe('u1'));
+    const states = [];
+
+    await act(async () => {
+      authChange('TOKEN_REFRESHED', { ...session, access_token: 'refreshed' });
+      states.push({ loading: result.current.loading, profile: result.current.profile });
+      authChange('SIGNED_IN', { ...session, access_token: 'refocused' });
+    });
+
+    expect(states.every((state) => !state.loading && state.profile?.user_id === 'u1')).toBe(true);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.token).toBe('refocused');
+    expect(result.current.profile).toEqual({ user_id: 'u1', display_name: 'Player' });
+    expect(mocks.getMyProfile).toHaveBeenCalledTimes(1);
+  });
+
   it('clears the previous profile and stays loading until an account switch resolves', async () => {
     arrange();
     let authChange;

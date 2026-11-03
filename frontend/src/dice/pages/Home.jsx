@@ -4,6 +4,8 @@ import DuoLoadError from '../components/DuoLoadError.jsx';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
+import { ALL_GAMES_KEY, loadAllGames } from '../resources.js';
 import GameRow from '../components/GameRow.jsx';
 import LeaderboardRow from '../components/LeaderboardRow.jsx';
 import TournamentRow from '../components/TournamentRow.jsx';
@@ -11,6 +13,7 @@ import PhotoGallery from '../components/PhotoGallery.jsx';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { leaderboardPreview, rankLeaderboard } from '../leaderboard.js';
+import LoadingRows from '../components/LoadingRows.jsx';
 
 function SectionHeader({ label, viewAllTo }) {
   return (
@@ -192,7 +195,7 @@ function EloSection({ entries, currentUserId }) {
     <section className="mb-10">
       <SectionHeader label="// ELO STANDINGS" viewAllTo="/dice/leaderboard/elo" />
       <div className="jk-card overflow-hidden">
-        {entries === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+        {entries === null && <LoadingRows />}
         {entries?.length === 0 && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No standings yet.</p>}
         {preview.leaders.map((profile) => (
           <LeaderboardRow key={profile.user_id} rank={profile.rank} profile={profile} value={profile.elo_rating} valueLabel="ELO" unranked={profile.is_provisional} tied={profile.tied} isCurrentUser={profile.user_id === currentUserId} />
@@ -336,25 +339,16 @@ function TournamentHighlights({ tournaments }) {
 export { calculateStreaks, rankedStreakGames, HistoricalRecordsSection, CurrentStreaksSection, matchStory, splitTournaments };
 
 function ReleasedHome({ auth }) {
-  const [games, setGames] = useState(null);
-  const [elo, setElo] = useState(null);
-  const [sinks, setSinks] = useState(null);
-  const [selfSinks, setSelfSinks] = useState(null);
-  const [tournaments, setTournaments] = useState(null);
   const [liveGames, setLiveGames] = useState(null);
   const { ladder: duoLadder, error: duoError, retry: retryDuos } = useDuoLadder(auth, 3, true);
   const [livePredictions, setLivePredictions] = useState({});
   const signedIn = Boolean(auth?.token && auth?.profile);
   const currentUserId = auth?.profile?.user_id || auth?.user?.id;
-
-
-  useEffect(() => {
-    (typeof diceApi.getAllGames === 'function' ? diceApi.getAllGames() : diceApi.getGames(100)).then(setGames).catch(() => setGames([]));
-    diceApi.getEloLeaderboard(LEADERBOARD_LIMIT, true).then(setElo).catch(() => setElo([]));
-    diceApi.getSinkLeaderboard(LEADERBOARD_LIMIT, false).then(setSinks).catch(() => setSinks([]));
-    diceApi.getSelfSinkLeaderboard(LEADERBOARD_LIMIT, false).then(setSelfSinks).catch(() => setSelfSinks([]));
-    diceApi.getTournaments(20).then(setTournaments).catch(() => setTournaments([]));
-  }, []);
+  const [games] = useDiceResource(ALL_GAMES_KEY, loadAllGames, { fallback: [] });
+  const [elo] = useDiceResource(`elo:${LEADERBOARD_LIMIT}:provisional`, () => diceApi.getEloLeaderboard(LEADERBOARD_LIMIT, true), { fallback: [] });
+  const [sinks] = useDiceResource(`sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
+  const [selfSinks] = useDiceResource(`self-sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSelfSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
+  const [tournaments] = useDiceResource('tournaments:20', () => diceApi.getTournaments(20), { fallback: [] });
 
   useEffect(() => {
     if (!signedIn) {
@@ -385,7 +379,7 @@ function ReleasedHome({ auth }) {
   const matchesSection = <section className="mb-10">
         <SectionHeader label="// RECENT MATCHES" viewAllTo={hasMore(games) ? '/dice/history' : null} />
         <div className="jk-card overflow-hidden">
-          {games === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+          {games === null && <LoadingRows />}
           {games?.length === 0 && (
             <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No matches logged yet.</p>
           )}
@@ -396,7 +390,7 @@ function ReleasedHome({ auth }) {
   const eloSection = <EloSection entries={elo} currentUserId={currentUserId} />;
   const duoSection = <DuoHomeSection ladder={duoLadder} error={duoError} retry={retryDuos} loading={signedIn && !duoLadder && !duoError} />;
   const tournamentSection = tournaments === null ? (
-        <section className="mb-10"><SectionHeader label="// TOURNAMENTS" viewAllTo="/dice/tournaments" /><div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</div></section>
+        <section className="mb-10"><SectionHeader label="// TOURNAMENTS" viewAllTo="/dice/tournaments" /><div className="jk-card overflow-hidden"><LoadingRows rows={2} /></div></section>
       ) : <TournamentHighlights tournaments={tournaments} />;
   const sinksSection = <SinkLeadersSection sinks={sinks} selfSinks={selfSinks} currentUserId={currentUserId} />;
   const photosSection = <section>
@@ -412,9 +406,8 @@ function ReleasedHome({ auth }) {
   );
 }
 
+// Public sections do not depend on who is signed in, so Home renders (and
+// starts its requests) while auth is still resolving instead of waiting on it.
 export default function Home({ auth }) {
-  if (auth?.loading) {
-    return <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</div>;
-  }
   return <ReleasedHome auth={auth} />;
 }

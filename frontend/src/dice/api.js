@@ -1,5 +1,6 @@
 import { api, getUrl } from '../api.js';
 import { sendLiveCommandWithAdaptiveHedge } from './liveCommandHedge.js';
+import { invalidateDiceResources } from './resourceCache.js';
 
 function authHeaders(token) {
   return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {};
@@ -173,6 +174,8 @@ class DiceApiClient {
     return api.get(`/dice/games?limit=${limit}&offset=${offset}`);
   }
 
+  // 200 games keeps the player hydration query (4 per game) under PostgREST's
+  // 1,000-row response cap; a larger page silently drops rosters.
   async getAllGames(pageSize = 200) {
     const all = [];
     let offset = 0;
@@ -291,6 +294,28 @@ class DiceApiClient {
       headers: authHeaders(token),
     });
   }
+}
+
+// Writes can change any cached read (a logged game moves the leaderboards,
+// streaks and profiles), so every mutation clears the page cache. It clears on
+// failure too, because a request that timed out may still have committed.
+const MUTATIONS = [
+  'createLiveGame', 'updateLiveSettings', 'joinLiveGame', 'leaveLiveGame', 'sendLiveCommand',
+  'openVirtualBankroll', 'createVirtualMarket', 'placeVirtualPick',
+  'updateMyProfile', 'createGame', 'updateGame', 'deleteGame', 'postComment', 'deleteComment',
+  'createTournament', 'updateTournament', 'deleteTournament', 'enrollInTournament', 'unenrollFromTournament',
+  'addScheduledMatch', 'updateScheduledMatch', 'deleteScheduledMatch',
+  'addFinalist', 'removeFinalist', 'resolveBracketMatch', 'setBracketTeams',
+];
+for (const name of MUTATIONS) {
+  const original = DiceApiClient.prototype[name];
+  DiceApiClient.prototype[name] = async function invalidatingMutation(...args) {
+    try {
+      return await original.apply(this, args);
+    } finally {
+      invalidateDiceResources();
+    }
+  };
 }
 
 export const diceApi = new DiceApiClient();

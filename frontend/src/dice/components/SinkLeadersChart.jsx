@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { rankLeaderboard } from '../leaderboard.js';
 import PlayerAvatar from './PlayerAvatar.jsx';
+import LoadingRows from './LoadingRows.jsx';
 
 const MODES = {
   sinks: { label: 'Sinks', valueKey: 'sinks', to: '/dice/leaderboard/sinks', tone: 'sky' },
@@ -32,7 +33,7 @@ export default function SinkLeadersChart({ sinks, selfSinks, currentUserId }) {
         <Link to={config.to} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>Full board →</Link>
       </div>
 
-      {entries === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+      {entries === null && <LoadingRows />}
       {entries?.length === 0 && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No players yet.</p>}
       {entries?.length > 0 && displayed.length === 0 && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No stats yet.</p>}
 

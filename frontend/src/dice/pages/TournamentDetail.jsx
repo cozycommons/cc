@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { diceApi } from '../api.js';
+import { loadDiceResource, peekDiceResource } from '../resourceCache.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import Linkify from '../components/Linkify.jsx';
 import RosterPicker from '../components/RosterPicker.jsx';
@@ -10,6 +11,7 @@ import GameRow from '../components/GameRow.jsx';
 import BracketView from '../components/BracketView.jsx';
 import { canEditTournament, isEnrolled, computeTournamentStandings, hasDuplicatePlayerIds } from '../utils.js';
 import { formatTournamentDateTime } from '../timezone.js';
+import { LoadingPage } from '../components/LoadingRows.jsx';
 
 function PlayerChip({ profile }) {
   return (
@@ -345,8 +347,9 @@ export default function TournamentDetail({ auth }) {
   const { tournamentId } = useParams();
   const navigate = useNavigate();
   const { user, token, isAdmin } = auth;
-  const [tournament, setTournament] = useState(null);
-  const [profiles, setProfiles] = useState(null);
+  const tournamentKey = `tournament:${tournamentId}`;
+  const [tournament, setTournament] = useState(() => peekDiceResource(tournamentKey) ?? null);
+  const [profiles, setProfiles] = useState(() => peekDiceResource('profiles:search::100') ?? null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [addingPlayer, setAddingPlayer] = useState(false);
@@ -355,7 +358,9 @@ export default function TournamentDetail({ auth }) {
   const [finalistBusy, setFinalistBusy] = useState(false);
   const [formingTeams, setFormingTeams] = useState(false);
 
-  const load = () => diceApi.getTournament(tournamentId).then(setTournament).catch(() => setTournament(false));
+  const load = () => loadDiceResource(tournamentKey, () => diceApi.getTournament(tournamentId))
+    .then(setTournament)
+    .catch(() => setTournament(false));
 
   useEffect(() => {
     load();
@@ -363,14 +368,14 @@ export default function TournamentDetail({ auth }) {
   }, [tournamentId]);
 
   useEffect(() => {
-    diceApi.searchProfiles('', 100).then(setProfiles).catch((err) => {
+    loadDiceResource('profiles:search::100', () => diceApi.searchProfiles('', 100)).then(setProfiles).catch((err) => {
       console.error('Failed to load players for the add-player picker:', err);
       setProfiles([]);
     });
   }, []);
 
   if (tournament === null) {
-    return <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">Loading…</div>;
+    return <LoadingPage />;
   }
   if (tournament === false) {
     return <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">Tournament not found.</div>;

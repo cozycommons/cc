@@ -1,16 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useSupabase } from '../../contexts/SupabaseContext';
 import { diceApi } from '../api.js';
+import { loadDiceResource, peekDiceResource } from '../resourceCache.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import { AVATAR_IMAGE_MAX_EDGE, compactImage, uniqueImageFolder } from '../imageUpload.js';
 import GameRow from '../components/GameRow.jsx';
 import EloHistoryChart from '../components/EloHistoryChart.jsx';
 import { synergyDescription, synergyGap } from '../duoSynergy.js';
 import { aggregateRecordedStats } from '../recordedStats.js';
+import LoadingRows, { LoadingPage } from '../components/LoadingRows.jsx';
 
 const AVATAR_BUCKET = 'dice-profile-photos';
 
@@ -97,17 +99,21 @@ export default function PlayerProfile({ auth }) {
   const { supabase } = useSupabase();
   const { user, token, isAdmin, refreshProfile, signOut } = auth;
   const [partnerResult, setPartnerResult] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [games, setGames] = useState(null);
-  const [ratingProgress, setRatingProgress] = useState(undefined);
+  const viewerKey = user?.id || 'anonymous';
+  const profileKey = `profile:${userId}:${viewerKey}`;
+  const gamesKey = `profile-games:${userId}:200`;
+  const progressKey = `rating-progress:${userId}`;
+  const [profile, setProfile] = useState(() => peekDiceResource(profileKey) ?? null);
+  const [games, setGames] = useState(() => peekDiceResource(gamesKey) ?? null);
+  const [ratingProgress, setRatingProgress] = useState(() => peekDiceResource(progressKey));
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => peekDiceResource(profileKey)?.display_name ?? '');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [savingSetting, setSavingSetting] = useState(false);
   const [error, setError] = useState(null);
-  const [phone, setPhone] = useState('');
-  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [phone, setPhone] = useState(() => peekDiceResource(profileKey)?.phone_number || '');
+  const [smsEnabled, setSmsEnabled] = useState(() => peekDiceResource(profileKey)?.sms_notifications_enabled ?? false);
   const [savingSms, setSavingSms] = useState(false);
   const [smsError, setSmsError] = useState(null);
   const [smsSaved, setSmsSaved] = useState(false);
@@ -115,22 +121,46 @@ export default function PlayerProfile({ auth }) {
   const isOwnProfile = user?.id === userId;
   const canEdit = isOwnProfile || isAdmin;
 
-  const load = () => {
-    setRatingProgress(undefined);
-    diceApi.getProfile(userId, token).then((p) => {
-      setProfile(p);
-      setName(p.display_name);
-      setPhone(p.phone_number || '');
-      setSmsEnabled(p.sms_notifications_enabled);
-    }).catch(() => setProfile(null));
-    diceApi.getProfileGames(userId, 200).then(setGames).catch(() => setGames([]));
-    diceApi.getRatingProgress(userId).then(setRatingProgress).catch(() => setRatingProgress(null));
+  const applyProfile = (p) => {
+    setProfile(p);
+    setName(p.display_name);
+    setPhone(p.phone_number || '');
+    setSmsEnabled(p.sms_notifications_enabled);
   };
 
+  // Show the last copy of this profile straight away, then refresh it.
+  // Responses for a player we have since navigated away from are dropped.
+  const loadSequence = useRef(0);
+  const load = () => {
+    const sequence = ++loadSequence.current;
+    const current = () => sequence === loadSequence.current;
+    const cachedProfile = peekDiceResource(profileKey);
+    if (cachedProfile) applyProfile(cachedProfile);
+    setGames(peekDiceResource(gamesKey) ?? null);
+    setRatingProgress(peekDiceResource(progressKey));
+    loadDiceResource(profileKey, () => diceApi.getProfile(userId, token)).then((p) => {
+      if (current()) applyProfile(p);
+    }).catch(() => {
+      if (current() && !cachedProfile) setProfile(null);
+    });
+    loadDiceResource(gamesKey, () => diceApi.getProfileGames(userId, 200)).then((loaded) => {
+      if (current()) setGames(loaded);
+    }).catch(() => {
+      if (current()) setGames((shown) => shown ?? []);
+    });
+    loadDiceResource(progressKey, () => diceApi.getRatingProgress(userId)).then((loaded) => {
+      if (current()) setRatingProgress(loaded);
+    }).catch(() => {
+      if (current()) setRatingProgress((shown) => shown ?? null);
+    });
+  };
+
+  // Keyed on the viewer rather than the token, so an hourly token refresh does
+  // not refetch the page or reset a name that is being edited.
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, token]);
+  }, [userId, viewerKey]);
 
   useEffect(() => {
     let active = true;
@@ -259,7 +289,7 @@ export default function PlayerProfile({ auth }) {
   };
 
   if (profile === null) {
-    return <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">Loading…</div>;
+    return <LoadingPage width="max-w-xl" />;
   }
 
   return (
@@ -399,7 +429,7 @@ export default function PlayerProfile({ auth }) {
       <div className="mb-8">
         <p className="jk-label mb-3">// ELO HISTORY</p>
         <div className="jk-card p-4">
-          {eloHistory === null && <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+          {eloHistory === null && <LoadingRows rows={2} avatar={false} />}
           {eloHistory && eloHistory.length < 2 && (
             <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
               Not enough ranked games yet to chart a trend.
@@ -459,7 +489,7 @@ export default function PlayerProfile({ auth }) {
 
       <p className="jk-label mb-3">// GAME HISTORY</p>
       <div className="jk-card overflow-hidden">
-        {games === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+        {games === null && <LoadingRows />}
         {games?.length === 0 && (
           <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No games logged yet.</p>
         )}

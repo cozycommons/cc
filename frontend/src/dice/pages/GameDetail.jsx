@@ -2,10 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { diceApi } from '../api.js';
+import { loadDiceResource, peekDiceResource } from '../resourceCache.js';
+import { findListedGame } from '../resources.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import PlayerGameStats from '../components/PlayerGameStats.jsx';
 import CommentsSection from '../components/CommentsSection.jsx';
 import { teamAverageElo, teamPlayers, formatDate, canEditGame } from '../utils.js';
+import { LoadingPage } from '../components/LoadingRows.jsx';
 
 const pendingDeleteKey = (userId, gameId) => `dice:game:delete:${userId || 'unknown'}:${gameId}`;
 
@@ -102,22 +105,30 @@ function Team({ game, team, side }) {
   );
 }
 
+function cachedGame(gameKey, gameId) {
+  return gameKey ? peekDiceResource(gameKey) ?? findListedGame(gameId) ?? null : null;
+}
+
 export default function GameDetail({ auth }) {
   const { gameId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const { user, token, isAdmin } = auth;
-  const [game, setGame] = useState(null);
+  const includeDuoOnly = new URLSearchParams(location.search).get('duo') === '1';
+  // Duo-only views are viewer-specific, so only public matches use the cache.
+  const gameKey = includeDuoOnly ? null : `game:${gameId}`;
+  const [game, setGame] = useState(() => cachedGame(gameKey, gameId));
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const deleteAttempt = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
-    const includeDuoOnly = new URLSearchParams(location.search).get('duo') === '1';
+    // Re-running for the same match (e.g. a token refresh) keeps it on screen.
+    setGame((current) => cachedGame(gameKey, gameId) ?? (current && current.id === gameId ? current : null));
     const load = async () => {
       try {
-        const loaded = await diceApi.getGame(gameId, includeDuoOnly, includeDuoOnly ? token : null);
+        const loaded = await loadDiceResource(gameKey, () => diceApi.getGame(gameId, includeDuoOnly, includeDuoOnly ? token : null));
         if (!cancelled) setGame(loaded);
       } catch (loadError) {
         const pending = readPendingDelete(user?.id, gameId);
@@ -138,10 +149,10 @@ export default function GameDetail({ auth }) {
     };
     load();
     return () => { cancelled = true; };
-  }, [gameId, location.search, navigate, token, user?.id]);
+  }, [gameId, gameKey, includeDuoOnly, navigate, token, user?.id]);
 
   if (game === null) {
-    return <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">Loading…</div>;
+    return <LoadingPage />;
   }
   if (game === false) {
     return <div role="alert" className="max-w-2xl mx-auto px-4 sm:px-6 py-8">{error || 'Match not found.'}</div>;

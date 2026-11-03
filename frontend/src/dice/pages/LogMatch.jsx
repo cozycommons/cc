@@ -6,6 +6,7 @@ import { diceApi } from '../api.js';
 import PlayerPicker from '../components/PlayerPicker.jsx';
 import SinkCountInput from '../components/SinkCountInput.jsx';
 import RankedChoice from '../components/RankedChoice.jsx';
+import { LoadingPage } from '../components/LoadingRows.jsx';
 
 const emptySlots = { t1p1: null, t1p2: null, t2p1: null, t2p2: null };
 
@@ -208,7 +209,7 @@ export default function LogMatch({ auth, editMode = false }) {
   };
 
   if (authLoading || loadingGame) {
-    return <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">Loading…</div>;
+    return <LoadingPage width="max-w-xl" />;
   }
 
   if (!user) {

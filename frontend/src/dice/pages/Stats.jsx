@@ -7,10 +7,13 @@ import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import EloDistribution from '../components/EloDistribution.jsx';
 import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
+import { ALL_GAMES_KEY, loadAllGames } from '../resources.js';
 import { synergyDescription, synergyRates } from '../duoSynergy.js';
 import { rankLeaderboard } from '../leaderboard.js';
 import { aggregateRecordedStats, metricLeaders } from '../recordedStats.js';
 import { calculateStreaks } from './Home.jsx';
+import LoadingRows from '../components/LoadingRows.jsx';
 
 const LEADERBOARD_LIMIT = 500;
 const VIEWS = ['players', 'streaks', 'duos'];
@@ -96,7 +99,7 @@ function PlayerAttributionCard({ player }) {
 function RecordedPlay({ games }) {
   const aggregate = useMemo(() => aggregateRecordedStats(games || []), [games]);
   if (games === null) {
-    return <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading recorded play…</div>;
+    return <div className="jk-card overflow-hidden"><LoadingRows label="Loading recorded play…" /></div>;
   }
   if (!aggregate.recordedGames) {
     return (
@@ -150,7 +153,7 @@ function PlayerView({ auth, elo, sinks, selfSinks, games }) {
   const currentUserId = auth?.profile?.user_id || auth?.user?.id;
 
   if (elo === null || sinks === null || selfSinks === null) {
-    return <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading player stats…</div>;
+    return <div className="jk-card overflow-hidden"><LoadingRows label="Loading player stats…" /></div>;
   }
 
   return (
@@ -247,7 +250,7 @@ function StreakView({ games }) {
   const alsoActive = active.slice(leaders.length);
 
   if (games === null) {
-    return <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading streaks…</div>;
+    return <div className="jk-card overflow-hidden"><LoadingRows label="Loading streaks…" /></div>;
   }
   if (!records.length) {
     return <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No multi-game streaks yet.</div>;
@@ -364,7 +367,7 @@ function DuoView({ auth }) {
 
   if (!registered) return <div className="jk-card p-4 text-sm">Sign in with a registered Dice profile to view duo ratings.</div>;
   if (error) return <DuoLoadError onRetry={retry} />;
-  if (!ladder) return <div className="jk-card p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading duos…</div>;
+  if (!ladder) return <div className="jk-card overflow-hidden"><LoadingRows label="Loading duos…" /></div>;
 
   return (
     <section className="jk-stats-panel space-y-7" aria-label="Duo stats">
@@ -398,20 +401,13 @@ function DuoView({ auth }) {
 }
 
 export default function Stats({ auth }) {
-  const [games, setGames] = useState(null);
-  const [elo, setElo] = useState(null);
-  const [sinks, setSinks] = useState(null);
-  const [selfSinks, setSelfSinks] = useState(null);
+  const [games] = useDiceResource(ALL_GAMES_KEY, loadAllGames, { fallback: [] });
+  const [elo] = useDiceResource(`elo:${LEADERBOARD_LIMIT}:provisional`, () => diceApi.getEloLeaderboard(LEADERBOARD_LIMIT, true), { fallback: [] });
+  const [sinks] = useDiceResource(`sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
+  const [selfSinks] = useDiceResource(`self-sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSelfSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
   const [params, setParams] = useSearchParams();
   const requestedView = params.get('view');
   const view = VIEWS.includes(requestedView) ? requestedView : 'players';
-
-  useEffect(() => {
-    (typeof diceApi.getAllGames === 'function' ? diceApi.getAllGames() : diceApi.getGames(200)).then(setGames).catch(() => setGames([]));
-    diceApi.getEloLeaderboard(LEADERBOARD_LIMIT, true).then(setElo).catch(() => setElo([]));
-    diceApi.getSinkLeaderboard(LEADERBOARD_LIMIT, false).then(setSinks).catch(() => setSinks([]));
-    diceApi.getSelfSinkLeaderboard(LEADERBOARD_LIMIT, false).then(setSelfSinks).catch(() => setSelfSinks([]));
-  }, []);
 
   const choose = (next) => setParams(next === 'players' ? {} : { view: next });
   return (
