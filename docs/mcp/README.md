@@ -319,10 +319,11 @@ commits are receipted in `beli_agent_receipts` (keyed by user and key; the
 fingerprint is account, name and city). A commit reserves its key before calling
 Beli, so a concurrent retry cannot write twice; it records the result, which a
 replay returns, and a reused key with different details is refused. Nothing is
-reserved by a preview, and the reservation is released when nothing was written
-(ambiguous, no match or a failed call). A reservation left by a server that
-stopped mid-save is reported after two minutes with the fix: retry with a new
-key, which reports `already_bookmarked` if the earlier save landed. Both tables
+reserved by a preview, and the reservation is released only when no write
+request was sent (ambiguous, no match, or a failure before the write). A key
+with no recorded result, however old, never writes again: a retry with the same
+key checks Beli's bookmarks, marks the key done if the place is there, and
+otherwise returns an error asking for a same-key retry later. Both tables
 and the function are service-role only (RLS on, browser roles revoked); the Beli
 schema contract checks the index, every service grant individually, browser
 denial and the function's privileges at release time.

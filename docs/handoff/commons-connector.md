@@ -128,8 +128,7 @@ PASS pre-commons token refused outside its old project with a reconnect step
   the link tool. `day` is a date or lowercase weekday, `time` 24-hour `HH:MM`.
   Commits reserve the key before writing to Beli, record the result for replay,
   refuse a reused key with new details, and release the key when nothing was
-  written. A reservation left mid-save is reported after two minutes with the
-  fix (new key; it reports `already_bookmarked` if the save landed).
+  written. Review fix: the key is released only if no write request was sent; an unsettled key never writes again and is marked done once Beli's bookmarks show the place (else a same-key retry error), whatever its age.
 - **Default.** Beli is on by default once linked (`in_use`). Existing accounts,
   their `ccb_` tokens, `/beli/*`, `/beli/mcp` and watcher subscriptions are
   unchanged; the `beli` catalog entry is gone from `list_projects`.

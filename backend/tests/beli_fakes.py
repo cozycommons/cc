@@ -51,6 +51,8 @@ class FakeBeli:
         if path.startswith('/api/add-bookmark/'):
             assert method == 'POST'
             self.db.beli_writes.append((self.beli_id, body))
+            if self.db.beli_after_write:  # Beli took the write, but the response never arrived
+                raise self.db.beli_after_write
             return None
         raise AssertionError(f'unexpected Beli path {path}')
 
@@ -58,7 +60,7 @@ class FakeBeli:
 def install(db, monkeypatch):
     """Encrypt synthetic logins with a throwaway key and route Beli calls to FakeBeli."""
     monkeypatch.setenv('BELI_CREDENTIALS_KEY', Fernet.generate_key().decode())
-    db.beli_writes, db.beli_logins, db.beli_failure = [], [], None
+    db.beli_writes, db.beli_logins, db.beli_failure, db.beli_after_write = [], [], None, None
     monkeypatch.setattr('ig_logger.sinks.beli.accounts.make_client_for_account',
                         lambda account: FakeBeli(db, account))
 

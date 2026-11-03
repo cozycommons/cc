@@ -4,7 +4,7 @@ The Beli account is resolved from the signed-in Commons user, never from a
 pasted token: the user links it once with link_beli_account. The legacy
 token-per-call server at /beli/mcp is unchanged.
 """
-from datetime import date as Date, datetime, timedelta, timezone
+from datetime import date as Date
 import logging
 import time
 from typing import Annotated, Literal
@@ -28,9 +28,15 @@ LINK_STEP = (f'Call link_beli_account(api_token) once with your existing ccb_ Be
 RELINK_STEP = (f'Beli rejected the stored login. Onboard again at POST {ONBOARD_URL} with your current Beli '
                'password, then call link_beli_account with the new token.')
 RECEIPTS = 'beli_agent_receipts'
-# A reservation this old belongs to a save that never finished (the server stopped mid-write).
-STALE_RESERVATION = timedelta(minutes=2)
 NO_WRITE = {'ambiguous', 'no_results'}
+# What a preview reports for a place an unfinished save may have written, mapped to the recorded status.
+SETTLED = {'already_bookmarked': 'bookmarked', 'already_ranked': 'already_ranked'}
+UNCONFIRMED = ('Beli did not confirm the save, so it may have landed. Call save_restaurant again with the '
+               'same idempotency_key; it checks your Want to Try list and never saves twice.')
+UNSETTLED = ('A save with this idempotency_key has not finished: Beli does not show {name} on your Want to Try '
+             'list, so the earlier save may still be running or may have failed. Call save_restaurant again '
+             'with the same idempotency_key in a minute; it records the save once Beli shows the place and '
+             'never writes twice. If it never appears, add it in the Beli app.')
 
 # Same limit as /beli/onboard: 10 attempts per Commons user per hour.
 _LINK_ATTEMPTS: dict[str, list[float]] = {}
@@ -87,25 +93,55 @@ def receipt(client, user, key):
     return rows[0] if rows else None
 
 
-def replay(found, fingerprint):
+class WriteWatch:
+    """Passes Beli calls through and notes whether a write request was started."""
+
+    def __init__(self, beli):
+        self.beli, self.sent = beli, False
+
+    def api_with_reauth(self, path, method='GET', body=None):
+        if method != 'GET':
+            self.sent = True
+        return self.beli.api_with_reauth(path, method, body)
+
+
+def settle(client, user, beli, key, fingerprint):
+    """Resolve a reserved key with no recorded result by looking for the place on Beli.
+
+    The save that reserved it may still be running, or may have stopped after Beli
+    took the write. Its age cannot tell those apart, so this never writes: the key is
+    marked done only once the place shows up on the user's lists.
+    """
+    name = fingerprint['name']
+    try:
+        check = bookmark_name(beli, name, fingerprint['city'], True)
+    except BeliUnauthorized as error:
+        raise ToolError(RELINK_STEP) from error
+    except (BeliError, ValueError) as error:
+        raise ToolError(UNSETTLED.format(name=name)) from error
+    if check['status'] not in SETTLED:
+        raise ToolError(UNSETTLED.format(name=name))
+    result = {'dry_run': False, **check, 'status': SETTLED[check['status']]}
+    (client.table(RECEIPTS).update({'result': result})
+     .eq('user_id', user.id).eq('idempotency_key', key).is_('result', 'null').execute())
+    return result
+
+
+def replay(client, user, beli, key, found, fingerprint):
     if found['payload'] != fingerprint:
         raise ToolError('This idempotency_key was used with different details. Use a new key for a new save.')
     if found['result'] is not None:
         return found['result']
-    started = datetime.fromisoformat(found['created_at'])
-    if datetime.now(timezone.utc) - started > STALE_RESERVATION:
-        raise ToolError('A save with this idempotency_key did not finish, so its outcome is unknown. '
-                        'Call save_restaurant again with a new idempotency_key; it reports already_bookmarked '
-                        'if the earlier save landed.')
-    raise ToolError('A save with this idempotency_key is still in progress. Retry in a moment with the same key.')
+    return settle(client, user, beli, key, fingerprint)
 
 
 def save(client, user, name, city, key, dry_run):
     """Bookmark through the existing confidence-gated flow; commits are receipted.
 
     Preview never reserves a key. A commit reserves the key before writing to Beli,
-    so a concurrent retry cannot write twice; the reservation is released when
-    nothing was written (ambiguous, no match or a failed call).
+    so a concurrent retry cannot write twice. The reservation is released only when
+    no write request was sent (ambiguous, no match, or a failure before the write);
+    after an unconfirmed write it stays until settle finds the place on Beli.
     """
     account, beli = beli_client(client, user)
     fingerprint = {'account_id': account['id'], 'name': name, 'city': city}
@@ -113,22 +149,26 @@ def save(client, user, name, city, key, dry_run):
         return {'dry_run': True, **beli_call(bookmark_name, beli, name, city, True)}
     found = receipt(client, user, key)
     if found:
-        return replay(found, fingerprint)
+        return replay(client, user, beli, key, found, fingerprint)
     reserved = (client.table(RECEIPTS).upsert(
         {'user_id': user.id, 'idempotency_key': key, 'payload': fingerprint},
         on_conflict='user_id,idempotency_key', ignore_duplicates=True).execute().data)
     if not reserved:
-        return replay(receipt(client, user, key), fingerprint)
+        return replay(client, user, beli, key, receipt(client, user, key), fingerprint)
 
     def release():
         (client.table(RECEIPTS).delete().eq('user_id', user.id).eq('idempotency_key', key)
          .is_('result', 'null').execute())
 
+    watch = WriteWatch(beli)
     try:
-        result = {'dry_run': False, **beli_call(bookmark_name, beli, name, city, False)}
-    except Exception:
-        release()
-        raise
+        result = {'dry_run': False, **beli_call(bookmark_name, watch, name, city, False)}
+    except Exception as error:
+        if not watch.sent:
+            release()
+            raise
+        logger.warning('Beli bookmark write unconfirmed: %s', type(error).__name__)
+        raise ToolError(UNCONFIRMED) from error
     if result['status'] in NO_WRITE:
         release()
         return result

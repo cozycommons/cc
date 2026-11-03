@@ -209,19 +209,52 @@ async def test_ambiguous_save_writes_nothing_and_frees_the_key(beli):
     assert saved['status'] == 'bookmarked'
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize('age,message', [(timedelta(0), 'still in progress'),
-                                         (timedelta(minutes=5), 'did not finish')])
-async def test_in_flight_reservation_is_never_written_twice(beli, age, message):
-    db, _, call, _ = beli
-    row = await linked_user(db, call)
+def reserve(db, row, age):
+    """A reservation left by a save with no recorded outcome."""
     db.beli_receipts[(db.user.id, 'save-1')] = {
         'user_id': db.user.id, 'idempotency_key': 'save-1', 'result': None,
         'payload': {'account_id': row['id'], 'name': 'Synthetic Bistro', 'city': None},
         'created_at': (datetime.now(timezone.utc) - age).isoformat()}
-    with pytest.raises(ToolError, match=message):
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('age', [timedelta(0), timedelta(minutes=5), timedelta(days=1)])
+async def test_unsettled_reservation_is_never_written_twice_whatever_its_age(beli, age):
+    # Age does not show the earlier save stopped; while Beli lacks the place, the key stays blocked.
+    db, _, call, _ = beli
+    reserve(db, await linked_user(db, call), age)
+    with pytest.raises(ToolError, match='Beli does not show Synthetic Bistro') as error:
         await call('save_restaurant', **SAVE, dry_run=False)
-    assert not db.beli_writes
+    assert 'same idempotency_key' in str(error.value) and 'new' not in str(error.value)
+    assert not db.beli_writes and db.beli_receipts[(db.user.id, 'save-1')]['result'] is None
+
+
+@pytest.mark.asyncio
+async def test_unsettled_reservation_settles_when_beli_shows_the_place(beli):
+    db, _, call, _ = beli
+    row = await linked_user(db, call)
+    reserve(db, row, timedelta(minutes=5))
+    db.beli_writes.append((row['login'], {'business_id': 501}))  # the earlier save landed
+    saved = await call('save_restaurant', **SAVE, dry_run=False)
+    assert saved == {'dry_run': False, 'status': 'bookmarked', 'name': 'Synthetic Bistro',
+                     'business': {'id': 501, 'name': 'Synthetic Bistro', 'neighborhood': 'West Village'}}
+    assert len(db.beli_writes) == 1 and db.beli_receipts[(db.user.id, 'save-1')]['result'] == saved
+    assert await call('save_restaurant', **SAVE, dry_run=False) == saved
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', [TimeoutError('timed out'), BeliError('Beli POST -> 502', status=502)])
+async def test_unconfirmed_write_keeps_the_key_and_settles_on_retry(beli, failure):
+    db, _, call, _ = beli
+    await linked_user(db, call)
+    db.beli_after_write = failure
+    with pytest.raises(ToolError, match='may have landed. Call save_restaurant again with the same idempotency_key'):
+        await call('save_restaurant', **SAVE, dry_run=False)
+    assert len(db.beli_writes) == 1 and db.beli_receipts[(db.user.id, 'save-1')]['result'] is None
+    db.beli_after_write = None
+    saved = await call('save_restaurant', **SAVE, dry_run=False)
+    assert saved['status'] == 'bookmarked' and len(db.beli_writes) == 1
+    assert db.beli_receipts[(db.user.id, 'save-1')]['result'] == saved
 
 
 @pytest.mark.asyncio

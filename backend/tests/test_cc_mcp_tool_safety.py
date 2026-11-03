@@ -196,6 +196,18 @@ async def test_another_users_resource_is_refused(server, monkeypatch, provider, 
 
 
 @pytest.mark.asyncio
+async def test_linked_caller_commits_beli_save_with_only_their_login(server):
+    # Another user's linked account sits first, so a lookup that ignores the owner would pick it.
+    other, _ = beli_fakes.add_account(server.db, owner=str(uuid4()))
+    mine, _ = beli_fakes.add_account(server.db, owner=server.db.user.id)
+    save = {**FIXTURES['beli'].args(server.db)['save_restaurant'], 'dry_run': False}
+    assert (await server.call('save_restaurant', save)).structured_content['status'] == 'bookmarked'
+    assert server.db.beli_logins == [mine['login']]
+    assert [login for login, _body in server.db.beli_writes] == [mine['login']]
+    assert other['login'] not in server.db.beli_logins
+
+
+@pytest.mark.asyncio
 async def test_enabled_project_tools_are_listed(server):
     expected = {tool for provider in PROVIDERS for tool in provider.tools}
     assert await server.listed() == expected
