@@ -45,9 +45,10 @@ to ESPN, where the counterparty can accept or decline it.
 
 Onboarding stores the caller's ESPN cookies (espn_s2 + SWID) encrypted at
 rest (see accounts.py):
-  POST /onboard {label?, league_id, season, espn_s2, swid}
+  POST /onboard {label?, league_id, season, espn_s2, swid, enable_automation?}
       -> {"id", "label", "league_id", "season", "token"}
-The token is shown ONCE.
+The token is shown ONCE. Both routes honor enable_automation (default true)
+in the initial insert.
 
 There is also a login front door for users who can't extract cookies:
   POST /onboard/login {email, password, label?, league_id?, season?,
@@ -260,7 +261,7 @@ class OnboardLoginBody(BaseModel):
         "season by the July 1 rollover",
     )
     enable_automation: bool = Field(
-        default=False,
+        default=True,
         description="Enable automatic daily lineups for this account",
     )
 

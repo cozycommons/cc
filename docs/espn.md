@@ -192,8 +192,7 @@ curl -s -X POST https://<backend-host>/espn/automation/lineup \
 
 Both onboarding endpoints accept `enable_automation`: `false` stores the
 account with automation disabled immediately. The extension sends its
-checkbox choice in that request. Cookie onboarding retains its enabled
-default when omitted; login onboarding defaults to disabled when omitted.
+checkbox choice in that request. Both endpoints retain the enabled default when the field is omitted.
 The endpoint above changes the choice later.
 
 Accounts created before this fix may have automation enabled even if the
