@@ -1,8 +1,8 @@
 # Cozy Commons MCP
 
 One connection and browser sign-in serves deliberately registered feature tool
-sets. Floor Planner is the first provider; existing Beli, Resy, Partiful and ESPN
-MCP endpoints are not automatically exposed through it.
+sets: Commons discovery, Floor Planner, and Trips. Existing Beli, Resy, Partiful
+and ESPN MCP endpoints keep their separate pasted-token authentication.
 
 ## Connection and deployment
 
@@ -49,7 +49,7 @@ them. Browser roles receive no table access.
 The OAuth server's OIDC scopes are `openid email`. These scopes identify the
 user; they do not limit Supabase database permissions. The proxy issues its
 own JWTs with audience bound to the `/mcp` resource and keeps
-`floor-plans:read` and `floor-plans:edit` scopes in those local tokens. Raw
+`floor-plans:read`, `floor-plans:edit`, `trips:read`, and `trips:edit` scopes in those local tokens. Raw
 Supabase session tokens are rejected by MCP. Tools use the shared context to
 validate the current user with Supabase Auth.
 Each feature owns its account binding, authorization, and write validation.
@@ -75,7 +75,8 @@ configures its confidential Supabase OAuth client and the deployment keys.
 ## Adding a feature
 
 The composition root in `backend/main.py` explicitly passes providers into
-`create_agent_app`. The shared package never imports feature modules. A provider
+`create_agent_app`. The shared server never imports feature modules; the Commons
+registry owns its feature status callbacks. A provider
 supplies a unique name, its unique permission scopes, and a registration function:
 
 ```python
@@ -94,11 +95,14 @@ def register_tools(mcp, context):
 provider = ToolProvider("trips", ("trips:read",), register_tools)
 ```
 
-Register that provider alongside Floor Planner in the composition root. This is
-an illustration, not an implemented Trips tool. Every private-data tool must
+This minimal example illustrates the provider interface; the implemented Trips
+provider is `backend/trips/agent_tools.py`. Every feature-data tool must
 check its scope, obtain a current user, and enforce its feature's membership
 rules. A connection does not grant access to every record or bypass existing
-permissions. Tool names and scopes must be unique across providers.
+permissions. Tool names, provider names and scopes must be unique across providers. A provider
+may declare zero scopes (Commons does); the combined scope set must be nonempty.
+A valid proxy token with no feature scopes can use the sign-in-only tools;
+unknown scopes remain rejected.
 
 Clients should request only the scopes needed for their task. Clients that omit
 scopes are prompted for the currently registered scopes; adding a provider does
@@ -120,3 +124,89 @@ endpoint. Local browser OAuth, tool edits, refresh, and restart persistence were
 verified during development. Native Codex and Claude client setup and production
 OAuth configuration still need deployment validation. USDZ scans remain private
 to collaborators and are not exposed by the MCP tools.
+
+## Commons discovery and Trips
+
+Call `list_projects` first. `whoami` and `list_projects` require a current Commons
+sign-in without any additional feature scope. The project registry includes all
+public frontend projects plus the four separate MCP integrations. Read-only,
+cheap status callbacks report trip counts and owned/accepted shared plans;
+other projects return an explicit setup URL or unknown status. Status lookup
+failures do not prevent discovery. M3 can attach a status callback to each
+`Project` without changing the shared server.
+
+`get_trip_overview` needs `trips:read`. Omit `trip_id` to list authorized trips;
+pass it to get member IDs, names, Venmo usernames, currency, revision, integer
+balances and settlement payments. Trips does not currently store travel dates;
+list entries therefore return `dates: null`. Settlement reuses the canonical
+fewest-payment solver up to 16 nonzero balances, with its deterministic greedy
+fallback above that limit. Venmo links use existing handle validation and URL
+helpers, and require USD and the appropriate payer/payee handle. A missing link
+is null. Links do not execute a payment.
+
+`add_expense` and `record_repayment` need `trips:edit`, exact trip/member IDs,
+positive integer cents and a required `idempotency_key` (1–200 characters).
+Preview with `dry_run=true` (the default), review with the user, then submit
+`dry_run=false` with the same key and arguments. Preview does not reserve a key
+or change a revision. Repayment records money already paid; it never sends money.
+All reads and writes check the signed-in user's trip membership. Unknown member
+IDs/names return suggested member names with exact IDs; names are never resolved
+automatically. Money is in the trip currency's minor units, returned as currency
+alongside cents; no currency conversion occurs.
+
+Expenses accept `payers: [{member_id, amount_cents}]` totaling `total_cents`, and
+`member_ids` listing participants exactly once. `split_mode` is `even`, `percent`
+or `exact`. For percent, `parts` maps every participant ID to positive integer
+basis points totaling 10000 (1250 = 12.5%); largest remainders get pennies first,
+with trip member order breaking ties. Even splits give remainder pennies in
+trip member order. Exact parts are nonnegative cents totaling `total_cents`.
+Expense `date` defaults to today; category is food/stay/transport/activities/other.
+These validations and calculations reuse the REST ledger and its input models.
+
+Migration `0003_trips_agent_receipts.sql` adds a service-only receipt table keyed
+by signed-in user and idempotency key, plus an atomic ledger CAS/receipt RPC.
+Keys cover all write kinds and trips for that user. Replaying an identical
+payload returns its original saved result, even if a later REST edit/deletion
+changes that ledger item. Reusing a key for different details errors; use a new
+key for a new operation. Default dates and generated IDs are excluded from the
+request identity, as is `dry_run`. Receipts persist until the local account is
+deleted. Concurrent retries serialize on the key; the ledger update and receipt
+commit together. A revision conflict rereads and reapplies once; a second
+conflict asks the agent to read/review the trip before retrying.
+
+DCR requests omitting scope receive all registered provider scopes. Existing
+Floor Planner grants do **not** gain Trips permissions automatically. Reconnect
+and consent to the new scopes: a missing write permission says, for example,
+“Reconnect to grant trips:edit.” The unrelated `/beli/mcp`, `/resy/mcp`,
+`/partiful/mcp`, and `/espn/mcp` endpoints remain unchanged.
+
+## Local real OAuth exercise
+
+Start the isolated loopback stack with `scripts/dice-dev.sh setup` and
+`scripts/dice-dev.sh local`, apply all shared migration families including
+Trips and cc_mcp, then configure the confidential local Supabase OAuth app and
+MCP settings described above. Keep callbacks and the authorization page on the
+loopback origins. Use a synthetic sandbox account for browser consent.
+
+Run (the service key comes from your local stack, never from production):
+
+```bash
+export LOCAL_SUPABASE_SERVICE_ROLE_KEY=<local-service-role-key>
+backend/.venv/bin/python scripts/commons-connector-e2e.py \
+  --endpoint http://127.0.0.1:8000/mcp \
+  --supabase-url http://127.0.0.1:54321
+```
+
+The script uses the MCP SDK's real OAuth provider (DCR, authorization code and
+PKCE), an ephemeral loopback callback and in-memory tokens. Approve the browser
+consent. It creates a uniquely named synthetic trip with synthetic guests, calls
+all five new tools (both overview forms), previews and commits both write types,
+replays both keys, and asserts that previews/replays did not advance revisions.
+It leaves that synthetic trip in the loopback sandbox for inspection. It refuses
+non-loopback URLs before loading the service key. No tokens or keys are printed
+or saved. The script is a reusable verification procedure, not evidence that a
+real OAuth run succeeded; see the handoff status for actual execution evidence.
+
+Any agent supporting remote MCP + OAuth and Streamable HTTP can connect.
+“Grokbot” and “Dots” remain unidentified clients; compatibility with their
+specific connection requirements has not been verified.

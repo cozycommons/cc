@@ -89,7 +89,7 @@ def test_upgrade_from_original_ledger_preserves_data_and_receipts(trips_database
     assert 'Applying 0001' not in upgraded.stdout
     assert 'Applying 0002_trips_release_readiness' in upgraded.stdout
     assert sql('select count(*) from trips_groups;').stdout.strip() == '1'
-    assert sql('select count(*) from trips_schema_migrations;').stdout.strip() == '2'
+    assert sql('select count(*) from trips_schema_migrations;').stdout.strip() == '3'
 
 
 @pytest.mark.parametrize('damage, expected', [
@@ -135,3 +135,54 @@ def test_member_rls_and_browser_write_denial_on_real_database(trips_database):
         role = 'anon' if query.startswith('select') else 'authenticated'
         result = sql(f'set role {role}; {query}')
         assert result.returncode != 0 and 'permission denied' in result.stderr
+
+
+def test_agent_receipts_atomic_replay_mismatch_and_concurrent_requests(trips_database):
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    sql = trips_database
+    apply(sql)
+    seed(sql)
+    owner = '00000000-0000-0000-0000-000000000001'
+    trip = '10000000-0000-0000-0000-000000000001'
+    after = {'data': {'name': 'Agent committed', 'expenses': []}, 'member_user_ids': [owner],
+             'revision': 2, 'updated_at': '2026-11-03T00:00:00Z'}
+
+    def commit(payload='same', user=owner, revision=1, key='agent-key'):
+        return sql("set role service_role; select trips_agent_commit(" + ','.join([
+            migration_runner.sql_literal(user), migration_runner.sql_literal(key),
+            migration_runner.sql_literal(json.dumps({'input': payload})), migration_runner.sql_literal(trip),
+            str(revision), migration_runner.sql_literal(json.dumps(after)), "'{\"saved\":true}'"]) + ');')
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: commit(), range(8)))
+    assert all(result.returncode == 0 and '"saved": true' in result.stdout for result in results), results
+    assert sql('select revision from trips_groups;').stdout.strip() == '2'
+    assert sql('select count(*) from trips_agent_receipts;').stdout.strip() == '1'
+    assert 'idempotency' in commit(payload='different').stdout
+    assert 'membership' in commit(user='00000000-0000-0000-0000-000000000002').stdout
+    assert 'revision' in commit(key='other-key').stdout
+    assert sql('select count(*) from trips_agent_receipts;').stdout.strip() == '1'
+    assert sql('select revision from trips_groups;').stdout.strip() == '2'
+
+
+@pytest.mark.parametrize('role', ['anon', 'authenticated'])
+def test_agent_receipts_and_commit_are_service_only(trips_database, role):
+    sql = trips_database
+    apply(sql)
+    for query in ('select * from trips_agent_receipts;',
+                  "select trips_agent_commit(null,null,null,null,null,null,null);"):
+        result = sql(f'set role {role}; {query}')
+        assert result.returncode != 0 and 'permission denied' in result.stderr
+
+
+@pytest.mark.parametrize('damage', ['alter table trips_agent_receipts disable row level security;',
+    'grant select on trips_agent_receipts to authenticated;',
+    'grant execute on function trips_agent_commit(uuid,text,jsonb,uuid,integer,jsonb,jsonb) to anon;'])
+def test_agent_readiness_rejects_unsafe_grants(trips_database, damage):
+    sql = trips_database
+    apply(sql)
+    assert sql(damage).returncode == 0
+    result = sql('select trips_release_readiness();')
+    assert result.returncode != 0 and 'receipt storage or grants changed' in result.stderr

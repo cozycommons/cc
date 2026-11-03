@@ -161,6 +161,11 @@ async def test_resource_tokens_reject_refresh_jwts_raw_supabase_tokens_and_other
     assert loaded.token == "upstream-test-access-token"
     assert loaded.scopes == scopes
     assert loaded.client_id == "mcp-test-client"
+    signin_only = oauth.jwt_issuer.issue_access_token("mcp-test-client", [], jti, 3600)
+    signin_access = await oauth.load_access_token(signin_only)
+    assert signin_access is not None and signin_access.scopes == []
+    unknown = oauth.jwt_issuer.issue_access_token("mcp-test-client", ["unknown:read"], jti, 3600)
+    assert await oauth.load_access_token(unknown) is None
     assert await oauth.load_access_token(refresh) is None
     assert await oauth.load_access_token(wrong_audience) is None
     assert await oauth.load_access_token("a raw Supabase session token") is None
