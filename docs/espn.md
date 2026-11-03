@@ -279,7 +279,25 @@ proposing or approving either kind of write involving the same players in the
 same account, league and season returns 409. This includes `executing` rows
 left by a process crash. Unrelated players and other accounts are unaffected.
 Both audit list endpoints accept these statuses in their `status` filter.
-Status columns are unconstrained text; this lifecycle needs no schema change.
+
+Migration `0016_beli_espn_write_claim_guard.sql` (Beli contract 16) makes
+approval claims atomic across both tables and all backend workers. Every
+transition into `executing` takes an account-scoped advisory transaction lock,
+then freshly checks both tables for overlapping players in the same league
+and season. A conflicting claim leaves the row pending and returns 409.
+Unrelated players, leagues and seasons can still claim after this brief
+database transaction; other accounts use independent locks. PostgreSQL must
+use READ COMMITTED: the guard rejects claims at other isolation levels rather
+than trusting a stale transaction snapshot. The Python precheck still performs
+read-only ESPN reconciliation before the database claim.
+
+Deploy through the normal release entry point, which applies migrations and
+checks the function, both enabled triggers, RLS and service-role privileges
+before starting the HTTP listener. The additive trigger also protects existing
+workers once the migration commits. Roll back application code while retaining
+schema 16; older release contracts may reject the newer migration history.
+Do not remove the guard or downgrade the schema to roll back: fix forward if
+schema changes are needed. Removing it reopens concurrent overlapping writes.
 
 ## Public predictions
 

@@ -312,7 +312,7 @@ def list_proposals(supabase, account_id, limit: int = 25,
 
 
 def _claim_proposal(supabase, proposal_id) -> bool:
-    """Atomically move pending -> executing; False when already claimed."""
+    """Claim pending -> executing; the DB guard also rejects player overlaps."""
     res = (
         supabase.table("espn_trade_proposals")
         .update({"status": STATUS_EXECUTING})
@@ -448,6 +448,12 @@ def approve_trade(supabase, account: dict, client, proposal_id,
         exclude=("espn_trade_proposals", proposal["id"]),
     )
     if not _claim_proposal(supabase, proposal["id"]):
+        current = get_proposal(supabase, account["id"], proposal["id"])
+        if current and current["status"] == STATUS_PENDING:
+            raise TradeStateError(
+                "another unresolved ESPN write involves the same players; "
+                "reconcile it before approving"
+            )
         raise TradeStateError("proposal is already being executed")
 
     try:

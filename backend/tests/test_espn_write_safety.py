@@ -65,6 +65,36 @@ def approve_edit(db, client, edit):
     return roster_edits.approve_edit(db, ACCOUNT, client, edit["id"], now=NOW)
 
 
+@pytest.mark.parametrize("kind", ["roster", "trade"])
+@pytest.mark.parametrize("overlap", [False, True])
+def test_database_claim_conflict_never_submits_and_explains_pending_overlap(monkeypatch, kind, overlap):
+    db = Database()
+    if kind == "roster":
+        client = RosterClient()
+        row = propose_edit(db, client)
+        module, claim_name = roster_edits, "_claim_edit"
+        approve = lambda: approve_edit(db, client, row)
+        error = roster_edits.EditStateError
+    else:
+        client = TradeClient()
+        row = propose_trade(db, client)
+        module, claim_name = trades, "_claim_proposal"
+        approve = lambda: trades.approve_trade(db, ACCOUNT, client, row["id"], now=NOW)
+        error = trades.TradeStateError
+
+    def reject_claim(_db, identity):
+        if not overlap:
+            table = "espn_roster_edits" if kind == "roster" else "espn_trade_proposals"
+            next(r for r in db.rows[table] if r["id"] == identity)["status"] = "executing"
+        return False
+
+    monkeypatch.setattr(module, claim_name, reject_claim)
+    expected = "same players" if overlap else "already being executed"
+    with pytest.raises(error, match=expected):
+        approve()
+    assert client.posts == []
+
+
 def propose_trade(db, client):
     return trades_fixture._propose(db, client)
 

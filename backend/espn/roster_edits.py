@@ -354,7 +354,7 @@ def list_edits(supabase, account_id, limit: int = 25,
 
 
 def _claim_edit(supabase, edit_id) -> bool:
-    """Atomically move pending -> executing; False when already claimed."""
+    """Claim pending -> executing; the DB guard also rejects player overlaps."""
     res = (
         supabase.table("espn_roster_edits")
         .update({"status": STATUS_EXECUTING})
@@ -515,6 +515,12 @@ def approve_edit(supabase, account: dict, client, edit_id,
         exclude=("espn_roster_edits", edit["id"]),
     )
     if not _claim_edit(supabase, edit["id"]):
+        current = get_edit(supabase, account["id"], edit["id"])
+        if current and current["status"] == STATUS_PENDING:
+            raise EditStateError(
+                "another unresolved ESPN write involves the same players; "
+                "reconcile it before approving"
+            )
         raise EditStateError("edit is already being executed")
 
     try:
