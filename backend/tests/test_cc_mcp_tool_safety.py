@@ -17,7 +17,7 @@ from fastmcp.server.auth import AccessToken
 
 from cc_mcp.registry import PROVIDERS
 from cc_mcp.server import COMMONS, EDIT_SCOPE, LEVEL_SCOPE, READ_SCOPE, build_server
-from tests import beli_fakes
+from tests import beli_fakes, resy_fakes
 from tests.test_commons_agent_tools import Database, expense_args, repayment_args
 
 
@@ -54,6 +54,21 @@ def beli_foreign(db, _monkeypatch):
             'link_beli_account': {'api_token': token}}
 
 
+def resy_foreign(db, _monkeypatch):
+    # The caller is linked to their own Resy account; the targets belong to another linked user.
+    resy_fakes.add_account(db, owner=db.user.id)
+    other, token = resy_fakes.add_account(db, owner=str(uuid4()))
+    theirs = resy_fakes.add_reservation(db, other['email'])
+    stale = {'terms_id': '0' * 16, 'dry_run': False}
+    return {'book_resy_table': {**RESY_BOOK, 'payment_method_id': db.resy_cards[other['email']][0]['id'], **stale},
+            'cancel_resy_reservation': {'reservation_id': theirs['reservation_id'], 'idempotency_key': 'cancel-1',
+                                        **stale},
+            'link_resy_account': {'api_token': token}}
+
+
+RESY_BOOK = {'venue_id': resy_fakes.VENUE_ID, 'date': resy_fakes.day(), 'desired_time': '19:00',
+             'idempotency_key': 'book-1'}
+
 FIXTURES = {
     COMMONS: Fixture(
         args=lambda db: {'whoami': {}, 'list_projects': {}, 'enable_project': {'project_id': 'trips'},
@@ -79,6 +94,17 @@ FIXTURES = {
         foreign_error={'get_restaurant_recs': 'Link your Beli account first',
                        'save_restaurant': 'Link your Beli account first',
                        'link_beli_account': 'linked to another Commons user'}),
+    'resy': Fixture(
+        args=lambda db: {'find_resy_tables': {'date': resy_fakes.day(), 'venue_id': resy_fakes.VENUE_ID},
+                         'list_resy_reservations': {}, 'book_resy_table': RESY_BOOK,
+                         'cancel_resy_reservation': {'reservation_id': 1, 'idempotency_key': 'cancel-1'},
+                         'link_resy_account': {'api_token': 'ccr_' + 'x' * 43}},
+        foreign=resy_foreign,
+        foreign_error={'book_resy_table': 'is not on your Resy account',
+                       'cancel_resy_reservation': 'No reservation .* in your Resy account',
+                       'link_resy_account': 'linked to another Commons user'},
+        no_resource={'find_resy_tables': 'public venue availability, read with the caller’s own linked login',
+                     'list_resy_reservations': 'lists only the caller’s own linked Resy account'}),
 }
 
 CASES = [pytest.param(provider, tool, level, id=f'{provider.name}.{tool}')
@@ -91,6 +117,7 @@ def server(monkeypatch):
     db = Database()
     db.user.email_confirmed_at = '2026-01-01T00:00:00Z'
     beli_fakes.install(db, monkeypatch)
+    resy_fakes.install(db, monkeypatch)
     for provider in PROJECTS:
         db.settings[(db.user.id, provider.name)] = {'user_id': db.user.id, 'project_id': provider.name, 'enabled': True}
     holder = SimpleNamespace(token=AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE]))
@@ -112,6 +139,7 @@ def unchanged(db, settings):
     assert db.commits == 0 and not db.receipts and db.settings == settings
     assert not db.beli_receipts and not db.beli_writes
     assert not any(row['owner_user_id'] == db.user.id for row in db.beli_accounts)
+    assert not db.resy_receipts and not db.resy_sends
 
 
 def test_every_registered_tool_has_a_safety_fixture():
@@ -122,6 +150,7 @@ def test_every_registered_tool_has_a_safety_fixture():
         with pytest.MonkeyPatch.context() as monkeypatch:
             db = Database()
             beli_fakes.install(db, monkeypatch)
+            resy_fakes.install(db, monkeypatch)
             foreign = set(fixture.foreign(db, monkeypatch))
         assert foreign.isdisjoint(fixture.no_resource)
         assert foreign | set(fixture.no_resource) == set(provider.tools), \
@@ -187,12 +216,14 @@ async def test_another_users_resource_is_refused(server, monkeypatch, provider, 
     fixture = FIXTURES[provider.name]
     foreign = fixture.foreign(server.db, monkeypatch)
     error = fixture.foreign_error if isinstance(fixture.foreign_error, str) else fixture.foreign_error[tool]
-    owners = [row['owner_user_id'] for row in server.db.beli_accounts]
+    owners = [row['owner_user_id'] for row in server.db.beli_accounts + server.db.resy_accounts]
     with pytest.raises(ToolError, match=error):
         await server.call(tool, foreign[tool])
     unchanged(server.db, server.db.settings)
-    assert [row['owner_user_id'] for row in server.db.beli_accounts] == owners
+    assert [row['owner_user_id'] for row in server.db.beli_accounts + server.db.resy_accounts] == owners
     assert not server.db.beli_logins, 'no Beli login may be decrypted for another user'
+    others = {row['email'] for row in server.db.resy_accounts if row['owner_user_id'] != server.db.user.id}
+    assert not others & set(server.db.resy_logins), 'no Resy login may be decrypted for another user'
 
 
 @pytest.mark.asyncio
@@ -205,6 +236,18 @@ async def test_linked_caller_commits_beli_save_with_only_their_login(server):
     assert server.db.beli_logins == [mine['login']]
     assert [login for login, _body in server.db.beli_writes] == [mine['login']]
     assert other['login'] not in server.db.beli_logins
+
+
+@pytest.mark.asyncio
+async def test_linked_caller_books_on_resy_with_only_their_login(server):
+    # Another user's linked account sits first, so a lookup that ignores the owner would pick it.
+    other, _ = resy_fakes.add_account(server.db, owner=str(uuid4()))
+    mine, _ = resy_fakes.add_account(server.db, owner=server.db.user.id)
+    preview = (await server.call('book_resy_table', RESY_BOOK)).structured_content
+    booked = (await server.call('book_resy_table', {**RESY_BOOK, 'terms_id': preview['terms_id'],
+                                                     'dry_run': False})).structured_content
+    assert booked['status'] == 'booked' and server.db.resy_sends == [('book', mine['email'])]
+    assert set(server.db.resy_logins) == {mine['email']} and other['email'] not in server.db.resy_reservations
 
 
 @pytest.mark.asyncio

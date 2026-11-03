@@ -1,7 +1,7 @@
 # Cozy Commons MCP
 
 One connection and browser sign-in serves every registered project: Commons
-discovery and enablement, Trips, Floor Planner and Beli. Two stable scopes,
+discovery and enablement, Trips, Floor Planner, Beli and Resy. Two stable scopes,
 `commons:read` and `commons:edit`, cover all of them, and each user enables the
 projects whose tools their agent sees. Adding a project or tool therefore never
 changes the scope set or forces existing users to reconnect. The existing Beli,
@@ -233,7 +233,8 @@ connector project, `list_projects` returns whether it is enabled and why
 (`your choice`, `default: you already use it` or `default: off until enabled`),
 whether its account is linked (projects with an account link), its tools with
 their access level, its status and the exact next step. Other public projects
-and the four separate MCP integrations are listed with their URL or endpoint.
+and the separate MCP integrations not yet here (Partiful, ESPN) are listed
+with their URL or endpoint.
 Status lookup failures do not prevent discovery. `enable_project(project_id)`
 returns the project's tools and any one-time link step.
 
@@ -328,6 +329,73 @@ and the function are service-role only (RLS on, browser roles revoked); the Beli
 schema contract checks the index, every service grant individually, browser
 denial and the function's privileges at release time.
 
+## Resy
+
+Provider `backend/resy/agent_tools.py`, four tools plus the link step. Resy
+bookings and cancellations are real: they can charge a deposit and a
+cancellation fee to the user's saved card.
+
+- `find_resy_tables(date, party_size=2, query? | venue_id?, location="New York",
+  time?)` (`read`): pass `query` (name or cuisine, searched near `location`) or
+  `venue_id`. Each slot has its `slot_token`, time, type and the listed
+  `deposit_cents` / `cancellation_fee_cents`. `time` keeps slots within an hour.
+  Merges the legacy `search_restaurants` and `check_availability`.
+- `list_resy_reservations(scope="upcoming")` (`read`): `upcoming`, `past` or
+  `all`, with the `reservation_id` that cancelling takes. Resy tokens are not
+  returned.
+- `book_resy_table(venue_id, date, idempotency_key, party_size=2, slot_token? |
+  desired_time?, payment_method_id?, terms_id?, dry_run=true)` (`edit`).
+- `cancel_resy_reservation(reservation_id, idempotency_key, terms_id?,
+  dry_run=true)` (`edit`).
+- `link_resy_account(api_token)` (`edit`): the one-time link step with the
+  existing `ccr_` token.
+
+Linking mirrors Beli: migration `0018_beli_resy_account_owner.sql` adds
+`resy_accounts.owner_user_id` (partial unique index, `on delete set null`) and
+`resy_link_account(account, user)`, which refuses another owner's account and
+moves the caller's earlier link in one transaction. The token is hashed and
+compared in constant time, never stored or returned, and limited to 10 attempts
+per user per hour. `/resy/*`, `/resy/mcp` and `ccr_` tokens are unchanged;
+existing accounts stay unlinked. Resy is on by default once linked. There is no
+Resy web onboarding page, so linking happens only through the tool.
+
+Previews. A booking preview reads the slot from Resy's availability, the slot's
+booking details (`/3/details`) and the saved cards, and returns `terms`: venue,
+date, time, party size, slot type and token, `deposit_cents`,
+`cancellation_fee_cents`, the time after which the fee applies, the cancellation
+policy lines, and the masked card (`Visa ....4242`), plus a `summary` sentence
+naming each and the account's `payment_methods`. Amounts are integer cents with
+the currency named; an amount Resy does not state is `null` and the summary says
+so rather than showing zero. Two slots at the same `desired_time` (for example
+dining room and bar) are refused with each slot's token. `payment_method_id` must
+be one of the linked account's own cards. A cancellation preview reads the
+caller's own reservations and returns the fee, the deadline, whether the fee
+applies now and the policy. Only a reservation in the linked account's own Resy
+list can be cancelled; any other id is "not in your Resy account". Reservations
+Resy marks as not cancellable online are refused with "contact the restaurant".
+
+Commits. `dry_run=false` requires the preview's `terms_id` (a short hash of the
+terms). The commit re-reads the terms; if anything changed (slot gone, fee or
+deposit, policy, card, or the fee deadline passing for a cancellation), nothing
+is sent and the error carries the new summary and `terms_id` to confirm with the
+user. Then the commit writes a receipt to `resy_agent_receipts` (user, key,
+request fingerprint and the confirmed terms) immediately before the single
+request to Resy, and records Resy's answer on it. Resy has no idempotency key, so
+the receipt is the guard and is never released: the connector has no `DELETE`
+grant on the table, and the Beli schema contract fails release if one appears.
+When Resy's answer is lost (timeout, 5xx, a dropped connection), the call says
+the booking "may have gone through" and asks for the same key and arguments. A
+retry with that key never sends again: it reads the user's Resy reservations,
+records the booking once a matching reservation (venue, date, time, party size)
+appears or the cancellation once the reservation is gone, and otherwise returns
+an error asking for a same-key retry later and, if nothing ever appears, for the
+user to check the Resy app. No message tells the agent to use a new key for a
+retry. A key with recorded details refuses different details: an unconfirmed key
+asks for its original arguments; a finished one names what it already did.
+Replays return the original result even after the slot is gone. Reads that fail
+before the write (Resy errors, expired login) spend no key and say nothing was
+booked or cancelled; a dead login asks the user to onboard again and relink.
+
 ## Local real OAuth exercise
 
 Use Python 3.12/3.13, Node 22, Docker and psql. Start the isolated stack;
@@ -390,9 +458,24 @@ user, and checks that linking it or a wrong token is refused. It then links its
 own account, checks the `ccb_` token still works on `/beli/me`, calls
 `get_restaurant_recs`, and previews, commits, replays and reuses a
 `save_restaurant` key with new details, asserting exactly one Beli write. The
-read-only grant reads recs and is refused on `save_restaurant`. Synthetic users,
-trips and Beli accounts remain in the loopback sandbox for inspection. Tokens and keys are never
-printed or committed. For interactive mode, also run the normal local frontend
+read-only grant reads recs and is refused on `save_restaurant`.
+
+For Resy, `serve` likewise points the Resy client at a fake synthetic Resy API
+on `127.0.0.1:8767` (synthetic API key, per-process credentials key, no request
+pacing), so nothing reaches Resy. The test checks that Resy starts off and
+unlinked and that its tools return the link step, onboards two synthetic accounts
+through the real `POST /resy/onboard`, refuses linking the one linked to the
+second user and a wrong token, links its own and checks the `ccr_` token still
+works on `/resy/me`. It finds tables, previews a booking (deposit, cancellation
+fee, policy and masked card in the summary), refuses a commit without
+`terms_id`, then commits while the fake records the booking and answers 504: the
+call reports an unconfirmed booking, and the same-key retry settles it from the
+reservations list with exactly one booking request sent. It replays the key,
+refuses the key with new details, lists reservations, previews, cancels and
+replays the cancellation, and refuses cancelling another user's reservation id.
+The read-only grant finds tables and is refused on both Resy writes. Synthetic
+users, trips and Beli and Resy accounts remain in the loopback sandbox for
+inspection. Tokens and keys are never printed or committed. For interactive mode, also run the normal local frontend
 on port 8080 (for example `scripts/start-local-dice-frontend.sh`) and sign in
 with a synthetic sandbox account. The script can also run directly with
 `backend/.venv/bin/python scripts/commons-connector-e2e.py --interactive`, using
