@@ -18,7 +18,8 @@ begin
     'espn_roster_edits',
     'espn_trade_proposals',
     'fantasy_leagues',
-    'beli_agent_receipts'
+    'beli_agent_receipts',
+    'resy_agent_receipts'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -42,6 +43,12 @@ begin
     'resy_accounts.email_enc',
     'resy_accounts.password_enc',
     'resy_accounts.token_hash',
+    'resy_accounts.owner_user_id',
+    'resy_agent_receipts.user_id',
+    'resy_agent_receipts.idempotency_key',
+    'resy_agent_receipts.payload',
+    'resy_agent_receipts.target',
+    'resy_agent_receipts.result',
     'espn_accounts.espn_s2_enc',
     'espn_accounts.swid_enc',
     'espn_accounts.token_hash',
@@ -144,16 +151,30 @@ begin
     end if;
   end loop;
 
-  -- Connector account links and receipts are service-role only (0017).
-  if not exists (
-    select 1 from pg_catalog.pg_index i
-    join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
-    where i.indrelid = to_regclass('public.beli_accounts') and i.indisunique
-      and i.indnatts = 1 and a.attname = 'owner_user_id' and i.indpred is not null
-  ) then
-    raise exception 'Beli schema contract: missing unique owner link index on beli_accounts';
-  end if;
-  foreach object_name in array array['beli_accounts', 'beli_agent_receipts'] loop
+  -- Connector account links and receipts are service-role only (Beli 0017, Resy 0018).
+  foreach object_name in array array['beli', 'resy'] loop
+    if not exists (
+      select 1 from pg_catalog.pg_index i
+      join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
+      where i.indrelid = to_regclass('public.' || object_name || '_accounts') and i.indisunique
+        and i.indnatts = 1 and a.attname = 'owner_user_id' and i.indpred is not null
+    ) then
+      raise exception 'Beli schema contract: missing unique owner link index on %_accounts', object_name;
+    end if;
+    if not exists (
+      select 1 from pg_catalog.pg_proc
+      where oid = to_regprocedure('public.' || object_name || '_link_account(uuid,uuid)')
+        and not prosecdef and proconfig @> array['search_path=""']
+    ) then
+      raise exception 'Beli schema contract: missing or unsafe public.%_link_account', object_name;
+    end if;
+    if not pg_catalog.has_function_privilege('service_role', 'public.' || object_name || '_link_account(uuid,uuid)', 'EXECUTE')
+        or pg_catalog.has_function_privilege('anon', 'public.' || object_name || '_link_account(uuid,uuid)', 'EXECUTE')
+        or pg_catalog.has_function_privilege('authenticated', 'public.' || object_name || '_link_account(uuid,uuid)', 'EXECUTE') then
+      raise exception 'Beli schema contract: unsafe %_link_account privileges', object_name;
+    end if;
+  end loop;
+  foreach object_name in array array['beli_accounts', 'beli_agent_receipts', 'resy_accounts', 'resy_agent_receipts'] loop
     if not exists (select 1 from pg_catalog.pg_class
                    where oid = to_regclass('public.' || object_name) and relrowsecurity)
         or pg_catalog.has_any_column_privilege('anon', 'public.' || object_name, 'SELECT,INSERT,UPDATE,REFERENCES')
@@ -166,24 +187,18 @@ begin
   -- A privilege list means "any of", so check each grant on its own.
   foreach column_spec in array array[
     'beli_agent_receipts.SELECT', 'beli_agent_receipts.INSERT', 'beli_agent_receipts.UPDATE',
-    'beli_agent_receipts.DELETE', 'beli_accounts.SELECT', 'beli_accounts.UPDATE'
+    'beli_agent_receipts.DELETE', 'beli_accounts.SELECT', 'beli_accounts.UPDATE',
+    'resy_agent_receipts.SELECT', 'resy_agent_receipts.INSERT', 'resy_agent_receipts.UPDATE',
+    'resy_accounts.SELECT', 'resy_accounts.UPDATE'
   ] loop
     if not pg_catalog.has_table_privilege('service_role', 'public.' || split_part(column_spec, '.', 1),
                                           split_part(column_spec, '.', 2)) then
       raise exception 'Beli schema contract: connector service_role grants changed (%)', column_spec;
     end if;
   end loop;
-  if not exists (
-    select 1 from pg_catalog.pg_proc
-    where oid = to_regprocedure('public.beli_link_account(uuid,uuid)')
-      and not prosecdef and proconfig @> array['search_path=""']
-  ) then
-    raise exception 'Beli schema contract: missing or unsafe public.beli_link_account';
-  end if;
-  if not pg_catalog.has_function_privilege('service_role', 'public.beli_link_account(uuid,uuid)', 'EXECUTE')
-      or pg_catalog.has_function_privilege('anon', 'public.beli_link_account(uuid,uuid)', 'EXECUTE')
-      or pg_catalog.has_function_privilege('authenticated', 'public.beli_link_account(uuid,uuid)', 'EXECUTE') then
-    raise exception 'Beli schema contract: unsafe beli_link_account privileges';
+  -- A Resy receipt is never released: a booking key, once sent, stays spent.
+  if pg_catalog.has_table_privilege('service_role', 'public.resy_agent_receipts', 'DELETE,TRUNCATE') then
+    raise exception 'Beli schema contract: service_role may delete Resy connector receipts';
   end if;
 end
 $$;
