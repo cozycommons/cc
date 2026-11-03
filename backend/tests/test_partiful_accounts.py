@@ -151,3 +151,44 @@ def test_make_client_persists_rotated_refresh_token(fernet_key, monkeypatch):
     # simulate Google rotating the refresh token
     client._on_refresh("rt-rotated")
     assert accounts.decrypt_secret(db._store[0]["refresh_token_enc"]) == "rt-rotated"
+
+
+def test_routes_read_a_refresh_token_rotated_by_another_client(fernet_key, monkeypatch):
+    # /partiful/mcp and the /mcp connector persist rotations through their own
+    # clients, so /partiful must not serve the account from main.py's read cache.
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from partiful import routes
+    from supabase_cache import CachedSupabaseClient, SupabaseTTLCacheStore
+
+    db = FakeSupabase()
+    db.table("partiful_accounts").insert({
+        "label": "synthetic", "refresh_token_enc": accounts.encrypt_secret("refresh-1"),
+        "uid_enc": accounts.encrypt_secret("uid-1"), "token_hash": accounts.hash_token("ccp_synthetic"),
+        "token_prefix": "ccp_synthetic"})
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/partiful")
+    app.state.supabase = CachedSupabaseClient(db, cache_store=SupabaseTTLCacheStore(ttl_seconds=120))
+    app.state.partiful_supabase = db
+    used = []
+
+    class Client:
+        def get_published_events(self):
+            return []
+
+        def get_my_rsvps(self):
+            return []
+
+    def make_client(supabase, account):
+        used.append(account["refresh_token"])
+        return Client()
+
+    monkeypatch.setattr(accounts, "make_client_for_account", make_client)
+    api = TestClient(app)
+    headers = {"Authorization": "Bearer ccp_synthetic"}
+    assert api.get("/partiful/events", headers=headers).status_code == 200
+    # Another client's rotation, as PostgREST would return it: a new row object.
+    db._store[0] = {**db._store[0], "refresh_token_enc": accounts.encrypt_secret("refresh-2")}
+    assert api.get("/partiful/events", headers=headers).status_code == 200
+    assert used == ["refresh-1", "refresh-2"]

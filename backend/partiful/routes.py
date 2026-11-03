@@ -50,7 +50,8 @@ def _onboard_rate_check(ip: str) -> None:
 
 
 def _supabase(request: Request):
-    return request.app.state.supabase
+    # Uncached (see main.py): other clients persist rotated refresh tokens.
+    return request.app.state.partiful_supabase
 
 
 def _account(
