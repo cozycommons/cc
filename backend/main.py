@@ -26,6 +26,8 @@ from floor_planner.routes import router as floor_planner_router
 from floor_planner.scans import router as floor_planner_scans_router
 from cc_mcp.server import create_agent_app
 from floor_planner.agent_tools import provider as floor_planner_tools
+from cc_mcp.commons_tools import provider as commons_tools
+from trips.agent_tools import provider as trips_tools
 from cc_mcp.mount import mount_agent_app
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
@@ -147,5 +149,5 @@ app.include_router(espn_router, prefix="/espn")
 app.mount("/espn/mcp", espn_mcp.streamable_http_app())
 
 app.state.mcp_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-cc_mcp_app = create_agent_app(app.state.mcp_supabase, providers=(floor_planner_tools,))
+cc_mcp_app = create_agent_app(app.state.mcp_supabase, providers=(commons_tools, floor_planner_tools, trips_tools))
 mount_agent_app(app, cc_mcp_app)

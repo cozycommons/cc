@@ -18,6 +18,7 @@ from .imports import ImportTrip, prepare_import, require_same_import
 from .matching import candidates_for, read_accounts, suggest
 from .profiles import current_profile, render_group, render_groups
 from .venmo import normalize_username
+from . import service
 
 router = APIRouter(tags=['Cozy Trips'])
 bearer = HTTPBearer(auto_error=False)
@@ -129,19 +130,11 @@ def require_admin(request, user):
 
 
 def read_row(request, trip_id):
-    rows = client(request).table('trips_groups').select('*').eq('id', str(trip_id)).execute().data
-    if not rows:
-        raise LedgerError('Trip not found or you are not a member.', 404)
-    return rows[0]
+    return service.read_row(client(request), trip_id)
 
 
 def save_revision(request, before, after):
-    rows = (client(request).table('trips_groups')
-            .update({key: after[key] for key in ['data', 'member_user_ids', 'revision', 'updated_at']})
-            .eq('id', before['id']).eq('revision', before['revision']).execute().data)
-    if not rows:
-        raise LedgerError('Someone changed this trip. Refresh, review the changes, and try again.', 409)
-    return render_group(client(request), rows[0])
+    return render_group(client(request), service.save_revision(client(request), before, after))
 
 
 RETRYABLE = {'add_expense': 'expenses', 'add_repayment': 'repayments'}

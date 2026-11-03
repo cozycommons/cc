@@ -50,7 +50,8 @@ class ToolContext:
         if access is None:
             raise ToolError("Sign in to Cozy Commons to use these tools.")
         if not set(required).issubset(access.scopes):
-            raise ToolError("Missing permission: " + ", ".join(required) + ". Reconnect with the required scopes.")
+            missing = ", ".join(sorted(set(required) - set(access.scopes)))
+            raise ToolError(f"Missing permission: {missing}. Reconnect to grant {missing}.")
         return access
 
     async def signed_in_user(self, access: AccessToken):
@@ -268,7 +269,7 @@ class ResourceBoundOAuthProxy(OAuthProxy):
         if not access:
             return None
         scopes = local_claims.get("scope", "").split()
-        if not scopes or set(scopes) - self._resource_scopes:
+        if set(scopes) - self._resource_scopes:
             return None
         claims = {
             **access.claims,
@@ -345,7 +346,7 @@ def create_agent_app(
     if len(set(names)) != len(names) or len(set(scopes)) != len(scopes):
         raise AgentConfigError("Tool provider names and scopes must be unique.")
     if not scopes:
-        raise AgentConfigError("At least one tool provider must be registered.")
+        raise AgentConfigError("The registered providers must declare at least one scope overall.")
     verifier = token_verifier or SupabaseOAuthTokenVerifier(settings)
     if storage is None:
         from cryptography.fernet import Fernet
@@ -373,7 +374,12 @@ def create_agent_app(
         jwt_signing_key=settings.jwt_signing_key,
         require_authorization_consent=True,
     )
-    mcp = FastMCP("Cozy Commons", auth=oauth, on_duplicate_tools="error")
+    mcp = FastMCP("Cozy Commons", auth=oauth, on_duplicate_tools="error", instructions=(
+        "Call list_projects first to discover projects and setup steps. Use exact member and trip IDs "
+        "and integer cents. For Trips writes, preview with dry_run=true first, review it with the user, "
+        "then use dry_run=false with the same idempotency_key. Never infer an ID from a name. "
+        "Reconnect to grant any missing feature scope."
+    ))
 
     context = ToolContext(service_client)
     for provider in providers:
