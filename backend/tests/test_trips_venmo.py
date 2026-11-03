@@ -135,40 +135,40 @@ def test_committed_writes_survive_profile_lookup_failures():
     member = render_groups(Unavailable([]), [row])[0]['members'][0]
     assert member['display_name'] == 'Owner' and member['venmo_username'] is None
 
-    class NoDice(ProfileClient):
+    class NoProfiles(ProfileClient):
         def execute(self):
-            raise RuntimeError('dice_profiles unavailable')
+            raise RuntimeError('commons_profiles unavailable')
 
     accounts = {'owner-1': SimpleNamespace(id='owner-1', user_metadata={'full_name': 'Account name'})}
-    member = render_groups(NoDice([], accounts), [row])[0]['members'][0]
+    member = render_groups(NoProfiles([], accounts), [row])[0]['members'][0]
     assert member['display_name'] == 'Account name'
 
 
 def test_real_own_username_persistence_and_isolation(local_api):  # noqa: F811
     api, admin, settings, tokens, ids = local_api
     me = api.get('/trips/me', headers=tokens['Alex']).json()
-    original = admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata
+    venmo = 'venmo_username,venmo_owner_confirmed,venmo_confirmed_name'
+    original = admin.table('commons_profiles').select(venmo).eq('user_id', me['user_id']).execute().data[0]
+    metadata = admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata
     try:
         saved = api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': '@Alex-Local_1', 'owner_confirmed': True})
         assert saved.status_code == 200, saved.text
-        assert saved.json()['venmo_username'] == 'Alex-Local_1' and saved.json()['venmo_confirmed']
-        metadata = admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata
-        assert metadata['full_name'] == original['full_name']  # Other metadata is preserved.
-        assert metadata['venmo_username_provenance']['provided_by_user_id'] == me['user_id']
-        assert api.get('/trips/me', headers=tokens['Alex']).json()['venmo_username'] == 'Alex-Local_1'
+        assert saved.json()['venmo_username'] == 'alex-local_1' and saved.json()['venmo_confirmed']
+        # The handle lives in commons_profiles; Auth metadata is no longer written.
+        assert admin.table('commons_profiles').select('venmo_username,venmo_owner_confirmed').eq(
+            'user_id', me['user_id']).execute().data == [{'venmo_username': 'alex-local_1', 'venmo_owner_confirmed': True}]
+        assert admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata == metadata
+        assert api.get('/trips/me', headers=tokens['Alex']).json()['venmo_username'] == 'alex-local_1'
         assert api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': 'no'}).status_code == 422
         assert api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': 'alex-x', 'user_id': 'other'}).status_code == 422
         assert api.put('/trips/me', json={'venmo_username': 'alex-local'}).status_code == 401
-        assert api.get('/trips/me', headers=tokens['Alex']).json()['venmo_username'] == 'Alex-Local_1'
+        assert api.get('/trips/me', headers=tokens['Alex']).json()['venmo_username'] == 'alex-local_1'
         changed = api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': 'new-local-handle'}).json()
         assert not changed['venmo_confirmed']
         cleared = api.put('/trips/me', headers=tokens['Alex'], json={'venmo_username': ''}).json()
         assert cleared['venmo_username'] is None
-        assert not admin.auth.admin.get_user_by_id(me['user_id']).user.user_metadata.get('venmo_username')
     finally:
-        admin.auth.admin.update_user_by_id(me['user_id'], {'user_metadata': {
-            'venmo_username': original.get('venmo_username'),
-            'venmo_username_provenance': original.get('venmo_username_provenance')}})
+        admin.table('commons_profiles').update(original).eq('user_id', me['user_id']).execute()
 
 
 def test_real_trip_exposes_handles_only_to_members(local_api):  # noqa: F811

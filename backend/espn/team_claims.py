@@ -1,4 +1,4 @@
-"""Suggest and confirm public team links using Cozy's existing Dice identity."""
+"""Suggest and confirm public team links using the Commons profile (name and avatar)."""
 
 import os
 import time
@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from postgrest.exceptions import APIError
 from pydantic import HttpUrl, ValidationError
 
+from commons_account.profile import public_profiles
 from dice.routes import AuthedUser, require_authenticated_user
 from .fantasy_admin import league_id_for_season
 from .public_predictions import PublicModel, PublicSnapshotV2, SeasonYear
@@ -99,10 +100,7 @@ def _claims(db, season):
 
 
 def _profile(db, user_id):
-    rows = db.table("dice_profiles").select("display_name").eq(
-        "user_id", user_id
-    ).limit(1).execute().data
-    return rows[0] if rows else None
+    return public_profiles(db, [user_id]).get(user_id)
 
 
 def _tokens(value):
@@ -154,10 +152,7 @@ def public_claims(request: Request, response: Response, season: int | None = Non
     claims = _claims(db, season)
     if not claims:
         return []
-    profiles = db.table("dice_profiles").select("user_id,display_name,avatar_url").in_(
-        "user_id", [claim["user_id"] for claim in claims]
-    ).execute().data
-    by_user = {profile["user_id"]: profile for profile in profiles}
+    by_user = public_profiles(db, [claim["user_id"] for claim in claims])
     result = []
     for claim in sorted(claims, key=lambda row: row["team_id"]):
         profile = by_user.get(claim["user_id"])

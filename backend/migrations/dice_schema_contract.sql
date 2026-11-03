@@ -394,3 +394,6 @@ END $$;
 
 -- 0087: the Commons profile is server-only and mirrors name and avatar into Dice.
 SELECT public.commons_profiles_readiness();
+
+-- 0088: catch-up plus a temporary reverse sync from Dice and Auth into commons_profiles.
+-- commons_profiles_readiness() above now attests the sync triggers and their recursion guard.

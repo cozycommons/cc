@@ -1,4 +1,4 @@
-"""Real PostgreSQL checks for the Commons profile table, backfill and Dice mirror (0087).
+"""Real PostgreSQL checks for the Commons profile table, backfill and Dice mirror (0087) and its catch-up (0088).
 
 Synthetic users in disposable databases on the allowlisted test server.
 Locally: DICE_TEST_DATABASE=1 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_<n>_<n>.
@@ -13,6 +13,7 @@ from commons_account.profile import default_profile
 from tests.migration_harness import REPO, checkout_release, disposable_migration_database, migration_database  # noqa: F401
 
 PRE_PROFILE_RELEASE = "97a87f08eb018c54a83ea3d3a4e962ede869faaa"  # main at Dice 0086
+PROFILE_RELEASE = "9be51e076ade2c8c75d921a536536df567aaa82f"  # main at Dice 0087 (M4 PR 1)
 CONTRACT = (REPO / "backend/migrations/dice_schema_contract.sql").read_text()
 COLUMNS = "display_name,avatar_url,venmo_username,venmo_owner_confirmed,venmo_confirmed_name"
 LONG_AVATAR = "https://example.test/" + "a" * 3000
@@ -115,7 +116,7 @@ def service(database, statement, *, check=True):
 
 def test_fresh_install_backfills_from_account_metadata(fresh_database):
     database, ids = fresh_database
-    assert database.sql("SELECT max(version) FROM public.dice_schema_migrations;").stdout.strip() == "87"
+    assert database.sql("SELECT max(version) FROM public.dice_schema_migrations;").stdout.strip() == "88"
     assert_backfill(database, ids)
     assert service(database, "SELECT public.dice_release_readiness();").stdout.strip().endswith("t")
     assert "Applying " not in database.release().stdout
@@ -135,6 +136,39 @@ def test_upgrade_from_86_backfills_and_leaves_sources_untouched(migration_databa
     assert database.sql(sources).stdout == before
     assert_backfill(database, ids)
     assert service(database, "SELECT public.dice_release_readiness();").stdout.strip().endswith("t")
+
+
+def test_upgrade_from_87_keeps_edits_the_old_writers_made(migration_database, tmp_path):  # noqa: F811
+    """0087 shipped before the API wrote commons_profiles: Dice names and Venmo kept going to the old stores."""
+    database = migration_database
+    database.release(checkout_release(PRE_PROFILE_RELEASE, tmp_path / "pre-profile"))
+    player = str(uuid4())
+    database.sql(f"""INSERT INTO auth.users(id,raw_user_meta_data) VALUES ('{player}','{{"full_name":"Google Pat"}}');
+        INSERT INTO public.dice_profiles(user_id,display_name,avatar_url) VALUES ('{player}','Dice Pat',NULL);""")
+    database.release(checkout_release(PROFILE_RELEASE, tmp_path / "profile"))
+    assert profile(database, player) == ("Dice Pat", None, None, False, None)
+    ids = seed_users(database, with_dice=False)  # Accounts made after the 0087 backfill: no rows yet.
+    assert all(profile(database, user_id) is None for user_id in ids.values())
+    # Since then the 0087-era code renamed Pat in Dice and saved a Venmo handle in Auth metadata.
+    database.sql(f"""UPDATE public.dice_profiles SET display_name='Pat Renamed In Dice' WHERE user_id='{player}';
+        UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{{"venmo_username":"Pat-Pays",
+         "venmo_username_provenance":{{"owner_confirmed":true,"handle":"pat-pays"}}}}' WHERE id='{player}';""")
+    sources = ("SELECT id,email,raw_user_meta_data::text,raw_app_meta_data::text FROM auth.users ORDER BY id;"
+               "SELECT to_jsonb(d)::text FROM public.dice_profiles d ORDER BY user_id;")
+    before = database.sql(sources).stdout
+    result = database.release()
+    assert "Applying 0088_dice_commons_profiles_catch_up.sql" in result.stdout
+    assert database.sql(sources).stdout == before  # The mirror stayed paused: Dice rows are untouched.
+    assert profile(database, player) == ("Pat Renamed In Dice", None, "pat-pays", True, None)
+    assert_backfill(database, ids)
+    assert service(database, "SELECT public.dice_release_readiness();").stdout.strip().endswith("t")
+    # Re-running is a no-op and the mirror is live again for API writes.
+    assert "Applying " not in database.release().stdout
+    # Old workers keep serving until the new API starts; their edits still reach Commons.
+    service(database, f"UPDATE public.dice_profiles SET display_name='Pat After 0088' WHERE user_id='{player}';")
+    assert profile(database, player)[0] == "Pat After 0088"
+    service(database, f"UPDATE public.commons_profiles SET display_name='Pat Via API' WHERE user_id='{player}';")
+    assert dice_profile(database, player).startswith("Pat Via API|")
 
 
 def dice_profile(database, user_id):
@@ -166,6 +200,59 @@ def test_mirror_is_a_no_op_without_a_dice_row(fresh_database):
     service(database, f"UPDATE public.commons_profiles SET display_name='Trips Only' WHERE user_id='{user}';")
     assert profile(database, user)[0] == "Trips Only"
     assert database.sql(f"SELECT count(*) FROM public.dice_profiles WHERE user_id='{user}';").stdout.strip() == "0"
+
+
+def commons_updated_at(database, user_id):
+    return database.sql(f"SELECT updated_at FROM public.commons_profiles WHERE user_id='{user_id}';").stdout.strip()
+
+
+def test_old_store_edits_after_the_catch_up_reach_commons(fresh_database):
+    """The deploy window: 0088 has run but old workers still write dice_profiles and Auth metadata."""
+    database, _ = fresh_database
+    player = str(uuid4())
+    database.sql(f"""INSERT INTO auth.users(id,raw_user_meta_data) VALUES ('{player}','{{"full_name":"Pat"}}');
+        INSERT INTO public.dice_profiles(user_id,display_name,avatar_url,updated_at)
+        VALUES ('{player}','Pat',NULL,'2026-01-01Z');""")
+    service(database, f"""INSERT INTO public.commons_profiles(user_id,display_name,updated_at)
+        VALUES ('{player}','Pat','2026-01-01Z');""")
+    # 0087-era PUT /dice/me, as service_role.
+    service(database, f"""UPDATE public.dice_profiles SET display_name='  Pat In Dice ',
+        avatar_url='https://dice.example/pat.png' WHERE user_id='{player}';""")
+    assert profile(database, player) == ("Pat In Dice", "https://dice.example/pat.png", None, False, None)
+    # No echo: the mirror saw the guard and left the Dice row alone.
+    assert dice_profile(database, player).startswith("Pat In Dice |https://dice.example/pat.png|2026-01-01")
+    # 0087-era PUT /trips/me goes through the Auth admin API, whose role has no Commons grants.
+    database.sql(f"""BEGIN; GRANT SELECT, UPDATE ON auth.users TO authenticated; SET LOCAL ROLE authenticated;
+        UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{{"venmo_username":"@Pat-Pays",
+         "venmo_username_provenance":{{"owner_confirmed":true,"handle":"pat-pays","display_name":"Pat P"}}}}'
+        WHERE id='{player}'; RESET ROLE; REVOKE SELECT, UPDATE ON auth.users FROM authenticated; COMMIT;""")
+    assert profile(database, player) == ("Pat In Dice", "https://dice.example/pat.png", "pat-pays", True, "Pat P")
+    # Values the Commons checks reject are skipped without failing the old worker's write.
+    service(database, f"UPDATE public.dice_profiles SET display_name='   ', avatar_url={literal(LONG_AVATAR)} "
+                      f"WHERE user_id='{player}';")
+    assert profile(database, player)[:2] == ("Pat In Dice", "https://dice.example/pat.png")
+    # A sign-in rewrites metadata without touching Venmo: no sync.
+    database.sql(f"UPDATE public.commons_profiles SET updated_at='2026-01-01Z' WHERE user_id='{player}';")
+    database.sql(f"""UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{{"full_name":"Pat Google"}}'
+        WHERE id='{player}';""")
+    assert commons_updated_at(database, player).startswith("2026-01-01")
+
+
+def test_api_writes_do_not_loop_through_the_reverse_sync(fresh_database):
+    database, _ = fresh_database
+    player = str(uuid4())
+    database.sql(f"""INSERT INTO auth.users(id) VALUES ('{player}');
+        INSERT INTO public.dice_profiles(user_id,display_name) VALUES ('{player}','Lee');""")
+    service(database, f"""INSERT INTO public.commons_profiles(user_id,display_name,updated_at)
+        VALUES ('{player}','Lee','2026-01-01Z');""")
+    service(database, f"UPDATE public.commons_profiles SET display_name='Lee Via API' WHERE user_id='{player}';")
+    assert dice_profile(database, player).startswith("Lee Via API|")
+    # The reverse sync saw the guard: it would have set updated_at on the Commons row.
+    assert commons_updated_at(database, player).startswith("2026-01-01")
+    # The guard is cleared after each write, so a later old-store edit in the same transaction still syncs.
+    service(database, f"""BEGIN; UPDATE public.commons_profiles SET display_name='Lee Again' WHERE user_id='{player}';
+        UPDATE public.dice_profiles SET avatar_url='https://dice.example/lee.png' WHERE user_id='{player}'; COMMIT;""")
+    assert profile(database, player)[:2] == ("Lee Again", "https://dice.example/lee.png")
 
 
 def test_account_deletion_removes_the_profile(fresh_database):
@@ -201,6 +288,7 @@ def test_display_name_must_be_present_and_short(fresh_database, name):
     "DELETE FROM public.commons_profiles",
     "SELECT public.commons_profiles_readiness()",
     "SELECT public.dice_release_readiness()",
+    "SELECT public.commons_profiles_auth_venmo('{}')",
 ])
 def test_browser_roles_are_denied(fresh_database, role, statement):
     database, ids = fresh_database
@@ -220,6 +308,12 @@ def test_browser_roles_are_denied(fresh_database, role, statement):
     "DROP TRIGGER commons_profiles_mirror_dice ON public.commons_profiles;",
     "GRANT EXECUTE ON FUNCTION public.commons_profiles_mirror_dice() TO PUBLIC;",
     "DELETE FROM public.dice_schema_migrations WHERE version=87;",
+    "DELETE FROM public.dice_schema_migrations WHERE version=88;",
+    "ALTER TABLE public.dice_profiles DISABLE TRIGGER commons_profiles_sync_from_dice;",
+    "DROP TRIGGER commons_profiles_sync_from_auth ON auth.users;",
+    "GRANT EXECUTE ON FUNCTION public.commons_profiles_sync_from_auth() TO service_role;",
+    "CREATE OR REPLACE FUNCTION public.commons_profiles_sync_from_dice() RETURNS trigger "
+    "LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$;",
 ])
 def test_readiness_and_contract_reject_tampering(fresh_database, tamper):
     database, _ = fresh_database
