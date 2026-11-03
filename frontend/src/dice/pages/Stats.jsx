@@ -1,3 +1,4 @@
+import { synergyDescription } from '../duoSynergy.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
@@ -346,6 +347,23 @@ function ProvisionalDuo({ duo }) {
   );
 }
 
+function ChemistryList({ title, duos }) {
+  if (!duos?.length) return null;
+  return (
+    <section aria-label={title}>
+      <SectionLabel>{title}</SectionLabel>
+      <div className="jk-card overflow-hidden">
+        {duos.map((duo) => (
+          <Link key={duo.duo_id} to={`/dice/stats/duos/${encodeURIComponent(duo.duo_id)}`} className="jk-row block px-3 py-3" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+            <p className="font-semibold text-sm truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{synergyDescription(duo.synergy)}</p>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DuoView({ auth }) {
   const [ladder, setLadder] = useState(null);
   const [error, setError] = useState(false);
@@ -370,6 +388,8 @@ function DuoView({ auth }) {
   const ranked = ladder.ranked.slice(leaders.length);
   return (
     <section className="jk-stats-panel space-y-7" aria-label="Duo stats">
+      <ChemistryList title="Best chemistry" duos={ladder.best_chemistry} />
+      <ChemistryList title="Better apart" duos={ladder.better_apart} />
       {leaders.length > 1 ? (
         <div className="jk-stats-tie-card is-duos" aria-label={`${leaders.length} duos tied for first`}>
           <div>

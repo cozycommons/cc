@@ -141,6 +141,10 @@ class DiceApiClient {
     return api.get(`/dice/stats/duos?limit=${limit}&homepage_eligible=${homepageEligible}`, token);
   }
 
+  getBestPartner(token, userId) {
+    return api.get(`/dice/profiles/${encodeURIComponent(userId)}/best-partner`, token);
+  }
+
   getDuoDetail(token, duoId) {
     return api.get(`/dice/stats/duos/${encodeURIComponent(duoId)}`, token);
   }

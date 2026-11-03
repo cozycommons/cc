@@ -87,28 +87,6 @@ function rankedStreakGames(games, gameIds) {
     .sort((left, right) => new Date(left.played_at) - new Date(right.played_at));
 }
 
-function calculateSynergies(games) {
-  const pairs = new Map();
-  (games || []).forEach((game) => {
-    const teams = [1, 2].map((team) => (game.players || []).filter((player) => player.team === team));
-    teams.forEach((players) => {
-      for (let index = 0; index < players.length; index += 1) {
-        for (let other = index + 1; other < players.length; other += 1) {
-          const pair = [players[index], players[other]].sort((left, right) => left.user_id.localeCompare(right.user_id));
-          const key = pair.map((player) => player.user_id).join(':');
-          const record = pairs.get(key) || { user_id: key, players: pair.map((player) => player.display_name), wins: 0, losses: 0 };
-          if (game.winner_team === pair[0].team) record.wins += 1;
-          else record.losses += 1;
-          pairs.set(key, record);
-        }
-      }
-    });
-  });
-  return [...pairs.values()]
-    .filter((record) => record.wins + record.losses >= 2)
-    .sort((left, right) => right.wins - left.wins || left.losses - right.losses);
-}
-
 function livePlayerLabel(game, playerId) {
   return game.player_names?.[playerId] || String(playerId || '').split('-')[0];
 }
@@ -349,7 +327,7 @@ function TournamentHighlights({ tournaments }) {
   );
 }
 
-export { calculateStreaks, calculateSynergies, rankedStreakGames, HistoricalRecordsSection, CurrentStreaksSection, matchStory, splitTournaments };
+export { calculateStreaks, rankedStreakGames, HistoricalRecordsSection, CurrentStreaksSection, matchStory, splitTournaments };
 
 function ReleasedHome({ auth }) {
   const [games, setGames] = useState(null);

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getProfile: vi.fn(),
   getProfileGames: vi.fn(),
   getRatingProgress: vi.fn(),
+  getBestPartner: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../../contexts/SupabaseContext', () => ({
@@ -16,6 +17,7 @@ vi.mock('../api.js', () => ({
     getProfile: mocks.getProfile,
     getProfileGames: mocks.getProfileGames,
     getRatingProgress: mocks.getRatingProgress,
+    getBestPartner: mocks.getBestPartner,
   },
 }));
 vi.mock('../components/PlayerAvatar.jsx', () => ({ default: () => <div>avatar</div> }));
@@ -49,6 +51,7 @@ function renderProfile({ viewedUserId = 'u1', progress, games = [] }) {
     user: { id: 'u1', email: 'player@example.com' },
     token: 'token',
     isAdmin: false,
+    profile: { user_id: 'u1' },
     refreshProfile: vi.fn(),
     signOut: vi.fn(),
   };
@@ -138,4 +141,22 @@ describe('PlayerProfile released experience', () => {
     expect(within(recorded).getByText('Missing plays are excluded, not counted as misses.')).toBeInTheDocument();
     expect(mocks.getProfileGames).toHaveBeenCalledWith('u1', 200);
   });
+});
+
+
+it.each([2.44, -2.4, null])('only shows a positive best partner (%s)', async (difference) => {
+  mocks.getBestPartner.mockResolvedValue(difference == null ? null : {
+    duo_id: 'best:pair', members: [{ user_id: 'u1', display_name: 'Alpha' }, { user_id: 'u2', display_name: 'Bravo' }],
+    synergy: { wins_above_expected: difference },
+  });
+  renderProfile({});
+  await screen.findByText('Player u1');
+  if (difference > 0) {
+    expect(await screen.findByRole('link', { name: 'Best partner' })).toHaveAttribute('href', '/dice/stats/duos/best%3Apair');
+    expect(screen.getByText('Bravo · +2.4 wins over expected together')).toBeInTheDocument();
+  } else {
+    expect(screen.queryByRole('link', { name: 'Best partner' })).not.toBeInTheDocument();
+  }
+  expect(screen.queryByText(/worst partner/i)).not.toBeInTheDocument();
+  expect(mocks.getBestPartner).toHaveBeenCalledWith('token', 'u1');
 });

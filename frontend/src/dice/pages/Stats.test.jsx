@@ -188,3 +188,16 @@ describe('Dice Stats', () => {
     expect(mocks.getDuoLadder).not.toHaveBeenCalled();
   });
 });
+
+it('links both signed chemistry lists to the exact pair', async () => {
+  const duo = (id, names, difference) => ({
+    duo_id: id, members: names.map((display_name, index) => ({ user_id: `${id}-${index}`, display_name })),
+    synergy: { wins_above_expected: difference },
+  });
+  mocks.getDuoLadder.mockResolvedValue({ ranked: [], to_watch: [], best_chemistry: [duo('positive:pair', ['Alpha', 'Bravo'], 2.44)], better_apart: [duo('negative:pair', ['Charlie', 'Delta'], -3.14)] });
+  render(<MemoryRouter initialEntries={['/dice/stats?view=duos']}><Stats auth={{ token: 'token', profile: { user_id: 'u1' } }} /></MemoryRouter>);
+  expect(await screen.findByLabelText('Best chemistry')).toBeInTheDocument();
+  expect(screen.getByLabelText('Better apart')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Alpha + Bravo 2.4 wins over expected' })).toHaveAttribute('href', '/dice/stats/duos/positive%3Apair');
+  expect(screen.getByRole('link', { name: 'Charlie + Delta 3.1 wins under expected' })).toHaveAttribute('href', '/dice/stats/duos/negative%3Apair');
+});
