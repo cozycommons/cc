@@ -39,7 +39,7 @@ from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from .espn_client import EspnError, USER_AGENT
+from .espn_client import EspnError, RequestCooldown, USER_AGENT
 
 SCOREBOARD_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
@@ -169,7 +169,8 @@ class ScoreboardClient:
     never re-requested.
     """
 
-    def __init__(self):
+    def __init__(self, *, cooldown: RequestCooldown | None = None):
+        self._cooldown = cooldown
         self._days: dict[_date, dict] = {}
         self._fetched_days: set[_date] = set()
         self._fetched_months: set[tuple[int, int]] = set()
@@ -177,6 +178,8 @@ class ScoreboardClient:
     # -- wire ---------------------------------------------------------------
     def _fetch(self, params: dict) -> dict:
         """One GET round-trip; returns the parsed per-date buckets."""
+        if self._cooldown is not None:
+            self._cooldown.check()
         url = SCOREBOARD_URL + "?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, method="GET")
         req.add_header("Accept", "application/json")
@@ -185,6 +188,8 @@ class ScoreboardClient:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
+            if e.code == 429 and self._cooldown is not None:
+                self._cooldown.defer(e.headers.get("Retry-After") if e.headers else None)
             try:
                 detail = e.read().decode("utf-8", errors="replace")[:200]
             except Exception:

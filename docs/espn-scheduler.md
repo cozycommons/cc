@@ -14,7 +14,7 @@ re-enable switch.
 in the backend container:
 
 - **Hourly tick, all due-logic in code.** Two slots a day,
-  America/New_York: **09:00** (morning) and **18:30** (evening),
+  America/New_York: **09:00** (morning) and **18:00** (evening),
   computed with `zoneinfo`, so DST transitions need no cron edits.
   A slot is due in the window [slot, slot + 3h) — the catch-up window
   means a late tick (deploy, restart) still runs the pass, and a
@@ -25,17 +25,30 @@ in the backend container:
   period) — the same code the `POST /espn/lineup/run` endpoint and
   the MCP tool invoke. Runs are recorded on `espn_lineup_runs` as
   usual, including failures (dead cookies → `auth_error`).
-- **Dedupe.** Before running, the run log is checked for a completed
-  live run (status `ok` / `noop` / `conflict`) whose `created_at`
-  falls inside the slot window; if one exists the account is
-  skipped. Failed runs do not dedupe — the next tick in the window
-  retries them. An adhoc live run fired by hand inside a window
-  also satisfies that slot.
+- **Dedupe.** The runner first resolves the league's actual current
+  scoring period, including its scoreboard fallback. Before planning
+  or writing, it checks for a completed live run (status `ok` / `noop` /
+  `conflict`) for the same account, league, season and scoring period
+  whose `created_at` falls inside the slot window. A matching run skips
+  the pass without adding another run row. Failed runs do not dedupe;
+  the next tick in the window retries them. A manual run for the current
+  period satisfies the slot; a manual future-day run does not.
+- **Rate limits.** Fantasy and scoreboard clients share a cooldown within each
+  tick. HTTP 429 records `Retry-After` (seconds or HTTP date; default
+  60 seconds when absent or invalid), blocks further ESPN requests
+  during that cooldown, and defers the remaining accounts to a later
+  hourly tick. The Coolify process does not sleep for the cooldown or
+  retry transaction writes. This also applies when a projection helper
+  catches the HTTP error or the runner returns a recorded `error`.
+  Deferred accounts have no new run row and count as `deferred` in the
+  summary. The cooldown is process-local; separate CLI invocations do
+  not share a persisted deadline. Catch-up retries occur only while
+  the slot's three-hour window remains open.
 - **Isolation & logging.** A per-account failure never stops the
   fan-out. Stdout carries the audit trail under the `espn.scheduler`
   logger: one line per executed run and one summary line per tick
   (`espn scheduler tick: due=... considered=... ran=... skipped=...
-  failed=...`) — visible in the container logs.
+  failed=... deferred=...`) — visible in the container logs.
 - **Exit codes.** 0 when nothing is due or the tick completes (even
   with per-account failures); non-zero only on systemic failure
   before account work (missing service credentials, account list
