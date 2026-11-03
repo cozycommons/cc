@@ -122,6 +122,71 @@ def get_account_by_token(supabase, token: str) -> dict:
     raise AccountError("unknown token")
 
 
+def get_account_row_by_token(supabase, token: str) -> dict:
+    """Resolve a bearer token to {"id", "label"} without decrypting anything.
+
+    Raises AccountError when the token is unknown. Constant-time hash compare.
+    """
+    if not token or not token.startswith("ccp_"):
+        raise AccountError("invalid token")
+    wanted = hash_token(token)
+    res = supabase.table("partiful_accounts").select("id,label,token_hash").execute()
+    for row in res.data or []:
+        if hmac.compare_digest(str(row.get("token_hash") or ""), wanted):
+            return {"id": row["id"], "label": row.get("label")}
+    raise AccountError("unknown token")
+
+
+def linked_account_summary(supabase, user_id: str) -> dict | None:
+    """The non-secret summary of the account a Commons user linked, if any."""
+    rows = (
+        supabase.table("partiful_accounts")
+        .select("id,label")
+        .eq("owner_user_id", str(user_id))
+        .execute()
+    ).data or []
+    return {"id": rows[0]["id"], "label": rows[0].get("label")} if rows else None
+
+
+def get_account_by_owner(supabase, user_id: str) -> dict:
+    """Resolve a Commons user's linked account (with decrypted Partiful creds).
+
+    Raises AccountError when the user has not linked an account.
+    """
+    rows = (
+        supabase.table("partiful_accounts")
+        .select("id,label,refresh_token_enc,uid_enc")
+        .eq("owner_user_id", str(user_id))
+        .execute()
+    ).data or []
+    if not rows:
+        raise AccountError("no linked account")
+    row = rows[0]
+    return {
+        "id": row["id"],
+        "label": row.get("label"),
+        "refresh_token": decrypt_secret(row["refresh_token_enc"]),
+        "uid": decrypt_secret(row["uid_enc"]),
+    }
+
+
+def link_account_to_owner(supabase, token: str, user_id: str) -> tuple[str, dict]:
+    """Link the account a personal token names to a Commons user, once.
+
+    The token is only hashed and compared; it is never stored. Only
+    owner_user_id changes, so the stored refresh token is never touched.
+    Returns (outcome, {"id", "label"}); outcome is linked | already_linked |
+    other_owner. Raises AccountError when the token is unknown.
+    """
+    row = get_account_row_by_token(supabase, token)
+    outcome = supabase.rpc(
+        "partiful_link_account", {"p_account_id": row["id"], "p_user_id": str(user_id)}
+    ).execute().data
+    if outcome == "missing":
+        raise AccountError("unknown token")
+    return outcome, row
+
+
 def make_client_for_account(supabase, account: dict) -> PartifulClient:
     """Build the per-user client; rotated refresh tokens persist to the row."""
 

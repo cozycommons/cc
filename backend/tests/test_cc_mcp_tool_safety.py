@@ -17,7 +17,7 @@ from fastmcp.server.auth import AccessToken
 
 from cc_mcp.registry import PROVIDERS
 from cc_mcp.server import COMMONS, EDIT_SCOPE, LEVEL_SCOPE, READ_SCOPE, build_server
-from tests import beli_fakes, resy_fakes
+from tests import beli_fakes, partiful_fakes, resy_fakes
 from tests.test_commons_agent_tools import Database, expense_args, repayment_args
 
 
@@ -66,6 +66,14 @@ def resy_foreign(db, _monkeypatch):
             'link_resy_account': {'api_token': token}}
 
 
+def partiful_foreign(db, _monkeypatch):
+    # The caller is linked to their own Partiful account; the event and token belong to another linked user.
+    partiful_fakes.add_account(db, owner=db.user.id)
+    other, token = partiful_fakes.add_account(db, owner=str(uuid4()))
+    return {'get_partiful_events': {'event_id': db.partiful_events[other['uid']]['hosted'][0]['id']},
+            'link_partiful_account': {'api_token': token}}
+
+
 RESY_BOOK = {'venue_id': resy_fakes.VENUE_ID, 'date': resy_fakes.day(), 'desired_time': '19:00',
              'idempotency_key': 'book-1'}
 
@@ -105,6 +113,11 @@ FIXTURES = {
                        'link_resy_account': 'linked to another Commons user'},
         no_resource={'find_resy_tables': 'public venue availability, read with the caller’s own linked login',
                      'list_resy_reservations': 'lists only the caller’s own linked Resy account'}),
+    'partiful': Fixture(
+        args=lambda db: {'get_partiful_events': {}, 'link_partiful_account': {'api_token': 'ccp_' + 'x' * 43}},
+        foreign=partiful_foreign,
+        foreign_error={'get_partiful_events': 'Event not found',
+                       'link_partiful_account': 'linked to another Commons user'}),
 }
 
 CASES = [pytest.param(provider, tool, level, id=f'{provider.name}.{tool}')
@@ -118,6 +131,7 @@ def server(monkeypatch):
     db.user.email_confirmed_at = '2026-01-01T00:00:00Z'
     beli_fakes.install(db, monkeypatch)
     resy_fakes.install(db, monkeypatch)
+    partiful_fakes.install(db, monkeypatch)
     for provider in PROJECTS:
         db.settings[(db.user.id, provider.name)] = {'user_id': db.user.id, 'project_id': provider.name, 'enabled': True}
     holder = SimpleNamespace(token=AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE]))
@@ -151,6 +165,7 @@ def test_every_registered_tool_has_a_safety_fixture():
             db = Database()
             beli_fakes.install(db, monkeypatch)
             resy_fakes.install(db, monkeypatch)
+            partiful_fakes.install(db, monkeypatch)
             foreign = set(fixture.foreign(db, monkeypatch))
         assert foreign.isdisjoint(fixture.no_resource)
         assert foreign | set(fixture.no_resource) == set(provider.tools), \
@@ -216,14 +231,17 @@ async def test_another_users_resource_is_refused(server, monkeypatch, provider, 
     fixture = FIXTURES[provider.name]
     foreign = fixture.foreign(server.db, monkeypatch)
     error = fixture.foreign_error if isinstance(fixture.foreign_error, str) else fixture.foreign_error[tool]
-    owners = [row['owner_user_id'] for row in server.db.beli_accounts + server.db.resy_accounts]
+    linked_rows = server.db.beli_accounts + server.db.resy_accounts + server.db.partiful_accounts
+    owners = [row['owner_user_id'] for row in linked_rows]
     with pytest.raises(ToolError, match=error):
         await server.call(tool, foreign[tool])
     unchanged(server.db, server.db.settings)
-    assert [row['owner_user_id'] for row in server.db.beli_accounts + server.db.resy_accounts] == owners
+    assert [row['owner_user_id'] for row in linked_rows] == owners
     assert not server.db.beli_logins, 'no Beli login may be decrypted for another user'
     others = {row['email'] for row in server.db.resy_accounts if row['owner_user_id'] != server.db.user.id}
     assert not others & set(server.db.resy_logins), 'no Resy login may be decrypted for another user'
+    others = {row['uid'] for row in server.db.partiful_accounts if row['owner_user_id'] != server.db.user.id}
+    assert not others & set(server.db.partiful_logins), 'no Partiful session may be used for another user'
 
 
 @pytest.mark.asyncio
@@ -248,6 +266,20 @@ async def test_linked_caller_books_on_resy_with_only_their_login(server):
                                                      'dry_run': False})).structured_content
     assert booked['status'] == 'booked' and server.db.resy_sends == [('book', mine['email'])]
     assert set(server.db.resy_logins) == {mine['email']} and other['email'] not in server.db.resy_reservations
+
+
+@pytest.mark.asyncio
+async def test_linked_caller_reads_partiful_with_only_their_session(server):
+    # Another user's linked account sits first, so a lookup that ignores the owner would pick it.
+    other, _ = partiful_fakes.add_account(server.db, owner=str(uuid4()), label='other')
+    mine, _ = partiful_fakes.add_account(server.db, owner=server.db.user.id, label='mine')
+    listed = (await server.call('get_partiful_events', {})).structured_content
+    assert [event['title'] for event in listed['events']] == ['Synthetic party hosted by mine', 'Synthetic dinner']
+    mine_id = server.db.partiful_events[mine['uid']]['hosted'][0]['id']
+    detail = (await server.call('get_partiful_events', {'event_id': mine_id})).structured_content
+    assert detail['event']['id'] == mine_id
+    assert set(server.db.partiful_logins) == {mine['uid']}
+    assert {uid for uid, _ in server.db.partiful_reads} == {mine['uid']} and other['uid'] not in repr(listed)
 
 
 @pytest.mark.asyncio
