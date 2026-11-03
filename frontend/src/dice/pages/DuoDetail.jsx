@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
-import { isOnExpected, synergyDescription } from '../duoSynergy.js';
+import { synergyRates, synergyTitle } from '../duoSynergy.js';
 import { diceApi } from '../api.js';
 
 export default function DuoDetail({ auth }) {
@@ -25,6 +25,7 @@ export default function DuoDetail({ auth }) {
     );
   const { summary, big_moments: bigMoments } = detail;
   const { synergy } = summary;
+  const rates = synergy && synergyRates(synergy);
   const shortenApartNames = summary.members.map((member) => member.display_name).join(' ').length > 16;
   const apart = synergy?.apart.map((record) => {
     const name = summary.members.find((member) => member.user_id === record.user_id)?.display_name || '';
@@ -52,8 +53,17 @@ export default function DuoDetail({ auth }) {
       </div>
       {synergy && (
         <section className="jk-card p-4 mt-6" aria-label="Duo synergy">
-          <h2 className="jk-label">{isOnExpected(synergy) ? 'Right on expected' : synergy.wins_above_expected < 0 ? 'Better apart' : 'Better together'}</h2>
-          {!isOnExpected(synergy) && <p className="jk-display text-3xl mt-2">{synergyDescription(synergy)}</p>}
+          <h2 className="jk-label">{synergyTitle(synergy)}</h2>
+          <dl className="grid grid-cols-2 gap-3 mt-2">
+            <div className="flex flex-col-reverse justify-end">
+              <dt className="jk-label mt-1" style={{ color: 'var(--text-secondary)' }}>Won together · {synergy.wins}–{synergy.losses}</dt>
+              <dd className="jk-display text-3xl tabular-nums">{rates.together}%</dd>
+            </div>
+            <div className="flex flex-col-reverse justify-end">
+              <dt className="jk-label mt-1" style={{ color: 'var(--text-secondary)' }}>Expected</dt>
+              <dd className="jk-display text-3xl tabular-nums" style={{ color: 'var(--text-secondary)' }}>{rates.expected}%</dd>
+            </div>
+          </dl>
           {apart && <p className="jk-label mt-3 break-words" style={{ color: 'var(--text-secondary)' }}>Apart: {apart}</p>}
         </section>
       )}

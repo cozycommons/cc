@@ -23,9 +23,11 @@ outside their cards. The expected API source is the authenticated
    games count in both together and apart records. Missing individual pregame
    Elo uses each player's latest Elo after a strictly earlier ranked game, or
    starting 1500. Confirm the comparison card appears above the Elo grid.
-   **Better together** / **Better apart** is a small label above the one-decimal
-   wins-over/under-expected figure. Differences below 0.05 in magnitude show
-   **Right on expected** with no hero number. One win uses the singular unit.
+   **Better together** / **Better apart** is a small label above two
+   percentages: **Won together** with the counted together record, and
+   **Expected** from each game's individual pregame Elo. Rates round half up to
+   whole percents. When both display the same value the label is **Right on
+   expected**; the label never disagrees with the shown numbers.
 7. The synthetic seed includes **Golf Guard + India In** (positive) and
    **India In + Juliet Jump** (negative). India and Juliet each win with other
    partners. Open both pairs, reload, and check the card at 390px, 320px, and
@@ -35,12 +37,14 @@ outside their cards. The expected API source is the authenticated
    Provisional, one card contains **Best chemistry** and **Better apart**: two
    columns on desktop, stacked on mobile. Each list links up to three pairs,
    with a 34px avatar stack, names, the counted together record, and an aligned
-   short over/under figure. Check that names truncate and numbers stay inside
-   their rows at 320px. Positive values descend; negative values ascend.
+   together win rate over its expected rate. Check that names truncate and
+   numbers stay inside their rows at 320px. Lists rank by the displayed rate gap,
+   not the win count, so a short perfect run can outrank a long strong one.
 9. Open India's player profile while signed in. **Best partner** sits directly
    above Head to head, with a 34px partner avatar and an arrow. Its link shows
-   the counted together record and the positive over-expected figure without a
-   plus sign. Profiles without a positive eligible pair have no partner row.
+   the counted together record, then the together and expected win rates. The
+   partner is chosen by the largest positive rate gap. Profiles without a
+   positive eligible pair have no partner row.
 10. **Big moments** is absent until ten completed, ranked live-refereed games
     together have a timeline and positive attributed swing. At most the latest
     30 such matches are considered; their ledger events are fetched in ordered

@@ -9,7 +9,7 @@ import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import { AVATAR_IMAGE_MAX_EDGE, compactImage, uniqueImageFolder } from '../imageUpload.js';
 import GameRow from '../components/GameRow.jsx';
 import EloHistoryChart from '../components/EloHistoryChart.jsx';
-import { isOnExpected, synergyDescription } from '../duoSynergy.js';
+import { synergyDescription, synergyGap } from '../duoSynergy.js';
 import { aggregateRecordedStats } from '../recordedStats.js';
 
 const AVATAR_BUCKET = 'dice-profile-photos';
@@ -362,12 +362,13 @@ export default function PlayerProfile({ auth }) {
 
       <PersonalRecordedStats games={games} userId={userId} />
 
-      {token && auth.profile && partner && bestPartner.synergy?.wins_above_expected > 0 && !isOnExpected(bestPartner.synergy) && (
+      {token && auth.profile && partner && bestPartner.synergy && synergyGap(bestPartner.synergy) > 0 && (
         <Link to={`/dice/stats/duos/${encodeURIComponent(bestPartner.duo_id)}`} className="jk-card flex items-center gap-3 p-4 mb-6" aria-label="Best partner">
           <PlayerAvatar profile={partner} size={34} linkToProfile={false} />
           <div className="min-w-0 flex-1">
             <p className="jk-label">Best partner</p>
-            <p className="text-sm font-semibold mt-1 break-words">{partner.display_name} · {bestPartner.synergy.wins}–{bestPartner.synergy.losses} together, {synergyDescription(bestPartner.synergy, { short: true })} expected</p>
+            <p className="text-sm font-semibold mt-1 break-words">{partner.display_name} · {bestPartner.synergy.wins}–{bestPartner.synergy.losses} together</p>
+            <p className="text-xs mt-1 tabular-nums" style={{ color: 'var(--text-secondary)' }}>{synergyDescription(bestPartner.synergy)}</p>
           </div>
           <span className="shrink-0" aria-hidden="true">→</span>
         </Link>

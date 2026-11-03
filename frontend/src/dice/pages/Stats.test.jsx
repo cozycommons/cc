@@ -192,13 +192,13 @@ describe('Dice Stats', () => {
 });
 
 it('places shared chemistry rows after the ladder and before provisional duos', async () => {
-  const duo = (id, names, difference, rank) => ({
+  const duo = (id, names, [wins, losses, expectedWins], rank) => ({
     duo_id: id, members: names.map((display_name, index) => ({ user_id: `${id}-${index}`, display_name })),
-    wins: 9, losses: 3, games: 12, elo: 1600, win_rate: 0.75, rank,
-    synergy: { wins: 9, losses: 3, games: 12, wins_above_expected: difference },
+    wins, losses, games: wins + losses, elo: 1600, win_rate: wins / (wins + losses), rank,
+    synergy: { wins, losses, games: wins + losses, expected_wins: expectedWins, wins_above_expected: wins - expectedWins },
   });
-  const positive = duo('positive:pair', ['Alpha', 'Bravo'], 2.44, 1);
-  const negative = duo('negative:pair', ['Charlie', 'Delta'], -3.14, 2);
+  const positive = duo('positive:pair', ['Alpha', 'Bravo'], [20, 1, 10.5], 1);
+  const negative = duo('negative:pair', ['Charlie', 'Delta'], [2, 8, 6], 2);
   mocks.getDuoLadder.mockResolvedValue({ ranked: [positive, negative], to_watch: [], best_chemistry: [positive], better_apart: [negative] });
   render(<MemoryRouter initialEntries={['/dice/stats?view=duos']}><Stats auth={{ token: 'token', profile: { user_id: 'u1' } }} /></MemoryRouter>);
   const chemistry = await screen.findByLabelText('Duo chemistry');
@@ -207,9 +207,12 @@ it('places shared chemistry rows after the ladder and before provisional duos', 
   expect(positiveRow).toHaveAttribute('href', '/dice/stats/duos/positive%3Apair');
   expect(negativeRow).toHaveAttribute('href', '/dice/stats/duos/negative%3Apair');
   expect(within(positiveRow).getByText('Alpha avatar')).toBeInTheDocument();
-  expect(within(positiveRow).getByText('9–3 together')).toBeInTheDocument();
-  expect(within(positiveRow).getByText('2.4 over')).toBeInTheDocument();
-  expect(within(negativeRow).getByText('3.1 under')).toBeInTheDocument();
+  expect(within(positiveRow).getByText('20–1 together')).toBeInTheDocument();
+  expect(within(positiveRow).getByText('95%')).toBeInTheDocument();
+  expect(within(positiveRow).getByText('50% expected')).toBeInTheDocument();
+  expect(positiveRow).toHaveAccessibleName(/95% wins, 50% expected/);
+  expect(within(negativeRow).getByText('20%')).toBeInTheDocument();
+  expect(within(negativeRow).getByText('60% expected')).toBeInTheDocument();
   expect(chemistry.contains(positiveRow) && chemistry.contains(negativeRow)).toBe(true);
   expect(screen.getByText('// Ranked duos').compareDocumentPosition(chemistry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(chemistry.compareDocumentPosition(screen.getByText('// Provisional duos')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

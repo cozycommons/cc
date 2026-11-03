@@ -7,7 +7,7 @@ import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import EloDistribution from '../components/EloDistribution.jsx';
 import SinkLeadersChart from '../components/SinkLeadersChart.jsx';
 import { diceApi } from '../api.js';
-import { synergyDescription } from '../duoSynergy.js';
+import { synergyDescription, synergyRates } from '../duoSynergy.js';
 import { rankLeaderboard } from '../leaderboard.js';
 import { aggregateRecordedStats, metricLeaders } from '../recordedStats.js';
 import { calculateStreaks } from './Home.jsx';
@@ -333,8 +333,19 @@ function DuoRow({ duo, rank = duo.rank, tied = false, chemistry = false, provisi
         <p className="font-semibold text-sm truncate">{duo.members.map((member) => member.display_name).join(' + ')}</p>
         <p className="jk-label mt-1" style={{ fontSize: 10 }}>{provisional ? `${duo.games} of 3 games` : <>{record.wins}–{record.losses}{chemistry ? ' together' : ` · ${duo.games} games`}</>}</p>
       </div>
-      <p className="jk-display text-xl tabular-nums shrink-0 text-right" style={provisional ? { color: 'var(--text-secondary)' } : undefined}>{chemistry ? synergyDescription(duo.synergy, { short: true }) : duo.elo}</p>
+      {chemistry ? <ChemistryRate synergy={duo.synergy} /> : <p className="jk-display text-xl tabular-nums shrink-0 text-right" style={provisional ? { color: 'var(--text-secondary)' } : undefined}>{duo.elo}</p>}
     </Link>
+  );
+}
+
+function ChemistryRate({ synergy }) {
+  const { together, expected } = synergyRates(synergy);
+  return (
+    <div className="shrink-0 text-right">
+      <p className="jk-display text-xl tabular-nums" aria-hidden="true">{together}%</p>
+      <p className="jk-label mt-1 tabular-nums" style={{ fontSize: 10, color: 'var(--text-secondary)' }} aria-hidden="true">{expected}% expected</p>
+      <span className="sr-only">{synergyDescription(synergy)}</span>
+    </div>
   );
 }
 

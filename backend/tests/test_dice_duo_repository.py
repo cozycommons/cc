@@ -248,6 +248,29 @@ def test_best_partner_is_positive_only_and_hidden_matches_never_contribute(monke
     assert duo_repository.list_duo_ladder(object()).best_chemistry == []
 
 
+def test_chemistry_and_best_partner_rank_by_win_rate_gap_not_win_count(monkeypatch):
+    from dice.duo_synergy import SynergyMatch
+    echo, foxtrot, golf = "u-echo", "u-foxtrot", "u-golf"
+    profiles = _profiles() + [{"user_id": member, "display_name": member} for member in (echo, foxtrot, golf)]
+
+    def games(prefix, team1, team2, wins, losses):
+        return [SynergyMatch(
+            game_id=f"{prefix}-{index}", played_at=datetime(2026, 1, 1, index % 24, tzinfo=timezone.utc),
+            team1=team1, team2=team2, winner_team=1 if index < wins else 2,
+            team1_score=11 if index < wins else 5, team2_score=5 if index < wins else 11, elo_before=dict.fromkeys((*team1, *team2), 1500),
+        ) for index in range(wins + losses)]
+
+    # 20-1 is 9.5 wins over expected but 95% vs 50%; 5-0 is 2.5 over but 100% vs 50%.
+    matches = games("volume", (ALPHA, BRAVO), (CHARLIE, DELTA), 20, 1) + games("rate", (ALPHA, echo), (foxtrot, golf), 5, 0)
+    monkeypatch.setattr(duo_repository, "_source", lambda _: (profiles, matches))
+    ladder = duo_repository.list_duo_ladder(object())
+    assert [row.duo_id for row in ladder.best_chemistry] == [canonical_duo_id(ALPHA, echo), canonical_duo_id(ALPHA, BRAVO)]
+    assert [row.duo_id for row in ladder.better_apart] == [canonical_duo_id(foxtrot, golf), canonical_duo_id(CHARLIE, DELTA)]
+    volume = ladder.best_chemistry[1].synergy
+    assert (volume.wins, volume.losses, volume.win_rate, volume.expected_win_rate) == (20, 1, 20 / 21, 0.5)
+    assert echo in {member.user_id for member in duo_repository.get_best_partner(object(), ALPHA).members}
+
+
 def test_big_moments_does_not_read_live_tables_below_gate():
     assert duo_repository._big_moments(object(), (ALPHA, BRAVO), [], [str(i) for i in range(9)]) is None
 

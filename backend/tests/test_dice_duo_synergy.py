@@ -6,7 +6,8 @@ import pytest
 from dice.duo_rating import canonical_duo_id
 from dice.duo_synergy import (
     BIG_MOMENTS_MIN_LIVE_GAMES, DUO_SYNERGY_MIN_GAMES,
-    SynergyMatch, calculate_big_moments, calculate_duo_synergies,
+    SynergyMatch, calculate_big_moments, calculate_duo_synergies, synergy_point_gap, synergy_rank_key,
+    whole_percent,
 )
 from dice.elo import expected_score
 
@@ -28,6 +29,32 @@ def test_threshold_and_empty_apart_records():
     result = calculate_duo_synergies(matches)[pair]
     assert result == {"wins": 5, "losses": 0, "games": 5, "expected_wins": 2.5,
                       "wins_above_expected": 2.5, "apart": []}
+
+
+@pytest.mark.parametrize(("wins", "games", "expected_wins", "gap"), [
+    (20, 21, 10.5, 45),     # 95% together vs 50% expected
+    (5, 5, 2.5, 50),
+    (101, 200, 101.0, 0),   # identical rates are neutral
+    (101, 200, 100.9, 1),   # 50.5% rounds to 51%, 50.45% rounds to 50%
+    (100, 200, 100.9, 0),   # 50% vs 50.45%: both display 50%, so neutral
+    (1, 21, 10.5, -45),
+])
+def test_point_gap_matches_the_displayed_whole_percentages(wins, games, expected_wins, gap):
+    synergy = {"wins": wins, "games": games, "expected_wins": expected_wins}
+    assert synergy_point_gap(synergy) == gap
+    assert synergy_point_gap(synergy) == whole_percent(wins / games) - whole_percent(expected_wins / games)
+
+
+def test_whole_percent_rounds_half_up():
+    assert [whole_percent(rate) for rate in (0.125, 0.5, 0.004, 0.994, 20 / 21)] == [13, 50, 0, 99, 95]
+
+
+def test_rank_key_prefers_rate_gap_then_volume():
+    volume = {"wins": 20, "games": 21, "expected_wins": 10.5, "wins_above_expected": 9.5}
+    perfect = {"wins": 5, "games": 5, "expected_wins": 2.5, "wins_above_expected": 2.5}
+    larger = {"wins": 10, "games": 10, "expected_wins": 5.0, "wins_above_expected": 5.0}
+    order = sorted([("v", volume), ("p", perfect), ("l", larger)], key=lambda row: synergy_rank_key(row[1], row[0]))
+    assert [duo_id for duo_id, _ in order] == ["l", "p", "v"]
 
 
 def test_expected_wins_use_each_game_stored_individual_team_average():

@@ -5,15 +5,36 @@ from __future__ import annotations
 from bisect import bisect_left
 from collections import defaultdict
 from dataclasses import dataclass, field
-from math import isfinite
+from math import floor, isfinite
 from typing import Iterable, Mapping, Sequence
 
 from dice.duo_rating import DuoMatch, _as_utc, canonical_duo_id, eligible_duo_matches
 from dice.elo import STARTING_ELO, expected_score
 
 DUO_SYNERGY_MIN_GAMES = 5
-DUO_SYNERGY_NEUTRAL_MARGIN = 0.05
 BIG_MOMENTS_MIN_LIVE_GAMES = 10
+
+
+def whole_percent(rate: float) -> int:
+    """Round half up to a whole percent, matching the frontend's display."""
+    return floor(rate * 100 + 0.5)
+
+
+def synergy_point_gap(synergy: Mapping) -> int:
+    """Displayed together win rate minus expected win rate, in whole points.
+
+    Zero is neutral, so a pair's label always agrees with the two percentages
+    shown beside it.
+    """
+    games = synergy["games"]
+    return whole_percent(synergy["wins"] / games) - whole_percent(synergy["expected_wins"] / games)
+
+
+def synergy_rank_key(synergy: Mapping, duo_id: str, *, descending: bool = True) -> tuple:
+    """Order by displayed rate gap, then exact rate gap, more games, and id."""
+    sign = -1 if descending else 1
+    exact = synergy["wins_above_expected"] / synergy["games"]
+    return sign * synergy_point_gap(synergy), sign * exact, -synergy["games"], duo_id
 
 
 @dataclass(frozen=True, slots=True)
