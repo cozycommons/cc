@@ -208,6 +208,9 @@ class OnboardBody(BaseModel):
     label: str = Field(default="espn", max_length=80)
     league_id: int = Field(description="ESPN fantasy league id")
     season: int = Field(description="Season year, e.g. 2027")
+    enable_automation: bool = Field(
+        default=True, description="Enable automatic daily lineups for this account"
+    )
     espn_s2: str = Field(description="espn_s2 cookie value")
     swid: str = Field(description="SWID cookie value, e.g. {XXXXXXXX-...}")
 
@@ -229,6 +232,7 @@ def onboard(body: OnboardBody, request: Request):
             body.season,
             body.espn_s2,
             body.swid,
+            enable_automation=body.enable_automation,
         )
     except AccountError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -257,9 +261,7 @@ class OnboardLoginBody(BaseModel):
     )
     enable_automation: bool = Field(
         default=False,
-        description="Deprecated and ignored: lineup automation is "
-        "enabled for every new account at onboarding; opt out via "
-        "POST /espn/automation/lineup",
+        description="Enable automatic daily lineups for this account",
     )
 
 
@@ -371,17 +373,14 @@ def onboard_login(body: OnboardLoginBody, request: Request):
             season,
             espn_s2,
             swid,
+            enable_automation=body.enable_automation,
         )
     except AccountError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except EspnError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-    # Automation is part of onboarding: create_account stored the
-    # account with lineup_automation_enabled = true (product decision,
-    # 2026-10-29), so there is no post-create opt-in step here. The
-    # opt-out / re-enable switch is POST /espn/automation/lineup.
-    automation = True
+    automation = created["lineup_automation_enabled"]
     logger.info(
         "espn onboard/login ok: account=%s league=%s automation=%s",
         created.get("id"),

@@ -423,12 +423,10 @@ def test_endpoint_with_league_id_echoes_league_and_team(env):
     assert body["league_name"] == "My 2027 League"
     assert body["team_name"] == "mr diddles"
     assert body["team_id"] == 1
-    # Behavior change (Warner, 2026-10-29): onboarding enables lineup
-    # automation by default — this used to assert False for a request
-    # that doesn't pass enable_automation.
-    assert body["lineup_automation_enabled"] is True
+    # The login API defaults to no automation unless explicitly enabled.
+    assert body["lineup_automation_enabled"] is False
     assert len(db._store) == 1
-    assert db._store[0]["lineup_automation_enabled"] is True
+    assert db._store[0]["lineup_automation_enabled"] is False
     assert PASSWORD not in json.dumps(db._store)
 
 
@@ -526,3 +524,19 @@ def test_endpoint_requires_email_and_password(env):
     )
     assert r.status_code == 400
     assert r.json()["detail"] == "email_and_password_required"
+
+
+@pytest.mark.parametrize("endpoint", ["/espn/onboard", "/espn/onboard/login"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_onboarding_honors_automation_choice(env, endpoint, enabled):
+    client, db, _ = env
+    payload = {"league_id": 111, "season": 2027, "enable_automation": enabled}
+    if endpoint.endswith("/login"):
+        payload.update(email="test@example.com", password=PASSWORD)
+    else:
+        payload.update(espn_s2="test-only", swid="{TEST}")
+    response = client.post(endpoint, json=payload)
+    assert response.status_code == 200
+    assert response.json()["lineup_automation_enabled"] is enabled
+    assert db._store[0]["lineup_automation_enabled"] is enabled
+    assert bool(accounts.list_lineup_automation_accounts(db)) is enabled
