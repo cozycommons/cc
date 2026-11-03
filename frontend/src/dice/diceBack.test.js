@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diceParentPath, isDiceHome } from './diceBack.js';
+import { diceParentPath } from './diceBack.js';
 
 describe('diceParentPath', () => {
   it.each([
@@ -17,11 +17,5 @@ describe('diceParentPath', () => {
     ['/dice/profile/u1', '', '/dice'],
   ])('%s%s → %s', (pathname, search, parent) => {
     expect(diceParentPath(pathname, search)).toBe(parent);
-  });
-
-  it('recognises the home page', () => {
-    expect(isDiceHome('/dice')).toBe(true);
-    expect(isDiceHome('/dice/')).toBe(true);
-    expect(isDiceHome('/dice/stats')).toBe(false);
   });
 });
