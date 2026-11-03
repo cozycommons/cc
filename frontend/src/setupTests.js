@@ -1,7 +1,11 @@
 // jest-dom adds custom matchers for asserting on DOM nodes.
 import '@testing-library/jest-dom/vitest';
+import { configure } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 import { invalidateDiceResources } from './dice/resourceCache.js';
+
+// Lazy routes can exceed the 1000ms default when CI runs many projects together.
+configure({ asyncUtilTimeout: 5000 });
 
 // Dice pages share a module-level read cache; keep tests independent.
 afterEach(() => invalidateDiceResources());
