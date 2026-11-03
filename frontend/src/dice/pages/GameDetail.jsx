@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { diceApi } from '../api.js';
-import { peekDiceResource, writeDiceResource } from '../resourceCache.js';
+import { loadDiceResource, peekDiceResource } from '../resourceCache.js';
 import { findListedGame } from '../resources.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import PlayerGameStats from '../components/PlayerGameStats.jsx';
@@ -128,8 +128,7 @@ export default function GameDetail({ auth }) {
     setGame((current) => cachedGame(gameKey, gameId) ?? (current && current.id === gameId ? current : null));
     const load = async () => {
       try {
-        const loaded = await diceApi.getGame(gameId, includeDuoOnly, includeDuoOnly ? token : null);
-        writeDiceResource(gameKey, loaded);
+        const loaded = await loadDiceResource(gameKey, () => diceApi.getGame(gameId, includeDuoOnly, includeDuoOnly ? token : null));
         if (!cancelled) setGame(loaded);
       } catch (loadError) {
         const pending = readPendingDelete(user?.id, gameId);

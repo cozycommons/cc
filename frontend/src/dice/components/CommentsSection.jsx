@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSupabase } from '../../contexts/SupabaseContext';
 import { diceApi } from '../api.js';
-import { peekDiceResource, writeDiceResource } from '../resourceCache.js';
+import { loadDiceResource, peekDiceResource } from '../resourceCache.js';
 import { formatDateTime } from '../utils.js';
 import {
   COMMENT_IMAGE_MAX_EDGE,
@@ -27,10 +27,9 @@ export default function CommentsSection({ gameId, auth }) {
   const [error, setError] = useState(null);
 
   const load = () => {
-    diceApi.getComments(gameId).then((loaded) => {
-      writeDiceResource(`comments:${gameId}`, loaded);
-      setComments(loaded);
-    }).catch(() => setComments((current) => current ?? []));
+    loadDiceResource(`comments:${gameId}`, () => diceApi.getComments(gameId))
+      .then(setComments)
+      .catch(() => setComments((current) => current ?? []));
   };
 
   useEffect(() => {

@@ -34,7 +34,10 @@ export function invalidateDiceResources() {
   inflight.clear();
 }
 
+// Every cache write from a request goes through here, so a response to a
+// request started before a mutation can never repopulate the cache.
 export function loadDiceResource(key, load) {
+  if (key == null) return Promise.resolve().then(load);
   const pending = inflight.get(key);
   if (pending && pending.generation === generation) return pending.promise;
   const started = generation;

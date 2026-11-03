@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { diceApi } from '../api.js';
-import { peekDiceResource, writeDiceResource } from '../resourceCache.js';
+import { loadDiceResource, peekDiceResource } from '../resourceCache.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import Linkify from '../components/Linkify.jsx';
 import RosterPicker from '../components/RosterPicker.jsx';
@@ -358,10 +358,9 @@ export default function TournamentDetail({ auth }) {
   const [finalistBusy, setFinalistBusy] = useState(false);
   const [formingTeams, setFormingTeams] = useState(false);
 
-  const load = () => diceApi.getTournament(tournamentId).then((loaded) => {
-    writeDiceResource(tournamentKey, loaded);
-    setTournament(loaded);
-  }).catch(() => setTournament(false));
+  const load = () => loadDiceResource(tournamentKey, () => diceApi.getTournament(tournamentId))
+    .then(setTournament)
+    .catch(() => setTournament(false));
 
   useEffect(() => {
     load();
@@ -369,10 +368,7 @@ export default function TournamentDetail({ auth }) {
   }, [tournamentId]);
 
   useEffect(() => {
-    diceApi.searchProfiles('', 100).then((loaded) => {
-      writeDiceResource('profiles:search::100', loaded);
-      setProfiles(loaded);
-    }).catch((err) => {
+    loadDiceResource('profiles:search::100', () => diceApi.searchProfiles('', 100)).then(setProfiles).catch((err) => {
       console.error('Failed to load players for the add-player picker:', err);
       setProfiles([]);
     });

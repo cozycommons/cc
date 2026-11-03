@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useSupabase } from '../../contexts/SupabaseContext';
 import { diceApi } from '../api.js';
-import { peekDiceResource, writeDiceResource } from '../resourceCache.js';
+import { loadDiceResource, peekDiceResource } from '../resourceCache.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import { AVATAR_IMAGE_MAX_EDGE, compactImage, uniqueImageFolder } from '../imageUpload.js';
 import GameRow from '../components/GameRow.jsx';
@@ -127,25 +127,30 @@ export default function PlayerProfile({ auth }) {
   };
 
   // Show the last copy of this profile straight away, then refresh it.
+  // Responses for a player we have since navigated away from are dropped.
+  const loadSequence = useRef(0);
   const load = () => {
+    const sequence = ++loadSequence.current;
+    const current = () => sequence === loadSequence.current;
     const cachedProfile = peekDiceResource(profileKey);
     if (cachedProfile) applyProfile(cachedProfile);
     setGames(peekDiceResource(gamesKey) ?? null);
     setRatingProgress(peekDiceResource(progressKey));
-    diceApi.getProfile(userId, token).then((p) => {
-      writeDiceResource(profileKey, p);
-      applyProfile(p);
+    loadDiceResource(profileKey, () => diceApi.getProfile(userId, token)).then((p) => {
+      if (current()) applyProfile(p);
     }).catch(() => {
-      if (!cachedProfile) setProfile(null);
+      if (current() && !cachedProfile) setProfile(null);
     });
-    diceApi.getProfileGames(userId, 200).then((loaded) => {
-      writeDiceResource(gamesKey, loaded);
-      setGames(loaded);
-    }).catch(() => setGames((current) => current ?? []));
-    diceApi.getRatingProgress(userId).then((loaded) => {
-      writeDiceResource(progressKey, loaded);
-      setRatingProgress(loaded);
-    }).catch(() => setRatingProgress((current) => current ?? null));
+    loadDiceResource(gamesKey, () => diceApi.getProfileGames(userId, 200)).then((loaded) => {
+      if (current()) setGames(loaded);
+    }).catch(() => {
+      if (current()) setGames((shown) => shown ?? []);
+    });
+    loadDiceResource(progressKey, () => diceApi.getRatingProgress(userId)).then((loaded) => {
+      if (current()) setRatingProgress(loaded);
+    }).catch(() => {
+      if (current()) setRatingProgress((shown) => shown ?? null);
+    });
   };
 
   // Keyed on the viewer rather than the token, so an hourly token refresh does

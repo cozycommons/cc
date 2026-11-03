@@ -85,3 +85,27 @@ describe('Dice resource cache', () => {
       .toEqual({ id: 'g1', players: [] });
   });
 });
+
+describe('Dice resource cache invalidation', () => {
+  it('runs keyless loads without caching them', async () => {
+    const load = vi.fn(() => Promise.resolve({ duo: true }));
+    await expect(loadDiceResource(null, load)).resolves.toEqual({ duo: true });
+    await loadDiceResource(null, load);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts a fresh request after a mutation instead of reusing the stale one', async () => {
+    const stale = deferred();
+    const load = vi.fn()
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => Promise.resolve(['after']));
+    const first = loadDiceResource('tournament:t1', load);
+    invalidateDiceResources();
+
+    await expect(loadDiceResource('tournament:t1', load)).resolves.toEqual(['after']);
+    stale.resolve(['before']);
+    await first;
+
+    expect(peekDiceResource('tournament:t1')).toEqual(['after']);
+  });
+});

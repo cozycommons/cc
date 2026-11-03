@@ -164,7 +164,9 @@ class DiceApiClient {
     return api.get(`/dice/games?limit=${limit}&offset=${offset}`);
   }
 
-  async getAllGames(pageSize = 500) {
+  // 200 games keeps the player hydration query (4 per game) under PostgREST's
+  // 1,000-row response cap; a larger page silently drops rosters.
+  async getAllGames(pageSize = 200) {
     const all = [];
     let offset = 0;
     while (true) {
