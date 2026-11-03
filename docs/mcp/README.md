@@ -1,11 +1,12 @@
 # Cozy Commons MCP
 
 One connection and browser sign-in serves every registered project: Commons
-discovery and enablement, Trips and Floor Planner. Two stable scopes,
+discovery and enablement, Trips, Floor Planner and Beli. Two stable scopes,
 `commons:read` and `commons:edit`, cover all of them, and each user enables the
 projects whose tools their agent sees. Adding a project or tool therefore never
-changes the scope set or forces existing users to reconnect. Existing Beli, Resy,
-Partiful and ESPN MCP endpoints keep their separate pasted-token authentication.
+changes the scope set or forces existing users to reconnect. The existing Beli,
+Resy, Partiful and ESPN MCP endpoints keep their separate pasted-token
+authentication.
 
 ## Connect an agent
 
@@ -160,8 +161,8 @@ contract (`ToolProvider` in `backend/cc_mcp/server.py`):
 provider = ToolProvider(
     "beli", register_tools,
     {"get_restaurant_recs": "read", "save_restaurant": "edit", "link_beli_account": "edit"},
-    title="Beli", description="Restaurant recommendations and your Want to Try list.",
-    url="https://cozycommons.dev/beli",
+    title="Beli", description="Restaurant recommendations and your Beli Want to Try list.",
+    url=DOCS_URL,
     status=beli_status,  # cheap, read-only; {"in_use": bool, "next_step": "..."}
     link=AccountLink(
         "Call link_beli_account(api_token) once with your existing ccb_ token.",
@@ -280,6 +281,53 @@ permission says, for example, “Reconnect your agent to grant commons:edit.”
 The unrelated `/beli/mcp`, `/resy/mcp`, `/partiful/mcp`, and `/espn/mcp`
 endpoints remain unchanged.
 
+## Beli
+
+Provider `backend/ig_logger/sinks/beli/agent_tools.py`, three tools:
+
+- `get_restaurant_recs(neighborhood, day?, time?, table_size=2, limit=10)`
+  (`read`): your Want to Try bookmarks first, then Beli trending, each with its
+  Beli business ID, hours and reservation slots. `day` is `YYYY-MM-DD` or a
+  lowercase weekday; `time` is 24-hour `HH:MM`.
+- `save_restaurant(name, idempotency_key, city?, dry_run=true)` (`edit`): the
+  existing confidence-gated bookmark flow (`logic.bookmark_name`). Ambiguous
+  names return candidates and save nothing; saved or ranked places are reported,
+  never duplicated.
+- `link_beli_account(api_token)` (`edit`): the one-time link step.
+
+A Beli account belongs to whoever holds its `ccb_` token (minted once by
+`POST /beli/onboard`; only its sha256 hash is stored). Migration
+`0017_beli_account_owner.sql` adds `beli_accounts.owner_user_id` (references
+`auth.users`, `on delete set null`) with a partial unique index, so a Commons
+user links at most one account and an account has at most one Commons owner.
+`link_beli_account` hashes the presented token, matches it in constant time and
+calls `beli_link_account(account, user)`, which in one transaction refuses an
+account owned by someone else ("This Beli account is linked to another Commons
+user") and moves the caller's earlier link if they link a different account of
+theirs. The token is never stored or returned; attempts are limited to 10 per
+user per hour, like onboarding. Linking changes only `owner_user_id`: the
+`ccb_` token, `/beli/*` routes, `/beli/mcp` and `@beli_eats` watcher
+subscriptions are untouched, and existing accounts stay unlinked until their
+owner links them. Until linked, the middleware answers every Beli tool except
+the link tool with the link step, and `list_projects` shows `linked: false` with
+that step. Beli is on by default (status `in_use`) once linked. There is no Beli
+web onboarding page, so linking happens only through the tool.
+
+Tools resolve the account from the signed-in user, decrypt its Beli login with
+the existing Fernet key per call and never return credentials. `save_restaurant`
+commits are receipted in `beli_agent_receipts` (keyed by user and key; the
+fingerprint is account, name and city). A commit reserves its key before calling
+Beli, so a concurrent retry cannot write twice; it records the result, which a
+replay returns, and a reused key with different details is refused. Nothing is
+reserved by a preview, and the reservation is released only when no write
+request was sent (ambiguous, no match, or a failure before the write). A key
+with no recorded result, however old, never writes again: a retry with the same
+key checks Beli's bookmarks, marks the key done if the place is there, and
+otherwise returns an error asking for a same-key retry later. Both tables
+and the function are service-role only (RLS on, browser roles revoked); the Beli
+schema contract checks the index, every service grant individually, browser
+denial and the function's privileges at release time.
+
 ## Local real OAuth exercise
 
 Use Python 3.12/3.13, Node 22, Docker and psql. Start the isolated stack;
@@ -331,8 +379,19 @@ forms), previews and commits both write types, replays both keys, and asserts
 previews/replays did not advance revisions. Finally it signs a pre-commons
 `trips:*` token with the server's key and the session's real upstream mapping,
 exactly as M1 issued them, and checks it still works for Trips and is refused for
-Floor Planner with the reconnect step. Synthetic users and
-trips remain in the loopback sandbox for inspection. Tokens and keys are never
+Floor Planner with the reconnect step.
+
+For Beli, `serve` points the Beli API client at a fake synthetic Beli API that
+the test runs on `127.0.0.1:8766`, and gives synthetic logins a per-process
+credentials key, so nothing reaches Beli. The test checks that Beli starts off
+and unlinked, that its tools return the link step, onboards two synthetic
+accounts through the real `POST /beli/onboard`, links one to a second synthetic
+user, and checks that linking it or a wrong token is refused. It then links its
+own account, checks the `ccb_` token still works on `/beli/me`, calls
+`get_restaurant_recs`, and previews, commits, replays and reuses a
+`save_restaurant` key with new details, asserting exactly one Beli write. The
+read-only grant reads recs and is refused on `save_restaurant`. Synthetic users,
+trips and Beli accounts remain in the loopback sandbox for inspection. Tokens and keys are never
 printed or committed. For interactive mode, also run the normal local frontend
 on port 8080 (for example `scripts/start-local-dice-frontend.sh`) and sign in
 with a synthetic sandbox account. The script can also run directly with

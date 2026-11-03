@@ -75,6 +75,12 @@ if os.environ['LOCAL_MODE'] == 'test':
 else:
     os.chdir('backend')
     sys.path.insert(0, str(Path.cwd()))
+    # Beli calls go to the exercise's loopback fake (scripts/commons-connector-e2e.py),
+    # so synthetic logins never reach Beli. Synthetic credentials use a per-process key.
+    from cryptography.fernet import Fernet
+    os.environ['BELI_CREDENTIALS_KEY'] = Fernet.generate_key().decode()
+    from ig_logger.sinks.beli import beli_client
+    beli_client.API_HOST = beli_client.ONBOARD_HOST = 'http://127.0.0.1:8766'
     import uvicorn
     uvicorn.run('main:app', host='127.0.0.1', port=8000, access_log=False)
 PY

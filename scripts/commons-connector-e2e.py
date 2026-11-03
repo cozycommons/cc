@@ -9,7 +9,8 @@ LOCAL_SUPABASE_SERVICE_ROLE_KEY is read only after both URL guards pass.
 """
 import argparse
 import asyncio
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
+import json
 import os
 from html.parser import HTMLParser
 import secrets
@@ -29,6 +30,67 @@ def loopback(value):
             or parsed.username or parsed.password or parsed.query or parsed.fragment):
         raise ValueError('Only HTTP loopback URLs are allowed.')
     return value.rstrip('/')
+
+
+# The serving process routes Beli API calls here (scripts/commons-connector-local.sh).
+FAKE_BELI = ('127.0.0.1', 8766)
+BISTRO = {'id': 501, 'name': 'Synthetic Bistro', 'neighborhood': 'West Village', 'city': 'New York',
+          'businesshours_set': [], 'reservation_platforms': {}}
+
+
+def fake_beli():
+    """Minimal synthetic Beli API: logins, trending, search and bookmarks. Records every save."""
+    state = {'sessions': {}, 'saved': []}
+
+    class Beli(BaseHTTPRequestHandler):
+        def answer(self, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def login(self):
+            return state['sessions'].get(self.headers.get('Authorization', '')[len('Bearer '):])
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
+            if self.path == '/api/token/':
+                access = secrets.token_urlsafe(16)
+                state['sessions'][access] = body.get('email')
+                return self.answer({'access': access, 'refresh': secrets.token_urlsafe(16)})
+            if self.login() is None:
+                return self.send_error(401)
+            if self.path == '/api/add-bookmark/':
+                state['saved'].append((self.login(), body['business_id']))
+                return self.answer({})
+            if self.path == '/api/businesses-res-availability/':
+                return self.answer({'results': []})
+            self.send_error(404)
+
+        def do_GET(self):
+            login = self.login()
+            if login is None:
+                return self.send_error(401)
+            if self.path.startswith('/api/user/logged-in/'):
+                return self.answer({'uuid': 'synthetic-' + login})
+            if self.path.startswith('/api/get-bookmark/'):
+                return self.answer({'Restaurants': [{'business': BISTRO} for who, _ in state['saved'] if who == login]})
+            if self.path.startswith('/api/get-ranking/'):
+                return self.answer({'results': []})
+            if self.path.startswith('/api/trending/'):
+                return self.answer({'results': [{'business': BISTRO}]})
+            if self.path.startswith('/api/search-app/'):
+                return self.answer({'predictions': [{'business': BISTRO['id'], 'structured_formatting':
+                                    {'main_text': BISTRO['name'], 'secondary_text': 'New York'}}]})
+            if self.path.startswith('/api/business/'):
+                return self.answer([BISTRO])
+            self.send_error(404)
+
+        def log_message(self, *_args):
+            pass
+
+    return ThreadingHTTPServer(FAKE_BELI, Beli), state
 
 
 class MemoryTokens:
@@ -83,6 +145,19 @@ async def exercise(args):
     callback_url = f'http://127.0.0.1:{server.server_port}/callback'
     # serve_forever runs only for the lifetime of this exercise.
     serving = asyncio.create_task(asyncio.to_thread(server.serve_forever, poll_interval=0.1))
+    beli_server, beli_state = fake_beli()
+    beli_serving = asyncio.create_task(asyncio.to_thread(beli_server.serve_forever, poll_interval=0.1))
+    service_headers = {'apikey': os.environ['LOCAL_SUPABASE_SERVICE_ROLE_KEY'],
+                       'Authorization': 'Bearer ' + os.environ['LOCAL_SUPABASE_SERVICE_ROLE_KEY']}
+
+    async def onboard_beli(label):
+        """The real /beli/onboard path, against the fake Beli API. Returns the ccb_ token."""
+        async with httpx.AsyncClient(timeout=30) as http:
+            response = await http.post(endpoint[:-len('/mcp')] + '/beli/onboard', json={
+                'label': label, 'beli_id': f'beli-e2e-{uuid4().hex}@example.test',
+                'password': secrets.token_urlsafe(16)})
+        assert response.status_code == 200, f'Beli onboarding: HTTP {response.status_code}'
+        return response.json()['token']
 
     # Guard every browser-style hop before sending any request (including Location
     # and consent response URLs). Never follow redirects to a hosted service.
@@ -204,10 +279,10 @@ async def exercise(args):
                 await session.initialize()
                 assert auth.context.current_tokens.scope.split() == ['commons:read', 'commons:edit']
 
-                async def call(name, *, evidence=None, **arguments):
-                    result = await session.call_tool(name, arguments)
-                    assert not result.isError, f'{name} failed: {result.content}'
-                    print(f'PASS {evidence or name}')
+                async def call(tool, /, *, evidence=None, **arguments):  # save_restaurant takes `name`
+                    result = await session.call_tool(tool, arguments)
+                    assert not result.isError, f'{tool} failed: {result.content}'
+                    print(f'PASS {evidence or tool}')
                     return result.structuredContent
 
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
@@ -272,6 +347,58 @@ async def exercise(args):
                               'disabled Trips call refused although the user has trips')
                 await call('enable_project', project_id='trips', evidence='enable_project trips')
                 await call('get_trip_overview', evidence='Trips usable again after enable_project')
+
+                # Beli: off for a new user, then enable, link once, and use without a token.
+                beli = {'get_restaurant_recs', 'save_restaurant', 'link_beli_account'}
+                projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+                assert projects['beli']['enabled'] is False and projects['beli']['linked'] is False
+                enabled = await call('enable_project', project_id='beli', evidence='enable_project beli')
+                assert enabled['linked'] is False and 'link_beli_account' in enabled['next_step']
+                assert beli <= await listed(session)
+                print('PASS list_projects/enable_project show Beli unlinked with the link step')
+                await refused(session, 'get_restaurant_recs', {'neighborhood': 'West Village'},
+                              'Link your Beli account first', 'unlinked get_restaurant_recs refused with the link step')
+                await refused(session, 'save_restaurant', {'name': 'Synthetic Bistro', 'idempotency_key': 'unlinked',
+                              'dry_run': False}, 'Link your Beli account first',
+                              'unlinked save_restaurant refused with the link step')
+                beli_token, other_token = await onboard_beli('e2e-mine'), await onboard_beli('e2e-other')
+                print('PASS synthetic Beli onboarding through /beli/onboard (fake loopback Beli API)')
+                async with httpx.AsyncClient(timeout=30) as http:
+                    other = await http.post(database_url + '/auth/v1/admin/users', headers=service_headers,
+                        json={'email': f'commons-e2e-other-{uuid4().hex}@example.test', 'email_confirm': True})
+                assert other.status_code == 200, f'Create second synthetic user: HTTP {other.status_code}'
+                from ig_logger.accounts import get_account_row_by_token
+                other_account = get_account_row_by_token(service, other_token)['id']
+                assert service.rpc('beli_link_account', {'p_account_id': other_account,
+                                   'p_user_id': other.json()['id']}).execute().data == 'linked'
+                await refused(session, 'link_beli_account', {'api_token': other_token}, 'linked to another Commons user',
+                              "link_beli_account refused for another user's account")
+                await refused(session, 'link_beli_account', {'api_token': 'ccb_' + secrets.token_urlsafe(32)},
+                              'No Beli account matches', 'link_beli_account refused for a wrong token')
+                linked = await call('link_beli_account', api_token=beli_token, evidence='link_beli_account')
+                assert linked['status'] == 'linked' and beli_token not in json.dumps(linked)
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_me = await http.get(endpoint[:-len('/mcp')] + '/beli/me',
+                                               headers={'Authorization': 'Bearer ' + beli_token})
+                assert legacy_me.status_code == 200 and legacy_me.json()['label'] == 'e2e-mine'
+                print('PASS linked account keeps its legacy ccb_ token on /beli')
+                projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+                assert projects['beli']['linked'] is True and 'get_restaurant_recs' in projects['beli']['next_step']
+                print('PASS list_projects shows Beli linked with the next step')
+                recs = await call('get_restaurant_recs', neighborhood='West Village', day='saturday', time='19:00',
+                                  evidence='get_restaurant_recs')
+                assert [r['id'] for r in recs['recs']] == [501]
+                save = dict(name='Synthetic Bistro', idempotency_key=f'save-{uuid4()}')
+                preview = await call('save_restaurant', **save, evidence='save_restaurant dry_run')
+                assert preview['dry_run'] and preview['status'] == 'would_bookmark' and not beli_state['saved']
+                saved = await call('save_restaurant', **save, dry_run=False, evidence='save_restaurant commit')
+                assert saved['status'] == 'bookmarked' and len(beli_state['saved']) == 1
+                assert await call('save_restaurant', **save, dry_run=False,
+                                  evidence='save_restaurant idempotent replay') == saved
+                await refused(session, 'save_restaurant', {**save, 'city': 'Brooklyn', 'dry_run': False},
+                              'used with different details', 'save_restaurant key reuse with new details refused')
+                assert len(beli_state['saved']) == 1
+                print('PASS every Beli tool over real OAuth: link, recs, preview, commit, replay; one Beli write')
                 access_token = auth.context.current_tokens.access_token
         callback = loop.create_future()
         readonly = provider('commons:read')
@@ -287,6 +414,11 @@ async def exercise(args):
                 final_row = service.table('trips_groups').select('revision').eq('id', trip_id).single().execute().data
                 assert final_row['revision'] == final['revision']
                 print('PASS read-only token reads Trips; writes refused; ledger unchanged')
+                await refused(session, 'save_restaurant', {**save, 'idempotency_key': f'denied-{uuid4()}', 'dry_run': False},
+                              'commons:edit', 'read-only token denied on save_restaurant')
+                assert not (await session.call_tool('get_restaurant_recs', {'neighborhood': 'West Village'})).isError
+                assert len(beli_state['saved']) == 1
+                print('PASS read-only token reads Beli recs; saves refused; no Beli write')
 
         # A token minted exactly as the M1 deployment did: same signing key and
         # upstream mapping (jti), pre-commons scopes. It keeps its old reach.
@@ -312,6 +444,9 @@ async def exercise(args):
         await asyncio.to_thread(server.shutdown)
         server.server_close()
         await serving
+        await asyncio.to_thread(beli_server.shutdown)
+        beli_server.server_close()
+        await beli_serving
 
 
 if __name__ == '__main__':

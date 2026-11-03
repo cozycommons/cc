@@ -1,6 +1,6 @@
 ---
 name: cozy-commons
-description: Use the Cozy Commons remote MCP connector to discover and enable projects, read trip balances, split expenses and record repayments with confirmed previews.
+description: Use the Cozy Commons remote MCP connector to discover and enable projects, read trip balances, split expenses, record repayments, and get and save Beli restaurants, with confirmed previews.
 ---
 
 # Cozy Commons connector
@@ -16,8 +16,26 @@ only the enabled projects' tools. To use a project that is off, call
 project). It returns the project's tools and any one-time link step. If the new
 tools do not appear in your tool list, refresh it; if your client cannot, ask
 the user to reconnect the connector. `disable_project` hides a project's tools
-and keeps its data. Trips and Floor Planner are on this connector; other
+and keeps its data. Trips, Floor Planner and Beli are on this connector; other
 projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
+
+## Beli
+
+Beli needs a one-time link. Until then every Beli tool returns the link step.
+Ask the user for their existing `ccb_` Beli token and call
+`link_beli_account(api_token)` once. The token proves ownership. It is never
+stored or returned, and you must not keep it or ask for it again. If the user
+has no token, they onboard at `POST https://api.cozycommons.dev/beli/onboard`
+(see the step text). If the error says the account is linked to another Commons
+user, the user must sign in as that user; do not retry other tokens.
+
+- `get_restaurant_recs(neighborhood, day?, time?, table_size, limit)`: `day` is
+  `YYYY-MM-DD` or a lowercase weekday, `time` is 24-hour `HH:MM`.
+- `save_restaurant(name, idempotency_key, city?, dry_run)`: preview with
+  `dry_run=true`, show the matched place, and commit with the same key after
+  the user confirms. `ambiguous` returns candidates and saves nothing: ask the
+  user, then preview the refined name. `already_bookmarked` and `already_ranked`
+  mean no change was needed.
 
 ## Rules
 
@@ -32,8 +50,8 @@ projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
   A changed split needs another preview and confirmation.
 - Generate one unique `idempotency_key` per intended write; use the same key for
   preview, commit and retries. Never generate a fresh key merely because a call
-  timed out. New intended writes require new keys; keys cover all trips and write
-  kinds for the signed-in user.
+  timed out. New intended writes require new keys; keys are per project and
+  cover all trips and write kinds for the signed-in user.
 - Read error messages: they name the fix. Use suggested exact IDs only after
   resolving ambiguity with the user. After a repeated revision conflict, reread
   the trip and review a fresh preview before retrying.
