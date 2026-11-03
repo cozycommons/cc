@@ -9,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from cc_mcp import projects
 from cc_mcp.server import COMMONS, ToolProvider
-from trips.profiles import current_profile
+from trips.profiles import stored_profile
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ def register_tools(mcp, context):
     async def whoami() -> dict:
         """Return your signed-in Commons user ID, email and display name."""
         signed_in = await user()
-        profile = await run_in_threadpool(current_profile, context.service_client, signed_in)
+        profile = await run_in_threadpool(stored_profile, context.service_client, signed_in)
         return {'id': signed_in.id, 'email': signed_in.email, 'display_name': profile['display_name']}
 
     @mcp.tool(annotations={'readOnlyHint': True, 'openWorldHint': False})

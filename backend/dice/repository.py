@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
+from commons_account.profile import default_profile, own_profile, update_profile as update_commons_profile
 from dice.elo import (
     PROVISIONAL_GAMES_THRESHOLD,
     STARTING_ELO,
@@ -180,19 +181,24 @@ def get_profile(supabase: Client, user_id: str) -> Optional[DiceProfile]:
     return _profile_from_row(rows[0]) if rows else None
 
 
-def get_or_create_profile(
-    supabase: Client,
-    user_id: str,
-    default_display_name: str,
-    default_avatar_url: Optional[str],
-) -> DiceProfile:
-    existing = get_profile(supabase, user_id)
+def get_or_create_profile(supabase: Client, user) -> DiceProfile:
+    """Return the caller's Dice profile, creating it from their Commons profile.
+
+    ``user`` is the Supabase Auth user (id, email, user_metadata, is_anonymous).
+    Calling own_profile on every visit also gives accounts made since the 0087
+    backfill their Commons row.
+    """
+    if getattr(user, "is_anonymous", False):
+        identity = default_profile(user)  # Anonymous sessions have no Commons row.
+    else:
+        identity = own_profile(supabase, user)
+    existing = get_profile(supabase, user.id)
     if existing:
         return existing
     row = {
-        "user_id": user_id,
-        "display_name": default_display_name,
-        "avatar_url": default_avatar_url,
+        "user_id": user.id,
+        "display_name": identity["display_name"],
+        "avatar_url": identity["avatar_url"],
         "elo_rating": STARTING_ELO,
         "ranked_games_played": 0,
         "rating_deviation": INITIAL_RATING_DEVIATION,
@@ -211,11 +217,15 @@ def update_profile(
     phone_number: Optional[str] = None,
     sms_notifications_enabled: Optional[bool] = None,
 ) -> DiceProfile:
+    identity = {key: value for key, value in (("display_name", display_name), ("avatar_url", avatar_url))
+                if value is not None}
+    if identity:
+        if not get_profile(supabase, user_id):
+            raise ValueError("Profile not found")
+        # Name and avatar belong to the Commons profile; its 0087 trigger copies
+        # them into dice_profiles before the update below reads the row back.
+        update_commons_profile(supabase, user_id, identity)
     updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
-    if display_name is not None:
-        updates["display_name"] = display_name
-    if avatar_url is not None:
-        updates["avatar_url"] = avatar_url
     if is_anonymous is not None:
         updates["is_anonymous"] = is_anonymous
     if phone_number is not None:

@@ -111,6 +111,7 @@ class FakeSupabase:
             "espn_public_predictions": [{"received_at": "2026-10-23", "payload": deepcopy(SNAPSHOT)}],
             "espn_team_claims": [],
             "fantasy_leagues": [],
+            "commons_profiles": [{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}],
             "dice_profiles": [{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}],
         }
         self.users = {
@@ -199,7 +200,7 @@ def test_claim_routes_require_cozy_auth(client, method, path, body, headers):
 ])
 def test_suggestions_rank_names_and_only_expose_public_fields(client, display_name, metadata):
     db = client.app.state.supabase
-    db.tables["dice_profiles"][0]["display_name"] = display_name
+    db.tables["commons_profiles"][0]["display_name"] = display_name
     db.users["owner"] = ("owner-id", "owner@example.test", metadata)
     db.add_claim(1)
     db.add_claim(2, "other-id")
@@ -229,7 +230,7 @@ def test_normalized_token_matching_and_first_name_weight():
 
 def test_suggestions_without_profile_or_snapshot(client):
     db = client.app.state.supabase
-    db.tables["dice_profiles"].clear()
+    db.tables["commons_profiles"].clear()
     body = client.get("/espn/claims/suggestions", headers=AUTH).json()
     assert body["has_profile"] is False and body["teams"][0]["team_id"] == 1
     assert body["mine"] is None
@@ -267,7 +268,7 @@ def test_claim_requires_a_name_match_unless_admin(client):
     response = client.post("/espn/claims", json={"season": 2027, "team_id": 2}, headers=AUTH)
     assert response.status_code == 403 and response.json()["detail"] == "name_mismatch"
     assert not db.rpc_calls
-    db.tables["dice_profiles"].append({"user_id": "admin-id", "display_name": "Zed", "avatar_url": None})
+    db.tables["commons_profiles"].append({"user_id": "admin-id", "display_name": "Zed", "avatar_url": None})
     admin = {"Authorization": "Bearer admin"}
     teams = client.get("/espn/claims/suggestions", headers=admin).json()["teams"]
     assert all(team["can_claim"] for team in teams)
@@ -275,7 +276,7 @@ def test_claim_requires_a_name_match_unless_admin(client):
 
 
 def test_claim_requires_profile(client):
-    client.app.state.supabase.tables["dice_profiles"].clear()
+    client.app.state.supabase.tables["commons_profiles"].clear()
     response = client.post("/espn/claims", json={"season": 2027, "team_id": 1}, headers=AUTH)
     assert response.status_code == 409 and response.json()["detail"] == "profile_required"
     assert not client.app.state.supabase.rpc_calls
@@ -341,6 +342,18 @@ def test_public_list_joins_profiles_and_limits_output(client, avatar, expected):
     assert response.json() == [{"team_id": 1, "display_name": "Jord", "avatar_url": expected}]
     for secret in ("user_id", "email", "owner-id", "deleted-profile-id", "@"):
         assert secret not in response.text
+
+
+@pytest.mark.parametrize("dice", [[{"user_id": "owner-id", "display_name": "Jord", "avatar_url": None}], []])
+def test_public_list_never_shows_the_commons_only_google_avatar(client, dice):
+    """The 0087 backfill stored Google photos for Dice players without one; signed-out viewers never see them."""
+    db = client.app.state.supabase
+    db.tables["commons_profiles"][0]["avatar_url"] = "https://lh3.googleusercontent.com/a/photo"
+    db.tables["dice_profiles"][:] = dice
+    db.add_claim(1)
+    response = client.get("/espn/public/claims?season=2027")
+    assert response.json() == [{"team_id": 1, "display_name": "Jord", "avatar_url": None}]
+    assert "googleusercontent" not in response.text
 
 
 @pytest.mark.parametrize("query", ["", "?season=1999", "?season=2099"])
