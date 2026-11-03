@@ -2,8 +2,15 @@ import { api, getUrl } from '../api.js';
 import { sendLiveCommandWithAdaptiveHedge } from './liveCommandHedge.js';
 import { invalidateDiceResources } from './resourceCache.js';
 
+// One seed per page load. The API shows each anonymous player as the same
+// animal for every request in this visit, and reshuffles on the next one.
+const VIEW_SEED = typeof crypto !== 'undefined' && crypto.randomUUID
+  ? crypto.randomUUID()
+  : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+
 function authHeaders(token) {
-  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {};
+  const headers = { 'X-Dice-View-Seed': VIEW_SEED };
+  return token ? { ...headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : headers;
 }
 
 export class DiceLiveApiError extends Error {
@@ -29,12 +36,6 @@ async function liveRequest(token, method, path, body, { signal, headers = {}, ke
   if (!response.ok) throw new DiceLiveApiError(response.status, payload.detail);
   return payload;
 }
-
-// One seed per page load. The API shows each anonymous player as the same
-// animal for every request in this visit, and reshuffles on the next one.
-const VIEW_SEED = typeof crypto !== 'undefined' && crypto.randomUUID
-  ? crypto.randomUUID()
-  : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 
 class DiceApiClient {
   read(endpoint, token = null) {
@@ -235,7 +236,7 @@ class DiceApiClient {
   }
 
   postComment(token, gameId, body, imageUrl) {
-    return api.post(`/dice/games/${gameId}/comments`, { body, image_url: imageUrl }, token);
+    return api.request('POST', `/dice/games/${gameId}/comments`, { body, image_url: imageUrl }, { headers: authHeaders(token) });
   }
 
   deleteComment(token, commentId) {
@@ -243,16 +244,17 @@ class DiceApiClient {
   }
 
   // Tournaments
-  getTournaments(limit = 20) {
-    return this.read(`/dice/tournaments?limit=${limit}`);
+  // Organizers see real names, so tournament reads carry the viewer's token.
+  getTournaments(limit = 20, token = null) {
+    return this.read(`/dice/tournaments?limit=${limit}`, token);
   }
 
-  getTournament(id) {
-    return this.read(`/dice/tournaments/${id}`);
+  getTournament(id, token = null) {
+    return this.read(`/dice/tournaments/${id}`, token);
   }
 
   createTournament(token, tournamentData) {
-    return api.post('/dice/tournaments', tournamentData, token);
+    return api.request('POST', '/dice/tournaments', tournamentData, { headers: authHeaders(token) });
   }
 
   updateTournament(token, id, tournamentData) {
@@ -275,7 +277,7 @@ class DiceApiClient {
 
   // Scheduled matches
   addScheduledMatch(token, tournamentId, matchData) {
-    return api.post(`/dice/tournaments/${tournamentId}/matches`, matchData, token);
+    return api.request('POST', `/dice/tournaments/${tournamentId}/matches`, matchData, { headers: authHeaders(token) });
   }
 
   updateScheduledMatch(token, tournamentId, matchId, matchData) {
@@ -292,7 +294,7 @@ class DiceApiClient {
 
   // Finalists & bracket
   addFinalist(token, tournamentId, userId) {
-    return api.post(`/dice/tournaments/${tournamentId}/finalists`, { user_id: userId }, token);
+    return api.request('POST', `/dice/tournaments/${tournamentId}/finalists`, { user_id: userId }, { headers: authHeaders(token) });
   }
 
   removeFinalist(token, tournamentId, userId) {
@@ -302,7 +304,7 @@ class DiceApiClient {
   }
 
   resolveBracketMatch(token, tournamentId, slotId, gameId) {
-    return api.post(`/dice/tournaments/${tournamentId}/bracket/${slotId}/resolve`, { game_id: gameId }, token);
+    return api.request('POST', `/dice/tournaments/${tournamentId}/bracket/${slotId}/resolve`, { game_id: gameId }, { headers: authHeaders(token) });
   }
 
   setBracketTeams(token, tournamentId, teamsData) {

@@ -15,7 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPExcep
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
-from dice.anonymity import anonymizer_for, dump
+from dice.anonymity import anonymizer_for, dump, scrub_live_match
 from dice.notifications import notify_ranked_game
 from dice.feature_access import DiceFeature, feature_state, feature_states
 from dice.duo_repository import duo_ids, get_best_partner, get_duo_detail, list_duo_ladder
@@ -419,7 +419,8 @@ def get_live_games(request: Request, state: Literal["ongoing"] = Query("ongoing"
 def get_live_game(request: Request, match_id: str, auth: AuthedUser = Depends(require_live_authenticated_user)):
     _require_live(request, auth)
     _repair_pending_live_rating(request, match_id)
-    return _live_output(request, _live_row(request, match_id), detail=True)
+    row = _live_row(request, match_id)
+    return _finished_live_out(request, auth, row, _live_output(request, row, detail=True))
 
 
 @router.put("/live/games/{match_id}/settings", response_model=LiveMatchOut)
@@ -524,7 +525,7 @@ def get_live_pulse(request: Request, match_id: str, auth: AuthedUser = Depends(r
     except Exception:
         logger.warning("Live pulse pick context unavailable", exc_info=True)
         virtual = None
-    return LivePulseOut(
+    return _finished_live_out(request, auth, row, LivePulseOut(
         match_version=row["version"],
         model_id=MODEL_ID,
         model_version=MODEL_VERSION,
@@ -545,7 +546,19 @@ def get_live_pulse(request: Request, match_id: str, auth: AuthedUser = Depends(r
             fifa_actor_id=point.fifa_actor_id,
         ) for point in history],
         virtual=virtual,
-    )
+    ))
+
+
+def _finished_live_out(request: Request, auth: AuthedUser, row: dict, payload):
+    """Live games show real names while they are played. Once finished they are
+    a recorded result: anyone who did not play in or start it, other than an
+    admin, sees anonymous players aliased."""
+    if row.get("status") != "completed" or auth.is_admin:
+        return payload
+    players = {user_id for team in (row.get("teams") or {}).values() for user_id in team or []}
+    if auth.user_id in players or auth.user_id == row.get("created_by"):
+        return payload
+    return scrub_live_match(anonymizer_for(request, auth.user_id), dump(payload))
 
 
 @router.post("/virtual/tournaments/{tournament_id}/bankroll", response_model=VirtualBankrollOut)
@@ -809,7 +822,21 @@ def _without_contact(profile: DiceProfile) -> DiceProfile:
 def get_profiles_search(
     request: Request, q: str = Query(default=""), limit: int = Query(default=20, ge=1, le=500)
 ) -> list[DiceProfile]:
-    return [_without_contact(profile) for profile in search_profiles(request.app.state.supabase, q, limit)]
+    return [_picker_profile(_without_contact(profile)) for profile in search_profiles(request.app.state.supabase, q, limit)]
+
+
+def _picker_profile(profile: DiceProfile) -> DiceProfile:
+    """Pickers show anonymous players by name, so they must not also carry the
+    stats that would match them to their aliased leaderboard rows."""
+    if not profile.is_anonymous:
+        return profile
+    return DiceProfile(
+        user_id=profile.user_id,
+        display_name=profile.display_name,
+        avatar_url=profile.avatar_url,
+        rating_deviation=profile.rating_deviation,
+        elo_model_version=profile.elo_model_version,
+    )
 
 
 def _can_see_profile(profile: DiceProfile, viewer: AuthedUser | None) -> bool:
@@ -1120,31 +1147,41 @@ def delete_game_comment(
 
 @router.get("/tournaments", response_model=list[DiceTournament])
 def get_tournaments(
-    request: Request, limit: int = Query(default=20, ge=1, le=200)
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=200),
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
 ) -> list[DiceTournament]:
-    anonymizer = anonymizer_for(request)
-    return [_scrub_tournament_results(anonymizer, tournament) for tournament in list_tournaments(request.app.state.supabase, limit)]
+    tournaments = list_tournaments(request.app.state.supabase, limit)
+    return [_tournament_out(request, viewer, tournament) for tournament in tournaments]
 
 
 @router.get("/tournaments/{tournament_id}", response_model=DiceTournament)
-def get_tournament_by_id(request: Request, tournament_id: str) -> DiceTournament:
+def get_tournament_by_id(
+    request: Request,
+    tournament_id: str,
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
+) -> DiceTournament:
     tournament = get_tournament(request.app.state.supabase, tournament_id)
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")
-    return _scrub_tournament_results(anonymizer_for(request), tournament)
+    return _tournament_out(request, viewer, tournament)
 
 
-def _scrub_tournament_results(anonymizer, tournament: DiceTournament):
-    """Anonymize played games only: rosters, schedules and brackets are the
-    organizing ("before") side and keep real names so hosts can run the event."""
-    data = dump(tournament)
-    if not anonymizer.active:
-        return data
-    data["completed_games"] = anonymizer.scrub(data.get("completed_games") or [])
-    for match in (data.get("bracket") or {}).values():
-        if isinstance(match, dict) and match.get("game"):
-            match["game"] = anonymizer.scrub(match["game"])
-    return data
+def _tournament_out(request: Request, viewer: AuthedUser | None, tournament: DiceTournament):
+    """Every tournament response goes through here.
+
+    Organizers (admins, hosts, the creator) see real names so they can run the
+    event. Everyone else gets the whole tournament aliased with one visit's
+    aliases — roster, schedule, bracket and results together — so standings
+    built from enrollment and games still line up.
+    """
+    if viewer is not None and (
+        viewer.is_admin
+        or viewer.user_id == tournament.created_by
+        or any(host.user_id == viewer.user_id for host in tournament.hosts)
+    ):
+        return tournament
+    return anonymizer_for(request, _viewer_id(viewer)).scrub(dump(tournament))
 
 
 @router.post("/tournaments", response_model=DiceTournament)
@@ -1156,7 +1193,7 @@ def post_tournament(
     if not auth.is_admin:
         raise HTTPException(status_code=403, detail="Only an admin can create a tournament")
     try:
-        return create_tournament(request.app.state.supabase, auth.user_id, payload)
+        return _tournament_out(request, auth, create_tournament(request.app.state.supabase, auth.user_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1174,7 +1211,7 @@ def put_tournament(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(existing, auth)
     try:
-        return update_tournament(supabase, tournament_id, payload)
+        return _tournament_out(request, auth, update_tournament(supabase, tournament_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1209,7 +1246,7 @@ def post_tournament_enroll(
         _assert_can_edit_tournament(tournament, auth)
         target_user_id = payload.user_id
     try:
-        return enroll_in_tournament(supabase, tournament_id, target_user_id)
+        return _tournament_out(request, auth, enroll_in_tournament(supabase, tournament_id, target_user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1224,7 +1261,7 @@ def delete_tournament_enroll(
     if not get_tournament(supabase, tournament_id):
         raise HTTPException(status_code=404, detail="Tournament not found")
     try:
-        return unenroll_from_tournament(supabase, tournament_id, auth.user_id)
+        return _tournament_out(request, auth, unenroll_from_tournament(supabase, tournament_id, auth.user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1242,7 +1279,7 @@ def post_scheduled_match(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return add_scheduled_match(supabase, tournament_id, payload)
+        return _tournament_out(request, auth, add_scheduled_match(supabase, tournament_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1261,7 +1298,7 @@ def put_scheduled_match(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return update_scheduled_match(supabase, tournament_id, match_id, payload)
+        return _tournament_out(request, auth, update_scheduled_match(supabase, tournament_id, match_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1279,7 +1316,7 @@ def delete_scheduled_match_by_id(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return delete_scheduled_match(supabase, tournament_id, match_id)
+        return _tournament_out(request, auth, delete_scheduled_match(supabase, tournament_id, match_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1297,7 +1334,7 @@ def post_finalist(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return add_finalist(supabase, tournament_id, payload.user_id)
+        return _tournament_out(request, auth, add_finalist(supabase, tournament_id, payload.user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1315,7 +1352,7 @@ def delete_finalist(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return remove_finalist(supabase, tournament_id, user_id)
+        return _tournament_out(request, auth, remove_finalist(supabase, tournament_id, user_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1333,7 +1370,7 @@ def put_bracket_teams(
         raise HTTPException(status_code=404, detail="Tournament not found")
     _assert_can_edit_tournament(tournament, auth)
     try:
-        return set_bracket_teams(supabase, tournament_id, payload)
+        return _tournament_out(request, auth, set_bracket_teams(supabase, tournament_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1355,6 +1392,6 @@ def post_resolve_bracket_match(
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")
     try:
-        return resolve_bracket_match(supabase, tournament_id, slot_id, payload.game_id)
+        return _tournament_out(request, auth, resolve_bracket_match(supabase, tournament_id, slot_id, payload.game_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

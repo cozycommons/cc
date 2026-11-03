@@ -3096,3 +3096,44 @@ def test_duo_links_use_aliases_that_resolve_only_within_the_visit(monkeypatch):
     assert client.get(f"/dice/stats/duos/{duo['duo_id']}", headers=headers).status_code == 200
     other_visit = {**_headers(OTHER_TOKEN), **_seed("visit-seed-2")}
     assert client.get(f"/dice/stats/duos/{duo['duo_id']}", headers=other_visit).status_code == 404
+
+
+def test_tournaments_alias_the_whole_event_for_non_organizers():
+    client, _ = _build_client(profiles=_anonymous_roster("u2"), auth_users=AUTH_USERS)
+    tournament = client.post(
+        "/dice/tournaments", headers=_headers(ADMIN_TOKEN),
+        json={"name": "Cup", "starts_at": "2026-09-01T12:00:00Z"},
+    ).json()
+    enrolled = client.post(
+        f"/dice/tournaments/{tournament['id']}/enroll", headers=_headers(ADMIN_TOKEN), json={"user_id": "u2"},
+    ).json()
+    assert [p["display_name"] for p in enrolled["enrolled_players"]] == ["Aziz Rahman"]
+
+    for response in (
+        client.get(f"/dice/tournaments/{tournament['id']}", headers={**_headers(OTHER_TOKEN), **_seed()}),
+        client.get("/dice/tournaments", headers=_seed()),
+        client.post(f"/dice/tournaments/{tournament['id']}/enroll", headers={**_headers(OTHER_TOKEN), **_seed()}),
+    ):
+        assert "u2" not in response.text and "Aziz Rahman" not in response.text
+
+
+def test_picker_does_not_carry_an_anonymous_players_stats():
+    profiles = _anonymous_roster("u2")
+    next(p for p in profiles if p["user_id"] == "u2").update({"elo_rating": 1612, "sinks": 9, "games_played": 14})
+    client, _ = _build_client(profiles=profiles, auth_users=AUTH_USERS)
+
+    aziz = next(p for p in client.get("/dice/profiles/search?q=&limit=50").json() if p["user_id"] == "u2")
+
+    assert aziz["display_name"] == "Aziz Rahman"
+    assert (aziz["elo_rating"], aziz["sinks"], aziz["games_played"], aziz["is_anonymous"]) == (1500, 0, 0, False)
+
+
+def test_exempting_the_viewer_never_changes_anyone_elses_animal():
+    from dice.anonymity import Anonymizer
+
+    everyone = Anonymizer.build({"a", "b", "c"}, "seed-seed-1")
+    as_a = Anonymizer.build({"a", "b", "c"}, "seed-seed-1", exempt={"a"})
+
+    assert "a" not in as_a.aliases
+    assert as_a.aliases == {key: value for key, value in everyone.aliases.items() if key != "a"}
+    assert len({name for _, name in everyone.aliases.values()}) == 3

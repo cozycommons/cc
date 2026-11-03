@@ -7,7 +7,11 @@ import TournamentRow from '../components/TournamentRow.jsx';
 import LoadingRows from '../components/LoadingRows.jsx';
 
 export default function Tournaments({ auth }) {
-  const [tournaments] = useDiceResource('tournaments:200', () => diceApi.getTournaments(200), { fallback: [] });
+  const [tournaments] = useDiceResource(
+    `tournaments:200:${auth?.user?.id || 'anonymous'}`,
+    () => diceApi.getTournaments(200, auth?.token),
+    { fallback: [] },
+  );
   const { isAdmin } = auth || {};
 
   return (

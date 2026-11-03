@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import re
 import secrets
@@ -35,13 +36,26 @@ ANIMALS = (
 )
 
 
+logger = logging.getLogger(__name__)
+_secret_cache: bytes | None = None
+
+
 def _secret() -> bytes:
-    # Shared by every API worker so one seed gives the same aliases everywhere.
-    configured = os.getenv("DICE_ANONYMITY_SECRET") or os.getenv("SUPABASE_SERVICE_KEY") or ""
-    return hmac.new(b"dice-anonymity/v1", configured.encode("utf-8"), hashlib.sha256).digest()
+    """HMAC key for aliases, read on first use (after .env.local is loaded).
 
-
-_SECRET = _secret()
+    Derived from a server-only secret so every API worker gives one seed the
+    same aliases. Without one, a random per-process key keeps aliases
+    unpredictable (they then differ between workers).
+    """
+    global _secret_cache
+    if _secret_cache is None:
+        configured = os.getenv("DICE_ANONYMITY_SECRET") or os.getenv("SUPABASE_SERVICE_KEY")
+        if configured:
+            _secret_cache = hmac.new(b"dice-anonymity/v1", configured.encode("utf-8"), hashlib.sha256).digest()
+        else:
+            logger.warning("No DICE_ANONYMITY_SECRET or SUPABASE_SERVICE_KEY; using a per-process anonymity key")
+            _secret_cache = secrets.token_bytes(32)
+    return _secret_cache
 
 
 def view_seed(header_value: str | None) -> str:
@@ -51,7 +65,7 @@ def view_seed(header_value: str | None) -> str:
 
 
 def _digest(seed: str, value: str) -> str:
-    return hmac.new(_SECRET, f"{seed}:{value}".encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(_secret(), f"{seed}:{value}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 @dataclass
@@ -62,7 +76,9 @@ class Anonymizer:
 
     @classmethod
     def build(cls, anonymous_ids: set[str], seed: str, exempt: set[str] | None = None) -> "Anonymizer":
-        ids = sorted(anonymous_ids - (exempt or set()), key=lambda user_id: _digest(seed, user_id))
+        # Assign across the whole anonymous set first so exempting the viewer
+        # never shifts anyone else's animal within the same visit.
+        ids = sorted(anonymous_ids, key=lambda user_id: _digest(seed, user_id))
         animals = sorted(ANIMALS, key=lambda animal: _digest(seed, animal))
         aliases = {}
         for index, user_id in enumerate(ids):
@@ -70,6 +86,8 @@ class Anonymizer:
             if index >= len(animals):
                 animal = f"{animal} {index // len(animals) + 1}"
             aliases[user_id] = (ALIAS_PREFIX + _digest(seed, user_id)[:16], f"Anonymous {animal}")
+        for user_id in exempt or ():
+            aliases.pop(user_id, None)
         return cls(aliases)
 
     @property
@@ -113,16 +131,28 @@ class Anonymizer:
         return value
 
 
+_PAGE = 1000
+
+
 def anonymous_user_ids(supabase) -> set[str]:
-    rows = (
-        supabase.table("dice_profiles")
-        .select("user_id")
-        .eq("is_anonymous", True)
-        .execute()
-        .data
-        or []
-    )
-    return {row["user_id"] for row in rows}
+    # Paged: a truncated set would let the players past the cap through unaliased.
+    ids: set[str] = set()
+    start = 0
+    while True:
+        rows = (
+            supabase.table("dice_profiles")
+            .select("user_id")
+            .eq("is_anonymous", True)
+            .order("user_id")
+            .range(start, start + _PAGE - 1)
+            .execute()
+            .data
+            or []
+        )
+        ids.update(row["user_id"] for row in rows)
+        if len(rows) < _PAGE:
+            return ids
+        start += _PAGE
 
 
 def anonymizer_for(request, viewer_id: str | None = None) -> Anonymizer:
@@ -131,6 +161,26 @@ def anonymizer_for(request, viewer_id: str | None = None) -> Anonymizer:
         return Anonymizer()
     seed = view_seed(request.headers.get(SEED_HEADER))
     return Anonymizer.build(ids, seed, exempt={viewer_id} if viewer_id else None)
+
+
+def scrub_live_match(anonymizer: Anonymizer, data: dict) -> dict:
+    """A finished live match is a recorded result: alias its players, and give
+    the per-player name/avatar/stat maps the alias treatment the generic
+    scrub cannot infer (their values are bare strings and numbers)."""
+    if not anonymizer.active:
+        return data
+    names = {alias: name for alias, name in anonymizer.aliases.values()}
+    scrubbed = anonymizer.scrub(data)
+    if isinstance(scrubbed.get("player_names"), dict):
+        scrubbed["player_names"] = {
+            key: names.get(key, value) for key, value in scrubbed["player_names"].items()
+        }
+    for field_name in ("player_avatars", "player_stats"):
+        if isinstance(scrubbed.get(field_name), dict):
+            scrubbed[field_name] = {
+                key: value for key, value in scrubbed[field_name].items() if key not in names
+            }
+    return scrubbed
 
 
 def dump(value: Any) -> Any:

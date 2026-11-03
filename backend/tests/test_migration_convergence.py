@@ -70,7 +70,9 @@ def test_imported_and_fresh_schemas_are_identical(imported_database, canonical_c
     assert 'Applying ' not in database.release().stdout
     assert database.sql("SET ROLE service_role; SELECT public.dice_release_readiness();").stdout.strip() == 't'
     for role in ('anon', 'authenticated'):
-        assert database.sql(f"SET ROLE {role}; SELECT display_name FROM public.dice_profiles;").stdout.strip() == 'Preserved profile'
+        # 0086: results and profiles are served only through the API's anonymity layer.
+        denied = database.sql(f"SET ROLE {role}; SELECT display_name FROM public.dice_profiles;", check=False)
+        assert denied.returncode != 0 and 'permission denied' in denied.stderr
         denied = database.sql(f"SET ROLE {role}; UPDATE public.dice_profiles SET display_name='forbidden';", check=False)
         assert denied.returncode != 0 and 'permission denied' in denied.stderr
         denied = database.sql(f"SET ROLE {role}; SELECT nextval('public.dice_virtual_picks_id_seq');", check=False)

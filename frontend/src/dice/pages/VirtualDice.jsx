@@ -135,7 +135,7 @@ export default function VirtualDice({ auth }) {
           .then((standings) => ({ standings }))
           .catch((standingsError) => ({ standingsError })),
         diceApi.getLiveGames(auth.token),
-        diceApi.getTournament(tournamentId),
+        diceApi.getTournament(tournamentId, auth.token),
       ]);
       const ongoingById = Object.fromEntries(ongoing.map((game) => [game.id, game]));
       const missingIds = [...new Set(currentMarkets.map((market) => market.live_match_id).filter((id) => !ongoingById[id]))];

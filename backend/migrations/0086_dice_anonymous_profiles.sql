@@ -13,3 +13,15 @@ update public.dice_profiles
    set is_anonymous = true,
        hide_from_leaderboard = false
  where hide_from_leaderboard;
+
+-- Every read of these tables goes through the API, which applies anonymity.
+-- Browser roles reading them directly (with the public anon key) would see
+-- anonymous players' real ids on every recorded result, so they lose SELECT.
+-- Comments stay readable; their authors are shown by name everywhere.
+revoke select on table
+  public.dice_profiles,
+  public.dice_games,
+  public.dice_game_players,
+  public.dice_tournaments,
+  public.dice_tournament_enrollments
+  from anon, authenticated;

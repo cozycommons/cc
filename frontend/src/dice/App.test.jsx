@@ -15,6 +15,7 @@ vi.mock('./pages/EloLeaderboard.jsx', () => ({ default: () => <p>ELO players</p>
 vi.mock('./pages/Tournaments.jsx', () => ({ default: () => <p>Tournament directory</p> }));
 
 import DiceApp from './App.jsx';
+import { peekDiceResource, writeDiceResource } from './resourceCache.js';
 
 const renderDice = (path = '/dice/live') => render(
   <MemoryRouter initialEntries={[path]}>
@@ -79,5 +80,21 @@ describe('Dice private route auth hydration', () => {
     renderDice('/dice/tournaments');
 
     expect(await screen.findByText('Tournament directory')).toBeInTheDocument();
+  });
+
+  it('drops viewer-specific cached reads when a signed-in viewer signs out, but not on sign-in', () => {
+    mocks.auth = { user: null, token: null, profile: null, loading: false, signIn: vi.fn(), signOut: vi.fn() };
+    writeDiceResource('games:all', ['public']);
+    const tree = () => <MemoryRouter initialEntries={['/dice']}><Routes><Route path="/dice/*" element={<DiceApp />} /></Routes></MemoryRouter>;
+    const view = render(tree());
+
+    mocks.auth = { ...mocks.auth, user: { id: 'u1' }, token: 'token', profile: { user_id: 'u1' } };
+    view.rerender(tree());
+    expect(peekDiceResource('games:all')).toEqual(['public']);
+
+    writeDiceResource('game:g1:u1', { id: 'g1', players: [{ user_id: 'u1' }] });
+    mocks.auth = { ...mocks.auth, user: null, token: null, profile: null };
+    view.rerender(tree());
+    expect(peekDiceResource('game:g1:u1')).toBeUndefined();
   });
 });

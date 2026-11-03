@@ -72,7 +72,7 @@ export default function TournamentForm({ auth, editMode = false }) {
 
   useEffect(() => {
     if (!editMode) return;
-    diceApi.getTournament(tournamentId).then((t) => {
+    diceApi.getTournament(tournamentId, token).then((t) => {
       setName(t.name);
       setStartsAt(utcToEasternWallTime(t.starts_at));
       setDescription(t.description || '');
@@ -83,6 +83,8 @@ export default function TournamentForm({ auth, editMode = false }) {
       console.error('Failed to load tournament for editing:', err);
       setLoadingTournament(false);
     });
+    // Not keyed on the token: an hourly refresh must not reset the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode, tournamentId, user, isAdmin]);
 
   const canSubmit = name.trim() && startsAt && !submitting;

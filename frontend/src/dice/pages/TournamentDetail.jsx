@@ -347,7 +347,8 @@ export default function TournamentDetail({ auth }) {
   const { tournamentId } = useParams();
   const navigate = useNavigate();
   const { user, token, isAdmin } = auth;
-  const tournamentKey = `tournament:${tournamentId}`;
+  // Organizers see real names, so the viewer is part of the key.
+  const tournamentKey = `tournament:${tournamentId}:${user?.id || 'anonymous'}`;
   const [tournament, setTournament] = useState(() => peekDiceResource(tournamentKey) ?? null);
   const [profiles, setProfiles] = useState(() => peekDiceResource('profiles:search::100') ?? null);
   const [error, setError] = useState(null);
@@ -358,7 +359,7 @@ export default function TournamentDetail({ auth }) {
   const [finalistBusy, setFinalistBusy] = useState(false);
   const [formingTeams, setFormingTeams] = useState(false);
 
-  const load = () => loadDiceResource(tournamentKey, () => diceApi.getTournament(tournamentId))
+  const load = () => loadDiceResource(tournamentKey, () => diceApi.getTournament(tournamentId, token))
     .then(setTournament)
     .catch(() => setTournament(false));
 

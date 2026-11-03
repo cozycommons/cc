@@ -348,7 +348,8 @@ function ReleasedHome({ auth }) {
   const [elo] = useDiceResource(`elo:${LEADERBOARD_LIMIT}:provisional`, () => diceApi.getEloLeaderboard(LEADERBOARD_LIMIT, true), { fallback: [] });
   const [sinks] = useDiceResource(`sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
   const [selfSinks] = useDiceResource(`self-sinks:${LEADERBOARD_LIMIT}:all`, () => diceApi.getSelfSinkLeaderboard(LEADERBOARD_LIMIT, false), { fallback: [] });
-  const [tournaments] = useDiceResource('tournaments:20', () => diceApi.getTournaments(20), { fallback: [] });
+  // Organizers see tournaments with real names, so the viewer is part of the key.
+  const [tournaments] = useDiceResource(`tournaments:20:${currentUserId || 'anonymous'}`, () => diceApi.getTournaments(20, auth?.token), { fallback: [] });
 
   useEffect(() => {
     if (!signedIn) {
