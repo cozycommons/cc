@@ -30,7 +30,19 @@ async function liveRequest(token, method, path, body, { signal, headers = {}, ke
   return payload;
 }
 
+// One seed per page load. The API shows each anonymous player as the same
+// animal for every request in this visit, and reshuffles on the next one.
+const VIEW_SEED = typeof crypto !== 'undefined' && crypto.randomUUID
+  ? crypto.randomUUID()
+  : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+
 class DiceApiClient {
+  read(endpoint, token = null) {
+    const headers = { 'X-Dice-View-Seed': VIEW_SEED };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return api.request('GET', endpoint, null, { headers });
+  }
+
   // Private live referee API. Every mutating response is server canonical.
   getLiveGames(token) {
     return liveRequest(token, 'GET', '/dice/live/games');
@@ -114,7 +126,7 @@ class DiceApiClient {
 
   // Profiles
   getMyProfile(token) {
-    return api.get('/dice/me', token);
+    return this.read('/dice/me', token);
   }
 
   updateMyProfile(token, profileData) {
@@ -123,55 +135,57 @@ class DiceApiClient {
 
   searchProfiles(query, limit = 20) {
     const params = new URLSearchParams({ q: query || '', limit: String(limit) });
-    return api.get(`/dice/profiles/search?${params.toString()}`);
+    return this.read(`/dice/profiles/search?${params.toString()}`);
   }
 
   getProfile(userId, token) {
-    return api.get(`/dice/profiles/${userId}`, token);
+    return this.read(`/dice/profiles/${userId}`, token);
   }
 
-  getProfileGames(userId, limit = 50) {
-    return api.get(`/dice/profiles/${userId}/games?limit=${limit}`);
+  // Anonymous players' profiles are readable only by themselves and admins, so
+  // these send the viewer's token.
+  getProfileGames(userId, limit = 50, token = null) {
+    return this.read(`/dice/profiles/${userId}/games?limit=${limit}`, token);
   }
 
-  getRatingProgress(userId) {
-    return api.get(`/dice/profiles/${userId}/rating-progress`);
+  getRatingProgress(userId, token = null) {
+    return this.read(`/dice/profiles/${userId}/rating-progress`, token);
   }
 
   async getDuoLadder(token, limit = 100, homepageEligible = false) {
     const path = `/dice/stats/duos?limit=${limit}&homepage_eligible=${homepageEligible}`;
     try {
-      return await api.get(path, token);
+      return await this.read(path, token);
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 300));
-      return api.get(path, token);
+      return this.read(path, token);
     }
   }
 
   getBestPartner(token, userId) {
-    return api.get(`/dice/profiles/${encodeURIComponent(userId)}/best-partner`, token);
+    return this.read(`/dice/profiles/${encodeURIComponent(userId)}/best-partner`, token);
   }
 
   getDuoDetail(token, duoId) {
-    return api.get(`/dice/stats/duos/${encodeURIComponent(duoId)}`, token);
+    return this.read(`/dice/stats/duos/${encodeURIComponent(duoId)}`, token);
   }
 
   // Leaderboards
   getEloLeaderboard(limit = 5, includeProvisional = false) {
-    return api.get(`/dice/leaderboard/elo?limit=${limit}&include_provisional=${includeProvisional}`);
+    return this.read(`/dice/leaderboard/elo?limit=${limit}&include_provisional=${includeProvisional}`);
   }
 
   getSelfSinkLeaderboard(limit = 5, nonzeroOnly = true) {
-    return api.get(`/dice/leaderboard/self-sinks?limit=${limit}&nonzero_only=${nonzeroOnly}`);
+    return this.read(`/dice/leaderboard/self-sinks?limit=${limit}&nonzero_only=${nonzeroOnly}`);
   }
 
   getSinkLeaderboard(limit = 5, nonzeroOnly = true) {
-    return api.get(`/dice/leaderboard/sinks?limit=${limit}&nonzero_only=${nonzeroOnly}`);
+    return this.read(`/dice/leaderboard/sinks?limit=${limit}&nonzero_only=${nonzeroOnly}`);
   }
 
   // Games
   getGames(limit = 5, offset = 0) {
-    return api.get(`/dice/games?limit=${limit}&offset=${offset}`);
+    return this.read(`/dice/games?limit=${limit}&offset=${offset}`);
   }
 
   // 200 games keeps the player hydration query (4 per game) under PostgREST's
@@ -187,9 +201,11 @@ class DiceApiClient {
     }
   }
 
-  getGame(id, includeDuoOnly = false, token = null) {
-    const query = includeDuoOnly ? '?duo=1' : '';
-    return api.get(`/dice/games/${id}${query}`, token);
+  // `reveal` returns real players for someone allowed to edit the game.
+  getGame(id, includeDuoOnly = false, token = null, { reveal = false } = {}) {
+    const params = [includeDuoOnly && 'duo=1', reveal && 'reveal=1'].filter(Boolean);
+    const query = params.length ? `?${params.join('&')}` : '';
+    return this.read(`/dice/games/${id}${query}`, token);
   }
 
   createGame(token, gameData, idempotencyKey) {
@@ -210,12 +226,12 @@ class DiceApiClient {
 
   // Photos
   getPhotos(limit = 100) {
-    return api.get(`/dice/photos?limit=${limit}`);
+    return this.read(`/dice/photos?limit=${limit}`);
   }
 
   // Comments
   getComments(gameId) {
-    return api.get(`/dice/games/${gameId}/comments`);
+    return this.read(`/dice/games/${gameId}/comments`);
   }
 
   postComment(token, gameId, body, imageUrl) {
@@ -228,11 +244,11 @@ class DiceApiClient {
 
   // Tournaments
   getTournaments(limit = 20) {
-    return api.get(`/dice/tournaments?limit=${limit}`);
+    return this.read(`/dice/tournaments?limit=${limit}`);
   }
 
   getTournament(id) {
-    return api.get(`/dice/tournaments/${id}`);
+    return this.read(`/dice/tournaments/${id}`);
   }
 
   createTournament(token, tournamentData) {

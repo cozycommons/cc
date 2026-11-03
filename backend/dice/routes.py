@@ -15,9 +15,10 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPExcep
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
+from dice.anonymity import anonymizer_for, dump
 from dice.notifications import notify_ranked_game
 from dice.feature_access import DiceFeature, feature_state, feature_states
-from dice.duo_repository import get_best_partner, get_duo_detail, list_duo_ladder
+from dice.duo_repository import duo_ids, get_best_partner, get_duo_detail, list_duo_ladder
 from dice.live_probability import MODEL_ID, MODEL_VERSION, project_live_history, project_live_projection
 from dice.live_service import append_command, create_live_match, set_membership
 from dice.live_types import DiceLiveError, DiceLiveProjection, SavedRules
@@ -790,7 +791,7 @@ def put_my_profile(
             target_user_id,
             payload.display_name,
             payload.avatar_url,
-            payload.hide_from_leaderboard,
+            payload.is_anonymous,
             payload.phone_number,
             payload.sms_notifications_enabled,
         )
@@ -811,15 +812,31 @@ def get_profiles_search(
     return [_without_contact(profile) for profile in search_profiles(request.app.state.supabase, q, limit)]
 
 
+def _can_see_profile(profile: DiceProfile, viewer: AuthedUser | None) -> bool:
+    """Anonymous players' profiles are visible only to themselves and admins."""
+    if not profile.is_anonymous:
+        return True
+    return viewer is not None and (viewer.user_id == profile.user_id or viewer.is_admin)
+
+
+def _require_visible_profile(request: Request, user_id: str, viewer: AuthedUser | None) -> DiceProfile:
+    profile = get_profile(request.app.state.supabase, user_id)
+    if not profile or not _can_see_profile(profile, viewer):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return profile
+
+
+def _viewer_id(viewer: AuthedUser | None) -> str | None:
+    return viewer.user_id if viewer is not None else None
+
+
 @router.get("/profiles/{user_id}", response_model=DiceProfile)
 def get_profile_by_id(
     request: Request,
     user_id: str,
     viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
 ) -> DiceProfile:
-    profile = get_profile(request.app.state.supabase, user_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
+    profile = _require_visible_profile(request, user_id, viewer)
     if viewer is not None and viewer.user_id != user_id:
         head_to_head = get_head_to_head(request.app.state.supabase, viewer.user_id, user_id)
         profile = profile.model_copy(update={"head_to_head": head_to_head})
@@ -830,13 +847,23 @@ def get_profile_by_id(
 
 @router.get("/profiles/{user_id}/games", response_model=list[DiceGame])
 def get_profile_games(
-    request: Request, user_id: str, limit: int = Query(default=50, ge=1, le=200)
+    request: Request,
+    user_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
 ) -> list[DiceGame]:
-    return list_games_for_user(request.app.state.supabase, user_id, limit)
+    _require_visible_profile(request, user_id, viewer)
+    games = list_games_for_user(request.app.state.supabase, user_id, limit)
+    return anonymizer_for(request, _viewer_id(viewer)).scrub(dump(games))
 
 
 @router.get("/profiles/{user_id}/rating-progress", response_model=RatingProgress)
-def get_profile_rating_progress(request: Request, user_id: str) -> RatingProgress:
+def get_profile_rating_progress(
+    request: Request,
+    user_id: str,
+    viewer: AuthedUser | None = Depends(get_optional_authenticated_user),
+) -> RatingProgress:
+    _require_visible_profile(request, user_id, viewer)
     try:
         progress = get_rating_progress(request.app.state.supabase, user_id)
     except (RuntimeError, ValueError):
@@ -857,7 +884,9 @@ def get_profile_best_partner(
     auth: AuthedUser = Depends(require_authenticated_user),
 ) -> DuoSummary | None:
     _require_duo_access(request, auth)
-    return get_best_partner(request.app.state.supabase, user_id)
+    _require_visible_profile(request, user_id, auth)
+    partner = get_best_partner(request.app.state.supabase, user_id)
+    return anonymizer_for(request, auth.user_id).scrub(dump(partner))
 
 
 @router.get("/stats/duos", response_model=DuoLadderOut)
@@ -868,7 +897,8 @@ def get_duo_ladder(
     auth: AuthedUser = Depends(require_authenticated_user),
 ) -> DuoLadderOut:
     _require_duo_access(request, auth)
-    return list_duo_ladder(request.app.state.supabase, limit, homepage_eligible)
+    ladder = list_duo_ladder(request.app.state.supabase, limit, homepage_eligible)
+    return anonymizer_for(request, auth.user_id).scrub(dump(ladder))
 
 
 @router.get("/stats/duos/{duo_id}", response_model=DuoDetailOut)
@@ -878,10 +908,13 @@ def get_duo_detail_by_id(
     auth: AuthedUser = Depends(require_authenticated_user),
 ) -> DuoDetailOut:
     _require_duo_access(request, auth)
-    detail = get_duo_detail(request.app.state.supabase, duo_id)
+    anonymizer = anonymizer_for(request, auth.user_id)
+    # Links carry the aliased id; map it back to the real duo for this seed.
+    real_duo_id = anonymizer.real_duo_id(duo_id, duo_ids(request.app.state.supabase)) if anonymizer.active else duo_id
+    detail = get_duo_detail(request.app.state.supabase, real_duo_id) if real_duo_id else None
     if detail is None:
         raise HTTPException(status_code=404, detail="Duo not found")
-    return detail
+    return anonymizer.scrub(dump(detail))
 
 
 @router.get("/leaderboard/elo", response_model=list[LeaderboardEntry])
@@ -890,7 +923,7 @@ def get_elo_leaderboard(
     limit: int = Query(default=5, ge=1, le=500),
     include_provisional: bool = Query(default=False),
 ) -> list[LeaderboardEntry]:
-    return list_elo_leaderboard(request.app.state.supabase, limit, include_provisional)
+    return anonymizer_for(request).scrub(dump(list_elo_leaderboard(request.app.state.supabase, limit, include_provisional)))
 
 
 @router.get("/leaderboard/self-sinks", response_model=list[SelfSinkEntry])
@@ -899,7 +932,7 @@ def get_self_sink_leaderboard(
     limit: int = Query(default=5, ge=1, le=500),
     nonzero_only: bool = Query(default=True),
 ) -> list[SelfSinkEntry]:
-    return list_self_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)
+    return anonymizer_for(request).scrub(dump(list_self_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)))
 
 
 @router.get("/leaderboard/sinks", response_model=list[SinkEntry])
@@ -908,7 +941,7 @@ def get_sink_leaderboard(
     limit: int = Query(default=5, ge=1, le=500),
     nonzero_only: bool = Query(default=True),
 ) -> list[SinkEntry]:
-    return list_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)
+    return anonymizer_for(request).scrub(dump(list_sink_leaderboard(request.app.state.supabase, limit, nonzero_only)))
 
 
 @router.get("/games", response_model=list[DiceGame])
@@ -917,7 +950,7 @@ def get_games(
     limit: int = Query(default=5, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[DiceGame]:
-    return list_games(request.app.state.supabase, limit, offset)
+    return anonymizer_for(request).scrub(dump(list_games(request.app.state.supabase, limit, offset)))
 
 
 @router.get("/games/{game_id}", response_model=DiceGame)
@@ -938,7 +971,13 @@ def get_game_by_id(
     )
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
-    return game
+    # Editing needs the real players; only someone allowed to edit gets them.
+    if request.query_params.get("reveal") == "1":
+        if auth is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        _assert_can_edit_game(game, auth)
+        return game
+    return anonymizer_for(request, _viewer_id(auth)).scrub(dump(game))
 
 
 @router.post("/games", response_model=DiceGame)
@@ -1083,7 +1122,8 @@ def delete_game_comment(
 def get_tournaments(
     request: Request, limit: int = Query(default=20, ge=1, le=200)
 ) -> list[DiceTournament]:
-    return list_tournaments(request.app.state.supabase, limit)
+    anonymizer = anonymizer_for(request)
+    return [_scrub_tournament_results(anonymizer, tournament) for tournament in list_tournaments(request.app.state.supabase, limit)]
 
 
 @router.get("/tournaments/{tournament_id}", response_model=DiceTournament)
@@ -1091,7 +1131,20 @@ def get_tournament_by_id(request: Request, tournament_id: str) -> DiceTournament
     tournament = get_tournament(request.app.state.supabase, tournament_id)
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")
-    return tournament
+    return _scrub_tournament_results(anonymizer_for(request), tournament)
+
+
+def _scrub_tournament_results(anonymizer, tournament: DiceTournament):
+    """Anonymize played games only: rosters, schedules and brackets are the
+    organizing ("before") side and keep real names so hosts can run the event."""
+    data = dump(tournament)
+    if not anonymizer.active:
+        return data
+    data["completed_games"] = anonymizer.scrub(data.get("completed_games") or [])
+    for match in (data.get("bracket") or {}).values():
+        if isinstance(match, dict) and match.get("game"):
+            match["game"] = anonymizer.scrub(match["game"])
+    return data
 
 
 @router.post("/tournaments", response_model=DiceTournament)

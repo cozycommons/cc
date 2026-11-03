@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import PlayerAvatar from './PlayerAvatar.jsx';
+import { profilePath } from '../anonymous.js';
 
 export default function LeaderboardRow({
   rank,
@@ -20,9 +21,12 @@ export default function LeaderboardRow({
   const eloOffset = Math.max(-eloRange, Math.min(eloRange, value - 1500));
   const eloWidth = (Math.abs(eloOffset) / eloRange) * 50;
 
+  const to = profilePath(profile.user_id);
+  // Anonymous players have no profile to open, so their row is not a link.
+  const Row = to ? Link : 'div';
   return (
-    <Link
-      to={`/dice/profile/${profile.user_id}`}
+    <Row
+      {...(to ? { to } : {})}
       className={`jk-row jk-leaderboard-row block px-4 py-2.5${isCurrentUser ? ' jk-leaderboard-row-me' : ''}`}
       style={{ borderBottom: '1px solid var(--border-subtle)' }}
       aria-label={`${rank ? `Rank ${rank}, ` : ''}${profile.display_name}, ${unranked ? 'unranked' : `${value} ${valueLabel || ''}`}${isCurrentUser ? ', you' : ''}`}
@@ -61,6 +65,6 @@ export default function LeaderboardRow({
           <span className={`jk-leaderboard-bar jk-leaderboard-bar-elo ${eloOffset >= 0 ? 'is-positive' : 'is-negative'}`} style={{ width: `${eloWidth}%` }} />
         </div>
       )}
-    </Link>
+    </Row>
   );
 }

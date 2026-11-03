@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { profilePath } from '../anonymous.js';
 
 const avatarIdentity = (profile) => {
   const seed = String(profile?.user_id || profile?.display_name || '?');
@@ -62,9 +63,10 @@ export default function PlayerAvatar({ profile, size = 40, linkToProfile = true 
     </svg>
   );
 
-  if (!linkToProfile || !profile?.user_id) return content;
+  const to = profilePath(profile?.user_id);
+  if (!linkToProfile || !to) return content;
   return (
-    <Link to={`/dice/profile/${profile.user_id}`} title={profile.display_name}>
+    <Link to={to} title={profile.display_name}>
       {content}
     </Link>
   );

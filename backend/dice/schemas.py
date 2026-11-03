@@ -65,7 +65,8 @@ class DiceProfile(_ProvisionalRatingMixin):
     normal_losses: int = 0
     self_sinks: int = 0
     sinks: int = 0
-    hide_from_leaderboard: bool = False
+    # Shown as a reshuffled "Anonymous <Animal>" on recorded results (dice/anonymity.py).
+    is_anonymous: bool = False
     phone_number: Optional[str] = None
     sms_notifications_enabled: bool = False
     head_to_head: Optional[HeadToHeadRecord] = None
@@ -74,7 +75,7 @@ class DiceProfile(_ProvisionalRatingMixin):
 class UpdateProfileRequest(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=60)
     avatar_url: Optional[str] = None
-    hide_from_leaderboard: Optional[bool] = None
+    is_anonymous: Optional[bool] = None
     phone_number: Optional[str] = None
     sms_notifications_enabled: Optional[bool] = None
     user_id: Optional[str] = None  # admin-only override of which profile to edit

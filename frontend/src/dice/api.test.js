@@ -91,3 +91,19 @@ it('stops after the second failed duo read', async () => {
     vi.unstubAllGlobals();
   }
 });
+
+it('sends one view seed with every Dice read so anonymous aliases match across a visit', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue([]) });
+  vi.stubGlobal('fetch', fetchMock);
+
+  await diceApi.getGames(5);
+  await diceApi.getEloLeaderboard(5);
+  await diceApi.getGame('g1', false, 'token', { reveal: true });
+
+  const seeds = fetchMock.mock.calls.map(([, init]) => init.headers['X-Dice-View-Seed']);
+  expect(seeds[0]).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+  expect(new Set(seeds).size).toBe(1);
+  expect(fetchMock.mock.calls[2][0]).toContain('/dice/games/g1?reveal=1');
+  expect(fetchMock.mock.calls[2][1].headers.Authorization).toBe('Bearer token');
+  vi.unstubAllGlobals();
+});

@@ -60,7 +60,7 @@ TOURNAMENT_ENROLLMENTS_TABLE = "dice_tournament_enrollments"
 PROFILE_COLUMNS = (
     "user_id, display_name, avatar_url, elo_rating, rating_deviation, elo_model_version, games_played, "
     "ranked_games_played, wins, losses, ranked_wins, ranked_losses, "
-    "normal_wins, normal_losses, self_sinks, sinks, hide_from_leaderboard, "
+    "normal_wins, normal_losses, self_sinks, sinks, is_anonymous, "
     "phone_number, sms_notifications_enabled"
 )
 
@@ -207,7 +207,7 @@ def update_profile(
     user_id: str,
     display_name: Optional[str],
     avatar_url: Optional[str],
-    hide_from_leaderboard: Optional[bool] = None,
+    is_anonymous: Optional[bool] = None,
     phone_number: Optional[str] = None,
     sms_notifications_enabled: Optional[bool] = None,
 ) -> DiceProfile:
@@ -216,8 +216,8 @@ def update_profile(
         updates["display_name"] = display_name
     if avatar_url is not None:
         updates["avatar_url"] = avatar_url
-    if hide_from_leaderboard is not None:
-        updates["hide_from_leaderboard"] = hide_from_leaderboard
+    if is_anonymous is not None:
+        updates["is_anonymous"] = is_anonymous
     if phone_number is not None:
         updates["phone_number"] = phone_number
     if sms_notifications_enabled is not None:
@@ -259,7 +259,6 @@ def list_elo_leaderboard(
     established_rows = (
         supabase.table(PROFILES_TABLE)
         .select(PROFILE_COLUMNS)
-        .eq("hide_from_leaderboard", False)
         .gte("ranked_games_played", PROVISIONAL_GAMES_THRESHOLD)
         .order("elo_rating", desc=True)
         .order("display_name")
@@ -276,7 +275,6 @@ def list_elo_leaderboard(
     provisional_rows = (
         supabase.table(PROFILES_TABLE)
         .select(PROFILE_COLUMNS)
-        .eq("hide_from_leaderboard", False)
         .lt("ranked_games_played", PROVISIONAL_GAMES_THRESHOLD)
         .order("elo_rating", desc=True)
         .order("display_name")
@@ -312,7 +310,7 @@ def _with_competition_ranks(rows: list[dict]) -> list[dict]:
 def list_self_sink_leaderboard(
     supabase: Client, limit: int, nonzero_only: bool
 ) -> list[SelfSinkEntry]:
-    q = supabase.table(PROFILES_TABLE).select(PROFILE_COLUMNS).eq("hide_from_leaderboard", False)
+    q = supabase.table(PROFILES_TABLE).select(PROFILE_COLUMNS)
     if nonzero_only:
         q = q.gt("self_sinks", 0)
     rows = q.order("self_sinks", desc=True).limit(limit).execute().data or []
@@ -320,7 +318,7 @@ def list_self_sink_leaderboard(
 
 
 def list_sink_leaderboard(supabase: Client, limit: int, nonzero_only: bool) -> list[SinkEntry]:
-    q = supabase.table(PROFILES_TABLE).select(PROFILE_COLUMNS).eq("hide_from_leaderboard", False)
+    q = supabase.table(PROFILES_TABLE).select(PROFILE_COLUMNS)
     if nonzero_only:
         q = q.gt("sinks", 0)
     rows = q.order("sinks", desc=True).limit(limit).execute().data or []
@@ -481,7 +479,8 @@ def _rating_progress_from_snapshot(snapshot: dict, user_id: str) -> RatingProgre
     profile = next((row for row in profile_rows if row["user_id"] == user_id), None)
     if profile is None:
         return None
-    visible = {row["user_id"] for row in profile_rows if not row["hide_from_leaderboard"]}
+    # Everyone counts toward the field; anonymous players are aliased, not dropped.
+    visible = {row["user_id"] for row in profile_rows}
     players_by_game: dict[str, list[dict]] = {}
     for player in snapshot.get("players") or []:
         players_by_game.setdefault(player["game_id"], []).append(player)

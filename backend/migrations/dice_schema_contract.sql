@@ -21,6 +21,7 @@ begin
     'dice_game_players.counts_for_group_stage',
     'dice_profiles.rating_deviation',
     'dice_profiles.elo_model_version',
+    'dice_profiles.is_anonymous',
     'dice_rating_mutation_receipts.mutation_id',
     'dice_rating_mutation_receipts.actor_id',
     'dice_rating_mutation_receipts.request_fingerprint',

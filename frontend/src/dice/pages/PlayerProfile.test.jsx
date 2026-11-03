@@ -1,12 +1,13 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getProfile: vi.fn(),
   getProfileGames: vi.fn(),
   getRatingProgress: vi.fn(),
   getBestPartner: vi.fn().mockResolvedValue(null),
+  updateMyProfile: vi.fn(),
 }));
 
 vi.mock('../../contexts/SupabaseContext', () => ({
@@ -18,6 +19,7 @@ vi.mock('../api.js', () => ({
     getProfileGames: mocks.getProfileGames,
     getRatingProgress: mocks.getRatingProgress,
     getBestPartner: mocks.getBestPartner,
+    updateMyProfile: mocks.updateMyProfile,
   },
 }));
 vi.mock('../components/PlayerAvatar.jsx', () => ({ default: ({ profile, size }) => <div data-size={size}>{profile.display_name} avatar</div> }));
@@ -40,13 +42,13 @@ function profile(userId) {
     normal_losses: 0,
     sinks: 0,
     self_sinks: 0,
-    hide_from_leaderboard: false,
+    is_anonymous: false,
     sms_notifications_enabled: false,
     is_provisional: false,
   };
 }
 
-function renderProfile({ viewedUserId = 'u1', progress, games = [], headToHead = null }) {
+function renderProfile({ viewedUserId = 'u1', progress, games = [], headToHead = null, profileError = null }) {
   const auth = {
     user: { id: 'u1', email: 'player@example.com' },
     token: 'token',
@@ -55,7 +57,8 @@ function renderProfile({ viewedUserId = 'u1', progress, games = [], headToHead =
     refreshProfile: vi.fn(),
     signOut: vi.fn(),
   };
-  mocks.getProfile.mockResolvedValue({ ...profile(viewedUserId), head_to_head: headToHead });
+  if (profileError) mocks.getProfile.mockRejectedValue(profileError);
+  else mocks.getProfile.mockResolvedValue({ ...profile(viewedUserId), head_to_head: headToHead });
   mocks.getProfileGames.mockResolvedValue(games);
   mocks.getRatingProgress.mockResolvedValue(progress ?? {
     current_rank: 2,
@@ -139,7 +142,7 @@ describe('PlayerProfile released experience', () => {
     const recorded = await screen.findByRole('region', { name: 'Personal recorded play' });
     expect(within(recorded).getByText('67%')).toBeInTheDocument();
     expect(within(recorded).getByText('Missing plays are excluded, not counted as misses.')).toBeInTheDocument();
-    expect(mocks.getProfileGames).toHaveBeenCalledWith('u1', 200);
+    expect(mocks.getProfileGames).toHaveBeenCalledWith('u1', 200, expect.anything());
   });
 });
 
@@ -175,4 +178,36 @@ it('keeps the partner row directly above head to head', async () => {
     opponent_wins: 1, opponent_losses: 0, teammate_wins: 0, teammate_losses: 0 } });
   const row = await screen.findByRole('link', { name: 'Best partner' });
   expect(row.nextElementSibling).toContainElement(screen.getByText('// HEAD TO HEAD'));
+});
+
+describe('PlayerProfile anonymous play', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shows an anonymous alias as a private player without fetching anything', async () => {
+    renderProfile({ viewedUserId: 'anon-1234abcd' });
+
+    expect(await screen.findByText('Anonymous player')).toBeInTheDocument();
+    expect(mocks.getProfile).not.toHaveBeenCalled();
+  });
+
+  it('explains a private or missing profile instead of loading forever', async () => {
+    renderProfile({ viewedUserId: 'u9', profileError: Object.assign(new Error('Profile not found'), { status: 404 }) });
+
+    expect(await screen.findByText('Profile not found')).toBeInTheDocument();
+  });
+
+  it('asks before turning on anonymous play and saves the new setting', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    mocks.updateMyProfile.mockResolvedValue({ ...profile('u1'), is_anonymous: true });
+    renderProfile({});
+    const toggle = await screen.findByRole('checkbox', { name: 'Play anonymously' });
+
+    fireEvent.click(toggle);
+    expect(mocks.updateMyProfile).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(mocks.updateMyProfile).toHaveBeenCalledWith('token', { is_anonymous: true }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
+  });
 });

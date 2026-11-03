@@ -113,13 +113,17 @@ export default function LogMatch({ auth, editMode = false }) {
       setExpectedUpdatedAt(game.updated_at);
   }, []);
 
+  // Editing needs the real players, including anonymous ones, so the game is
+  // read with `reveal` (allowed for its participants, creator and admins).
+  const hasToken = Boolean(token);
   useEffect(() => {
-    if (!editMode) return;
-    diceApi.getGame(gameId).then((game) => {
+    if (!editMode || !hasToken) return;
+    diceApi.getGame(gameId, false, token, { reveal: true }).then((game) => {
       applyGame(game);
       setLoadingGame(false);
     }).catch(() => setLoadingGame(false));
-  }, [applyGame, editMode, gameId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyGame, editMode, gameId, hasToken]);
 
   const activeSlotKeys = isSingles ? ['t1p1', 't2p1'] : ['t1p1', 't1p2', 't2p1', 't2p2'];
   const requiredPlayerCount = activeSlotKeys.length;

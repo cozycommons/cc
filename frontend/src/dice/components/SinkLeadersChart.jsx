@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { rankLeaderboard } from '../leaderboard.js';
 import PlayerAvatar from './PlayerAvatar.jsx';
 import LoadingRows from './LoadingRows.jsx';
+import { profilePath } from '../anonymous.js';
 
 const MODES = {
   sinks: { label: 'Sinks', valueKey: 'sinks', to: '/dice/leaderboard/sinks', tone: 'sky' },
@@ -43,10 +44,12 @@ export default function SinkLeadersChart({ sinks, selfSinks, currentUserId }) {
             const value = profile[config.valueKey];
             const height = maxValue > 0 ? (value / maxValue) * 100 : 0;
             const isCurrentUser = profile.user_id === currentUserId;
+            const to = profilePath(profile.user_id);
+            const Leader = to ? Link : 'div';
             return (
-              <Link
+              <Leader
                 key={profile.user_id}
-                to={`/dice/profile/${profile.user_id}`}
+                {...(to ? { to } : {})}
                 className={`jk-vertical-leader${isCurrentUser ? ' is-current-user' : ''}`}
                 aria-label={`${profile.tied ? 'Tied rank' : 'Rank'} ${profile.rank}, ${profile.display_name}, ${value} ${config.label}${isCurrentUser ? ', you' : ''}`}
                 title={profile.display_name}
@@ -57,7 +60,7 @@ export default function SinkLeadersChart({ sinks, selfSinks, currentUserId }) {
                 </span>
                 <PlayerAvatar profile={profile} size={30} linkToProfile={false} />
                 <span className="jk-vertical-leader-rank">#{profile.rank}{isCurrentUser && ' · You'}</span>
-              </Link>
+              </Leader>
             );
           })}
         </div>
