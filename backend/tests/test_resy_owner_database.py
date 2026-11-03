@@ -10,7 +10,7 @@ import pytest
 import migration_runner
 from tests.migration_harness import REPO, checkout_release, disposable_migration_database, migration_database  # noqa: F401
 
-PRE_LINK_RELEASE = "7afbbb8120f844226b42ade29dfb6d717121b13c"  # Beli connector (0017), before 0018
+PRE_LINK_RELEASE = "846e1223eafdb9e848a25171c64f7eb625025512"  # main with Beli connector (#200, 0017), before 0018
 CONTRACT = (REPO / "backend/migrations/beli_schema_contract.sql").read_text()
 
 

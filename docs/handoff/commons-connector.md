@@ -6,8 +6,9 @@
 - M2: merged in #198 (`/connect` page, `docs/mcp/SKILL.md`).
 - M3a: merged in #199 (connector foundation: commons scopes, per-user
   enablement, filtered tool list, account-link contract, generic safety test).
-- M3b: #200 (`commons-connector-m3b-beli`, Beli on `/mcp`).
-- M3c (this PR, `commons-connector-m3c-resy`): Resy on `/mcp`, built on #200.
+- M3b: merged in #200 (Beli on `/mcp`).
+- M3c (this PR, `commons-connector-m3c-resy`): Resy on `/mcp`, rebased on main
+  after #200.
   Opened non-draft; the orchestrator runs the external review and merges.
 - M3d–M3e: not started. Plan below; one PR each, in order.
 - Loopback only. Local OAuth client credentials and signing/encryption keys live
@@ -209,18 +210,19 @@ PASS read-only token reads Beli recs; saves refused; no Beli write
 ### M3c validation evidence
 
 - Backend, all DB/integration opt-ins (fresh bootstrapped
-  `dummi_regression_501_1803` + real PostgREST, loopback Floor Planner stack,
-  dedicated Trips stack, analytics opt-in): **2064 passed, 0 skipped**.
+  `dummi_regression_501_200` + real PostgREST, loopback Floor Planner stack,
+  dedicated Trips stack, analytics opt-in, rebased on main 846e122): **2064
+  passed, 0 skipped**.
 - New: `tests/test_resy_agent_tools.py` (27), `tests/test_resy_owner_database.py`
   (26, real Postgres: link outcomes, unique owner, user deletion, receipts not
   deletable and need a target, browser denial, contract tampering including a
-  DELETE grant, upgrade from the 0017 release with an existing account left
-  unlinked). Safety test: 97 cases over 19 tools (30 Resy). Mutation checks: an
+  DELETE grant, upgrade from main's 0017 release (846e122, #200) with an
+  existing account left unlinked). Safety test: 97 cases over 19 tools (30 Resy). Mutation checks: an
   owner-ignoring account lookup fails 5 tests; a cancel that ignores the id
   fails 1.
 - Frontend: 98 files, 770 tests; production build and lint passed.
 - 0017 and 0018 applied to the shared loopback stack for the e2e, then rolled
-  back (ledger at 16, main's contract passes).
+  back (ledger at 16, as before this PR's checks; the pre-0017 contract passes).
 - Real OAuth e2e: 84 PASS lines, none failed; the Resy lines:
 
 ```text
