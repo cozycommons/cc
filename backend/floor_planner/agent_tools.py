@@ -8,12 +8,21 @@ from fastmcp.server.auth import AccessToken
 from pydantic import Field
 from starlette.concurrency import run_in_threadpool
 
-from cc_mcp.server import ToolProvider
+from cc_mcp.server import EDIT_SCOPE, READ_SCOPE, ToolProvider
 from .agent_operations import apply_operations, scene_schema
 from .routes import document_access, get_document, list_document_rows, normalize_scene, public_plan, verified_email
 
-READ_SCOPE = "floor-plans:read"
-EDIT_SCOPE = "floor-plans:edit"
+
+
+def status(client, user):
+    owned = (client.table("floor_plan_documents").select("id", count="exact", head=True)
+             .eq("owner_id", str(user.id)).execute()).count
+    shared = (client.table("floor_plan_invitations").select("document_id", count="exact", head=True)
+              .eq("accepted_user_id", str(user.id)).is_("revoked_at", "null").execute()).count
+    in_use = bool(owned or shared)
+    return {"in_use": in_use, "has_plans": in_use,
+            "next_step": "Call list_floor_plans." if in_use
+            else "Create a plan or accept an invitation at https://cozycommons.dev/floor-planner."}
 
 
 def register_tools(mcp, context):
@@ -73,7 +82,7 @@ def register_tools(mcp, context):
     ) -> dict:
         """Atomically add, update, or delete up to 100 elements at the expected revision.
 
-        Editing needs both floor-plans:read and floor-plans:edit. Plan visibility,
+        Editing needs both commons:read and commons:edit. Plan visibility,
         invitations, ownership, and deletion remain controlled in the Cozy Commons UI.
         """
         access = need_scope(READ_SCOPE, EDIT_SCOPE)
@@ -126,4 +135,14 @@ def register_tools(mcp, context):
 
 
 
-provider = ToolProvider(name="floor-planner", scopes=(READ_SCOPE, EDIT_SCOPE), register=register_tools)
+provider = ToolProvider(
+    name="floor-planner",
+    register=register_tools,
+    tools={"list_floor_plans": "read", "get_floor_plan": "read",
+           "describe_floor_plan_schema": "read", "edit_floor_plan": "edit"},
+    title="Floor Planner",
+    description="Measured room plans shared by email.",
+    url="https://cozycommons.dev/floor-planner",
+    status=status,
+    legacy_scopes={"floor-plans:read": "read", "floor-plans:edit": "edit"},
+)

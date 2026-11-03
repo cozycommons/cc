@@ -64,15 +64,19 @@ export default function Connect() {
       </section>
       <section aria-labelledby="consent-heading">
         <h2 id="consent-heading">Sign in and approve</h2>
-        <p>The connector opens Google sign-in to Cozy Commons. Then <code>/oauth/consent</code> shows “Connect an application,” your account, the application name and requested permissions.</p>
-        <p>Review read/edit trips (<code>trips:read</code>, <code>trips:edit</code>) and floor plans (<code>floor-plans:read</code>, <code>floor-plans:edit</code>), as requested. Choose “Allow connection” or “Deny.” Only approve permissions you intend to share.</p>
+        <p>The connector first asks you to approve your agent for two permissions: <code>commons:read</code> to read your data in the projects you enable, and <code>commons:edit</code> to save changes you confirm. Next comes Google sign-in to Cozy Commons. Then <code>/oauth/consent</code> shows “Connect an application,” your account and the application name. Choose “Allow connection” or “Deny.”</p>
+        <p>These two permissions cover every Cozy Commons project, so adding a project later never needs a new approval. An agent that requests only <code>commons:read</code> can never make changes.</p>
       </section>
       <section aria-labelledby="tools-heading">
         <h2 id="tools-heading">What your agent can do</h2>
-        <p>Ask your agent to call <code>list_projects</code> first for your setup status and next steps.</p>
+        <p>Ask your agent to call <code>list_projects</code> first. It shows each project, whether it is on for you, and your next step. Projects you already use, such as Trips when you belong to a trip, are on already. Your agent turns others on with <code>enable_project</code> and off with <code>disable_project</code>. Turning a project off hides its tools and keeps its data. If new tools do not appear, refresh the agent’s tool list or reconnect.</p>
         <ul><li><Link to="/trips">Trips</Link>: read balances and settlement links, split expenses, and record repayments already made. It does not send money.</li>
           <li><Link to="/floor-planner">Floor Planner</Link>: read and edit plans you have access to.</li></ul>
         <p>Writes always need a preview first (<code>dry_run=true</code>) and your confirmation before saving. For trip expenses, review the per-person amounts.</p>
+      </section>
+      <section aria-labelledby="reconnect-heading">
+        <h2 id="reconnect-heading">Connected before projects could be switched on?</h2>
+        <p>Connections approved with the older Trips (<code>trips:read</code>, <code>trips:edit</code>) or Floor Planner (<code>floor-plans:read</code>, <code>floor-plans:edit</code>) permissions keep working for those projects. They stop when they expire, at most 30 days after you approved them. Reconnect once to use any other project; your agent will say when you need to.</p>
       </section>
       <section aria-labelledby="disconnect-heading">
         <h2 id="disconnect-heading">Disconnect</h2>

@@ -11,7 +11,10 @@ it('renders signed out with client instructions, permissions and disconnect guid
   expect(screen.getByRole('heading', { name: 'Connect your agent' })).toBeInTheDocument();
   for (const client of ['Claude', 'ChatGPT', 'Muse', 'Grok', 'Other MCP clients']) expect(screen.getByText(client)).toBeInTheDocument();
   expect(screen.getByText('list_projects')).toBeInTheDocument();
+  expect(screen.getAllByText('commons:edit').length).toBeGreaterThan(0);
+  expect(screen.getByText('enable_project')).toBeInTheDocument();
   expect(screen.getByText('trips:edit')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Connected before projects could be switched on?' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Disconnect' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Floor Planner' })).toHaveAttribute('href', '/floor-planner');
 });

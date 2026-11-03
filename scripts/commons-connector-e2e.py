@@ -54,6 +54,7 @@ async def exercise(args):
     from mcp.client.session import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
     from mcp.shared.auth import OAuthClientMetadata
+    from mcp.types import ServerNotification
     from supabase import create_client
     from trips.ledger import new_group, apply_command
 
@@ -173,16 +174,35 @@ async def exercise(args):
                 return await super()._perform_authorization()
 
         return RequestedScopes(server_url=endpoint,
-            client_metadata=OAuthClientMetadata(client_name='Commons loopback M1 exercise',
+            client_metadata=OAuthClientMetadata(client_name='Commons loopback connector exercise',
                 redirect_uris=[callback_url], grant_types=['authorization_code', 'refresh_token'],
                 response_types=['code'], token_endpoint_auth_method='none', scope=scope),
             storage=MemoryTokens(), redirect_handler=redirect, callback_handler=receive)
 
-    auth = provider('trips:read trips:edit')
+    notifications = []
+
+    async def on_message(message):
+        if isinstance(message, ServerNotification):
+            notifications.append(message.root.method)
+
+    async def listed(session):
+        return {tool.name for tool in (await session.list_tools()).tools}
+
+    async def refused(session, name, arguments, fragment, evidence):
+        result = await session.call_tool(name, arguments)
+        text = ' '.join(getattr(item, 'text', '') for item in result.content)
+        assert result.isError and fragment in text, f'{name} not refused as expected: {text}'
+        print(f'PASS {evidence}')
+
+    commons = {'whoami', 'list_projects', 'enable_project', 'disable_project'}
+    trips = {'get_trip_overview', 'add_expense', 'record_repayment'}
+    plans = {'list_floor_plans', 'get_floor_plan', 'describe_floor_plan_schema', 'edit_floor_plan'}
+    auth = provider('commons:read commons:edit')
     try:
         async with streamablehttp_client(endpoint, auth=auth) as (read, write, _):
-            async with ClientSession(read, write) as session:
+            async with ClientSession(read, write, message_handler=on_message) as session:
                 await session.initialize()
+                assert auth.context.current_tokens.scope.split() == ['commons:read', 'commons:edit']
 
                 async def call(name, *, evidence=None, **arguments):
                     result = await session.call_tool(name, arguments)
@@ -190,8 +210,12 @@ async def exercise(args):
                     print(f'PASS {evidence or name}')
                     return result.structuredContent
 
-                await call('list_projects')
+                projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+                assert projects['trips']['enabled'] is False, 'A new user starts without Trips'
+                assert projects['trips']['next_step'] == "Call enable_project('trips') to add its 3 tools."
                 identity = await call('whoami')
+                assert await listed(session) == commons
+                print('PASS tools/list for a new user shows only commons tools')
                 # Only synthetic data is written. No trips or other user's data are read directly.
                 row = new_group(str(uuid4()), identity['id'], f'MCP synthetic {uuid4().hex[:8]}', 'USD', 'Synthetic owner')
                 for name in ('Synthetic Alex', 'Synthetic Jamie'):
@@ -199,6 +223,25 @@ async def exercise(args):
                 service.table('trips_groups').insert(row).execute()
                 trip_id = row['id']
                 print(f'Synthetic trip: {trip_id} (left in loopback sandbox for inspection)')
+                projects = {p['id']: p for p in (await call('list_projects', evidence='list_projects after joining a trip'))['projects']}
+                assert projects['trips']['enabled'] and projects['trips']['enabled_reason'] == 'default: you already use it'
+                assert await listed(session) == commons | trips
+                print('PASS default: a user who has trips gets Trips tools without enabling')
+
+                assert await listed(session) == commons | trips
+                enabled = await call('enable_project', project_id='floor-planner', evidence='enable_project floor-planner')
+                assert {t['name'] for t in enabled['tools']} == plans
+                assert 'notifications/tools/list_changed' in notifications
+                print('PASS notifications/tools/list_changed delivered on the stateless response stream')
+                assert await listed(session) == commons | trips | plans
+                print('PASS tools/list after enable_project includes Floor Planner')
+                await call('list_floor_plans', evidence='enabled project tool callable')
+                await call('disable_project', project_id='floor-planner', evidence='disable_project floor-planner')
+                assert await listed(session) == commons | trips
+                print('PASS tools/list after disable_project hides Floor Planner')
+                await refused(session, 'list_floor_plans', {}, "call enable_project('floor-planner')",
+                              'disabled project call refused with the fix')
+
                 await call('get_trip_overview', evidence='get_trip_overview list')
                 initial = await call('get_trip_overview', trip_id=trip_id, evidence='get_trip_overview details')
                 ids = [member['id'] for member in initial['members']]
@@ -222,19 +265,49 @@ async def exercise(args):
                 final = await call('get_trip_overview', trip_id=trip_id)
                 assert final['revision'] == initial['revision'] + 2
                 assert sum(final['balances_cents'].values()) == 0
-                print('PASS real OAuth DCR + PKCE and all M1 tools, previews and replay assertions')
+                print('PASS real OAuth DCR + PKCE and every Trips tool, previews and replay assertions')
+
+                await call('disable_project', project_id='trips', evidence='disable_project trips')
+                await refused(session, 'get_trip_overview', {}, "call enable_project('trips')",
+                              'disabled Trips call refused although the user has trips')
+                await call('enable_project', project_id='trips', evidence='enable_project trips')
+                await call('get_trip_overview', evidence='Trips usable again after enable_project')
+                access_token = auth.context.current_tokens.access_token
         callback = loop.create_future()
-        readonly = provider('trips:read')
+        readonly = provider('commons:read')
         async with streamablehttp_client(endpoint, auth=readonly) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                assert readonly.context.current_tokens.scope.split() == ['trips:read']
-                denied = await session.call_tool('add_expense', {**expense, 'dry_run': False,
-                    'idempotency_key': f'denied-{uuid4()}'})
-                assert denied.isError and 'trips:edit' in str(denied.content), denied
+                assert readonly.context.current_tokens.scope.split() == ['commons:read']
+                await refused(session, 'add_expense', {**expense, 'dry_run': False, 'idempotency_key': f'denied-{uuid4()}'},
+                              'commons:edit', 'read-only token denied on add_expense')
+                await refused(session, 'record_repayment', {**repayment, 'dry_run': False, 'idempotency_key': f'denied-{uuid4()}'},
+                              'commons:edit', 'read-only token denied on record_repayment')
+                assert not (await session.call_tool('get_trip_overview', {'trip_id': trip_id})).isError
                 final_row = service.table('trips_groups').select('revision').eq('id', trip_id).single().execute().data
                 assert final_row['revision'] == final['revision']
-                print('PASS token without trips:edit denied on write; ledger unchanged')
+                print('PASS read-only token reads Trips; writes refused; ledger unchanged')
+
+        # A token minted exactly as the M1 deployment did: same signing key and
+        # upstream mapping (jti), pre-commons scopes. It keeps its old reach.
+        from cc_mcp.registry import PROVIDERS
+        from cc_mcp.server import create_agent_app
+        import jwt as pyjwt
+        issuer = create_agent_app(service, providers=PROVIDERS).state.cc_mcp_oauth.jwt_issuer
+        claims = pyjwt.decode(access_token, options={'verify_signature': False})
+        legacy = issuer.issue_access_token(claims['client_id'], ['trips:read', 'trips:edit'], claims['jti'], 600)
+        async with streamablehttp_client(endpoint, headers={'Authorization': f'Bearer {legacy}'}) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                overview = await session.call_tool('get_trip_overview', {'trip_id': trip_id})
+                assert not overview.isError and overview.structuredContent['revision'] == final['revision']
+                preview = await session.call_tool('add_expense', {**expense, 'idempotency_key': f'legacy-{uuid4()}'})
+                assert not preview.isError and preview.structuredContent['dry_run']
+                print('PASS pre-commons trips:* token still reads and previews Trips until it expires')
+                assert not (await session.call_tool('enable_project', {'project_id': 'floor-planner'})).isError
+                await refused(session, 'list_floor_plans', {}, 'Reconnect your agent once',
+                              'pre-commons token refused outside its old project with a reconnect step')
+                assert not (await session.call_tool('disable_project', {'project_id': 'floor-planner'})).isError
     finally:
         await asyncio.to_thread(server.shutdown)
         server.server_close()

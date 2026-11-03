@@ -150,6 +150,17 @@ def test_shared_mcp_installs_without_feature_tables_and_attests_grants(migration
     for role in ('anon', 'authenticated'):
         denied = database.sql(f"SET ROLE {role}; SELECT * FROM public.cc_mcp_oauth_state;", check=False)
         assert denied.returncode != 0 and 'permission denied' in denied.stderr
+    for role in ('anon', 'authenticated'):
+        denied = database.sql(f"SET ROLE {role}; SELECT * FROM public.cc_mcp_project_settings;", check=False)
+        assert denied.returncode != 0 and 'permission denied' in denied.stderr
+    database.sql("REVOKE DELETE ON public.cc_mcp_project_settings FROM service_role;")
+    failed = database.sql("SELECT public.cc_mcp_release_readiness();", check=False)
+    assert failed.returncode != 0 and 'project settings service_role grants changed' in failed.stderr
+    database.sql("GRANT DELETE ON public.cc_mcp_project_settings TO service_role;")
+    database.sql("GRANT SELECT ON public.cc_mcp_project_settings TO authenticated;")
+    failed = database.sql("SELECT public.cc_mcp_release_readiness();", check=False)
+    assert failed.returncode != 0 and 'unsafe browser grants on project settings' in failed.stderr
+    database.sql("REVOKE SELECT ON public.cc_mcp_project_settings FROM authenticated;")
     database.sql("REVOKE UPDATE ON public.cc_mcp_oauth_state FROM service_role;")
     failed = database.sql("SELECT public.cc_mcp_release_readiness();", check=False)
     assert failed.returncode != 0 and 'service_role grants changed' in failed.stderr

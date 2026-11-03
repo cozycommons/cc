@@ -6,8 +6,9 @@ import base64
 import os
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Callable, Any
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import Callable, Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -16,9 +17,10 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken, JWTVerifier, OAuthProxy, TokenVerifier
 from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.middleware import Middleware
 from mcp.server.auth.handlers.revoke import RevocationHandler
 from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
-from mcp.server.auth.provider import RefreshToken
+from mcp.server.auth.provider import AuthorizationParams, RefreshToken
 from mcp.server.auth.settings import RevocationOptions
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData
@@ -30,38 +32,162 @@ from starlette.routing import Route, request_response
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 
+from . import projects
 from .oauth_storage import SupabaseOAuthStore
+
+# Two stable scopes cover every project. Adding a project or tool never changes
+# them, so existing connections keep working; per-user enablement picks projects.
+READ_SCOPE = "commons:read"
+EDIT_SCOPE = "commons:edit"
+SCOPES = (READ_SCOPE, EDIT_SCOPE)
+COMMONS = "commons"
+Access = Literal["signin", "read", "edit"]
+LEVEL_SCOPE = {"signin": None, "read": READ_SCOPE, "edit": EDIT_SCOPE}
+SIGN_IN_MESSAGE = "Sign in to Cozy Commons to use these tools."
+
+
+@dataclass(frozen=True)
+class AccountLink:
+    """One-time proof that the signed-in Commons user owns a project account.
+
+    `linked(service_client, user)` returns a non-secret account summary or None.
+    Until linked, every project tool except `tool` returns `instructions`.
+    """
+
+    instructions: str
+    linked: Callable[[Any, Any], dict | None]
+    tool: str | None = None
+    url: str | None = None
 
 
 @dataclass(frozen=True)
 class ToolProvider:
+    """The project contract: see docs/mcp/README.md, "Adding a project".
+
+    `tools` declares every tool the provider registers and its access level;
+    startup fails if registration and declaration differ. `status` must be cheap
+    and read-only; its `in_use` flag enables the project by default for people
+    who already use it. `legacy_scopes` maps pre-commons scopes to a level that
+    is honored for this project only, until those tokens expire.
+    """
+
     name: str
-    scopes: tuple[str, ...]
     register: Callable[[FastMCP, "ToolContext"], None]
+    tools: Mapping[str, Access]
+    title: str = ""
+    description: str = ""
+    url: str = ""
+    status: Callable[[Any, Any], dict] | None = None
+    link: AccountLink | None = None
+    legacy_scopes: Mapping[str, Access] = field(default_factory=dict)
+
+    @property
+    def display_name(self):
+        return self.title or self.name
+
+
+# One resolved user per request token: the middleware and the tool share it.
+_request_user: ContextVar[tuple[str, Any] | None] = ContextVar("cc_mcp_request_user", default=None)
 
 
 @dataclass(frozen=True)
 class ToolContext:
     service_client: Any
+    providers: tuple[ToolProvider, ...] = ()
 
     @staticmethod
     def need_scope(*required: str) -> AccessToken:
         access = get_access_token()
         if access is None:
-            raise ToolError("Sign in to Cozy Commons to use these tools.")
+            raise ToolError(SIGN_IN_MESSAGE)
         if not set(required).issubset(access.scopes):
             missing = ", ".join(sorted(set(required) - set(access.scopes)))
-            raise ToolError(f"Missing permission: {missing}. Reconnect to grant {missing}.")
+            raise ToolError(f"Missing permission: {missing}. Reconnect your agent to grant {missing}.")
         return access
 
     async def signed_in_user(self, access: AccessToken):
+        cached = _request_user.get()
+        if cached and cached[0] == access.token:
+            return cached[1]
         try:
             user = await run_in_threadpool(lambda: self.service_client.auth.get_user(access.token).user)
         except Exception as error:
             raise ToolError("Your Cozy Commons sign-in expired. Reconnect your agent.") from error
         if not user:
-            raise ToolError("Sign in to Cozy Commons to use these tools.")
+            raise ToolError(SIGN_IN_MESSAGE)
+        _request_user.set((access.token, user))
         return user
+
+    def provider(self, name: str) -> ToolProvider | None:
+        return next((provider for provider in self.providers if provider.name == name), None)
+
+
+def legacy_grants(access: AccessToken) -> dict | None:
+    """Per-project levels for a token issued before commons scopes, else None."""
+    return access.claims.get("_legacy_grants") if access.claims else None
+
+
+def check_access(access: AccessToken | None, provider: ToolProvider, level: Access) -> AccessToken:
+    if access is None:
+        raise ToolError(SIGN_IN_MESSAGE)
+    scope = LEVEL_SCOPE[level]
+    if scope and scope not in access.scopes:
+        raise ToolError(f"Missing permission: {scope}. Reconnect your agent to grant {scope}.")
+    grants = legacy_grants(access)
+    if scope and grants is not None and level not in grants.get(provider.name, ()):
+        raise ToolError(
+            f"This connection was approved before {provider.display_name} joined the connector. "
+            "Reconnect your agent once to grant commons:read and commons:edit."
+        )
+    return access
+
+
+class ProjectAccessMiddleware(Middleware):
+    """Show and allow only the signed-in user's enabled projects' tools.
+
+    Hiding is not authorization: every call is checked again here, after the
+    scope check and before the tool runs, and refused with the exact fix.
+    """
+
+    def __init__(self, context: ToolContext, tools: Mapping[str, tuple[ToolProvider, Access]]):
+        self.context = context
+        self.tools = tools
+
+    async def _states(self, access, providers):
+        user = await self.context.signed_in_user(access)
+        return await run_in_threadpool(
+            projects.project_states, self.context.service_client, user, providers, False
+        )
+
+    async def on_list_tools(self, context, call_next):
+        tools = await call_next(context)
+        visible = {COMMONS}
+        access = get_access_token()
+        if access is not None:
+            try:
+                states = await self._states(access, [p for p in self.context.providers if p.name != COMMONS])
+                visible |= {name for name, state in states.items() if state["enabled"]}
+            except ToolError:
+                pass
+        return [tool for tool in tools if tool.key in self.tools and self.tools[tool.key][0].name in visible]
+
+    async def on_call_tool(self, context, call_next):
+        entry = self.tools.get(context.message.name)
+        if entry is None:
+            return await call_next(context)
+        provider, level = entry
+        access = check_access(get_access_token(), provider, level)
+        if provider.name != COMMONS:
+            state = (await self._states(access, [provider]))[provider.name]
+            if not state["enabled"]:
+                raise ToolError(
+                    f"{provider.display_name} is not enabled; call enable_project('{provider.name}')."
+                )
+            if provider.link and context.message.name != provider.link.tool and not state["linked"]:
+                raise ToolError(
+                    f"Link your {provider.display_name} account first: {provider.link.instructions}"
+                )
+        return await call_next(context)
 
 
 MCP_PATH = "/mcp"
@@ -203,14 +329,42 @@ class SupabaseOAuthTokenVerifier(TokenVerifier):
 class ResourceBoundOAuthProxy(OAuthProxy):
     """Keep MCP scopes local and upstream Supabase credentials server-side."""
 
-    def __init__(self, *args, default_scopes=(), **kwargs):
+    def __init__(self, *args, default_scopes=(), legacy_scopes=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._resource_scopes = frozenset(kwargs.get("valid_scopes", ()))
+        # Pre-commons scope -> (project, level). Tokens issued before commons
+        # scopes keep exactly their old per-project reach until they expire.
+        self._legacy_scopes = dict(legacy_scopes or {})
         # The upstream Supabase server has no RFC 7009 endpoint, but MCP clients
         # still need a local endpoint to revoke proxy-issued tokens.
         self.revocation_options = RevocationOptions(enabled=True)
         # DCR clients that omit scope get explicit read and edit consent by default.
         self._default_scope_str = " ".join(default_scopes)
+
+    def _current_scopes(self, scopes) -> list[str]:
+        """Translate requested legacy scopes to their commons equivalents."""
+        translated = []
+        for scope in scopes:
+            if scope in self._legacy_scopes:
+                scope = LEVEL_SCOPE[self._legacy_scopes[scope][1]]
+            if scope and scope not in translated:
+                translated.append(scope)
+        return translated
+
+    async def get_client(self, client_id: str):
+        client = await super().get_client(client_id)
+        # Clients registered before commons scopes may request them on reconnect.
+        if client is not None and client.scope:
+            registered = client.scope.split()
+            current = self._current_scopes(registered)
+            client.scope = " ".join([*registered, *(s for s in current if s not in registered)])
+        return client
+
+    async def authorize(self, client, params: AuthorizationParams) -> str:
+        # New grants only ever carry commons scopes; consent shows those.
+        if params.scopes:
+            params = params.model_copy(update={"scopes": self._current_scopes(params.scopes)})
+        return await super().authorize(client, params)
 
     def _prepare_scopes_for_upstream_refresh(self, scopes: list[str]) -> list[str]:
         # FastMCP scopes authorize tools; Supabase receives only its OIDC scopes.
@@ -269,13 +423,22 @@ class ResourceBoundOAuthProxy(OAuthProxy):
         if not access:
             return None
         scopes = local_claims.get("scope", "").split()
-        if set(scopes) - self._resource_scopes:
+        if set(scopes) - self._resource_scopes - set(self._legacy_scopes):
             return None
         claims = {
             **access.claims,
             "_fastmcp_jti": jti,
             "_upstream_token_id": mapping.upstream_token_id,
         }
+        claims.pop("_legacy_grants", None)  # only this proxy may set it
+        legacy = [scope for scope in scopes if scope in self._legacy_scopes]
+        if legacy:
+            grants: dict[str, list[str]] = {}
+            for scope in legacy:
+                project, level = self._legacy_scopes[scope]
+                grants.setdefault(project, []).append(level)
+            claims["_legacy_grants"] = grants
+            scopes = self._current_scopes(scopes)
         return access.model_copy(
             update={
                 "client_id": local_claims.get("client_id"),
@@ -341,12 +504,6 @@ def create_agent_app(
     except AgentConfigError:
         return unavailable_agent_app()
 
-    names = [provider.name for provider in providers]
-    scopes = [scope for provider in providers for scope in provider.scopes]
-    if len(set(names)) != len(names) or len(set(scopes)) != len(scopes):
-        raise AgentConfigError("Tool provider names and scopes must be unique.")
-    if not scopes:
-        raise AgentConfigError("The registered providers must declare at least one scope overall.")
     verifier = token_verifier or SupabaseOAuthTokenVerifier(settings)
     if storage is None:
         from cryptography.fernet import Fernet
@@ -367,25 +524,61 @@ def create_agent_app(
         token_verifier=verifier,
         base_url=settings.base_url,
         redirect_path=CALLBACK_PATH,
-        valid_scopes=scopes,
-        default_scopes=scopes,
+        valid_scopes=list(SCOPES),
+        default_scopes=SCOPES,
+        legacy_scopes={
+            scope: (provider.name, level)
+            for provider in providers for scope, level in provider.legacy_scopes.items()
+        },
         extra_authorize_params={"scope": "openid email"},
         client_storage=storage,
         jwt_signing_key=settings.jwt_signing_key,
         require_authorization_consent=True,
     )
-    mcp = FastMCP("Cozy Commons", auth=oauth, on_duplicate_tools="error", instructions=(
-        "Call list_projects first to discover projects and setup steps. Use exact member and trip IDs "
-        "and integer cents. For Trips writes, preview with dry_run=true first, review it with the user, "
-        "then use dry_run=false with the same idempotency_key. Never infer an ID from a name. "
-        "Reconnect to grant any missing feature scope."
-    ))
-
-    context = ToolContext(service_client)
-    for provider in providers:
-        provider.register(mcp, context)
-
+    mcp = build_server(service_client, providers, auth=oauth)
     app = mcp.http_app(path=MCP_PATH, transport="streamable-http", stateless_http=True)
     app.state.cc_mcp_oauth = oauth
     app.state.cc_mcp = mcp
     return app
+
+
+INSTRUCTIONS = (
+    "Call list_projects first to discover projects, which are enabled for this user, and setup steps. "
+    "Call enable_project(project_id) to add a project's tools; refresh your tool list if they do not appear. "
+    "Use exact IDs and integer cents. Preview every write with dry_run=true, review it with the user, "
+    "then repeat with dry_run=false and the same idempotency_key. Never infer an ID from a name. "
+    "Errors name the fix: follow them (enable a project, link an account or reconnect)."
+)
+
+
+def build_server(service_client, providers: tuple[ToolProvider, ...], *, auth=None) -> FastMCP:
+    """Register providers, validate their declared tools and install access middleware."""
+    names = [provider.name for provider in providers]
+    if len(set(names)) != len(names):
+        raise AgentConfigError("Tool provider names must be unique.")
+    legacy = [scope for provider in providers for scope in provider.legacy_scopes]
+    if len(set(legacy)) != len(legacy) or set(legacy) & set(SCOPES):
+        raise AgentConfigError("Legacy scopes must be unique and distinct from commons scopes.")
+
+    mcp = FastMCP("Cozy Commons", auth=auth, on_duplicate_tools="error", instructions=INSTRUCTIONS)
+    context = ToolContext(service_client, tuple(providers))
+    registry: dict[str, tuple[ToolProvider, Access]] = {}
+    for provider in providers:
+        before = set(mcp._tool_manager._tools)
+        provider.register(mcp, context)
+        registered = set(mcp._tool_manager._tools) - before
+        if registered != set(provider.tools):
+            raise AgentConfigError(
+                f"Provider {provider.name} must declare exactly the tools it registers: "
+                f"undeclared {sorted(registered - set(provider.tools))}, "
+                f"missing {sorted(set(provider.tools) - registered)}."
+            )
+        for tool, level in provider.tools.items():
+            allowed = {"signin"} if provider.name == COMMONS else {"read", "edit"}
+            if level not in allowed:
+                raise AgentConfigError(f"Tool {tool} must declare one of {sorted(allowed)}.")
+            registry[tool] = (provider, level)
+        if provider.link and provider.link.tool and provider.link.tool not in provider.tools:
+            raise AgentConfigError(f"Link tool {provider.link.tool} is not a {provider.name} tool.")
+    mcp.add_middleware(ProjectAccessMiddleware(context, registry))
+    return mcp

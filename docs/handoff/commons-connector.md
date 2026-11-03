@@ -2,75 +2,84 @@
 
 ## Status
 
-- M1: implementation and both local verification gates complete on 2026-11-03.
-  The external auth/money review reported no code bugs; its database and real
-  OAuth gates are now satisfied. PR #197 remains open; do not merge in this task.
-- M2: in progress on `commons-connector-m2`: public `/connect` guide, shared
-  account menu and Trips links, agent skill and client documentation implemented.
-  Verification complete; opening a non-draft PR against main, stacked on #197
-  if it is still open. Do not merge or enable auto-merge in this task.
-  Node 22 frontend: **98 files, 770 tests passed**; production build passed with
-  loopback configuration and a nonfunctional local publishable-key placeholder.
-  Standard backend suite: **1707 passed, 147 skipped** (integration opt-ins not
-  enabled); no backend changes. Desktop 1440px and phone 390px render checks
-  passed, with no horizontal overflow; phone client rows and Copy control stack.
-  Browser Copy confirmed “Copied.” Clipboard denial/manual fallback covered by
-  tests. Muse/Grok menus remain generic and unverified; official Claude/ChatGPT
-  guides are linked. Reused existing loopback services without a data reset.
-- M3: not started.
-- Loopback Supabase and the configured shared MCP API are left running. Generated
-  OAuth client credentials and signing/encryption keys live only in ignored
-  `.dice-dev/commons-mcp.json` (0600). No production connection was used.
+- M1: merged in #197 (Commons discovery + Trips on `/mcp`).
+- M2: merged in #198 (`/connect` page, `docs/mcp/SKILL.md`).
+- M3a (this PR, `commons-connector-m3a`): connector foundation for M3. Coarse
+  stable scopes, per-user project enablement, filtered tool list, the project
+  contract with account links, and the generic per-tool safety test. Opened
+  non-draft against main; the orchestrator runs the external review and merges.
+- M3b–M3e: not started. Plan below; one PR each, in order.
+- Loopback only. Local OAuth client credentials and signing/encryption keys live
+  only in ignored `.dice-dev/commons-mcp.json` (0600). No production connection.
 
-### Validation evidence
+### M3a decisions
 
-- Full backend suite: **1854 passed, 0 skipped** with the isolated disposable
-  database, real REST fixture, analytics, Floor Planner and dedicated Trips
-  integration opt-ins enabled. This runs **147 database/integration cases** that
-  were previously skipped or newly added: the prior **145 skipped** plus **2 new
-  receipt cases**. The earlier source-only result was 1707 passed / 145 skipped.
-- `tests/test_trips_migrations.py`: **19 passed, 0 skipped** (previously 17 skipped).
-  Eight concurrent identical requests produce exactly one actual ledger UPDATE
-  and one receipt; different users can reuse a key independently; reuse by the
-  same user on another trip returns an idempotency conflict without leaking the
-  earlier receipt; forced receipt-insert failure rolls back ledger data/revision.
-  Real database role checks confirm 0003 receipt RLS is enabled and both browser
-  roles lack table/RPC access. Live Trips and cc_mcp readiness return true.
-- Fixed the existing CI release assertion to expect Trips migration 3 rather than
-  2; the old assertion caused the previous backend CI failure. Verified migration
-  version/readiness against loopback. Historical migrations are unchanged.
-- Frontend on Node 22: **96 files, 754 tests passed**; `npm run build` passed with
-  loopback URLs and a nonfunctional local publishable-key placeholder.
-- cc_mcp and historical Commons migration contract scripts, Bash 3.2 parsing,
-  script help/compile checks and `git diff --check` passed.
-- Real OAuth via `scripts/commons-connector-local.sh test`: synthetic local
-  email/password sign-in, proxy consent, Supabase user-session consent, MCP SDK
-  DCR, PKCE token exchange and real Streamable HTTP. All M1 tools, both overview
-  forms, both previews/commits/replays, revision assertions and a separate
-  read-only grant's write denial passed. `--interactive` retains browser consent;
-  the successful run used unattended consent. Local setup is documented in
-  `docs/mcp/README.md`.
+- **Scopes.** `commons:read` and `commons:edit` replace `trips:*` and
+  `floor-plans:*`. The approval page requests both by default. Tools declare
+  `signin` (commons tools only), `read` or `edit`. New projects never change the
+  scope set.
+- **Pre-commons tokens.** Honored, not rejected: the proxy maps each old scope to
+  the matching commons scope and records the old per-project grant, and the
+  middleware keeps such a token inside Trips/Floor Planner. Calls to any later
+  project return "Reconnect your agent once…". Refresh keeps old scopes; FastMCP
+  caps each refresh family at 30 days after the original approval (Supabase sends
+  no refresh lifetime), so all pre-commons connections end within 30 days of
+  their approval. No scope widening: a `trips:read`-only token still cannot edit
+  or reach Floor Planner. Old DCR clients may request commons scopes on
+  reconnect, and authorization requests naming old scopes are granted the
+  commons equivalents (the approval page shows those).
+- **Who reconnects, and when.** Nobody at deploy. Existing connections keep their
+  Trips/Floor Planner tools until their refresh family expires (≤30 days from
+  approval); then the client re-runs OAuth and gets commons scopes. Users who
+  want Beli/Resy/Partiful/ESPN on `/mcp` before that reconnect once. After that
+  no future project needs a reconnect.
+- **Enablement.** `cc_mcp_project_settings` (`0002`, service role only, RLS,
+  readiness-attested) stores explicit choices. No row: enabled when the project's
+  status reports `in_use` (has trips; owns or accepted a plan), so current users
+  lose nothing. `enable_project` / `disable_project` are sign-in-level tools.
+- **Filtering and enforcement.** `ProjectAccessMiddleware` filters `tools/list`
+  and re-checks every `tools/call` (sign-in → scope → enabled → linked). Verified
+  with `stateless_http=True` in unit, SDK Streamable HTTP and real OAuth runs.
+  Startup fails if a provider's declared tools differ from what it registers.
+- **list_changed.** Sent on the enabling call's own response stream (stateless
+  HTTP has no standalone stream). The MCP Python SDK receives it; other clients
+  may only refetch on reconnect, so both tools tell the agent to refresh or
+  reconnect if the tools do not appear.
+- **Account links.** `AccountLink(instructions, linked, tool, url)` on the
+  provider. Links live in the project's own tables keyed by Commons user ID; the
+  middleware returns the link step for every project tool except the link tool.
 
-Full backend command after bootstrapping the disposable database and starting
-CI's loopback REST adapter (the test JWT comes from its synthetic local signer):
+### M3a validation evidence
 
-```bash
-cd backend
-source .venv/bin/activate
-DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_501_197 \
-DICE_TEST_DATABASE=1 DICE_REQUIRE_DATABASE_TESTS=1 RUN_ANALYTICS_DB_TESTS=1 \
-FLOOR_PLANNER_INTEGRATION=1 TRIPS_INTEGRATION=1 \
-API_URL=http://127.0.0.1:55431 DICE_TEST_REST_URL=http://127.0.0.1:55431 \
-python -m pytest tests -q
-```
-
-Captured unattended OAuth PASS output:
+- Backend, all DB/integration opt-ins (isolated `dummi_regression_501_199` +
+  real PostgREST, loopback Floor Planner stack, dedicated Trips stack):
+  **1903 passed, 0 skipped**. Plain `python -m pytest tests -q`: 1756 passed,
+  147 skipped (the opt-in DB cases above).
+- `tests/test_cc_mcp_tool_safety.py`: 42 cases over all 11 registered tools.
+  Mutation check: removing the Trips membership check fails it.
+- Migration `0002` applied cleanly as an upgrade on the running loopback stack
+  (cc_mcp 1 → 2) and from scratch; `cc_mcp_release_readiness()` true; browser
+  roles denied; revoked service grants and browser grants fail readiness.
+- Frontend: 98 files, 770 tests passed; production build passed (Node 24.22.2).
+- `scripts/check-cc-mcp-migration-contract.sh` now also requires RLS + browser
+  revokes on every connector table and a self-attesting latest migration.
+- Real OAuth (`scripts/commons-connector-local.sh test`, unattended consent):
 
 ```text
 PASS synthetic local email/password sign-in
 PASS Supabase OAuth authorization consent with user session
 PASS list_projects
 PASS whoami
+PASS tools/list for a new user shows only commons tools
+PASS list_projects after joining a trip
+PASS default: a user who has trips gets Trips tools without enabling
+PASS enable_project floor-planner
+PASS notifications/tools/list_changed delivered on the stateless response stream
+PASS tools/list after enable_project includes Floor Planner
+PASS enabled project tool callable
+PASS disable_project floor-planner
+PASS tools/list after disable_project hides Floor Planner
+PASS disabled project call refused with the fix
 PASS get_trip_overview list
 PASS get_trip_overview details
 PASS add_expense dry_run
@@ -82,10 +91,105 @@ PASS get_trip_overview
 PASS record_repayment commit
 PASS record_repayment idempotent replay
 PASS get_trip_overview
-PASS real OAuth DCR + PKCE and all M1 tools, previews and replay assertions
+PASS real OAuth DCR + PKCE and every Trips tool, previews and replay assertions
+PASS disable_project trips
+PASS disabled Trips call refused although the user has trips
+PASS enable_project trips
+PASS Trips usable again after enable_project
 PASS Supabase OAuth authorization consent with user session
-PASS token without trips:edit denied on write; ledger unchanged
+PASS read-only token denied on add_expense
+PASS read-only token denied on record_repayment
+PASS read-only token reads Trips; writes refused; ledger unchanged
+PASS pre-commons trips:* token still reads and previews Trips until it expires
+PASS pre-commons token refused outside its old project with a reconnect step
 ```
+
+## M3 plan: one PR per project
+
+Today none of the four account tables (`beli_accounts`, `resy_accounts`,
+`partiful_accounts`, `espn_accounts`; beli migrations 0001/0003/0004/0006) has a
+Commons user column. Each row is owned only by whoever holds its personal token
+(`ccb_`/`ccr_`/…, sha256-hashed, minted once by `POST /<project>/onboard`), and
+the legacy MCP servers resolve that token on every call. `beli_accounts` doubles
+as the ig_logger platform identity. ESPN alone has Commons links, but for
+something else: `espn_team_claims` (beli 0010) ties a Commons user to a fantasy
+team per season. It does not cover credentials.
+
+Shared approach for every project (each a small, repeatable change):
+
+- **Migration** (beli family, next free number, never editing old files): add
+  `owner_user_id uuid references auth.users(id) on delete set null` and a partial
+  unique index `(owner_user_id) where owner_user_id is not null` to that project's
+  account table, extend the beli readiness/contract and CI version assertion.
+- **Link step.** `link_<project>_account(api_token)` tool (level `edit`): hash
+  the existing token, match it, set `owner_user_id` if empty or already the
+  caller, refuse if owned by someone else ("This account is linked to another
+  Commons user"). Constant-time compare, the same rate limit as onboarding, and
+  the token is never stored or echoed. Also link at onboarding when the request
+  carries a Commons session, so new users never paste a token. Relinking another
+  account replaces the link. `AccountLink.linked` reads `owner_user_id`;
+  `status.in_use` = linked.
+- **Tools** resolve the account from `owner_user_id` server-side and take no
+  `api_token`. Writes get `dry_run` (default true) + required `idempotency_key`
+  with a durable receipt table (Trips `0003` pattern). Money is integer cents.
+- **Safety fixture** in `tests/test_cc_mcp_tool_safety.py`, the provider in
+  `cc_mcp/registry.py`, a `CATALOG` entry removed, and the e2e extended. The old
+  `/<project>/mcp` endpoints and tokens stay untouched.
+
+### M3b Beli
+
+- Tools (3): `get_restaurant_recs(neighborhood, day?, time?, table_size, limit)`
+  (read; today's `get_recs`), `save_restaurant(name, city?, idempotency_key,
+  dry_run)` (edit; today's `bookmark_restaurant`, which already has dry_run and
+  never duplicates), `link_beli_account(api_token)`.
+- Migration: `owner_user_id` on `beli_accounts`; receipts optional because
+  bookmarking is naturally idempotent, but record the key for replay results.
+- Risks: `beli_accounts` is also the ig_logger identity, so the link must not
+  change watcher subscriptions; Beli credentials are decrypted per call, so keep
+  the existing Fernet path and never return credentials.
+
+### M3c Resy
+
+- Tools (4): `find_resy_tables(query or venue_id, date, party_size, time?)`
+  (read; merges `search_restaurants` + `check_availability`),
+  `list_resy_reservations(scope)` (read), `book_resy_table(venue_id, date,
+  party_size, slot_token or desired_time, payment_method_id?, idempotency_key,
+  dry_run)` (edit), `cancel_resy_reservation(resy_token or reservation_id,
+  idempotency_key, dry_run)` (edit). Plus `link_resy_account`.
+- Migration: `owner_user_id` on `resy_accounts`, plus `resy_agent_receipts`.
+- Risks: highest stakes. Bookings and cancellations are real-world, with deposits
+  and cancellation fees. Previews must show the masked card and fees in integer
+  cents, and commits must refuse if the slot or fees changed since the preview.
+  Resy has no idempotency key, so use the receipt plus a "find existing
+  reservation" check before any retry after an unknown outcome.
+
+### M3d Partiful
+
+- Tools (1–2, read only): `get_partiful_events(event_id?)`: without an ID, list
+  events; with one, details (merges `list_events` + `get_event`). Plus
+  `link_partiful_account`.
+- Migration: `owner_user_id` on `partiful_accounts`.
+- Risks: onboarding is SMS-based and the refresh token rotates; linking must not
+  disturb the stored refresh token. Guest lists are other people's personal
+  data, so return only what the current tools already return.
+
+### M3e ESPN (last)
+
+- Rebase on main after #179, #184 and #185 land or are closed; do not change
+  their logic (scoreboard schedule, roster-edit outcome classification).
+- Tools (15 → 5): `get_fantasy_league(view: league|standings|team|draft|
+  transactions, team_id?)` (read), `get_fantasy_trends(kind: players|teams,
+  limit)` (read), `get_fantasy_activity(kind: lineup_runs|roster_edits|trades,
+  status?)` (read), `propose_fantasy_change(kind: lineup|roster_edit|trade, …,
+  idempotency_key)` (edit; propose = dry_run preview, persists nothing external),
+  `approve_fantasy_change(kind, id, idempotency_key)` (edit; the existing
+  separate approval gate). Plus `link_espn_account`.
+- Migration: `owner_user_id` on `espn_accounts`; reuse `espn_team_claims` to
+  default `team_id` to the caller's claimed team.
+- Risks: largest surface and three open PRs in the same files; one ESPN account
+  may be shared by a league, so decide whether several Commons users may link
+  the same league credentials (read) while only the claimant of a team may
+  approve its changes. Keep `write_safety` and the propose → approve gate.
 
 ## Brief
 

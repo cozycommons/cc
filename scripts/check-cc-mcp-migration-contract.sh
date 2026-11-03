@@ -36,6 +36,20 @@ fi
   echo 'Cozy Commons MCP schema contract SQL is missing.' >&2
   exit 1
 }
+# Every connector table is service-role only: RLS on and browser roles revoked.
+for migration in "$migration_dir"/[0-9][0-9][0-9][0-9]_cc_mcp_*.sql; do
+  for table in $(sed -nE 's/^create table public\.([a-z0-9_]+).*/\1/p' "$migration"); do
+    grep -q "alter table public\.$table enable row level security;" "$migration" &&
+      grep -q "revoke all on public\.$table from public, anon, authenticated;" "$migration" || {
+        echo "$(basename "$migration"): public.$table must enable RLS and revoke browser roles." >&2
+        exit 1
+      }
+  done
+done
+grep -q "cc_mcp_schema_migrations where version = $contract_number" "$migration_dir/$(cd "$migration_dir" && ls "$latest"_cc_mcp_*.sql)" || {
+  echo "Latest Cozy Commons MCP migration must attest its own receipt in release readiness." >&2
+  exit 1
+}
 grep -q 'cc_mcp' "$repo_dir/backend/migration_runner.py" || {
   echo 'Migration runner does not declare the Cozy Commons MCP family.' >&2
   exit 1
