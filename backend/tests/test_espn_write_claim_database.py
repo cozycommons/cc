@@ -267,8 +267,8 @@ def test_release_contract_rejects_unsafe_guard(db, tamper):
     db.sql(contract)  # Failed psql connection rolled the tampering back.
 
 
-def test_schema_18_receipt_and_replay_are_safe(db):
-    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "18"
+def test_schema_receipt_and_replay_are_safe(db):
+    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "19"
     assert "Applying " not in db.sql(migration_runner.render(["beli"])).stdout
 
 
