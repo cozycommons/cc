@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSupabase } from '../../contexts/SupabaseContext';
 import { diceApi } from '../api.js';
+import { peekDiceResource, writeDiceResource } from '../resourceCache.js';
 import { formatDateTime } from '../utils.js';
 import {
   COMMENT_IMAGE_MAX_EDGE,
@@ -11,13 +12,14 @@ import {
   uniqueImageFolder,
 } from '../imageUpload.js';
 import PlayerAvatar from './PlayerAvatar.jsx';
+import LoadingRows from './LoadingRows.jsx';
 
 const COMMENT_IMAGE_BUCKET = 'dice-comment-photos';
 
 export default function CommentsSection({ gameId, auth }) {
   const { supabase } = useSupabase();
   const { user, token, isAdmin } = auth;
-  const [comments, setComments] = useState(null);
+  const [comments, setComments] = useState(() => peekDiceResource(`comments:${gameId}`) ?? null);
   const [body, setBody] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
@@ -25,7 +27,10 @@ export default function CommentsSection({ gameId, auth }) {
   const [error, setError] = useState(null);
 
   const load = () => {
-    diceApi.getComments(gameId).then(setComments).catch(() => setComments([]));
+    diceApi.getComments(gameId).then((loaded) => {
+      writeDiceResource(`comments:${gameId}`, loaded);
+      setComments(loaded);
+    }).catch(() => setComments((current) => current ?? []));
   };
 
   useEffect(() => {
@@ -117,7 +122,7 @@ export default function CommentsSection({ gameId, auth }) {
 
       <div className="jk-card overflow-hidden mb-4">
         {comments === null && (
-          <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>
+          <LoadingRows />
         )}
         {comments?.length === 0 && (
           <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No comments yet.</p>

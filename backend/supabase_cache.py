@@ -124,6 +124,37 @@ class CachedSupabaseClient:
             cache_store=self._cache_store,
         )
 
+    def _rpc_cache_key(self, name: str, params: dict | None) -> str:
+        raw = json.dumps(
+            {"rpc": name, "params": _normalize_for_cache(params or {})},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def cached_rpc(self, name: str, params: dict | None = None):
+        """Execute a read-only RPC through the shared TTL cache.
+
+        Only for snapshot reads: RPCs are not classified like table queries, so
+        callers opt in per function. Writes still clear it through clear_cache
+        or any table mutation, exactly as for cached selects.
+        """
+        cache_key = self._rpc_cache_key(name, params)
+        with self._cache_store.lock:
+            cached_response = self._cache_store.cache.get(cache_key)
+            read_epoch = self._cache_store.epoch
+        if cached_response is not None:
+            return cached_response
+        response = (self._client.rpc(name, params) if params is not None else self._client.rpc(name)).execute()
+        with self._cache_store.lock:
+            if self._cache_store.epoch == read_epoch:
+                self._cache_store.cache[cache_key] = response
+        return response
+
+    def forget_rpc(self, name: str, params: dict | None = None) -> None:
+        with self._cache_store.lock:
+            self._cache_store.cache.pop(self._rpc_cache_key(name, params), None)
+
     def clear_cache(self) -> None:
         with self._cache_store.lock:
             self._cache_store.cache.clear()
@@ -131,3 +162,17 @@ class CachedSupabaseClient:
 
     def __getattr__(self, name: str):
         return getattr(self._client, name)
+
+
+def read_snapshot_rpc(supabase, name: str, params: dict | None = None):
+    """Read an analytics snapshot RPC, through the API cache when available."""
+    cached_rpc = getattr(supabase, "cached_rpc", None)
+    if callable(cached_rpc):
+        return cached_rpc(name, params)
+    return (supabase.rpc(name, params) if params is not None else supabase.rpc(name)).execute()
+
+
+def forget_snapshot_rpc(supabase, name: str, params: dict | None = None) -> None:
+    forget_rpc = getattr(supabase, "forget_rpc", None)
+    if callable(forget_rpc):
+        forget_rpc(name, params)

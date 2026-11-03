@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
 import { formatDateTime } from '../utils.js';
 import { imageVariantUrl } from '../imageUpload.js';
+import LoadingRows from './LoadingRows.jsx';
 
 export function getSwipeDirection(start, end) {
   if (!start || !end) return null;
@@ -186,7 +188,7 @@ function Lightbox({ photos, selectedIndex, onNavigate, onClose }) {
 }
 
 export default function PhotoGallery({ limit = 100 }) {
-  const [photos, setPhotos] = useState(null);
+  const [photos] = useDiceResource(`photos:${limit}`, () => diceApi.getPhotos(limit), { fallback: [] });
   const [selectedIndex, setSelectedIndex] = useState(null);
 
   const navigatePhotos = (direction) => {
@@ -194,14 +196,11 @@ export default function PhotoGallery({ limit = 100 }) {
     setSelectedIndex((current) => (current + direction + photos.length) % photos.length);
   };
 
-  useEffect(() => {
-    diceApi.getPhotos(limit).then(setPhotos).catch(() => setPhotos([]));
-  }, [limit]);
 
   return (
     <>
       <div className="jk-card overflow-hidden p-2">
-        {photos === null && <p className="p-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+        {photos === null && <LoadingRows rows={1} avatar={false} />}
         {photos?.length === 0 && (
           <p className="p-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>No photos posted yet.</p>
         )}

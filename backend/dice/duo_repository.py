@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import replace
 from supabase import Client
+from supabase_cache import read_snapshot_rpc
 
 from dice.duo_rating import (
     DuoMatch,
@@ -31,9 +32,9 @@ def _source(supabase: Client) -> tuple[list[dict], list[DuoMatch]]:
     The RPC is a stable MVCC view and is intentionally reused from individual
     rating progress instead of issuing uncapped PostgREST table reads.
     """
-    snapshot = supabase.rpc(
-        "dice_duo_replay_snapshot", {"p_max_games": MAX_DUO_REPLAY_GAMES}
-    ).execute().data or {}
+    snapshot = read_snapshot_rpc(
+        supabase, "dice_duo_replay_snapshot", {"p_max_games": MAX_DUO_REPLAY_GAMES}
+    ).data or {}
     if snapshot.get("snapshot_version") != "dice-rating-analytics/v1":
         raise RuntimeError("unsupported rating analytics snapshot")
     if snapshot.get("error") == "history_limit_exceeded":

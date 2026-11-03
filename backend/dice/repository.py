@@ -37,6 +37,7 @@ from dice.schemas import (
     UpdateTournamentRequest,
 )
 from supabase import Client
+from supabase_cache import forget_snapshot_rpc, read_snapshot_rpc
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +327,39 @@ def list_sink_leaderboard(supabase: Client, limit: int, nonzero_only: bool) -> l
     return [SinkEntry.model_validate(row) for row in rows]
 
 
+def _player_profiles(supabase: Client, user_ids: list[str]) -> dict[str, dict]:
+    """Display fields for the given players.
+
+    Reads the whole (small) profile directory with one fixed query, so every
+    list endpoint shares a single cache entry instead of issuing a per-page
+    `in` query that always misses. Anyone the directory read did not return
+    (e.g. past PostgREST's row cap) is fetched directly.
+    """
+    if not user_ids:
+        return {}
+    rows = (
+        supabase.table(PROFILES_TABLE)
+        .select("user_id, display_name, avatar_url")
+        .order("user_id")
+        .execute()
+        .data
+        or []
+    )
+    directory = {row["user_id"]: row for row in rows}
+    missing = [user_id for user_id in user_ids if user_id not in directory]
+    if missing:
+        extra = (
+            supabase.table(PROFILES_TABLE)
+            .select("user_id, display_name, avatar_url")
+            .in_("user_id", missing)
+            .execute()
+            .data
+            or []
+        )
+        directory.update({row["user_id"]: row for row in extra})
+    return {user_id: directory[user_id] for user_id in user_ids if user_id in directory}
+
+
 def _players_for_games(supabase: Client, game_ids: list[str]) -> dict[str, list[dict]]:
     if not game_ids:
         return {}
@@ -337,18 +371,7 @@ def _players_for_games(supabase: Client, game_ids: list[str]) -> dict[str, list[
         .data
         or []
     )
-    user_ids = list({row["user_id"] for row in player_rows})
-    profiles_by_id: dict[str, dict] = {}
-    if user_ids:
-        profile_rows = (
-            supabase.table(PROFILES_TABLE)
-            .select("user_id, display_name, avatar_url")
-            .in_("user_id", user_ids)
-            .execute()
-            .data
-            or []
-        )
-        profiles_by_id = {row["user_id"]: row for row in profile_rows}
+    profiles_by_id = _player_profiles(supabase, list({row["user_id"] for row in player_rows}))
 
     grouped: dict[str, list[dict]] = {gid: [] for gid in game_ids}
     for row in player_rows:
@@ -441,7 +464,17 @@ def list_games_for_user(supabase: Client, user_id: str, limit: int) -> list[Dice
 def get_rating_progress(supabase: Client, user_id: str) -> RatingProgress | None:
     """Derive progress from one coherent, audited official-history snapshot."""
 
-    snapshot = supabase.rpc("dice_rating_analytics_snapshot").execute().data or {}
+    try:
+        return _rating_progress_from_snapshot(
+            read_snapshot_rpc(supabase, "dice_rating_analytics_snapshot").data or {}, user_id
+        )
+    except (RuntimeError, ValueError):
+        # Never keep serving a snapshot that failed its consistency checks.
+        forget_snapshot_rpc(supabase, "dice_rating_analytics_snapshot")
+        raise
+
+
+def _rating_progress_from_snapshot(snapshot: dict, user_id: str) -> RatingProgress | None:
     if snapshot.get("snapshot_version") != "dice-rating-analytics/v1":
         raise ValueError("unsupported rating analytics snapshot")
     profile_rows = snapshot.get("profiles") or []
@@ -905,18 +938,7 @@ def list_comments(supabase: Client, game_id: str) -> list[GameComment]:
         .data
         or []
     )
-    user_ids = list({row["user_id"] for row in rows})
-    profiles_by_id: dict[str, dict] = {}
-    if user_ids:
-        profile_rows = (
-            supabase.table(PROFILES_TABLE)
-            .select("user_id, display_name, avatar_url")
-            .in_("user_id", user_ids)
-            .execute()
-            .data
-            or []
-        )
-        profiles_by_id = {row["user_id"]: row for row in profile_rows}
+    profiles_by_id = _player_profiles(supabase, list({row["user_id"] for row in rows}))
     return [_comment_from_row(row, profiles_by_id.get(row["user_id"], {})) for row in rows]
 
 
@@ -931,18 +953,7 @@ def list_photos(supabase: Client, limit: int = 100) -> list[GameComment]:
         .data
         or []
     )
-    user_ids = list({row["user_id"] for row in rows})
-    profiles_by_id: dict[str, dict] = {}
-    if user_ids:
-        profile_rows = (
-            supabase.table(PROFILES_TABLE)
-            .select("user_id, display_name, avatar_url")
-            .in_("user_id", user_ids)
-            .execute()
-            .data
-            or []
-        )
-        profiles_by_id = {row["user_id"]: row for row in profile_rows}
+    profiles_by_id = _player_profiles(supabase, list({row["user_id"] for row in rows}))
     return [_comment_from_row(row, profiles_by_id.get(row["user_id"], {})) for row in rows]
 
 
@@ -975,17 +986,7 @@ def delete_comment(supabase: Client, comment_id: str) -> None:
 
 
 def _tournament_players(supabase: Client, user_ids: list[str]) -> dict[str, dict]:
-    if not user_ids:
-        return {}
-    rows = (
-        supabase.table(PROFILES_TABLE)
-        .select("user_id, display_name, avatar_url")
-        .in_("user_id", user_ids)
-        .execute()
-        .data
-        or []
-    )
-    return {row["user_id"]: row for row in rows}
+    return _player_profiles(supabase, user_ids)
 
 
 def _match_player(user_id: Optional[str], profiles_by_id: dict[str, dict]) -> dict:

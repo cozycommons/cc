@@ -1,16 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
 import TournamentRow from '../components/TournamentRow.jsx';
+import LoadingRows from '../components/LoadingRows.jsx';
 
 export default function Tournaments({ auth }) {
-  const [tournaments, setTournaments] = useState(null);
+  const [tournaments] = useDiceResource('tournaments:200', () => diceApi.getTournaments(200), { fallback: [] });
   const { isAdmin } = auth || {};
-
-  useEffect(() => {
-    diceApi.getTournaments(200).then(setTournaments).catch(() => setTournaments([]));
-  }, []);
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
@@ -25,7 +23,7 @@ export default function Tournaments({ auth }) {
         )}
       </div>
       <div className="jk-card overflow-hidden">
-        {tournaments === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+        {tournaments === null && <LoadingRows />}
         {tournaments?.length === 0 && (
           <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No tournaments yet.</p>
         )}

@@ -101,6 +101,7 @@ export function useDiceAuth() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const activeToken = useRef(null);
+  const loadedProfileUserId = useRef(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -112,6 +113,17 @@ export function useDiceAuth() {
       if (cancelled) return;
       const version = ++syncVersion;
       activeToken.current = session?.access_token ?? null;
+      const sessionUserId = session?.user?.id ?? null;
+      // Token refreshes and repeat SIGNED_IN events (tab refocus) keep the same
+      // user: swap the token in place instead of blanking every page behind a
+      // loading state while the profile is fetched again.
+      if (session?.access_token && sessionUserId && sessionUserId === loadedProfileUserId.current) {
+        setUser(session.user);
+        setToken(session.access_token);
+        setLoading(false);
+        return;
+      }
+      loadedProfileUserId.current = null;
       setLoading(true);
       setUser(session?.user ?? null);
       setToken(session?.access_token ?? null);
@@ -121,6 +133,7 @@ export function useDiceAuth() {
           const p = await diceApi.getMyProfile(session.access_token);
           if (!cancelled && version === syncVersion) {
             setProfile(p);
+            if (p) loadedProfileUserId.current = sessionUserId;
           }
         } catch (err) {
           console.error('Failed to load dice profile:', err);

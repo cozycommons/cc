@@ -1,19 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
 import LeaderboardRow from '../components/LeaderboardRow.jsx';
 import EloDistribution, { summarizeRatings } from '../components/EloDistribution.jsx';
 import StatsBackLink from '../components/StatsBackLink.jsx';
 import { rankLeaderboard } from '../leaderboard.js';
+import LoadingRows from '../components/LoadingRows.jsx';
 
 export default function EloLeaderboard({ auth }) {
-  const [entries, setEntries] = useState(null);
+  const [entries] = useDiceResource('elo:500:provisional', () => diceApi.getEloLeaderboard(500, true), { fallback: [] });
   const [query, setQuery] = useState('');
-
-  useEffect(() => {
-    diceApi.getEloLeaderboard(500, true).then(setEntries).catch(() => setEntries([]));
-  }, []);
 
   const ranked = rankLeaderboard(entries, 'elo_rating', { provisionalKey: 'is_provisional' });
   const normalizedQuery = query.trim().toLowerCase();
@@ -45,7 +43,7 @@ export default function EloLeaderboard({ auth }) {
         className="mb-4"
       />
       <div className="jk-card overflow-hidden">
-        {entries === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+        {entries === null && <LoadingRows />}
         {entries?.length === 0 && (
           <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>No players yet.</p>
         )}

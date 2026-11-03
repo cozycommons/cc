@@ -1,6 +1,10 @@
 // jest-dom adds custom matchers for asserting on DOM nodes.
 import '@testing-library/jest-dom/vitest';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
+import { invalidateDiceResources } from './dice/resourceCache.js';
+
+// Dice pages share a module-level read cache; keep tests independent.
+afterEach(() => invalidateDiceResources());
 
 class MockIntersectionObserver {
   constructor() {}

@@ -56,13 +56,13 @@ function renderHome(auth) {
 describe('Dice home dashboard', () => {
   afterEach(() => vi.clearAllMocks());
 
-  it('waits for authentication hydration before loading the homepage', () => {
+  it('loads public sections while authentication hydrates, but not private data', async () => {
     arrange();
-    renderHome({ ...releasedAuth, loading: true });
+    renderHome({ ...releasedAuth, profile: null, loading: true });
 
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
-    expect(mocks.getGames).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.getGames).toHaveBeenCalled());
     expect(mocks.getLiveGames).not.toHaveBeenCalled();
+    expect(mocks.getDuoLadder).not.toHaveBeenCalled();
   });
 
   it('does not request private home data without a registered profile', async () => {

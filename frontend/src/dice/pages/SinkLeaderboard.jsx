@@ -1,14 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
 import LeaderboardRow from '../components/LeaderboardRow.jsx';
 import StatsBackLink from '../components/StatsBackLink.jsx';
 import { rankLeaderboard } from '../leaderboard.js';
+import LoadingRows from '../components/LoadingRows.jsx';
 
 export default function SinkLeaderboard({ auth }) {
-  const [entries, setEntries] = useState(null);
-  useEffect(() => {
-    diceApi.getSinkLeaderboard(500, false).then(setEntries).catch(() => setEntries([]));
-  }, []);
+  const [entries] = useDiceResource('sinks:500:all', () => diceApi.getSinkLeaderboard(500, false), { fallback: [] });
 
   const ranked = rankLeaderboard(entries, 'sinks');
   const maxValue = ranked[0]?.sinks || 0;
@@ -19,7 +18,7 @@ export default function SinkLeaderboard({ auth }) {
       <StatsBackLink label="Player stats" />
       <p className="jk-display mb-4" style={{ fontSize: 28 }}>Sink Leaderboard</p>
       <div className="jk-card overflow-hidden">
-        {entries === null && <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading…</p>}
+        {entries === null && <LoadingRows />}
         {entries?.length === 0 && (
           <p className="p-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Nobody's sunk anything yet.</p>
         )}

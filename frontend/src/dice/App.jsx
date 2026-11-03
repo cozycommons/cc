@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate, Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import DiceHeader from './DiceHeader.jsx';
 import { useDiceAuth } from './useDiceAuth.js';
 import Home from './pages/Home.jsx';
@@ -24,6 +24,7 @@ import './dice-theme.css';
 
 export default function DiceApp() {
   const auth = useDiceAuth();
+  const { pathname } = useLocation();
   const authScope = auth.user?.id || 'anonymous';
   const privateRoute = (element) => {
     if (auth.loading) return null;
@@ -32,6 +33,8 @@ export default function DiceApp() {
   return (
     <div className="jk-dice min-h-screen">
       <DiceHeader auth={auth} />
+      {/* Keyed by path so each page eases in on navigation (a query-string change such as a Stats tab does not). */}
+      <div key={pathname} className="jk-route-enter">
       <Routes key={authScope}>
         <Route index element={<Home auth={auth} />} />
         <Route path="players" element={<Navigate replace to="/dice/leaderboard/elo" />} />
@@ -55,6 +58,7 @@ export default function DiceApp() {
         <Route path="live" element={privateRoute(<LiveLobby auth={auth} />)} />
         <Route path="live/:matchId" element={privateRoute(<LiveGame auth={auth} />)} />
       </Routes>
+      </div>
     </div>
   );
 }

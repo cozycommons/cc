@@ -1,18 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
+import { LoadingPage } from '../components/LoadingRows.jsx';
 
 export default function DuoDetail({ auth }) {
   const { duoId } = useParams();
-  const [detail, setDetail] = useState(null);
-  useEffect(() => {
-    diceApi
-      .getDuoDetail(auth?.token, duoId)
-      .then(setDetail)
-      .catch(() => setDetail({ error: true }));
-  }, [auth?.token, duoId]);
-  if (!detail) return <main className="max-w-2xl mx-auto px-4 py-8 text-sm">Loading duo…</main>;
+  const [detail] = useDiceResource(
+    `duo:${duoId}:${auth?.profile?.user_id || auth?.user?.id || 'anonymous'}`,
+    () => diceApi.getDuoDetail(auth?.token, duoId),
+    { fallback: { error: true } },
+  );
+  if (!detail) return <LoadingPage label="Loading duo…" />;
   if (detail.error)
     return (
       <main className="max-w-2xl mx-auto px-4 py-8">

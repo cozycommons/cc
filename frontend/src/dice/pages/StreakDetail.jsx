@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { diceApi } from '../api.js';
+import { useDiceResource } from '../resourceCache.js';
+import { ALL_GAMES_KEY, loadAllGames } from '../resources.js';
 import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import { calculateStreaks, rankedStreakGames } from './Home.jsx';
+import { LoadingPage } from '../components/LoadingRows.jsx';
 
 function EvidenceGame({ game, userId, number }) {
   const player = game.players?.find((candidate) => candidate.user_id === userId);
@@ -14,9 +16,8 @@ function EvidenceGame({ game, userId, number }) {
 
 export default function StreakDetail() {
   const { userId } = useParams();
-  const [games, setGames] = useState(null);
-  useEffect(() => { (typeof diceApi.getAllGames === 'function' ? diceApi.getAllGames() : diceApi.getGames(200)).then(setGames).catch(() => setGames([])); }, []);
-  if (!games) return <main className="max-w-2xl mx-auto px-4 py-8 text-sm">Loading streak…</main>;
+  const [games] = useDiceResource(ALL_GAMES_KEY, loadAllGames, { fallback: [] });
+  if (!games) return <LoadingPage label="Loading streak…" />;
   const record = calculateStreaks(games).find((candidate) => candidate.user_id === userId);
   if (!record) return <main className="max-w-2xl mx-auto px-4 py-8"><p className="jk-display text-3xl">Streak not found</p><Link className="underline text-sm" to="/dice/stats?view=streaks">Back to Streaks →</Link></main>;
   const currentGames = rankedStreakGames(games, record.current_game_ids);

@@ -8,6 +8,7 @@ import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import RosterPicker from '../components/RosterPicker.jsx';
 import { canEditTournament } from '../utils.js';
 import { easternWallTimeToUTC, utcToEasternWallTime } from '../timezone.js';
+import { LoadingPage } from '../components/LoadingRows.jsx';
 
 function HostPicker({ profiles, hosts, onChange }) {
   const addHost = (profile) => onChange([...hosts, profile]);
@@ -113,7 +114,7 @@ export default function TournamentForm({ auth, editMode = false }) {
   };
 
   if (authLoading || loadingTournament) {
-    return <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">Loading…</div>;
+    return <LoadingPage width="max-w-xl" />;
   }
 
   if (!user || (!isAdmin && !editMode)) {
