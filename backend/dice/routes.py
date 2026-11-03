@@ -9,6 +9,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from threading import Lock
+from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Query, Request
@@ -127,11 +128,13 @@ _optional_security = HTTPBearer(auto_error=False)
 
 
 class AuthedUser:
-    def __init__(self, user_id: str, email: str, metadata: dict, role: str = "member"):
+    def __init__(self, user_id: str, email: str, metadata: dict, role: str = "member",
+                 is_anonymous: bool = False):
         self.user_id = user_id
         self.email = email
         self.metadata = metadata or {}
         self.role = role
+        self.is_anonymous = is_anonymous
 
     @property
     def is_admin(self) -> bool:
@@ -143,7 +146,8 @@ def require_authenticated_user(
 ) -> AuthedUser:
     try:
         user = request.app.state.supabase.auth.get_user(credentials.credentials).user
-        return AuthedUser(user.id, user.email or "", user.user_metadata, user_role(request.app.state.supabase, user.id))
+        return AuthedUser(user.id, user.email or "", user.user_metadata, user_role(request.app.state.supabase, user.id),
+                          getattr(user, "is_anonymous", False) is True)
     except HTTPException:
         raise
     except Exception:
@@ -755,14 +759,9 @@ def post_live_command_metric(
 def get_my_profile(
     request: Request, auth: AuthedUser = Depends(require_authenticated_user)
 ) -> DiceProfile:
-    default_name = auth.metadata.get("full_name") or auth.metadata.get("name") or "Player"
-    default_avatar = auth.metadata.get("avatar_url")
-    profile = get_or_create_profile(
-        request.app.state.supabase,
-        auth.user_id,
-        default_name,
-        default_avatar,
-    )
+    user = SimpleNamespace(id=auth.user_id, email=auth.email, user_metadata=auth.metadata,
+                           is_anonymous=auth.is_anonymous)
+    profile = get_or_create_profile(request.app.state.supabase, user)
 
     return profile.model_copy(update={"is_admin": auth.is_admin})
 

@@ -4,8 +4,8 @@ from difflib import SequenceMatcher
 import re
 import unicodedata
 
-from .profiles import avatar_url, profile_map
-from .venmo import account_venmo
+from commons_account.profile import shared_profiles
+from .profiles import account_profile, trips_profile
 
 # Common English nicknames, both directions. A match on these is a suggestion, never evidence.
 NICKNAMES = [
@@ -110,7 +110,7 @@ def looks_like(candidate):
 
 
 def read_accounts(client):
-    """Read-only: Auth users plus their Dice display names."""
+    """Read-only: Auth users plus their Commons profiles (Auth metadata for accounts without a row yet)."""
     users, page = [], 1
     while True:
         batch = client.auth.admin.list_users(page=page, per_page=1000)
@@ -118,13 +118,15 @@ def read_accounts(client):
         if len(batch) < 1000:
             break
         page += 1
-    dice = profile_map(client, [user.id for user in users])
+    profiles = shared_profiles(client, [user.id for user in users])
     accounts = []
     for user in users:
         metadata = user.user_metadata or {}
-        names = [dice.get(user.id, {}).get('display_name'), metadata.get('full_name'), metadata.get('name')]
+        account = account_profile(user)
+        profile = trips_profile(profiles[user.id]) if user.id in profiles else account
+        names = [profile['display_name'], metadata.get('full_name'), metadata.get('name')]
         accounts.append({'user_id': user.id, 'names': list(dict.fromkeys(n for n in names if isinstance(n, str) and n)),
-                         'venmo_username': account_venmo(metadata)['venmo_username'],
+                         'venmo_username': profile['venmo_username'],
                          # Same-named accounts must look different before anyone links one.
-                         'avatar_url': dice.get(user.id, {}).get('avatar_url') or avatar_url(metadata.get('avatar_url'))})
+                         'avatar_url': profile['avatar_url'] or account['avatar_url']})
     return accounts

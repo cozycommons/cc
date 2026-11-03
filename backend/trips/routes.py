@@ -1,6 +1,6 @@
 """Supabase-authenticated HTTP commands shared by people and agents."""
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -10,6 +10,7 @@ from gotrue.errors import AuthApiError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from postgrest.exceptions import APIError
 
+from commons_account.profile import update_profile as update_commons_profile
 from commons_roles import user_role
 
 from .ledger import (CREATES, INDEPENDENT, LedgerError, apply_command, balances, claim_invite, deleted_expense, invite_slot,
@@ -240,26 +241,26 @@ def get_my_profile(request: Request, user=Depends(current_user)):
 
 @router.put('/me')
 def update_my_profile(payload: AccountVenmo, request: Request, user=Depends(current_user)):
-    # Only the caller's own account is writable. GoTrue merges these keys into existing metadata.
-    username = payload.venmo_username
-    provenance = {'source': 'self', 'provided_by_user_id': user.id,
-                  'provided_at': datetime.now(timezone.utc).isoformat(), 'owner_confirmed': payload.owner_confirmed, 'handle': username.lower()} if username else None
+    # Only the caller's own profile is writable. The handle lives in commons_profiles, not Auth metadata.
+    if getattr(user, 'is_anonymous', False):
+        raise HTTPException(403, 'Sign in with Google to save a Venmo username.')
+    username = payload.venmo_username.lower() if payload.venmo_username else None
+    confirmed_name = None
     if username and payload.owner_confirmed:
         from venmo.profiles import lookup
         try:
-            preview = lookup.load(client(request), username.lower()) or {}
+            preview = lookup.load(client(request), username) or {}
         except Exception:
             preview = {}
         if preview.get('found'):
-            provenance['display_name'] = preview['displayName']
+            confirmed_name = preview['displayName']
     try:
-        updated = client(request).auth.admin.update_user_by_id(
-            user.id, {'user_metadata': {'venmo_username': username, 'venmo_username_provenance': provenance}}).user
-    except AuthApiError:
+        update_commons_profile(client(request), user.id, {
+            'venmo_username': username, 'venmo_owner_confirmed': bool(username) and payload.owner_confirmed,
+            'venmo_confirmed_name': confirmed_name}, user=user)
+    except APIError:
         raise HTTPException(503, 'Could not save your Venmo username. Try again.')
-    if not updated or updated.id != user.id:
-        raise HTTPException(503, 'Could not confirm your Venmo username was saved. Reload to check.')
-    return my_profile(request, updated)
+    return my_profile(request, user)
 
 
 @router.post('/groups', status_code=201)

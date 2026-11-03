@@ -2,13 +2,14 @@
 from types import SimpleNamespace
 
 import pytest
+from postgrest.exceptions import APIError
 
-from commons_account.profile import own_profile, public_profiles, shared_profiles
+from commons_account.profile import own_profile, public_profiles, shared_profiles, update_profile
 
 
 class Table:
     def __init__(self, db, name):
-        self.db, self.name, self.filters, self.columns, self.row = db, name, {}, None, None
+        self.db, self.name, self.filters, self.columns, self.row, self.changes = db, name, {}, None, None, None
 
     def select(self, columns):
         self.columns = columns.split(',')
@@ -25,25 +26,36 @@ class Table:
     def limit(self, _):
         return self
 
-    def upsert(self, row, on_conflict, ignore_duplicates):
-        assert (on_conflict, ignore_duplicates) == ('user_id', True)
+    def insert(self, row):
         self.row = row
+        return self
+
+    def update(self, changes):
+        self.changes = changes
         return self
 
     def execute(self):
         rows = self.db.setdefault(self.name, [])
         if self.row is not None:
             self.db['writes'] = self.db.get('writes', 0) + 1
-            if not any(row['user_id'] == self.row['user_id'] for row in rows):
-                rows.append(self.row)
-            return SimpleNamespace(data=[])
+            if any(row['user_id'] == self.row['user_id'] for row in rows):
+                raise APIError({'code': '23505', 'message': 'duplicate key'})
+            rows.append(self.row)
+            return SimpleNamespace(data=[self.row])
         found = [row for row in rows if all(row.get(key) in values for key, values in self.filters.items())]
+        if self.changes is not None:
+            for row in found:
+                row.update(self.changes)
+            return SimpleNamespace(data=found)
         return SimpleNamespace(data=[{name: row.get(name) for name in self.columns} for row in found])
 
 
 class Client:
-    def __init__(self, **tables):
+    def __init__(self, accounts=(), **tables):
         self.db = tables
+        users = {user.id: user for user in accounts}
+        self.auth = SimpleNamespace(admin=SimpleNamespace(
+            get_user_by_id=lambda user_id: SimpleNamespace(user=users[user_id])))
 
     def table(self, name):
         return Table(self.db, name)
@@ -76,3 +88,29 @@ def test_public_reads_never_include_shared_fields():
                                        'venmo_confirmed_name': 'Sam P'}])
     assert public_profiles(client, ['u1', 'missing']) == {'u1': {'display_name': 'Sam', 'avatar_url': None}}
     assert shared_profiles(client, ['u1'])['u1']['venmo_username'] == 'sam-pays'
+
+
+def test_a_lost_creation_race_keeps_the_winning_row(monkeypatch):
+    client = Client(dice_profiles=[], commons_profiles=[])
+    insert = Table.insert
+
+    def racing_insert(self, row):  # Another request inserts between our read and our insert.
+        self.db['commons_profiles'].append({**row, 'display_name': 'Winner'})
+        return insert(self, row)
+    monkeypatch.setattr(Table, 'insert', racing_insert)
+    assert own_profile(client, account(full_name='Loser'))['display_name'] == 'Winner'
+
+
+def test_update_creates_a_missing_row_from_the_account_then_writes():
+    client = Client(accounts=[account(full_name='Google Sam')], dice_profiles=[], commons_profiles=[])
+    saved = update_profile(client, 'u1', {'display_name': 'Sam Edited'})
+    assert saved['display_name'] == 'Sam Edited'
+    assert client.db['commons_profiles'][0]['display_name'] == 'Sam Edited'
+
+
+@pytest.mark.parametrize('changes', [{'display_name': '   '}, {'avatar_url': 'https://x.test/' + 'a' * 2048}])
+def test_update_rejects_values_the_table_would_refuse(changes):
+    client = Client(commons_profiles=[{'user_id': 'u1', 'display_name': 'Sam'}])
+    with pytest.raises(ValueError):
+        update_profile(client, 'u1', changes)
+    assert client.db['commons_profiles'] == [{'user_id': 'u1', 'display_name': 'Sam'}]

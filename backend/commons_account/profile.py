@@ -4,6 +4,10 @@ Visibility lives here so every reader selects the same fields:
 - public: anyone who sees you in any project.
 - shared: people who share something with you; the caller proves that relationship.
 """
+from datetime import datetime, timezone
+
+from postgrest.exceptions import APIError
+
 from trips.venmo import account_venmo
 
 TABLE = 'commons_profiles'
@@ -82,6 +86,29 @@ def own_profile(client, user) -> dict:
     dice_rows = (client.table('dice_profiles').select('display_name,avatar_url')
                  .eq('user_id', str(user.id)).limit(1).execute().data)
     row = default_profile(user, dice_rows[0] if dice_rows else None)
-    # A concurrent first request may insert first; keep whichever row won.
-    client.table(TABLE).upsert(row, on_conflict='user_id', ignore_duplicates=True).execute()
+    try:
+        client.table(TABLE).insert(row).execute()
+    except APIError as error:
+        if error.code != '23505':
+            raise
+        # A concurrent first request inserted first; keep whichever row won.
     return shared_profiles(client, [user.id])[str(user.id)]
+
+
+def update_profile(client, user_id, changes, user=None) -> dict:
+    """Write profile fields; the only writer of name and avatar (0087 mirrors them into dice_profiles).
+
+    A user without a row yet (an account made since the backfill) first gets one from
+    own_profile, so the update fires the Dice mirror. Pass ``user`` when the caller
+    already holds the Auth user; otherwise it is read by ID.
+    """
+    if 'display_name' in changes and not _name(changes['display_name']):
+        raise ValueError('display name cannot be blank')
+    if 'avatar_url' in changes and changes['avatar_url'] is not None and _avatar(changes['avatar_url']) is None:
+        raise ValueError(f'avatar URL must be at most {AVATAR_LIMIT} characters')
+    write = {**changes, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    rows = client.table(TABLE).update(write).eq('user_id', str(user_id)).execute().data
+    if not rows:
+        own_profile(client, user or client.auth.admin.get_user_by_id(str(user_id)).user)
+        rows = client.table(TABLE).update(write).eq('user_id', str(user_id)).execute().data
+    return {name: rows[0].get(name) for name in SHARED_FIELDS}
