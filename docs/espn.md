@@ -201,7 +201,7 @@ using `POST /espn/automation/lineup` with `{"enabled": false}` if needed.
 Earlier checkbox choices were not saved, so this fix does not change
 existing account flags or infer consent from them.
 
-When automation is on, the server-side scheduler sets your lineup twice daily (09:00 and 18:30 ET); see
+When automation is on, the server-side scheduler sets your lineup twice daily (09:00 and 18:00 ET); see
 `docs/espn-scheduler.md` for how it runs. A manual run is still
 available any time via `POST /espn/lineup/run` or the `run_lineup`
 MCP tool.
