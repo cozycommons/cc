@@ -201,8 +201,7 @@ class FakeSupabase:
         self._store = []
 
     def table(self, name):
-        assert name == "espn_trade_proposals"
-        return FakeTable(self._store)
+        return FakeTable(self._store if name == "espn_trade_proposals" else [])
 
 
 class FakeClient:
@@ -433,11 +432,11 @@ def test_expired_proposal_rejected_and_marked():
 
 def test_approve_submit_failure_recorded_as_failed():
     db, client = FakeSupabase(), FakeClient()
-    client.post_error = EspnError("ESPN exploded", status=500)
+    client.post_error = EspnError("ESPN rejected the request", status=400)
     prop = _propose(db, client)
     result = trades.approve_trade(db, ACCOUNT, client, prop["id"], now=NOW)
     assert result["status"] == "failed"
-    assert "ESPN exploded" in result["error"]
+    assert "ESPN rejected the request" in result["error"]
     assert db._store[0]["status"] == "failed"
 
 

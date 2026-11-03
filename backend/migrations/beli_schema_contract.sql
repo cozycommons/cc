@@ -97,5 +97,45 @@ begin
   if to_regprocedure('public.espn_claim_team(integer,integer,uuid)') is null then
     raise exception 'Beli schema contract: missing function public.espn_claim_team';
   end if;
+
+  -- The invoker guard must see every competing row, including RLS-protected
+  -- rows. Only the backend's BYPASSRLS role may claim writes through the API.
+  if not exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role' and rolbypassrls) then
+    raise exception 'Beli schema contract: service_role must have BYPASSRLS';
+  end if;
+  if not exists (
+    select 1 from pg_catalog.pg_proc
+    where oid = to_regprocedure('public.espn_write_claim_guard()')
+      and not prosecdef and provolatile = 'v' and prorettype = 'pg_catalog.trigger'::regtype
+      and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'Beli schema contract: missing or unsafe public.espn_write_claim_guard';
+  end if;
+  if not pg_catalog.has_function_privilege('service_role', 'public.espn_write_claim_guard()', 'EXECUTE')
+      or pg_catalog.has_function_privilege('anon', 'public.espn_write_claim_guard()', 'EXECUTE')
+      or pg_catalog.has_function_privilege('authenticated', 'public.espn_write_claim_guard()', 'EXECUTE') then
+    raise exception 'Beli schema contract: unsafe ESPN write guard function privileges';
+  end if;
+  foreach object_name in array array['espn_roster_edits', 'espn_trade_proposals'] loop
+    if not exists (
+      select 1 from pg_catalog.pg_trigger t
+      join pg_catalog.pg_attribute a on a.attrelid = t.tgrelid and a.attname = 'status'
+      where t.tgrelid = to_regclass('public.' || object_name)
+        and t.tgname = 'espn_write_claim_guard' and not t.tgisinternal
+        and t.tgenabled in ('O', 'A') and t.tgtype = 19
+        and t.tgfoid = to_regprocedure('public.espn_write_claim_guard()')
+        and t.tgattr::text = a.attnum::text
+    ) then
+      raise exception 'Beli schema contract: missing or disabled ESPN write claim trigger on %', object_name;
+    end if;
+    if not exists (select 1 from pg_catalog.pg_class
+                   where oid = to_regclass('public.' || object_name) and relrowsecurity)
+        or not pg_catalog.has_table_privilege('service_role', 'public.' || object_name, 'SELECT')
+        or not pg_catalog.has_table_privilege('service_role', 'public.' || object_name, 'UPDATE')
+        or pg_catalog.has_any_column_privilege('anon', 'public.' || object_name, 'UPDATE')
+        or pg_catalog.has_any_column_privilege('authenticated', 'public.' || object_name, 'UPDATE') then
+      raise exception 'Beli schema contract: unsafe ESPN write claim table privileges on %', object_name;
+    end if;
+  end loop;
 end
 $$;
