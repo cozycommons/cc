@@ -1,6 +1,7 @@
 # M4 plan: Commons account page at `/account`
 
-Status: PR 1 (profile table and backfill) built on `commons-account-profile`; PRs 2 to 5 are plan only.
+Status: PR 1 (profile table and backfill) is on `main` (#203). PR 2 (readers and writers) built on
+`commons-account-readers`; PRs 3 to 5 are plan only.
 
 Owner direction: connector auth and connectors get a home in the UI, managed at
 the profile level. The Dice profile identity becomes the Commons identity for
@@ -181,6 +182,47 @@ Where `0087` and `commons_account/profile.py` refine the sketch above:
 - Dice players with no Dice avatar get their Google avatar in
   `commons_profiles`. Nothing reads it until PR 2, which decides whether Trips
   and the connector show it.
+
+### As built in PR 2
+
+- **Avatar decision: Trips and the connector show the Google avatar** of Dice
+  players who have no Dice avatar. Readers take `commons_profiles.avatar_url`
+  as stored; nothing re-checks the Dice row. Dice has no "remove photo"
+  control, so a null Dice avatar was never a choice, and Trips already showed
+  the Google avatar for every non-Dice user and in link suggestions. Dice
+  itself keeps its own copy, so those players still show initials in Dice
+  until they next change their avatar. The ESPN public claims list now shows
+  that Google avatar too (https only, as before).
+- **`0088_dice_commons_profiles_catch_up.sql`** (dice contract 88). PR 1 shipped
+  while the old code still wrote names and avatars to `dice_profiles` and Venmo
+  to Auth metadata. 0088 re-runs the 0087 backfill as an upsert with the mirror
+  trigger disabled for that statement, so those edits survive and `dice_profiles`
+  and `auth.users` are untouched. Safe because nothing wrote `commons_profiles`
+  before this release.
+- `commons_account.profile.update_profile` is the only writer. It rejects a
+  blank name or an avatar over 2048 characters (`PUT /dice/me` returns 400; it
+  used to store a whitespace name) and creates a missing row first, so the
+  update fires the mirror. `own_profile` inserts and ignores a duplicate-key
+  race instead of upserting.
+- `GET /dice/me` calls `own_profile` on every visit and creates a new Dice row
+  from it (Commons name, else Google, else the email local part; it used to
+  fall back to "Player"). `PUT /dice/me` checks the Dice row exists, writes name
+  and avatar to `commons_profiles`, then everything else to `dice_profiles`.
+- Trips `GET /trips/me` creates the row; `whoami` uses the read-only
+  `stored_profile` (no write from a read-only tool). Both fall back to Auth
+  metadata for a Supabase anonymous session or a missing row.
+  `profile_source` is now `commons` or `account`.
+- `PUT /trips/me` stores the handle lowercased (the column's canonical form) and
+  `venmo_owner_confirmed`/`venmo_confirmed_name`; it no longer calls
+  `update_user_by_id`. Trips shows `alex-pays` where it used to echo `Alex-Pays`.
+- `render_groups` reads shared fields for linked members (callers pass only
+  trips the viewer belongs to) and asks Auth only for linked IDs without a row.
+- ESPN claims require a Commons row instead of a Dice row. Every account that
+  has opened Dice or Trips has one, so the "Make a Dice profile first" copy
+  still leads somewhere that works.
+- `tests/test_commons_profile_readers.py` covers the section 7 list plus a
+  source scan: only `dice/repository.py` writes `dice_profiles`, and its writes
+  never carry name or avatar after creation.
 
 ### Public, private and anonymous
 
