@@ -26,7 +26,7 @@ vi.mock('../components/LeaderboardRow.jsx', () => ({
 vi.mock('../components/TournamentRow.jsx', () => ({ default: ({ tournament }) => <div>Tournament {tournament.name}</div> }));
 vi.mock('../components/PlayerAvatar.jsx', () => ({ default: ({ profile }) => <span>{profile.display_name} avatar</span> }));
 
-import Home, { calculateStreaks, calculateSynergies, matchStory, splitTournaments } from './Home.jsx';
+import Home, { calculateStreaks, matchStory, splitTournaments } from './Home.jsx';
 
 const releasedAuth = {
   token: 'token',
@@ -170,15 +170,6 @@ describe('Dice home dashboard', () => {
     expect(within(streak).getByText('Jason avatar')).toBeInTheDocument();
     expect(within(streak).getByText('2')).toBeInTheDocument();
     expect(within(streak.closest('section')).getByRole('link', { name: 'View all →' })).toHaveAttribute('href', '/dice/stats?view=streaks');
-  });
-
-  it('ranks teammate pairings by their combined record', () => {
-    const games = [
-      { winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }, { user_id: 'u2', display_name: 'Jaycee', team: 1 }] },
-      { winner_team: 2, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }, { user_id: 'u2', display_name: 'Jaycee', team: 1 }] },
-      { winner_team: 1, players: [{ user_id: 'u1', display_name: 'Jason', team: 1 }, { user_id: 'u2', display_name: 'Jaycee', team: 1 }] },
-    ];
-    expect(calculateSynergies(games)[0]).toMatchObject({ players: ['Jason', 'Jaycee'], wins: 2, losses: 1 });
   });
 
   it('puts live activity first for a signed-in profile', async () => {

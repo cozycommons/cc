@@ -412,6 +412,33 @@ class DuoMember(BaseModel):
     avatar_url: Optional[str] = None
 
 
+class DuoApartRecord(BaseModel):
+    user_id: str
+    wins: int
+    losses: int
+    games: int
+
+
+class DuoSynergy(BaseModel):
+    wins: int
+    losses: int
+    games: int
+    expected_wins: float
+    wins_above_expected: float
+    apart: list[DuoApartRecord]
+
+
+class BigMomentsMember(BaseModel):
+    user_id: str
+    positive_swing: float
+    share: float
+
+
+class DuoBigMoments(BaseModel):
+    games: int
+    members: tuple[BigMomentsMember, BigMomentsMember]
+
+
 class DuoSummary(BaseModel):
     duo_id: str
     members: tuple[DuoMember, DuoMember]
@@ -428,6 +455,7 @@ class DuoSummary(BaseModel):
     current_streak: int = 0
     best_streak: int = 0
     game_ids: list[str] = Field(default_factory=list)
+    synergy: DuoSynergy | None = None
 
 
 class DuoTransitionOut(BaseModel):
@@ -444,6 +472,8 @@ class DuoTransitionOut(BaseModel):
 class DuoLadderOut(BaseModel):
     ranked: list[DuoSummary]
     to_watch: list[DuoSummary]
+    best_chemistry: list[DuoSummary] = Field(default_factory=list)
+    better_apart: list[DuoSummary] = Field(default_factory=list)
 
 
 class DuoHeadToHead(BaseModel):
@@ -461,6 +491,7 @@ class DuoDetailOut(BaseModel):
     rating_history: list[DuoTransitionOut]
     games: list[DuoTransitionOut]
     head_to_head: list[DuoHeadToHead]
+    big_moments: DuoBigMoments | None = None
 
 
 class RatingProgress(BaseModel):
