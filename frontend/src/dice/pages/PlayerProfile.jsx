@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import PlayerAvatar from '../components/PlayerAvatar.jsx';
 import { AVATAR_IMAGE_MAX_EDGE, compactImage, uniqueImageFolder } from '../imageUpload.js';
 import GameRow from '../components/GameRow.jsx';
 import EloHistoryChart from '../components/EloHistoryChart.jsx';
+import { isOnExpected, synergyDescription } from '../duoSynergy.js';
 import { aggregateRecordedStats } from '../recordedStats.js';
 
 const AVATAR_BUCKET = 'dice-profile-photos';
@@ -95,6 +96,7 @@ export default function PlayerProfile({ auth }) {
   const { userId } = useParams();
   const { supabase } = useSupabase();
   const { user, token, isAdmin, refreshProfile, signOut } = auth;
+  const [partnerResult, setPartnerResult] = useState(null);
   const [profile, setProfile] = useState(null);
   const [games, setGames] = useState(null);
   const [ratingProgress, setRatingProgress] = useState(undefined);
@@ -129,6 +131,18 @@ export default function PlayerProfile({ auth }) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, token]);
+
+  useEffect(() => {
+    let active = true;
+    if (token && auth.profile) {
+      diceApi.getBestPartner(token, userId).then((duo) => {
+        if (active) setPartnerResult({ userId, duo });
+      }).catch(() => { if (active) setPartnerResult(null); });
+    }
+    return () => { active = false; };
+  }, [userId, token, auth.profile]);
+  const bestPartner = partnerResult?.userId === userId ? partnerResult.duo : null;
+  const partner = bestPartner?.members.find((member) => member.user_id !== userId);
 
   const eloHistory = ratingProgress?.history
     ? ratingProgress.history.map((point) => ({ date: point.played_at, elo: point.rating_after }))
@@ -347,6 +361,17 @@ export default function PlayerProfile({ auth }) {
       </div>
 
       <PersonalRecordedStats games={games} userId={userId} />
+
+      {token && auth.profile && partner && bestPartner.synergy?.wins_above_expected > 0 && !isOnExpected(bestPartner.synergy) && (
+        <Link to={`/dice/stats/duos/${encodeURIComponent(bestPartner.duo_id)}`} className="jk-card flex items-center gap-3 p-4 mb-6" aria-label="Best partner">
+          <PlayerAvatar profile={partner} size={34} linkToProfile={false} />
+          <div className="min-w-0 flex-1">
+            <p className="jk-label">Best partner</p>
+            <p className="text-sm font-semibold mt-1 break-words">{partner.display_name} · {bestPartner.synergy.wins}–{bestPartner.synergy.losses} together, {synergyDescription(bestPartner.synergy, { short: true })} expected</p>
+          </div>
+          <span className="shrink-0" aria-hidden="true">→</span>
+        </Link>
+      )}
 
       {!isOwnProfile && profile.head_to_head && (
         <div className="mb-8">

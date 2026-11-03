@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getProfile: vi.fn(),
   getProfileGames: vi.fn(),
   getRatingProgress: vi.fn(),
+  getBestPartner: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../../contexts/SupabaseContext', () => ({
@@ -16,9 +17,10 @@ vi.mock('../api.js', () => ({
     getProfile: mocks.getProfile,
     getProfileGames: mocks.getProfileGames,
     getRatingProgress: mocks.getRatingProgress,
+    getBestPartner: mocks.getBestPartner,
   },
 }));
-vi.mock('../components/PlayerAvatar.jsx', () => ({ default: () => <div>avatar</div> }));
+vi.mock('../components/PlayerAvatar.jsx', () => ({ default: ({ profile, size }) => <div data-size={size}>{profile.display_name} avatar</div> }));
 vi.mock('../components/GameRow.jsx', () => ({
   default: ({ game, ratingDelta }) => <div>{game.id}:{String(ratingDelta)}</div>,
 }));
@@ -44,15 +46,16 @@ function profile(userId) {
   };
 }
 
-function renderProfile({ viewedUserId = 'u1', progress, games = [] }) {
+function renderProfile({ viewedUserId = 'u1', progress, games = [], headToHead = null }) {
   const auth = {
     user: { id: 'u1', email: 'player@example.com' },
     token: 'token',
     isAdmin: false,
+    profile: { user_id: 'u1' },
     refreshProfile: vi.fn(),
     signOut: vi.fn(),
   };
-  mocks.getProfile.mockResolvedValue(profile(viewedUserId));
+  mocks.getProfile.mockResolvedValue({ ...profile(viewedUserId), head_to_head: headToHead });
   mocks.getProfileGames.mockResolvedValue(games);
   mocks.getRatingProgress.mockResolvedValue(progress ?? {
     current_rank: 2,
@@ -138,4 +141,36 @@ describe('PlayerProfile released experience', () => {
     expect(within(recorded).getByText('Missing plays are excluded, not counted as misses.')).toBeInTheDocument();
     expect(mocks.getProfileGames).toHaveBeenCalledWith('u1', 200);
   });
+});
+
+
+it.each([2.44, 0.02, -2.4, null])('only shows a positive best partner (%s)', async (difference) => {
+  mocks.getBestPartner.mockResolvedValue(difference == null ? null : {
+    duo_id: 'best:pair', members: [{ user_id: 'u1', display_name: 'Alpha' }, { user_id: 'u2', display_name: 'Bravo' }],
+    synergy: { wins: 9, losses: 3, wins_above_expected: difference },
+  });
+  renderProfile({});
+  await screen.findByText('Player u1');
+  if (difference >= 0.05) {
+    expect(await screen.findByRole('link', { name: 'Best partner' })).toHaveAttribute('href', '/dice/stats/duos/best%3Apair');
+    expect(screen.getByText('Bravo · 9–3 together, 2.4 over expected')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Best partner' });
+    expect(within(link).getByText('Bravo avatar')).toHaveAttribute('data-size', '34');
+    expect(within(link).getByText('→')).toBeInTheDocument();
+  } else {
+    expect(screen.queryByRole('link', { name: 'Best partner' })).not.toBeInTheDocument();
+  }
+  expect(screen.queryByText(/worst partner/i)).not.toBeInTheDocument();
+  expect(mocks.getBestPartner).toHaveBeenCalledWith('token', 'u1');
+});
+
+
+it('keeps the partner row directly above head to head', async () => {
+  mocks.getBestPartner.mockResolvedValue({ duo_id: 'best',
+    members: [{ user_id: 'u1', display_name: 'Alpha' }, { user_id: 'u2', display_name: 'Bravo' }],
+    synergy: { wins: 9, losses: 3, wins_above_expected: 1.6 } });
+  renderProfile({ viewedUserId: 'u2', headToHead: { total_games: 1,
+    opponent_wins: 1, opponent_losses: 0, teammate_wins: 0, teammate_losses: 0 } });
+  const row = await screen.findByRole('link', { name: 'Best partner' });
+  expect(row.nextElementSibling).toContainElement(screen.getByText('// HEAD TO HEAD'));
 });

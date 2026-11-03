@@ -62,8 +62,8 @@ chat or a shared doc.
 The flow that works in production. Steps say who does them — **you**
 in your browser, or **an agent helping you** — so it reads the same
 either way. Onboarding is the only setup step: it unlocks the full
-API and MCP surface above, and daily lineup automation is on by
-default.
+API and MCP surface above. Daily lineup automation follows the checkbox
+selected when connecting (checked by default).
 
 You'll need: a desktop or laptop with Chrome, and an ESPN account
 with a team in a fantasy basketball league.
@@ -96,11 +96,10 @@ with a team in a fantasy basketball league.
    cannot be retrieved later.
 6. Verify: `GET /espn/me` with `Authorization: Bearer <token>` must
    return `200` with the account (`id`, `league_id`, `season`) and
-   `"lineup_automation_enabled": true`. Opt out of automation with
+   `"lineup_automation_enabled"` matching your choice. Opt out later with
    `POST /espn/automation/lineup` (`{"enabled": false}`).
 
-Done — your account is live, daily lineup automation is on, and
-there's nothing else to set up.
+Your account is live, with daily lineup automation set to your choice.
 
 Failure modes to know:
 
@@ -191,9 +190,18 @@ curl -s -X POST https://<backend-host>/espn/automation/lineup \
   -d '{"enabled": true}'
 ```
 
-New accounts already have automation on — this endpoint is the
-opt-out / re-enable switch. When it's on, the server-side scheduler
-sets your lineup twice daily (09:00 and 18:30 ET); see
+Both onboarding endpoints accept `enable_automation`: `false` stores the
+account with automation disabled immediately. The extension sends its
+checkbox choice in that request. Both endpoints retain the enabled default when the field is omitted.
+The endpoint above changes the choice later.
+
+Accounts created before this fix may have automation enabled even if the
+checkbox was cleared. Verify the flag with `GET /espn/me` and disable it
+using `POST /espn/automation/lineup` with `{"enabled": false}` if needed.
+Earlier checkbox choices were not saved, so this fix does not change
+existing account flags or infer consent from them.
+
+When automation is on, the server-side scheduler sets your lineup twice daily (09:00 and 18:00 ET); see
 `docs/espn-scheduler.md` for how it runs. A manual run is still
 available any time via `POST /espn/lineup/run` or the `run_lineup`
 MCP tool.

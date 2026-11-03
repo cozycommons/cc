@@ -18,10 +18,8 @@ Endpoints:
   - Players: ``GET /seasons/{season}/players?view=kona_player_info``
     with an ``X-Fantasy-Filter`` header carrying a JSON filter/sort
     document; the response is a bare JSON list of player entries.
-    The filter can also scope the returned stat splits to one
-    scoring period (``filterStatsForScoringPeriodIds``) — that is
-    where per-day projections live when the league payload's roster
-    entries carry none (see :meth:`EspnClient.get_players_for_period`).
+    On the reads host this endpoint ignores filters and returns
+    minimal player information. Use league players for stat splits.
   - League players: ``GET /seasons/{season}/segments/0/leagues/{league_id}
     ?view=kona_player_info`` with the same ``X-Fantasy-Filter`` header;
     the response is an object whose ``players`` array carries the rich
@@ -55,19 +53,21 @@ of JSON. Both raise EspnAuthError — the user must re-onboard with fresh
 espn_s2/SWID cookies, and the client never returns the HTML as data.
 
 One EspnClient instance = one ESPN account / one league. Request pacing
-is per-instance (the backend is multi-tenant; nothing is shared across
-accounts). Cookies are never logged.
+is per-instance; scheduler clients share a 429 cooldown within a tick.
+Cookies are never logged.
 """
 
 from __future__ import annotations
 
 import http.client
 import json
+import math
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from email.utils import parsedate_to_datetime
 
 API_BASE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fba"
 WRITE_API_BASE = "https://lm-api-writes.fantasy.espn.com/apis/v3/games/fba"
@@ -76,6 +76,7 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 MIN_GAP_S = 1.0
+RATE_LIMIT_COOLDOWN_S = 60.0
 
 AUTH_EXPIRED_MESSAGE = (
     "ESPN cookies expired or were rejected; re-onboard with fresh "
@@ -107,6 +108,45 @@ class EspnAuthError(EspnError):
     """The stored cookies are expired/rejected — the user must re-onboard."""
 
 
+class RequestCooldown:
+    """A monotonic 429 deadline shared by clients in one scheduler tick.
+
+    No requests are retried here, especially transaction writes. The
+    next request fails fast; absent/invalid Retry-After uses a 60s backoff.
+    This is in-process only, not a lock between scheduler processes.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._until = 0.0
+        self.triggered = False
+
+    def defer(self, retry_after=None):
+        delay = RATE_LIMIT_COOLDOWN_S
+        if retry_after is not None:
+            try:
+                delay = float(retry_after)
+            except (TypeError, ValueError):
+                try:
+                    delay = parsedate_to_datetime(retry_after).timestamp() - time.time()
+                except (TypeError, ValueError, OverflowError):
+                    delay = RATE_LIMIT_COOLDOWN_S
+        if not math.isfinite(delay) or delay < 0:
+            delay = RATE_LIMIT_COOLDOWN_S
+        with self._lock:
+            self.triggered = True
+            self._until = max(self._until, time.monotonic() + delay)
+
+    @property
+    def remaining_seconds(self):
+        with self._lock:
+            return max(0.0, self._until - time.monotonic())
+
+    def check(self):
+        if self.remaining_seconds > 0:
+            raise EspnError("ESPN requests deferred after HTTP 429", status=429)
+
+
 class EspnClient:
     """Authenticated ESPN Fantasy access for a single league.
 
@@ -116,20 +156,26 @@ class EspnClient:
     espn/trades.py).
     """
 
-    def __init__(self, espn_s2: str, swid: str, league_id: int, season: int):
+    def __init__(self, espn_s2: str, swid: str, league_id: int, season: int,
+                 *, cooldown: RequestCooldown | None = None):
         self._espn_s2 = (espn_s2 or "").strip()
         self._swid = (swid or "").strip()
         self.league_id = league_id
         self.season = season
         self._lock = threading.Lock()
         self._last_call_at = 0.0
+        self._cooldown = cooldown
 
     # -- internals ---------------------------------------------------------
     def _pace(self) -> None:
         with self._lock:
+            if self._cooldown is not None:
+                self._cooldown.check()
             wait = MIN_GAP_S - (time.monotonic() - self._last_call_at)
             if wait > 0:
                 time.sleep(wait)
+            if self._cooldown is not None:
+                self._cooldown.check()
             self._last_call_at = time.monotonic()
 
     def _headers(self, extra: dict | None = None) -> dict:
@@ -158,6 +204,8 @@ class EspnClient:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
+            if e.code == 429 and self._cooldown is not None:
+                self._cooldown.defer(e.headers.get("Retry-After") if e.headers else None)
             if e.code in (401, 403):
                 raise EspnAuthError(
                     f"{what} -> {e.code}: {AUTH_EXPIRED_MESSAGE}", status=e.code
@@ -202,6 +250,8 @@ class EspnClient:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
+            if e.code == 429 and self._cooldown is not None:
+                self._cooldown.defer(e.headers.get("Retry-After") if e.headers else None)
             if e.code in (401, 403):
                 raise EspnAuthError(
                     f"{what} -> {e.code}: {AUTH_EXPIRED_MESSAGE}", status=e.code
@@ -285,29 +335,12 @@ class EspnClient:
     def get_players_for_period(
         self, scoring_period_id: int, limit: int = 1000
     ) -> list:
-        """Kona player entries with stat splits for ONE scoring period.
+        """Compatibility name for league-scoped per-period kona stats.
 
-        ``filterStatsForScoringPeriodIds`` scopes each player's
-        ``stats`` to the requested day, so projected splits
-        (statSourceId 1) come back keyed by that scoringPeriodId.
-        This is the lineup schedule gate's projection source when the
-        period-scoped roster payload carries no per-period projected
-        splits (the preseason shape: ESPN publishes none there). The
-        gate only needs pro-team coverage — one projected player per
-        team registers the team — so a generous ownership-sorted limit
-        suffices: every team's most-owned players sit far inside it.
+        The seasons-level players endpoint ignores filters (#175),
+        so it cannot supply the lineup schedule gate's projections.
         """
-        return self._fetch_players(
-            {
-                "players": {
-                    "filterStatsForScoringPeriodIds": {
-                        "value": [int(scoring_period_id)]
-                    },
-                    "limit": limit,
-                    "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
-                }
-            }
-        )
+        return self.get_league_players_for_period(scoring_period_id, limit=limit)
 
     def _fetch_league_players(self, players_filter: dict) -> list:
         """One league-scoped kona_player_info fetch with the given filter.
@@ -351,8 +384,8 @@ class EspnClient:
         header and returns a flat, minimal list — name, position and
         injury status only, with no nested player object, no stats,
         no ownership and no onTeamId — which silently emptied the
-        waiver report. The seasons endpoint remains in use only by
-        the lineup schedule gate (see :meth:`get_players_for_period`).
+        waiver report. The lineup schedule gate also uses this
+        league-scoped endpoint (see :meth:`get_players_for_period`).
         """
         return self._fetch_league_players(
             {

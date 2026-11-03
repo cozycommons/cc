@@ -232,10 +232,11 @@ def test_get_players_for_period_filters_stats_to_the_period(monkeypatch):
             },
         }
     ]
-    t = StubTransport(monkeypatch).on(PLAYERS_URL, ok(players))
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": players}))
     client = _client()
     assert client.get_players_for_period(6) == players
     (req,) = t.requests
+    assert req.full_url.startswith(LEAGUE_URL + "?")
     assert query_of(req) == {"view": ["kona_player_info"]}
     fantasy_filter = json.loads(headers_of(req)["x-fantasy-filter"])
     assert fantasy_filter == {
@@ -248,9 +249,69 @@ def test_get_players_for_period_filters_stats_to_the_period(monkeypatch):
 
 
 def test_get_players_for_period_non_list_body_raises(monkeypatch):
-    StubTransport(monkeypatch).on(PLAYERS_URL, ok({"players": []}))
+    StubTransport(monkeypatch).on(LEAGUE_URL, ok([]))
     with pytest.raises(EspnError, match="unexpected response"):
         _client().get_players_for_period(6)
+
+
+def test_lineup_projection_fallback_uses_league_kona(monkeypatch):
+    from espn import lineup
+
+    players = [{"player": {"proTeamId": 2, "stats": [
+        {"statSourceId": 1, "scoringPeriodId": 6, "appliedTotal": 42}
+    ]}}]
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": players}))
+    assert lineup._kona_projected_teams(_client(), 6) == ({2}, None)
+    assert json.loads(headers_of(t.requests[0])["x-fantasy-filter"])[
+        "players"
+    ]["filterStatsForScoringPeriodIds"] == {"value": [6]}
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("retry_after,delay", [
+    (None, 60), ("12", 12), ("invalid", 60), ("-1", 60),
+    ("nan", 60), ("inf", 60),
+    ("Thu, 29 Oct 2026 14:02:00 GMT", 120),
+])
+def test_shared_429_cooldown_defers_another_account_without_sleep(
+    monkeypatch, method, retry_after, delay
+):
+    clock = [100.0]
+    sleeps = []
+    monkeypatch.setattr(espn_client.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(espn_client.time, "time", lambda: 1793282400.0)  # 14:00 UTC
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(espn_client.time, "sleep", sleep)
+    cooldown = espn_client.RequestCooldown()
+    first = EspnClient("synthetic-1", "{ONE}", 111, SEASON, cooldown=cooldown)
+    second = EspnClient("synthetic-2", "{TWO}", 222, SEASON, cooldown=cooldown)
+
+    def limited(req):
+        headers = {} if retry_after is None else {"Retry-After": retry_after}
+        raise urllib.error.HTTPError(req.full_url, 429, "limited", headers, io.BytesIO())
+
+    t = StubTransport(monkeypatch).on(first.league_url(), limited)
+    t.on(second.league_url(), ok({"id": 222}))
+    with pytest.raises(EspnError) as exc:
+        if method == "GET":
+            first.get_league(["mTeam"])
+        else:
+            first._post(first.league_url(), {})
+    assert exc.value.status == 429
+    assert sleeps == []
+    with pytest.raises(EspnError) as exc:
+        second.get_league(["mTeam"])
+    assert exc.value.status == 429
+    assert len(t.requests) == 1
+    assert sleeps == []
+    clock[0] += delay
+    second.get_league(["mTeam"])
+    second.get_league(["mTeam"])
+    assert sleeps == []
 
 
 # --- league players (league-scoped kona) ---------------------------------------

@@ -6,7 +6,7 @@ This module moves the trigger in-house: a dumb hourly tick (Coolify
 Scheduled Task, ``0 * * * *``) runs ``python -m espn.scheduler`` in the
 backend container, and all due-logic lives here, in code:
 
-  - Two slots a day, America/New_York: 09:00 (morning) and 18:30
+  - Two slots a day, America/New_York: 09:00 (morning) and 18:00
     (evening), computed with zoneinfo so DST is handled by the tz
     database, not by a twice-a-year cron edit.
   - A slot is due when now(ET) is in [slot, slot + 3h) — the catch-up
@@ -25,15 +25,21 @@ backend container, and all due-logic lives here, in code:
     conflict only adds a recorded caveat). error / auth_error runs do
     NOT dedupe — the next tick inside the window retries them, which
     is what the catch-up window is for. This reads no new schema: it
-    keys on (account_id, mode='live', status, created_at in window).
+    keys on (account_id, league_id, season, scoring_period_id,
+    mode='live', status, created_at in window). The runner resolves
+    the current period before the dedupe check.
     Approximation, deliberately: an adhoc live run a user fires by
     hand inside a window also satisfies the slot (it is the same pass
-    for the same day), and a run that lands exactly on a window edge
+    for the same period). A future-day run does not satisfy today's
+    slot. A run that lands exactly on a window edge
     belongs to the window it timestamp-falls into.
   - Isolation: a per-account failure (dead cookies, an ESPN error
     that escapes the runner, a failed dedupe read) is caught, logged
     and counted; it never stops the fan-out. The runner itself
     records failed runs on the account's run log as usual.
+  - Rate limits: clients share a cooldown during the tick. A 429
+    defers the remaining accounts to a later tick instead of sleeping
+    or hammering ESPN, even when the runner catches the HTTP error.
 
 Exit codes: 0 when nothing is due and when the tick completes (even
 with per-account failures); non-zero only on systemic failure before
@@ -57,6 +63,7 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 from . import accounts, lineup
+from .espn_client import EspnError, RequestCooldown
 from .scoreboard import ScoreboardClient
 
 logger = logging.getLogger("espn.scheduler")
@@ -66,7 +73,7 @@ ET = ZoneInfo("America/New_York")
 # (ET wall-clock time, slot name): the morning pass sets the day's
 # lineup, the evening pass re-checks it against late news (injuries,
 # lineup announcements) for the same scoring period.
-SLOT_TIMES = ((time(9, 0), "morning"), (time(18, 30), "evening"))
+SLOT_TIMES = ((time(9, 0), "morning"), (time(18, 0), "evening"))
 CATCH_UP = timedelta(hours=3)
 
 # Live-run statuses that count as "this slot already ran" for dedupe.
@@ -102,17 +109,19 @@ def due_slots(now: datetime) -> list[SlotWindow]:
     return due
 
 
-def _has_completed_run(supabase, account_id, slot: SlotWindow) -> bool:
-    """True when a completed live run already exists inside ``slot``.
+def _has_completed_run(supabase, account, slot: SlotWindow, period: int) -> bool:
+    """True when this period's completed live run exists inside ``slot``.
 
-    The created_at window is the dedupe key (see module docstring for
-    the approximation): PostgREST compares the timestamptz server-side
+    PostgREST compares the timestamptz server-side
     against the slot's UTC bounds.
     """
     res = (
         supabase.table("espn_lineup_runs")
         .select("id")
-        .eq("account_id", account_id)
+        .eq("account_id", account["id"])
+        .eq("league_id", account["league_id"])
+        .eq("season", account["season"])
+        .eq("scoring_period_id", period)
         .eq("mode", "live")
         .in_("status", list(SUCCESS_STATUSES))
         .gte("created_at", slot.start.astimezone(timezone.utc).isoformat())
@@ -135,8 +144,8 @@ def run_tick(
     """One scheduler tick: run every due slot for every enabled account.
 
     Returns a summary dict: {"due_slots", "considered", "ran",
-    "skipped", "failed"} — considered = enabled accounts loaded, and
-    ran + skipped + failed accounts for the considered set (per due
+    "skipped", "failed", "deferred"} — considered = enabled accounts loaded, and
+    ran + skipped + failed + deferred accounts for the considered set (per due
     slot; with the windows never overlapping there is at most one).
     A failure to load the account list propagates (systemic).
     """
@@ -148,6 +157,7 @@ def run_tick(
         "ran": 0,
         "skipped": 0,
         "failed": 0,
+        "deferred": 0,
     }
     if not slots:
         logger.info(
@@ -157,6 +167,7 @@ def run_tick(
         return summary
 
     enabled = accounts_loader(supabase)
+    cooldown = RequestCooldown()
     summary["considered"] = len(enabled)
     for slot in slots:
         for account in enabled:
@@ -167,34 +178,30 @@ def run_tick(
                 # never be run by the fan-out.
                 summary["skipped"] += 1
                 continue
-            try:
-                already_ran = _has_completed_run(supabase, account_id, slot)
-            except Exception:
-                summary["failed"] += 1
-                logger.exception(
-                    "espn scheduler: account=%s slot=%s dedupe check failed",
-                    account_id,
-                    slot.name,
-                )
-                continue
-            if already_ran:
-                summary["skipped"] += 1
+            if cooldown.triggered:
+                summary["deferred"] += 1
                 logger.info(
-                    "espn scheduler: account=%s slot=%s skipped "
-                    "(completed live run already in window)",
+                    "espn scheduler: account=%s slot=%s deferred "
+                    "(429 cooldown remaining=%.0fs)",
                     account_id,
                     slot.name,
+                    cooldown.remaining_seconds,
                 )
                 continue
             try:
-                client = client_factory(account)
+                client = client_factory(account, cooldown=cooldown)
                 run = runner(
                     supabase,
                     account,
                     client,
-                    scoreboard=scoreboard_factory(),
+                    scoreboard=scoreboard_factory(cooldown=cooldown),
+                    skip_if_completed=lambda period: _has_completed_run(
+                        supabase, account, slot, period
+                    ),
                 )
-            except Exception:
+            except Exception as e:
+                if isinstance(e, EspnError) and e.status == 429:
+                    cooldown.defer()
                 summary["failed"] += 1
                 logger.exception(
                     "espn scheduler: account=%s slot=%s run raised",
@@ -203,7 +210,9 @@ def run_tick(
                 )
                 continue
             status = run.get("status")
-            if status in FAILURE_STATUSES:
+            if status == "skipped":
+                summary["skipped"] += 1
+            elif status in FAILURE_STATUSES:
                 summary["failed"] += 1
             else:
                 summary["ran"] += 1
@@ -218,12 +227,13 @@ def run_tick(
             )
     logger.info(
         "espn scheduler tick: due=%s considered=%d ran=%d skipped=%d "
-        "failed=%d",
+        "failed=%d deferred=%d",
         ",".join(summary["due_slots"]) or "none",
         summary["considered"],
         summary["ran"],
         summary["skipped"],
         summary["failed"],
+        summary["deferred"],
     )
     return summary
 
