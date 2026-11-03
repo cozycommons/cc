@@ -270,7 +270,8 @@ def test_delete_account_cannot_delete_another_account(
 
 
 def test_onboard_returns_token_once(client, monkeypatch):
-    def fake_create(supabase, label, league_id, season, espn_s2, swid):
+    def fake_create(supabase, label, league_id, season, espn_s2, swid, *, enable_automation):
+        assert enable_automation is True
         assert league_id == 123456
         assert season == 2027
         assert espn_s2 == "s2-secret"

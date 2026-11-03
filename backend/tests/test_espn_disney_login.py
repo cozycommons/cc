@@ -423,9 +423,7 @@ def test_endpoint_with_league_id_echoes_league_and_team(env):
     assert body["league_name"] == "My 2027 League"
     assert body["team_name"] == "mr diddles"
     assert body["team_id"] == 1
-    # Behavior change (Warner, 2026-10-29): onboarding enables lineup
-    # automation by default — this used to assert False for a request
-    # that doesn't pass enable_automation.
+    # Omitting the choice preserves the enabled onboarding default.
     assert body["lineup_automation_enabled"] is True
     assert len(db._store) == 1
     assert db._store[0]["lineup_automation_enabled"] is True
@@ -526,3 +524,39 @@ def test_endpoint_requires_email_and_password(env):
     )
     assert r.status_code == 400
     assert r.json()["detail"] == "email_and_password_required"
+
+
+@pytest.mark.parametrize("endpoint", ["/espn/onboard", "/espn/onboard/login"])
+@pytest.mark.parametrize("enabled", [False, True, None])
+def test_onboarding_honors_automation_choice(env, endpoint, enabled):
+    client, db, _ = env
+    payload = {"league_id": 111, "season": 2027}
+    if enabled is not None:
+        payload["enable_automation"] = enabled
+    expected = enabled if enabled is not None else True
+    if endpoint.endswith("/login"):
+        payload.update(email="test@example.com", password=PASSWORD)
+    else:
+        payload.update(espn_s2="test-only", swid="{TEST}")
+    response = client.post(endpoint, json=payload)
+    assert response.status_code == 200
+    assert response.json()["lineup_automation_enabled"] is expected
+    assert db._store[0]["lineup_automation_enabled"] is expected
+    assert bool(accounts.list_lineup_automation_accounts(db)) is expected
+
+
+def test_login_league_selection_preserves_automation_opt_out(env):
+    client, db, state = env
+    state["leagues"] = [
+        {"league_id": lid, "name": f"Synthetic {lid}", "team_name": "Test team"}
+        for lid in (111, 222)
+    ]
+    payload = {"email": "test@example.com", "password": PASSWORD,
+               "season": 2027, "enable_automation": False}
+    selection = client.post("/espn/onboard/login", json=payload)
+    assert selection.json()["status"] == "league_selection_required"
+    assert db._store == []
+    response = client.post("/espn/onboard/login", json={**payload, "league_id": 111})
+    assert response.status_code == 200
+    assert response.json()["lineup_automation_enabled"] is False
+    assert db._store[0]["lineup_automation_enabled"] is False

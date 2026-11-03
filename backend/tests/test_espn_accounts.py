@@ -300,3 +300,16 @@ def test_make_client_for_account_passes_account_fields(fernet_key, monkeypatch):
     assert client._swid == "{SWID-X}"
     assert client.league_id == 333
     assert client.season == 2026
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_create_account_honors_automation_choice(fernet_key, monkeypatch, enabled):
+    db = FakeSupabase()
+    _probe_ok(monkeypatch)
+    created = accounts.create_account(
+        db, "synthetic", 111, 2027, "test-only", "{TEST}",
+        enable_automation=enabled,
+    )
+    assert created["lineup_automation_enabled"] is enabled
+    assert db._store[0]["lineup_automation_enabled"] is enabled
+    assert bool(accounts.list_lineup_automation_accounts(db)) is enabled

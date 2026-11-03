@@ -171,29 +171,15 @@ document.getElementById("connect").addEventListener("click", async () => {
         season: Number(document.getElementById("season").value),
         espn_s2: found.espn_s2,
         swid: found.swid,
+        enable_automation: document.getElementById("automation").checked,
       }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
 
-    let autoNote = "";
-    if (document.getElementById("automation").checked && body.token) {
-      try {
-        const r2 = await fetch(`${API}/espn/automation/lineup`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${body.token}`,
-          },
-          body: JSON.stringify({ enabled: true }),
-        });
-        autoNote = r2.ok
-          ? "\nAutomatic lineups: enabled."
-          : "\nAutomatic lineups: could not enable (can be retried later).";
-      } catch (e) {
-        autoNote = "\nAutomatic lineups: could not enable (can be retried later).";
-      }
-    }
+    const autoNote = body.lineup_automation_enabled
+      ? "\nAutomatic lineups: enabled."
+      : "\nAutomatic lineups: disabled.";
 
     status.className = "ok";
     status.textContent = `Connected. Account ${body.id} · league ${body.league_id}.${autoNote}\nSave this token now — it is shown once:`;
