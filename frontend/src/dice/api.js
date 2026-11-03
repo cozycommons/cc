@@ -109,6 +109,10 @@ class DiceApiClient {
     return liveRequest(token, 'GET', `/dice/virtual/tournaments/${tournamentId}/markets`);
   }
 
+  getVirtualEligibleGames(token, tournamentId) {
+    return liveRequest(token, 'GET', `/dice/virtual/tournaments/${tournamentId}/eligible-games`);
+  }
+
   getVirtualPicks(token, tournamentId) {
     return liveRequest(token, 'GET', `/dice/virtual/tournaments/${tournamentId}/picks`);
   }

@@ -1,8 +1,8 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import DiceHeader from './DiceHeader.jsx';
 import { useDiceAuth } from './useDiceAuth.js';
-import { invalidateDiceResources } from './resourceCache.js';
+import { claimDiceResources } from './resourceCache.js';
 import Home from './pages/Home.jsx';
 import MatchHistory from './pages/MatchHistory.jsx';
 import EloLeaderboard from './pages/EloLeaderboard.jsx';
@@ -27,15 +27,8 @@ export default function DiceApp() {
   const auth = useDiceAuth();
   const { pathname } = useLocation();
   const authScope = auth.user?.id || 'anonymous';
-  // Some cached reads are viewer-specific (an anonymous player sees their own
-  // name; organizers see real names), so drop them when a signed-in viewer
-  // signs out or switches account. Cleared during render, before any page in
-  // the new scope reads the cache. Anonymous-to-signed-in keeps the public data.
-  const previousScope = useRef(authScope);
-  if (previousScope.current !== authScope) {
-    if (previousScope.current !== 'anonymous') invalidateDiceResources();
-    previousScope.current = authScope;
-  }
+  // During render, before any page in this scope reads the cache.
+  claimDiceResources(authScope);
   const privateRoute = (element) => {
     if (auth.loading) return null;
     return auth.token && auth.profile ? element : <Navigate replace to="/dice" />;

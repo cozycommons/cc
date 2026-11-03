@@ -15,6 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPExcep
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
+from dice.rating_deviation import INITIAL_RATING_DEVIATION
 from dice.anonymity import anonymizer_for, dump, scrub_live_match
 from dice.notifications import notify_ranked_game
 from dice.feature_access import DiceFeature, feature_state, feature_states
@@ -465,8 +466,10 @@ def update_live_settings(request: Request, match_id: str, payload: LiveSettingsR
                 raise
             # The canonical mutation updates the source match in the same database
             # transaction, so a rating change and its UI setting cannot diverge.
-            return _live_output(request, _live_row(request, match_id))
-        return _live_output(request, _live_row(request, match_id))
+            updated = _live_row(request, match_id)
+            return _finished_live_out(request, auth, updated, _live_output(request, updated))
+        updated = _live_row(request, match_id)
+        return _finished_live_out(request, auth, updated, _live_output(request, updated))
 
 
 @router.get("/live/games/{match_id}/prediction", response_model=LivePredictionOut)
@@ -592,6 +595,25 @@ def get_virtual_markets(request: Request, tournament_id: str, auth: AuthedUser =
     _require_live(request, auth)
     return (request.app.state.supabase_admin.table("dice_virtual_markets").select("*")
         .eq("tournament_id", tournament_id).order("created_at", desc=True).execute().data or [])
+
+
+@router.get("/virtual/tournaments/{tournament_id}/eligible-games", response_model=list[str])
+def get_virtual_eligible_games(request: Request, tournament_id: str, auth: AuthedUser = Depends(require_live_authenticated_user)):
+    """Unstarted live games whose players are all enrolled in the tournament.
+
+    Decided here because the browser only has aliased ids for anonymous
+    entrants, while live rosters carry real ids.
+    """
+    _require_live(request, auth)
+    admin = request.app.state.supabase_admin
+    enrolled = {row["user_id"] for row in (admin.table("dice_tournament_enrollments").select("user_id")
+                                          .eq("tournament_id", tournament_id).execute().data or [])}
+    rows = admin.table("dice_live_matches").select("*").eq("status", "active").execute().data or []
+    return [
+        row["id"] for row in rows
+        if not row.get("deleted_at") and row.get("version") == 0
+        and all(player in enrolled for team in row.get("team_order") or [] for player in (row.get("teams") or {}).get(team) or [])
+    ]
 
 
 @router.get("/virtual/tournaments/{tournament_id}/picks", response_model=list[VirtualPickOut])
@@ -834,7 +856,7 @@ def _picker_profile(profile: DiceProfile) -> DiceProfile:
         user_id=profile.user_id,
         display_name=profile.display_name,
         avatar_url=profile.avatar_url,
-        rating_deviation=profile.rating_deviation,
+        rating_deviation=INITIAL_RATING_DEVIATION,
         elo_model_version=profile.elo_model_version,
     )
 

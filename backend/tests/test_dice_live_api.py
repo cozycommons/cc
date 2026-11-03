@@ -1175,3 +1175,36 @@ def test_live_game_in_progress_keeps_real_names(monkeypatch):
     response = client.get("/dice/live/games/m1", headers={"Authorization": f"Bearer {TOKEN}"}).json()
 
     assert response["teams"]["blue"][0] == "p-anon"
+
+
+def test_virtual_eligible_games_are_decided_on_real_enrolled_ids(monkeypatch):
+    class _Rows:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def select(self, *_args):
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=self.rows)
+
+    tables = {
+        "dice_tournament_enrollments": [{"user_id": user_id} for user_id in ("p-anon", "p2", "p3", "p4")],
+        "dice_live_matches": [
+            {"id": "ready", "version": 0, "team_order": ["blue", "clay"], "teams": {"blue": ["p-anon", "p2"], "clay": ["p3", "p4"]}},
+            {"id": "outsider", "version": 0, "team_order": ["blue", "clay"], "teams": {"blue": ["p-anon", "p9"], "clay": ["p3", "p4"]}},
+            {"id": "started", "version": 3, "team_order": ["blue", "clay"], "teams": {"blue": ["p-anon", "p2"], "clay": ["p3", "p4"]}},
+        ],
+    }
+    class EligibilitySupabase(_Supabase):
+        def table(self, name):
+            return _Rows(tables[name])
+
+    client = _client(monkeypatch, supabase=EligibilitySupabase())
+
+    response = client.get("/dice/virtual/tournaments/t1/eligible-games", headers={"Authorization": f"Bearer {TOKEN}"})
+
+    assert response.json() == ["ready"]

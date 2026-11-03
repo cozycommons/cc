@@ -113,7 +113,7 @@ export default function VirtualDice({ auth }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [games, setGames] = useState({});
   const [liveGames, setLiveGames] = useState([]);
-  const [enrolledIds, setEnrolledIds] = useState(new Set());
+  const [eligibleIds, setEligibleIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState('');
   const [error, setError] = useState('');
@@ -128,14 +128,14 @@ export default function VirtualDice({ auth }) {
     setLeaderboardError('');
     try {
       const wallet = await diceApi.openVirtualBankroll(auth.token, tournamentId);
-      const [currentMarkets, currentPicks, standingsResult, ongoing, tournament] = await Promise.all([
+      const [currentMarkets, currentPicks, standingsResult, ongoing, eligibleGameIds] = await Promise.all([
         diceApi.getVirtualMarkets(auth.token, tournamentId),
         diceApi.getVirtualPicks(auth.token, tournamentId),
         diceApi.getVirtualLeaderboard(auth.token, tournamentId)
           .then((standings) => ({ standings }))
           .catch((standingsError) => ({ standingsError })),
         diceApi.getLiveGames(auth.token),
-        diceApi.getTournament(tournamentId, auth.token),
+        diceApi.getVirtualEligibleGames(auth.token, tournamentId),
       ]);
       const ongoingById = Object.fromEntries(ongoing.map((game) => [game.id, game]));
       const missingIds = [...new Set(currentMarkets.map((market) => market.live_match_id).filter((id) => !ongoingById[id]))];
@@ -150,7 +150,7 @@ export default function VirtualDice({ auth }) {
         setLeaderboard(standingsResult.standings);
       }
       setLiveGames(ongoing);
-      setEnrolledIds(new Set(tournament.enrolled_players.map((player) => player.user_id)));
+      setEligibleIds(new Set(eligibleGameIds));
       setGames({ ...ongoingById, ...Object.fromEntries(historical.map((game) => [game.id, game])) });
     } catch (requestError) {
       if (requestId !== latestLoad.current) return;
@@ -170,7 +170,9 @@ export default function VirtualDice({ auth }) {
 
   const marketMatchIds = new Set(markets.map((market) => market.live_match_id));
   const eligible = liveGames.filter((game) => game.version === 0 && game.status === 'active'
-    && game.team_order.flatMap((team) => game.teams[team]).every((playerId) => enrolledIds.has(playerId))
+    // The server decides roster eligibility: anonymous entrants are aliased in
+    // the tournament but appear by real id in live rosters.
+    && eligibleIds.has(game.id)
     && !marketMatchIds.has(game.id));
 
   const openMarket = async (matchId) => {

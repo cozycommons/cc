@@ -3119,13 +3119,15 @@ def test_tournaments_alias_the_whole_event_for_non_organizers():
 
 def test_picker_does_not_carry_an_anonymous_players_stats():
     profiles = _anonymous_roster("u2")
-    next(p for p in profiles if p["user_id"] == "u2").update({"elo_rating": 1612, "sinks": 9, "games_played": 14})
+    next(p for p in profiles if p["user_id"] == "u2").update({"elo_rating": 1612, "sinks": 9, "games_played": 14, "rating_deviation": 297.5})
     client, _ = _build_client(profiles=profiles, auth_users=AUTH_USERS)
 
     aziz = next(p for p in client.get("/dice/profiles/search?q=&limit=50").json() if p["user_id"] == "u2")
 
     assert aziz["display_name"] == "Aziz Rahman"
     assert (aziz["elo_rating"], aziz["sinks"], aziz["games_played"], aziz["is_anonymous"]) == (1500, 0, 0, False)
+    from dice.rating_deviation import INITIAL_RATING_DEVIATION
+    assert aziz["rating_deviation"] == INITIAL_RATING_DEVIATION
 
 
 def test_exempting_the_viewer_never_changes_anyone_elses_animal():

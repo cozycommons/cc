@@ -109,3 +109,17 @@ describe('Dice resource cache invalidation', () => {
     expect(peekDiceResource('tournament:t1')).toEqual(['after']);
   });
 });
+
+describe('Dice resource cache ownership', () => {
+  it('drops a signed-in viewer’s entries for anyone else, even across remounts', async () => {
+    const { claimDiceResources } = await import('./resourceCache.js');
+    claimDiceResources('anonymous');
+    writeDiceResource('games:all', ['public']);
+    claimDiceResources('u1');
+    expect(peekDiceResource('games:all')).toEqual(['public']);
+
+    writeDiceResource('profile-games:u1:200:u1', ['private']);
+    claimDiceResources('anonymous');
+    expect(peekDiceResource('profile-games:u1:200:u1')).toBeUndefined();
+  });
+});
