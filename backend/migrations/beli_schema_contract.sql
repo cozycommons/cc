@@ -40,6 +40,7 @@ begin
     'partiful_accounts.refresh_token_enc',
     'partiful_accounts.uid_enc',
     'partiful_accounts.token_hash',
+    'partiful_accounts.owner_user_id',
     'resy_accounts.email_enc',
     'resy_accounts.password_enc',
     'resy_accounts.token_hash',
@@ -151,8 +152,9 @@ begin
     end if;
   end loop;
 
-  -- Connector account links and receipts are service-role only (Beli 0017, Resy 0018).
-  foreach object_name in array array['beli', 'resy'] loop
+  -- Connector account links and receipts are service-role only (Beli 0017, Resy 0018,
+  -- Partiful 0019).
+  foreach object_name in array array['beli', 'resy', 'partiful'] loop
     if not exists (
       select 1 from pg_catalog.pg_index i
       join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
@@ -174,7 +176,9 @@ begin
       raise exception 'Beli schema contract: unsafe %_link_account privileges', object_name;
     end if;
   end loop;
-  foreach object_name in array array['beli_accounts', 'beli_agent_receipts', 'resy_accounts', 'resy_agent_receipts'] loop
+  foreach object_name in array array[
+    'beli_accounts', 'beli_agent_receipts', 'resy_accounts', 'resy_agent_receipts', 'partiful_accounts'
+  ] loop
     if not exists (select 1 from pg_catalog.pg_class
                    where oid = to_regclass('public.' || object_name) and relrowsecurity)
         or pg_catalog.has_any_column_privilege('anon', 'public.' || object_name, 'SELECT,INSERT,UPDATE,REFERENCES')
@@ -189,7 +193,7 @@ begin
     'beli_agent_receipts.SELECT', 'beli_agent_receipts.INSERT', 'beli_agent_receipts.UPDATE',
     'beli_agent_receipts.DELETE', 'beli_accounts.SELECT', 'beli_accounts.UPDATE',
     'resy_agent_receipts.SELECT', 'resy_agent_receipts.INSERT', 'resy_agent_receipts.UPDATE',
-    'resy_accounts.SELECT', 'resy_accounts.UPDATE'
+    'resy_accounts.SELECT', 'resy_accounts.UPDATE', 'partiful_accounts.SELECT', 'partiful_accounts.UPDATE'
   ] loop
     if not pg_catalog.has_table_privilege('service_role', 'public.' || split_part(column_spec, '.', 1),
                                           split_part(column_spec, '.', 2)) then

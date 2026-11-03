@@ -91,6 +91,10 @@ app.state.analytics_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERV
 app.state.readiness_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.trips_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.floor_planner_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+# Partiful credential reads must never be cached: /partiful/mcp and the /mcp
+# connector persist rotated refresh tokens through their own clients, and a
+# cached row would hand /partiful a refresh token Partiful has already retired.
+app.state.partiful_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 @app.middleware("http")

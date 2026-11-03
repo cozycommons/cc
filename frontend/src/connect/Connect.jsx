@@ -73,7 +73,8 @@ export default function Connect() {
         <ul><li><Link to="/trips">Trips</Link>: read balances and settlement links, split expenses, and record repayments already made. It does not send money.</li>
           <li><Link to="/floor-planner">Floor Planner</Link>: read and edit plans you have access to.</li>
           <li>Beli: get restaurant recommendations and save places to your Beli Want to Try list. The first time, your agent links your Beli account with your existing Beli token using <code>link_beli_account</code>; after that you don’t paste the token again.</li>
-          <li>Resy: find open tables, list your reservations, and book or cancel real reservations. Bookings and cancellations can charge a deposit or cancellation fee to your card; your agent shows each fee, the policy and the card first. Link once with your existing Resy token using <code>link_resy_account</code>.</li></ul>
+          <li>Resy: find open tables, list your reservations, and book or cancel real reservations. Bookings and cancellations can charge a deposit or cancellation fee to your card; your agent shows each fee, the policy and the card first. Link once with your existing Resy token using <code>link_resy_account</code>.</li>
+          <li>Partiful: read-only. List the events you host, RSVP’d to or were invited to, or read one event’s details. Guest lists are never shared. Link once with your existing Partiful token using <code>link_partiful_account</code>.</li></ul>
         <p>Writes always need a preview first (<code>dry_run=true</code>) and your confirmation before saving. For trip expenses, review the per-person amounts. For Resy, review the fees and card before you say yes.</p>
       </section>
       <section aria-labelledby="reconnect-heading">

@@ -7,10 +7,11 @@
 - M3a: merged in #199 (connector foundation: commons scopes, per-user
   enablement, filtered tool list, account-link contract, generic safety test).
 - M3b: merged in #200 (Beli on `/mcp`).
-- M3c (this PR, `commons-connector-m3c-resy`): Resy on `/mcp`, rebased on main
-  after #200.
-  Opened non-draft; the orchestrator runs the external review and merges.
-- M3d–M3e: not started. Plan below; one PR each, in order.
+- M3c: merged in #201 (Resy on `/mcp`).
+- M3d (this PR, `commons-connector-m3d-partiful`): Partiful on `/mcp`, from main
+  after #201. Opened non-draft; the orchestrator runs the external review and
+  merges.
+- M3e: not started. Plan below.
 - Loopback only. Local OAuth client credentials and signing/encryption keys live
   only in ignored `.dice-dev/commons-mcp.json` (0600). No production connection.
 
@@ -254,6 +255,75 @@ PASS every Resy tool over real OAuth: link, find, list, preview, book, cancel, r
 PASS read-only token denied on book_resy_table
 PASS read-only token denied on cancel_resy_reservation
 PASS read-only token finds Resy tables; bookings and cancellations refused; nothing sent
+```
+
+### M3d decisions
+
+- **Tools (1 + link), read-only.** `get_partiful_events(event_id? | scope?,
+  start?, end?)` merges the legacy `list_events` and `get_event` and returns
+  exactly what they return (no guest lists); `event_id` must come alone.
+  `link_partiful_account` is the link step. No writes, so no dry_run,
+  idempotency key or receipts table.
+- **Link.** Migration `0019_beli_partiful_account_owner.sql` (beli family,
+  contract 19) copies 0018 without receipts: `partiful_accounts.owner_user_id`,
+  partial unique index, `partiful_link_account`, 10 attempts per user per hour,
+  no onboarding-time link (SMS onboarding has no web page). Linking changes only
+  `owner_user_id`; the stored refresh token and uid are untouched.
+- **Isolation.** An `event_id` is read with the caller's own Partiful session,
+  so Partiful decides visibility; an event that session cannot see is "Event not
+  found". No other account's session is ever decrypted.
+- **Refresh-token rotation (fix outside the connector).** The `/partiful`
+  routes read accounts through `app.state.supabase`, main.py's 120-second read
+  cache, which only writes through that same client clear. `/partiful/mcp`
+  (already on main) and now `/mcp` persist rotated refresh tokens through
+  uncached clients, so `/partiful` could decrypt a retired token for up to two
+  minutes, and a retired Partiful refresh token cannot be recovered without
+  re-onboarding. The routes now use a dedicated uncached
+  `app.state.partiful_supabase` (the Trips and Floor Planner pattern). Paths,
+  responses and tokens are unchanged. Found by the e2e's rotating fake; whether
+  Google actually rotates these tokens in production is unverified.
+- **Local exercise.** `serve` points the Partiful API, Firebase sign-in and token
+  refresh at the e2e's fake on 8768; nothing reaches Partiful or Google.
+
+### M3d validation evidence
+
+- Backend, all DB/integration opt-ins (fresh bootstrapped
+  `dummi_regression_501_1904` + real PostgREST, loopback Floor Planner stack,
+  dedicated Trips stack, analytics opt-in): **2120 passed, 0 skipped**. This
+  ran before the `/partiful` cache fix and its regression test; after them the
+  plain `python -m pytest tests -q` gives 1904 passed, 217 skipped, and the e2e
+  below exercised the fix on the loopback stack.
+- New: `tests/test_partiful_agent_tools.py` (22),
+  `tests/test_partiful_owner_database.py` (19, real Postgres: link outcomes with
+  the session columns unchanged, unique owner, user deletion, browser denial,
+  contract tampering, upgrade from main's 0018 release (e8602a6, #201) with an
+  existing account left unlinked and unchanged), and a route test that fails
+  when `/partiful` reads through the shared cache. Safety test: 110 cases over
+  21 tools (13 Partiful) plus a linked-caller isolation test. Mutation check: an
+  owner-ignoring account lookup fails both isolation tests and 6 unit tests.
+- Frontend: 98 files, 770 tests; production build and lint passed.
+- 0017–0019 applied to the shared loopback stack for the e2e, then rolled back
+  (ledger at 16, as before; the pre-0017 contract passes).
+- Real OAuth e2e: 102 PASS lines, none failed; the Partiful lines:
+
+```text
+PASS enable_project partiful
+PASS list_projects/enable_project show Partiful unlinked with the link step
+PASS unlinked get_partiful_events refused with the link step
+PASS synthetic Partiful onboarding through /partiful/onboard (fake loopback Partiful API)
+PASS link_partiful_account refused for another user's account
+PASS link_partiful_account refused for a wrong token
+PASS link_partiful_account
+PASS linking changes only the owner; the stored Partiful session is untouched
+PASS linked account keeps its legacy ccp_ token on /partiful
+PASS get_partiful_events list
+PASS get_partiful_events scope=hosted
+PASS get_partiful_events details
+PASS get_partiful_events refused for another user's private event
+PASS legacy /partiful/events still works after connector reads rotated the refresh token
+PASS every Partiful tool over real OAuth: link, list, details; only the caller's session read
+PASS read-only token denied on link_partiful_account
+PASS read-only token reads Partiful events; linking refused
 ```
 
 ## M3 plan: one PR per project

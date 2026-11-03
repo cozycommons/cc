@@ -94,7 +94,7 @@ class Query:
 
 
 LINKED_TABLES = {'beli_accounts': 'beli', 'beli_agent_receipts': 'beli',
-                 'resy_accounts': 'resy', 'resy_agent_receipts': 'resy'}
+                 'resy_accounts': 'resy', 'resy_agent_receipts': 'resy', 'partiful_accounts': 'partiful'}
 
 
 class Database:
@@ -107,16 +107,17 @@ class Database:
             self.row, _ = apply_command(self.row, self.user.id, 'add_member', {'name': name, 'revision': self.row['revision']})
         self.receipts, self.commits, self.conflicts = {}, 0, 0
         self.settings = {}
-        # Beli and Resy: account rows (with owner_user_id) and connector receipts.
+        # Beli, Resy and Partiful: account rows (with owner_user_id) and connector receipts.
         self.beli_accounts, self.beli_receipts = [], {}
         self.resy_accounts, self.resy_receipts = [], {}
+        self.partiful_accounts = []  # read-only on the connector: no receipts
 
     def table(self, table):
         return Query(self, table)
 
     def linked_execute(self, query):
         project = LINKED_TABLES[query.table]
-        receipts = getattr(self, f'{project}_receipts')
+        receipts = getattr(self, f'{project}_receipts', {})
         if query.table.endswith('_accounts'):
             assert query.write is None and query.action is None, f'{project} accounts change only through the link RPC'
             rows = getattr(self, f'{project}_accounts')
@@ -142,8 +143,8 @@ class Database:
         return SimpleNamespace(data=[deepcopy(row) for row in matched])
 
     def rpc(self, name, args):
-        if name in ('beli_link_account', 'resy_link_account'):
-            rows = self.beli_accounts if name == 'beli_link_account' else self.resy_accounts
+        if name in ('beli_link_account', 'resy_link_account', 'partiful_link_account'):
+            rows = getattr(self, name.replace('_link_account', '_accounts'))
             return SimpleNamespace(execute=lambda: SimpleNamespace(data=link_account(rows, **args)))
         assert name == 'trips_agent_commit'
         self.commits += 1
@@ -158,7 +159,7 @@ class Database:
 
 
 def link_account(rows, p_account_id, p_user_id):
-    # Mirrors public.beli_link_account (0017) and public.resy_link_account (0018).
+    # Mirrors public.beli_link_account (0017), resy_link_account (0018) and partiful_link_account (0019).
     account = next((row for row in rows if row['id'] == p_account_id), None)
     if account is None:
         return 'missing'
@@ -228,8 +229,10 @@ async def test_whoami_and_extensible_registry_without_feature_scopes(tools):
     assert projects['beli']['next_step'] == "Call enable_project('beli') to add its 3 tools."
     assert projects['resy']['on_connector'] is True and projects['resy']['linked'] is False
     assert projects['resy']['next_step'] == "Call enable_project('resy') to add its 5 tools."
-    assert projects['partiful']['on_connector'] is False
-    assert '/partiful/mcp' in projects['partiful']['next_step']
+    assert projects['partiful']['on_connector'] is True and projects['partiful']['linked'] is False
+    assert projects['partiful']['next_step'] == "Call enable_project('partiful') to add its 2 tools."
+    assert projects['espn']['on_connector'] is False
+    assert '/espn/mcp' in projects['espn']['next_step']
 
 
 @pytest.mark.asyncio
@@ -253,7 +256,7 @@ async def test_enable_and_disable_persist_a_choice_and_gate_calls(tools):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('project_id,message', [('commons', 'Unknown project'), ('nope', 'Unknown project'),
-    ('partiful', 'not on this connector yet'), ('dice', 'no agent tools yet')])
+    ('espn', 'not on this connector yet'), ('dice', 'no agent tools yet')])
 async def test_enable_project_errors_name_the_fix(tools, project_id, message):
     db, _, call = tools
     with pytest.raises(ToolError, match=message):

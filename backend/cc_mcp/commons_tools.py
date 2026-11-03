@@ -29,8 +29,6 @@ class CatalogProject:
 
 CATALOG = (
     CatalogProject('dice', 'Dice', 'Beer die records, rankings and stats.', 'https://cozycommons.dev/dice'),
-    CatalogProject('partiful', 'Partiful', 'Manage events and invitations.',
-                   'https://api.cozycommons.dev/partiful/mcp', '/partiful/mcp'),
     CatalogProject('espn', 'ESPN', 'Manage fantasy league data and lineups.',
                    'https://api.cozycommons.dev/espn/mcp', '/espn/mcp'),
     CatalogProject('fantasy', 'Fantasy', 'Fantasy basketball predictions updated daily.', 'https://cozycommons.dev/fantasy'),

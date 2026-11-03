@@ -207,6 +207,82 @@ def fake_resy():
     return ThreadingHTTPServer(FAKE_RESY, Resy), state
 
 
+# Partiful calls (API functions, sign-in and token refresh) come here too; nothing reaches Partiful or Google.
+FAKE_PARTIFUL = ('127.0.0.1', 8768)
+
+
+def fake_partiful():
+    """Minimal synthetic Partiful API in the shapes partiful_client.py reads. Records every read.
+
+    Each token refresh rotates the refresh token and retires the old one, so a
+    session only keeps working if every rotation was stored.
+    """
+    state = {'uids': {}, 'refresh': {}, 'ids': {}, 'events': {}, 'reads': []}
+
+    def session(uid):
+        id_token = secrets.token_urlsafe(16)
+        refresh = secrets.token_urlsafe(16)
+        state['ids'][id_token], state['refresh'][refresh] = uid, uid
+        return id_token, refresh
+
+    class Partiful(BaseHTTPRequestHandler):
+        def answer(self, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            raw = self.rfile.read(int(self.headers.get('Content-Length') or 0))
+            path = urlsplit(self.path).path
+            if path == '/securetoken':
+                uid = state['refresh'].pop(parse_qs(raw.decode()).get('refresh_token', [''])[0], None)
+                if uid is None:
+                    return self.send_error(400)
+                id_token, refresh = session(uid)
+                return self.answer({'id_token': id_token, 'refresh_token': refresh, 'expires_in': '3600'})
+            body = json.loads(raw or b'{}')
+            if path == '/identitytoolkit':
+                uid = body.get('token', '')[len('custom-'):]
+                id_token, refresh = session(uid)
+                return self.answer({'idToken': id_token, 'refreshToken': refresh, 'localId': uid})
+            params = (body.get('data') or {}).get('params') or {}
+            if path == '/sendAuthCodeTrusted':
+                return self.answer({'result': {'data': {}}})
+            if path == '/getLoginToken':
+                if params.get('authCode') != '123456':
+                    return self.answer({'result': {'data': {}}})
+                uid = state['uids'].setdefault(params['phoneNumber'], 'partiful-e2e-' + uuid4().hex[:12])
+                state['events'].setdefault(uid, [
+                    {'id': 'host' + uid[-12:], 'title': 'Synthetic rooftop party', 'startDate': '2026-12-05T01:00:00Z',
+                     'location': 'Synthetic Loft', 'status': 'PUBLISHED', 'attendedGuestCount': 9,
+                     'guests': [{'name': 'Synthetic Guest', 'phoneNumber': '+15555550100'}], 'hosted': True},
+                    {'id': 'inv' + uid[-12:], 'title': 'Synthetic potluck', 'startDate': '2026-12-12T00:00:00Z',
+                     'status': 'PUBLISHED', 'guest': {'status': 'GOING'}}])
+                return self.answer({'result': {'data': {'customToken': 'custom-' + uid}}})
+            uid = state['ids'].get(self.headers.get('Authorization', '')[len('Bearer '):])
+            if uid is None:
+                return self.send_error(401)
+            state['reads'].append((uid, path))
+            events = state['events'].get(uid, [])
+            if path == '/getPublishedEvents':
+                return self.answer({'result': {'data': [e for e in events if e.get('hosted')]}})
+            if path == '/getMyRsvps':
+                return self.answer({'result': {'data': {'events': [e for e in events if not e.get('hosted')]}}})
+            if path == '/getEventInfo':
+                event = next((e for e in events if e['id'] == params.get('eventId')), None)
+                if event is None:  # Partiful shows only events this session may view
+                    return self.send_error(404)
+                return self.answer({'result': {'data': {'event': event, 'passwordRequired': False}}})
+            self.send_error(404)
+
+        def log_message(self, *_args):
+            pass
+
+    return ThreadingHTTPServer(FAKE_PARTIFUL, Partiful), state
+
+
 class MemoryTokens:
     tokens = None
     client = None
@@ -275,6 +351,20 @@ async def exercise(args):
 
     resy_server, resy_state = fake_resy()
     resy_serving = asyncio.create_task(asyncio.to_thread(resy_server.serve_forever, poll_interval=0.1))
+
+    partiful_server, partiful_state = fake_partiful()
+    partiful_serving = asyncio.create_task(asyncio.to_thread(partiful_server.serve_forever, poll_interval=0.1))
+
+    async def onboard_partiful(label):
+        """The real /partiful/onboard start + verify path, against the fake. Returns (ccp_ token, synthetic uid)."""
+        phone = '+1555' + ''.join(secrets.choice('0123456789') for _ in range(7))
+        async with httpx.AsyncClient(timeout=30) as http:
+            started = await http.post(endpoint[:-len('/mcp')] + '/partiful/onboard/start', json={'phone': phone})
+            assert started.status_code == 200, f'Partiful onboarding start: HTTP {started.status_code}'
+            response = await http.post(endpoint[:-len('/mcp')] + '/partiful/onboard/verify',
+                                       json={'phone': phone, 'code': '123456', 'label': label})
+        assert response.status_code == 200, f'Partiful onboarding: HTTP {response.status_code}'
+        return response.json()['token'], partiful_state['uids'][phone]
 
     async def onboard_resy(label):
         """The real /resy/onboard path, against the fake Resy API. Returns (ccr_ token, synthetic email)."""
@@ -605,6 +695,62 @@ async def exercise(args):
                 assert resy_state['reservations'][other_email] == [other_booking]
                 print('PASS every Resy tool over real OAuth: link, find, list, preview, book, cancel, replay; '
                       'one booking and one cancellation sent')
+
+                # Partiful: read-only. Off for a new user, then enable, link once, list and read events.
+                partiful = {'get_partiful_events', 'link_partiful_account'}
+                projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+                assert projects['partiful']['enabled'] is False and projects['partiful']['linked'] is False
+                enabled = await call('enable_project', project_id='partiful', evidence='enable_project partiful')
+                assert enabled['linked'] is False and 'link_partiful_account' in enabled['next_step']
+                assert partiful <= await listed(session)
+                print('PASS list_projects/enable_project show Partiful unlinked with the link step')
+                await refused(session, 'get_partiful_events', {}, 'Link your Partiful account first',
+                              'unlinked get_partiful_events refused with the link step')
+                partiful_token, mine_uid = await onboard_partiful('e2e-mine')
+                other_partiful, other_uid = await onboard_partiful('e2e-other')
+                print('PASS synthetic Partiful onboarding through /partiful/onboard (fake loopback Partiful API)')
+                onboarded_reads = len(partiful_state['reads'])  # onboarding probes each new session once
+                from partiful.accounts import get_account_row_by_token as partiful_account_row
+                mine_row = partiful_account_row(service, partiful_token)['id']
+                assert service.rpc('partiful_link_account', {
+                    'p_account_id': partiful_account_row(service, other_partiful)['id'],
+                    'p_user_id': other.json()['id']}).execute().data == 'linked'
+                await refused(session, 'link_partiful_account', {'api_token': other_partiful},
+                              'linked to another Commons user', "link_partiful_account refused for another user's account")
+                await refused(session, 'link_partiful_account', {'api_token': 'ccp_' + secrets.token_urlsafe(32)},
+                              'No Partiful account matches', 'link_partiful_account refused for a wrong token')
+                stored = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
+                    .eq('id', mine_row).single().execute().data
+                linked = await call('link_partiful_account', api_token=partiful_token, evidence='link_partiful_account')
+                assert linked['status'] == 'linked' and partiful_token not in json.dumps(linked)
+                assert service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
+                    .eq('id', mine_row).single().execute().data == stored
+                print('PASS linking changes only the owner; the stored Partiful session is untouched')
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_me = await http.get(endpoint[:-len('/mcp')] + '/partiful/me',
+                                               headers={'Authorization': 'Bearer ' + partiful_token})
+                assert legacy_me.status_code == 200 and legacy_me.json()['label'] == 'e2e-mine'
+                print('PASS linked account keeps its legacy ccp_ token on /partiful')
+                events = await call('get_partiful_events', evidence='get_partiful_events list')
+                assert [(e['title'], e['scopes']) for e in events['events']] == [
+                    ('Synthetic rooftop party', ['hosted']), ('Synthetic potluck', ['invited', 'rsvp'])]
+                assert 'Synthetic Guest' not in json.dumps(events) and '+15555550100' not in json.dumps(events)
+                hosted = await call('get_partiful_events', scope='hosted', evidence='get_partiful_events scope=hosted')
+                assert [e['title'] for e in hosted['events']] == ['Synthetic rooftop party']
+                detail = await call('get_partiful_events', event_id='inv' + mine_uid[-12:],
+                                    evidence='get_partiful_events details')
+                assert detail['event']['title'] == 'Synthetic potluck' and detail['event']['rsvp_status'] is None
+                await refused(session, 'get_partiful_events', {'event_id': 'host' + other_uid[-12:]}, 'Event not found',
+                              "get_partiful_events refused for another user's private event")
+                assert {uid for uid, _ in partiful_state['reads'][onboarded_reads:]} == {mine_uid}
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_events = await http.get(endpoint[:-len('/mcp')] + '/partiful/events',
+                                                   headers={'Authorization': 'Bearer ' + partiful_token})
+                assert legacy_events.status_code == 200, \
+                    f'/partiful/events: HTTP {legacy_events.status_code} {legacy_events.text[:300]}'
+                assert legacy_events.json()['count'] == 2
+                print('PASS legacy /partiful/events still works after connector reads rotated the refresh token')
+                print('PASS every Partiful tool over real OAuth: link, list, details; only the caller\'s session read')
                 access_token = auth.context.current_tokens.access_token
         callback = loop.create_future()
         readonly = provider('commons:read')
@@ -634,6 +780,11 @@ async def exercise(args):
                 assert not (await session.call_tool('find_resy_tables', {'date': when, 'venue_id': 7001})).isError
                 assert len(resy_state['sends']) == 2
                 print('PASS read-only token finds Resy tables; bookings and cancellations refused; nothing sent')
+                await refused(session, 'link_partiful_account', {'api_token': partiful_token}, 'commons:edit',
+                              'read-only token denied on link_partiful_account')
+                readonly_events = await session.call_tool('get_partiful_events', {})
+                assert not readonly_events.isError and readonly_events.structuredContent['count'] == 2
+                print('PASS read-only token reads Partiful events; linking refused')
 
         # A token minted exactly as the M1 deployment did: same signing key and
         # upstream mapping (jti), pre-commons scopes. It keeps its old reach.
@@ -665,6 +816,9 @@ async def exercise(args):
         await asyncio.to_thread(resy_server.shutdown)
         resy_server.server_close()
         await resy_serving
+        await asyncio.to_thread(partiful_server.shutdown)
+        partiful_server.server_close()
+        await partiful_serving
 
 
 if __name__ == '__main__':

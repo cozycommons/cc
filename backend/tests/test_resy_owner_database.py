@@ -55,8 +55,8 @@ def receipt(user_id, key="book-1"):
         VALUES ('{user_id}','{key}','{{}}','{{}}')"""
 
 
-def test_schema_18_attests_and_replays(db):
-    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "18"
+def test_schema_attests_and_replays(db):
+    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "19"
     assert "Applying " not in db.sql(migration_runner.render(["beli"])).stdout
     db.sql(CONTRACT)
 
