@@ -13,6 +13,9 @@ from starlette.concurrency import run_in_threadpool
 
 from cc_mcp import connections
 from commons_account import profile
+from espn import accounts as espn_accounts, disney_login
+from espn.espn_client import EspnAuthError, EspnError
+from espn.routes import _default_season
 from ig_logger.sinks.beli import accounts as beli_accounts
 from ig_logger.sinks.beli.beli_client import BeliError, BeliUnauthorized
 from resy import accounts as resy_accounts
@@ -123,7 +126,7 @@ class PasswordLogin(BaseModel):
 
 
 # 10 attempts per hour per worker, counted per Commons user and per service login, so new
-# Commons accounts cannot buy more password guesses against one Beli or Resy login.
+# Commons accounts cannot buy more password guesses against one third-party login.
 _CONNECT_ATTEMPTS: dict[str, list[float]] = {}
 _CONNECT_LIMIT = 10
 _CONNECT_WINDOW_S = 3600
@@ -142,7 +145,8 @@ def connect_rate_check(*keys):
 def linked_accounts(request: Request, user=Depends(current_user)):
     """Which third-party accounts the caller has connected; summaries hold no secrets."""
     return {'beli': beli_accounts.linked_account_summary(client(request), user.id),
-            'resy': resy_accounts.linked_account_summary(client(request), user.id)}
+            'resy': resy_accounts.linked_account_summary(client(request), user.id),
+            'espn': espn_accounts.linked_account_summary(client(request), user.id)}
 
 
 @router.post('/linked-accounts/beli')
@@ -187,3 +191,106 @@ def connect_resy(body: PasswordLogin, request: Request, user=Depends(current_use
         raise HTTPException(409, 'This Resy account is connected to another Cozy Commons user. '
                                  'Sign in as that user to manage it.')
     return {'status': outcome, 'account': account}
+
+
+class EspnLogin(PasswordLogin):
+    """The MyDisney login ESPN uses. Without league_id, the account's basketball leagues are looked up."""
+    league_id: Optional[int] = Field(default=None, ge=1)
+    season: Optional[int] = Field(default=None, ge=2019, le=2100)
+    enable_automation: bool = True
+
+
+class EspnCookies(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    league_id: int = Field(ge=1)
+    season: int = Field(ge=2019, le=2100)
+    # No constraints on the cookies: FastAPI's 422 body echoes the rejected input, so the route checks them.
+    espn_s2: str
+    swid: str
+    enable_automation: bool = True
+
+
+ESPN_REFUSED = ('ESPN did not accept those cookies for that league. Copy fresh espn_s2 and SWID cookies '
+                'and check the league ID and season.')
+ESPN_DOWN = 'ESPN did not answer. Try again in a minute.'
+
+
+def espn_connect(request, user, *, swid_proven, **team):
+    """Shared tail of both ESPN forms: probe, reuse or create, link."""
+    try:
+        outcome, account = espn_accounts.connect_account_for_owner(
+            client(request), str(user.id), swid_proven=swid_proven, **team)
+    except EspnAuthError:
+        raise HTTPException(400, ESPN_REFUSED)
+    except EspnError as error:
+        if error.status == 404:
+            raise HTTPException(400, 'ESPN has no basketball league with that ID for that season.')
+        raise HTTPException(502, ESPN_DOWN)
+    except (urllib.error.URLError, TimeoutError):
+        raise HTTPException(502, ESPN_DOWN)
+    except espn_accounts.AccountError:
+        raise HTTPException(503, 'Could not save your ESPN login. Try again later.')
+    if outcome == 'other_owner':
+        raise HTTPException(409, 'This ESPN team is connected to another Cozy Commons user. '
+                                 'Sign in as that user to manage it.')
+    if outcome == 'unproven':
+        raise HTTPException(409, 'This ESPN team was set up earlier with different cookies. '
+                                 'Sign in with your ESPN email and password to connect it.')
+    # Legacy /espn reads accounts through the API's TTL cache (one per process; production runs
+    # one worker). Drop it so a cce_ token retired just now stops working at once.
+    cached = getattr(request.app.state, 'supabase', None)
+    if hasattr(cached, 'clear_cache'):
+        cached.clear_cache()
+    return {'status': outcome, 'account': account}
+
+
+@router.post('/linked-accounts/espn')
+def connect_espn(body: EspnLogin, request: Request, user=Depends(current_user)):
+    """Connect the caller's ESPN team by signing in to MyDisney once; the password is never stored."""
+    if len(body.password) > 200:
+        raise HTTPException(400, 'That password is longer than ESPN allows.')
+    if '@' not in body.login:
+        raise HTTPException(400, 'Enter the email you use to sign in to ESPN.')
+    connect_rate_check('user:' + str(user.id), 'espn:' + body.login.strip().lower())  # ASCII by the model
+    season = body.season or _default_season()
+    try:
+        cookies = disney_login.login(body.login, body.password)
+    except (disney_login.InvalidCredentialsError, disney_login.AccountNotFoundError):
+        # One message for both, so the form does not reveal which emails have ESPN accounts.
+        raise HTTPException(400, 'ESPN did not accept that email and password.')
+    except disney_login.ChallengeRequiredError:
+        raise HTTPException(400, 'ESPN asked for a verification step. Sign in at espn.com once, '
+                                 'then try again, or connect with cookies instead.')
+    except (disney_login.DisneyLoginError, urllib.error.URLError, TimeoutError):
+        raise HTTPException(502, ESPN_DOWN)
+    league_id = body.league_id
+    if league_id is None:
+        try:
+            leagues = disney_login.discover_basketball_leagues(cookies['espn_s2'], cookies['swid'], season)
+        except (disney_login.DisneyLoginError, urllib.error.URLError, TimeoutError):
+            raise HTTPException(502, ESPN_DOWN)
+        if not leagues:
+            raise HTTPException(400, f'No ESPN fantasy basketball league found for the {season} season.')
+        if len(leagues) > 1:
+            # Nothing is stored yet; the page asks which league and signs in again with it.
+            return {'status': 'league_selection_required', 'season': season,
+                    'leagues': [{'league_id': entry['league_id'], 'name': entry['name'],
+                                 'team_name': entry['team_name']} for entry in leagues]}
+        league_id = leagues[0]['league_id']
+    return espn_connect(request, user, swid_proven=True, league_id=league_id, season=season,
+                        espn_s2=cookies['espn_s2'], swid=cookies['swid'],
+                        enable_automation=body.enable_automation)
+
+
+@router.post('/linked-accounts/espn/cookies')
+def connect_espn_cookies(body: EspnCookies, request: Request, user=Depends(current_user)):
+    """Connect the caller's ESPN team from espn_s2 and SWID cookies copied from a signed-in browser."""
+    espn_s2, swid = body.espn_s2.strip(), body.swid.strip()
+    if not 1 <= len(espn_s2) <= 2000 or not espn_s2.isascii() or not espn_s2.isprintable():
+        raise HTTPException(400, 'Paste the espn_s2 cookie value.')
+    if not 1 <= len(swid) <= 64 or not swid.isascii() or not swid.isprintable():
+        raise HTTPException(400, 'Paste the SWID cookie value, such as {XXXXXXXX-XXXX-...}.')
+    connect_rate_check('user:' + str(user.id), 'espn-swid:' + espn_accounts.swid_key(swid))
+    return espn_connect(request, user, swid_proven=False, league_id=body.league_id, season=body.season,
+                        espn_s2=espn_s2, swid=swid, enable_automation=body.enable_automation)

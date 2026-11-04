@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 
 from cryptography.fernet import InvalidToken, MultiFernet
@@ -27,6 +28,8 @@ from cryptography.fernet import InvalidToken, MultiFernet
 from credential_keys import credentials_fernet
 
 from .espn_client import EspnAuthError, EspnClient, EspnError, RequestCooldown
+
+logger = logging.getLogger(__name__)
 
 
 class AccountError(Exception):
@@ -238,6 +241,108 @@ def link_account_to_owner(supabase, token: str, user_id: str) -> tuple[str, dict
     if outcome == "missing":
         raise AccountError("unknown token")
     return outcome, row
+
+
+def swid_key(swid: str) -> str:
+    """One SWID's canonical form: upper-case ASCII without braces."""
+    value = swid.strip().strip("{}").strip()
+    return value.upper() if value.isascii() else value
+
+
+def _account_for_team(supabase, swid: str, league_id: int, season: int) -> dict | None:
+    # swid is Fernet-encrypted with a random IV, so rows are matched by
+    # decrypting the few that share the league and season. A row that will not
+    # decrypt (a key mismatch) is skipped; at worst it leads to a duplicate row.
+    rows = (
+        supabase.table("espn_accounts")
+        .select("id,label,league_id,season,swid_enc,espn_s2_enc,owner_user_id")
+        .eq("league_id", league_id)
+        .eq("season", season)
+        .execute()
+    ).data or []
+    wanted = swid_key(swid)
+    for row in rows:
+        try:
+            stored = decrypt_secret(row["swid_enc"])
+        except AccountError:
+            logger.warning("Skipping ESPN account %s: its SWID does not decrypt", row["id"])
+            continue
+        if swid_key(stored) == wanted:
+            return row
+    return None
+
+
+def connect_account_for_owner(
+    supabase, user_id: str, *, league_id, season, espn_s2: str, swid: str,
+    swid_proven: bool, enable_automation: bool = True,
+) -> tuple[str, dict]:
+    """Link one ESPN league team to a Commons user from working session cookies.
+
+    This is the web replacement for presenting a cce_ token. The cookies are
+    probed against the league first. An existing account for the same SWID,
+    league and season is reused, so a legacy user keeps snapshots, lineup runs
+    and automation; otherwise a new account is created with a token nobody
+    sees.
+
+    swid_proven says the SWID came from a MyDisney login rather than from the
+    user. Legacy /espn/onboard never checked that a SWID belongs to the cookies,
+    so a legacy row, and whoever holds its cce_ token, may not be the SWID's
+    owner. Hence: typed cookies reuse an unowned row only when they are the
+    row's own espn_s2, and new cookies written into an existing row always
+    retire its cce_ token, so they reach no one but the linked Commons user.
+
+    Returns (outcome, summary); outcome is linked | already_linked |
+    other_owner | unproven. Raises AccountError for invalid fields and
+    EspnAuthError / EspnError when ESPN refuses or does not answer.
+    """
+    league_id = _coerce_int(league_id, "league_id")
+    season = _coerce_int(season, "season")
+    if league_id <= 0 or not 2019 <= season <= 2100:
+        raise AccountError("league_id or season out of range")
+    espn_s2, swid = (espn_s2 or "").strip(), (swid or "").strip()
+    if not espn_s2 or not swid or not (espn_s2.isascii() and swid.isascii()):
+        raise AccountError("espn_s2 and SWID are required")
+    EspnClient.probe(espn_s2, swid, league_id, season)
+
+    row = _account_for_team(supabase, swid, league_id, season)
+    if row and row.get("owner_user_id") not in (None, str(user_id)):
+        return "other_owner", {"id": row["id"], "label": row.get("label")}
+    same_cookies = bool(row) and hmac.compare_digest(
+        decrypt_secret(row["espn_s2_enc"]).encode(), espn_s2.encode())
+    if row and row.get("owner_user_id") is None and not swid_proven and not same_cookies:
+        return "unproven", {"id": row["id"], "label": row.get("label")}
+    if row:
+        account = {"id": row["id"], "label": row.get("label")}
+    else:
+        token = mint_token()  # the column is required; this token is never shown
+        created = (supabase.table("espn_accounts").insert({
+            "label": "espn",
+            "league_id": league_id,
+            "season": season,
+            "espn_s2_enc": encrypt_secret(espn_s2),
+            "swid_enc": encrypt_secret(swid),
+            "token_hash": hash_token(token),
+            "token_prefix": token[:12],
+            "lineup_automation_enabled": bool(enable_automation),
+        }).execute().data or [{}])[0]
+        if not created.get("id"):
+            raise AccountError("could not create the ESPN account")
+        account = {"id": created["id"], "label": "espn"}
+    outcome = supabase.rpc(
+        "espn_link_account", {"p_account_id": account["id"], "p_user_id": str(user_id)}
+    ).execute().data
+    if outcome not in ("linked", "already_linked", "other_owner"):
+        raise AccountError("could not link the ESPN account")
+    # Write cookies only once the row is the caller's, so a lost race or a wrong
+    # match can never rewrite someone else's credentials.
+    if row and outcome != "other_owner" and not same_cookies:
+        token = mint_token()
+        supabase.table("espn_accounts").update({
+            "espn_s2_enc": encrypt_secret(espn_s2),
+            "token_hash": hash_token(token),
+            "token_prefix": token[:12],
+        }).eq("id", row["id"]).eq("owner_user_id", str(user_id)).execute()
+    return outcome, {**account, "league_id": league_id, "season": season}
 
 
 def make_client_for_account(account: dict, *, cooldown: RequestCooldown | None = None) -> EspnClient:
