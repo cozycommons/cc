@@ -1,4 +1,6 @@
 """Commons account API under /account, authenticated by the Supabase session bearer."""
+import time
+import urllib.error
 from uuid import UUID
 
 from typing import Optional
@@ -11,6 +13,8 @@ from starlette.concurrency import run_in_threadpool
 
 from cc_mcp import connections
 from commons_account import profile
+from ig_logger.sinks.beli import accounts as beli_accounts
+from ig_logger.sinks.beli.beli_client import BeliError, BeliUnauthorized
 from trips.profiles import avatar_url
 
 router = APIRouter()
@@ -103,3 +107,51 @@ async def disconnect(connection_id: str, request: Request, user=Depends(current_
     if row['revoked_at'] is None:
         await run_in_threadpool(connections.mark_revoked, client(request), row['upstream_token_id'])
     return Response(status_code=204)
+
+
+# Linked accounts: the user signs in to the third-party service here, on our own
+# page, so neither the password nor a ccX_ token ever passes through an agent.
+class BeliLogin(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    login: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+
+
+# Same limit as /beli/onboard and link_beli_account: 10 attempts per user per hour, per worker.
+_CONNECT_ATTEMPTS: dict[str, list[float]] = {}
+_CONNECT_LIMIT = 10
+_CONNECT_WINDOW_S = 3600
+
+
+def connect_rate_check(user_id):
+    now = time.time()
+    attempts = [t for t in _CONNECT_ATTEMPTS.get(user_id, []) if now - t < _CONNECT_WINDOW_S]
+    if len(attempts) >= _CONNECT_LIMIT:
+        raise HTTPException(429, 'Too many attempts. Try again in an hour.')
+    _CONNECT_ATTEMPTS[user_id] = attempts + [now]
+
+
+@router.get('/linked-accounts')
+def linked_accounts(request: Request, user=Depends(current_user)):
+    """Which third-party accounts the caller has connected; summaries hold no secrets."""
+    return {'beli': beli_accounts.linked_account_summary(client(request), user.id)}
+
+
+@router.post('/linked-accounts/beli')
+def connect_beli(body: BeliLogin, request: Request, user=Depends(current_user)):
+    """Connect (or refresh the password of) the caller's Beli account from its login."""
+    connect_rate_check(str(user.id))
+    try:
+        outcome, account = beli_accounts.connect_account_for_owner(
+            client(request), str(user.id), body.login, body.password)
+    except BeliUnauthorized:
+        raise HTTPException(400, 'Beli did not accept that email or phone number and password.')
+    except (BeliError, urllib.error.URLError, TimeoutError):  # urllib raises the last two when Beli is unreachable
+        raise HTTPException(502, 'Beli did not answer. Try again in a minute.')
+    except beli_accounts.AccountError:
+        raise HTTPException(503, 'Could not save your Beli login. Try again later.')
+    if outcome == 'other_owner':
+        raise HTTPException(409, 'This Beli account is connected to another Cozy Commons user. '
+                                 'Sign in as that user to manage it.')
+    return {'status': outcome, 'account': {'id': account['id'], 'label': account['label']}}
