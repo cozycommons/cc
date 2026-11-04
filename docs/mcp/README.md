@@ -297,14 +297,15 @@ Provider `backend/ig_logger/sinks/beli/agent_tools.py`, three tools:
   `https://cozycommons.dev/account#beli`.
 
 Linking on the account page: `POST /account/linked-accounts/beli` with
-`{login, password}` and the Commons session. The server checks the login with
-Beli first; a wrong password stores nothing. An existing account with the same
-login (emails compared case-insensitively, phone numbers by digits) is reused:
-its stored password is refreshed and its `ccb_` token, receipts and watcher
-subscription stay. Otherwise a new account is created with a token nobody sees.
-Then `beli_link_account` links it, refusing an account another Commons user
-owns. `GET /account/linked-accounts` returns `{beli: summary | null}`. Attempts
-are limited to 10 per user per hour.
+`{login, password}` and the Commons session. Logins are printable ASCII. The
+server checks the login with Beli first; a wrong password stores nothing. An
+existing account with the same login (emails ASCII-case-insensitive, phone
+numbers by digits) is reused and keeps its `ccb_` token, receipts and watcher
+subscription. Otherwise a new account is created with a token nobody sees.
+`beli_link_account` then links it, refusing an account another Commons user
+owns; only after that is a reused row's stored password refreshed.
+`GET /account/linked-accounts` returns `{beli: summary | null}`. Attempts are
+limited to 10 per hour per Commons user and per Beli login.
 
 A Beli account belongs to whoever holds its `ccb_` token (minted once by
 `POST /beli/onboard`; only its sha256 hash is stored). Migration
