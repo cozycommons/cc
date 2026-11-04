@@ -142,6 +142,69 @@ function Agents() {
   </section>;
 }
 
+function BeliAccount({ account, openOnLoad, onConnected }) {
+  const [open, setOpen] = useState(openOnLoad && !account);
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const row = useRef(null);
+  // The page's own hash scroll runs before this row exists, so the agent's #beli link lands here.
+  useEffect(() => { if (openOnLoad) row.current?.scrollIntoView?.(); }, [openOnLoad]);
+  const close = () => { setOpen(false); setPassword(''); setError(''); };
+  const submit = async (event) => {
+    event.preventDefault();
+    setBusy(true); setError('');
+    try {
+      const result = await accountRequest('/linked-accounts/beli', { method: 'POST', body: { login: login.trim(), password } });
+      onConnected(result.account);
+      setLogin(''); close();
+    } catch (err) { setError(err.message); } finally { setBusy(false); setPassword(''); }
+  };
+  return <li className="cc-account-connection" id="beli" ref={row}>
+    <div>
+      <strong>Beli</strong>
+      <p className="cc-account-muted">{account ? 'Connected' : 'Not connected'}</p>
+      {open && <form className="cc-account-login" onSubmit={submit}>
+        <input className="cc-input" aria-label="Beli email or phone" placeholder="Beli email or phone" autoComplete="username"
+          required maxLength={200} value={login} onChange={(event) => setLogin(event.target.value)} />
+        <input className="cc-input" type="password" aria-label="Beli password" placeholder="Beli password" autoComplete="current-password"
+          required maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} />
+        <div className="cc-account-confirm">
+          <button type="submit" className="cc-button cc-button--primary" disabled={busy || !login.trim() || !password}>
+            {busy ? 'Checking with Beli…' : account ? 'Save password' : 'Connect Beli'}</button>
+          <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={close}>Cancel</button>
+        </div>
+        <p className="cc-account-muted">Stored encrypted and used only for your Beli requests.</p>
+      </form>}
+      {error && <p className="cc-notice cc-notice--error" role="alert">{error}</p>}
+    </div>
+    {!open && <button type="button" className="cc-button cc-button--secondary" onClick={() => setOpen(true)}>
+      {account ? 'Update password' : 'Connect'}</button>}
+  </li>;
+}
+
+function LinkedAccounts({ hash }) {
+  const [linked, setLinked] = useState(null);
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    setError('');
+    try { setLinked(await accountRequest('/linked-accounts')); } catch (err) { setError(err.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  return <section aria-labelledby="linked-heading" id="linked-accounts" className="cc-account-section">
+    <h2 id="linked-heading">Linked accounts</h2>
+    <p>Agents use these through your Cozy Commons connection. Enter passwords here, never in an agent chat.</p>
+    {error && <p className="cc-notice cc-notice--error" role="alert">{error} <button type="button" className="cc-button cc-button--ghost" onClick={load}>Retry</button></p>}
+    {linked === null ? !error && <p role="status" className="cc-account-muted">Loading linked accounts…</p>
+      : <ul className="cc-account-connections">
+        <BeliAccount account={linked.beli} openOnLoad={hash === '#beli'}
+          onConnected={(account) => setLinked((current) => ({ ...current, beli: account }))} />
+      </ul>}
+  </section>;
+}
+
 export default function Account() {
   const { status, profile } = useCommonsIdentity();
   const { hash } = useLocation();
@@ -173,7 +236,7 @@ export default function Account() {
           <button type="button" className="cc-button cc-button--primary" onClick={signIn}>Continue with Google</button>
           {error && <p className="cc-notice cc-notice--error" role="alert">{error}</p>}
         </section>
-          : <><Profile profile={profile} /><Agents /></>}
+          : <><Profile profile={profile} /><Agents /><LinkedAccounts hash={hash} /></>}
     </main>
   </div>;
 }

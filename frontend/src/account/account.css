@@ -27,6 +27,8 @@ body.cc-account-body { margin: 0; background: var(--paper); color: var(--ink); f
 .cc-account-connection { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 0; border-top: var(--hairline); }
 .cc-account-connection > div:first-child { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
 .cc-account-confirm { display: flex; flex-wrap: wrap; gap: 8px; }
+.cc-account-login { display: flex; flex-direction: column; gap: 8px; max-width: 360px; margin-top: 12px; }
+.cc-account-login .cc-account-muted { margin: 0; }
 
 @media (max-width: 640px) {
   .cc-account-page main { margin-top: 28px; }

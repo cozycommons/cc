@@ -59,8 +59,48 @@ it('lists connected agents and disconnects one after confirming', async () => {
 });
 
 it('shows why connections are unavailable and keeps the profile usable', async () => {
-  mocked.request.mockRejectedValue(new Error('Agent connections are unavailable.'));
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') throw new Error('Agent connections are unavailable.');
+    return { beli: null };
+  });
   open();
   expect(await screen.findByRole('alert')).toHaveTextContent('Agent connections are unavailable.');
   expect(screen.getByRole('button', { name: 'Edit name' })).toBeInTheDocument();
+});
+
+const openAt = (entry) => render(<MemoryRouter initialEntries={[entry]}><Account /></MemoryRouter>);
+
+it("connects Beli on the page an agent's #beli link opens, without keeping the password", async () => {
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null };
+    return { status: 'linked', account: { id: 'b1', label: 'beli' } };
+  });
+  openAt('/account#beli');
+  const row = (await screen.findByText('Not connected')).closest('li');
+  fireEvent.change(within(row).getByLabelText('Beli email or phone'), { target: { value: ' sam@example.test ' } });
+  fireEvent.change(within(row).getByLabelText('Beli password'), { target: { value: 'synthetic-password' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect Beli' }));
+  expect(await within(row).findByText('Connected')).toBeInTheDocument();
+  expect(mocked.request).toHaveBeenCalledWith('/linked-accounts/beli',
+    { method: 'POST', body: { login: 'sam@example.test', password: 'synthetic-password' } });
+  expect(within(row).queryByLabelText('Beli password')).not.toBeInTheDocument();
+  expect(within(row).getByRole('button', { name: 'Update password' })).toBeInTheDocument();
+});
+
+it('shows a Beli refusal and clears the password for another try', async () => {
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: { id: 'b1', label: 'beli' } };
+    throw new Error('Beli did not accept that email or phone number and password.');
+  });
+  openAt('/account');
+  const row = (await screen.findByText('Connected')).closest('li');
+  fireEvent.click(within(row).getByRole('button', { name: 'Update password' }));
+  fireEvent.change(within(row).getByLabelText('Beli email or phone'), { target: { value: 'sam@example.test' } });
+  fireEvent.change(within(row).getByLabelText('Beli password'), { target: { value: 'wrong' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Save password' }));
+  expect(await within(row).findByRole('alert')).toHaveTextContent('did not accept');
+  expect(within(row).getByLabelText('Beli password')).toHaveValue('');
+  expect(within(row).getByText('Connected')).toBeInTheDocument();
 });
