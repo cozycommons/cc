@@ -114,22 +114,26 @@ async def disconnect(connection_id: str, request: Request, user=Depends(current_
 class BeliLogin(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    login: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=1, max_length=200)
+    # Printable ASCII only, so Unicode look-alikes cannot match another login.
+    login: str = Field(min_length=1, max_length=200, pattern=r'^[\x20-\x7e]+$')
+    # No max_length here: FastAPI's 422 body echoes the rejected input, so the route checks length.
+    password: str = Field(min_length=1)
 
 
-# Same limit as /beli/onboard and link_beli_account: 10 attempts per user per hour, per worker.
+# 10 attempts per hour per worker, counted per Commons user and per Beli login, so new
+# Commons accounts cannot buy more password guesses against one Beli login.
 _CONNECT_ATTEMPTS: dict[str, list[float]] = {}
 _CONNECT_LIMIT = 10
 _CONNECT_WINDOW_S = 3600
 
 
-def connect_rate_check(user_id):
+def connect_rate_check(*keys):
     now = time.time()
-    attempts = [t for t in _CONNECT_ATTEMPTS.get(user_id, []) if now - t < _CONNECT_WINDOW_S]
-    if len(attempts) >= _CONNECT_LIMIT:
+    recent = {key: [t for t in _CONNECT_ATTEMPTS.get(key, []) if now - t < _CONNECT_WINDOW_S] for key in keys}
+    if any(len(attempts) >= _CONNECT_LIMIT for attempts in recent.values()):
         raise HTTPException(429, 'Too many attempts. Try again in an hour.')
-    _CONNECT_ATTEMPTS[user_id] = attempts + [now]
+    for key, attempts in recent.items():
+        _CONNECT_ATTEMPTS[key] = attempts + [now]
 
 
 @router.get('/linked-accounts')
@@ -141,7 +145,9 @@ def linked_accounts(request: Request, user=Depends(current_user)):
 @router.post('/linked-accounts/beli')
 def connect_beli(body: BeliLogin, request: Request, user=Depends(current_user)):
     """Connect (or refresh the password of) the caller's Beli account from its login."""
-    connect_rate_check(str(user.id))
+    if len(body.password) > 200:
+        raise HTTPException(400, 'That password is longer than Beli allows.')
+    connect_rate_check('user:' + str(user.id), 'beli:' + beli_accounts.login_key(body.login))
     try:
         outcome, account = beli_accounts.connect_account_for_owner(
             client(request), str(user.id), body.login, body.password)
