@@ -43,7 +43,14 @@ The React boundary reloads the document before mounting content when navigation
 crosses between general and credential pages, including history navigation.
 Query strings and hashes are retained. This matters because `pushState` does
 not fetch a new CSP header. Leaving the credential pages reloads too, restoring
-permissions needed by the destination route.
+permissions needed by the destination route. `/crowdset` and `/crowd-set` are a
+third document kind: production Traefik routes them to the separate Crowdset app
+(which serves its own policy, including R2), so crossing into or out of them also
+reloads instead of rendering Crowdset inside this nginx document.
+
+Every nginx location that sets its own headers repeats the CSP,
+`X-Content-Type-Options: nosniff` and `Referrer-Policy`, because a location's
+`add_header` replaces the server-level ones.
 
 `form-action 'none'` is intentional: all legitimate forms prevent native submit
 and send fetch requests. `base-uri 'none'`, `object-src 'none'`, `frame-src 'none'`
@@ -59,7 +66,12 @@ endpoints, read same-origin browser state, or navigate the top-level window.
 `connect-src` does not constrain top-level navigation, and OAuth needs external
 navigation. CSP also cannot distinguish allowed requests by HTTP method or body.
 Server authorization, credential handling and dependency integrity remain
-necessary. A stronger boundary against malicious first-party code would require
+necessary.
+
+Known gap: `/fantasy/connect` still collects the ESPN password (`OnboardPanel`,
+posting to `/espn/onboard/login`) under the general policy. The fix is to move
+that entry to `/account`, where the other linked accounts live, rather than add a
+third credential tier inside the Fantasy shell. A stronger boundary against malicious first-party code would require
 isolating credential entry from the main application's origin and bundles.
 
 Build configuration changes require a rebuild so the policy and browser URLs

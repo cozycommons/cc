@@ -5,6 +5,16 @@ export function credentialPage(pathname) {
   return /^\/(account|oauth\/consent)(\/|$)/i.test(decoded);
 }
 
+// Which server document a path belongs to. Production Traefik sends /crowdset and
+// /crowd-set to the separate Crowdset app (its own origin list, including R2), so
+// the SPA must not client-route into them under this nginx document's policy.
+export function documentKind(pathname) {
+  if (credentialPage(pathname)) return 'credentials';
+  let decoded;
+  try { decoded = decodeURIComponent(pathname); } catch { return 'general'; }
+  return /^\/crowd-?set(\/|$)/i.test(decoded) ? 'crowdset' : 'general';
+}
+
 export function serviceUrl(value) {
   const url = new URL(value);
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);

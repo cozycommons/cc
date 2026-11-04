@@ -73,3 +73,13 @@ describe('enforced CSP', () => {
   });
   it.each(['/account', '/ACCOUNT/', '/%61ccount', '/oauth/consent', '/OAuth/Consent///'])('protects React route spelling %s', path => expect(credentialPage(path)).toBe(true));
 });
+
+describe('security headers survive nginx add_header inheritance', () => {
+  // A location with any add_header drops every server-level add_header, so each must repeat them.
+  const blocks = [...config.matchAll(/location[^{]*\{([^}]*)\}/g)].map(m => m[1]).filter(b => b.includes('add_header'));
+  it.each(blocks.map((b, i) => [i, b]))('location %i repeats CSP, nosniff and Referrer-Policy', (_, block) => {
+    expect(block).toContain('add_header Content-Security-Policy $document_csp always;');
+    expect(block).toContain('add_header X-Content-Type-Options nosniff always;');
+    expect(block).toContain('add_header Referrer-Policy strict-origin-when-cross-origin always;');
+  });
+});
