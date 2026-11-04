@@ -29,8 +29,6 @@ class CatalogProject:
 
 CATALOG = (
     CatalogProject('dice', 'Dice', 'Beer die records, rankings and stats.', 'https://cozycommons.dev/dice'),
-    CatalogProject('espn', 'ESPN', 'Manage fantasy league data and lineups.',
-                   'https://api.cozycommons.dev/espn/mcp', '/espn/mcp'),
     CatalogProject('fantasy', 'Fantasy', 'Fantasy basketball predictions updated daily.', 'https://cozycommons.dev/fantasy'),
     CatalogProject('crowdset', 'Crowdset', 'Collect and watch shared concert videos.', 'https://cozycommons.dev/crowdset'),
     CatalogProject('design', 'Design gallery', 'Browse Cozy Commons interface design studies.', 'https://cozycommons.dev/design'),
