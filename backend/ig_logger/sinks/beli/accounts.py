@@ -15,10 +15,11 @@ Platform-level identity (token -> account row) lives in
 
 from __future__ import annotations
 
-import os
 import secrets
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import InvalidToken, MultiFernet
+
+from credential_keys import credentials_fernet
 
 from ... import sources
 from ...accounts import AccountError, get_account_row_by_token, hash_token
@@ -38,17 +39,8 @@ __all__ = [
 ]
 
 
-def _fernet() -> Fernet:
-    key = os.environ.get("BELI_CREDENTIALS_KEY", "")
-    if not key:
-        raise AccountError(
-            "BELI_CREDENTIALS_KEY is not set. Generate one with: "
-            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-        )
-    try:
-        return Fernet(key.encode("utf-8"))
-    except Exception as e:
-        raise AccountError(f"BELI_CREDENTIALS_KEY is invalid: {e}")
+def _fernet() -> MultiFernet:
+    return credentials_fernet("BELI_CREDENTIALS_KEY", AccountError)
 
 
 def encrypt_secret(plaintext: str) -> str:
