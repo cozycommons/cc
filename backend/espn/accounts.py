@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 import secrets
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import InvalidToken, MultiFernet
+
+from credential_keys import credentials_fernet
 
 from .espn_client import EspnAuthError, EspnClient, EspnError, RequestCooldown
 
@@ -32,17 +33,8 @@ class AccountError(Exception):
     pass
 
 
-def _fernet() -> Fernet:
-    key = os.environ.get("ESPN_CREDENTIALS_KEY", "")
-    if not key:
-        raise AccountError(
-            "ESPN_CREDENTIALS_KEY is not set. Generate one with: "
-            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
-        )
-    try:
-        return Fernet(key.encode("utf-8"))
-    except Exception as e:
-        raise AccountError(f"ESPN_CREDENTIALS_KEY is invalid: {e}")
+def _fernet() -> MultiFernet:
+    return credentials_fernet("ESPN_CREDENTIALS_KEY", AccountError)
 
 
 def encrypt_secret(plaintext: str) -> str:

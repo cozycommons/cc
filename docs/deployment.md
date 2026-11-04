@@ -358,6 +358,26 @@ execution in Coolify after configuration; importing the rating modules does not
 schedule them. Neither this schedule nor a hosted post-deploy run is confirmed
 until deployment access is available.
 
+## Credential key rotation
+
+`BELI_CREDENTIALS_KEY`, `RESY_CREDENTIALS_KEY`, `PARTIFUL_CREDENTIALS_KEY` and
+`ESPN_CREDENTIALS_KEY` each accept one Fernet key or several separated by
+commas: the first encrypts, every listed key decrypts (`backend/credential_keys.py`).
+To rotate one, for example after a suspected leak:
+
+1. Generate a key and set the variable to `NEW,OLD` in Coolify; redeploy.
+2. In the deployed backend container, count, then rewrite, every stored row:
+
+   ```bash
+   python -m scripts.rotate_credentials beli --host <supabase host>
+   python -m scripts.rotate_credentials beli --host <supabase host> --apply
+   ```
+
+   It prints counts only and exits non-zero if a row decrypts with no listed key.
+3. Set the variable to `NEW` alone and redeploy.
+
+Rotation is a production operation: run it only when explicitly asked.
+
 ## First-deployment checks
 
 1. Open the backend `/health` endpoint and verify it returns `{"status":"ok"}`.

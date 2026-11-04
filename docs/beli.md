@@ -111,7 +111,7 @@ reported instead of re-bookmarked.
 
 | Var | Purpose |
 |---|---|
-| `BELI_CREDENTIALS_KEY` | Fernet key for Beli logins at rest. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Set in Coolify; **never commit**. |
+| `BELI_CREDENTIALS_KEY` | Fernet key for Beli logins at rest (comma-separated keys during rotation; see `docs/deployment.md#credential-key-rotation`). Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Set in Coolify; **never commit**. |
 | `BELI_EATS_INGEST_KEY` | Service key for `POST /beli/eats-ingest` (the harness cron). Generate: `openssl rand -hex 32`. Set in Coolify; **never commit**. |
 
 ## Watcher
