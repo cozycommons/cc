@@ -163,16 +163,16 @@ class FakeEspn:
             raise self.db.espn_failure
         return self.db.espn_leagues[self.swid]
 
-    def get_league(self, views, scoring_period_id=None):
+    def get_league(self, views, scoring_period_id=None, *, max_age=0):
         return self.league.payload(views)
 
-    def get_league_players(self, limit=1000):
+    def get_league_players(self, limit=1000, *, max_age=0):
         return self.league.league_players()
 
-    def get_league_players_for_period(self, scoring_period_id, limit=1000):
+    def get_league_players_for_period(self, scoring_period_id, limit=1000, *, max_age=0):
         return self.league.league_players()
 
-    def get_players(self, limit=300):
+    def get_players(self, limit=300, *, max_age=0):
         return [row['player'] for row in self.league.league_players()]
 
     def post_lineup_transaction(self, member_id, team_id, scoring_period_id, items):
