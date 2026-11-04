@@ -49,10 +49,12 @@ def rotate(supabase, project: str, apply: bool) -> dict:
     """
     table, env_name, columns = PROJECTS[project]
     fernet = credentials_fernet(env_name, RotationError)
-    seen, rotated, failed, changed = 0, 0, [], []
+    seen, rotated, failed, changed, last_id = 0, 0, [], [], None
     while True:
-        rows = (supabase.table(table).select(','.join(('id',) + columns))
-                .order('id').range(seen, seen + PAGE - 1).execute().data or [])
+        # Keyset pages (id > last seen), not offsets: a row deleted mid-run must not shift
+        # an unvisited row out of the next page and leave it on the old key.
+        query = supabase.table(table).select(','.join(('id',) + columns)).order('id').limit(PAGE)
+        rows = (query.gt('id', last_id) if last_id is not None else query).execute().data or []
         for row in rows:
             try:
                 changes = {column: fernet.rotate(row[column].encode()).decode()
@@ -73,6 +75,7 @@ def rotate(supabase, project: str, apply: bool) -> dict:
         seen += len(rows)
         if len(rows) < PAGE:
             break
+        last_id = rows[-1]['id']
     return {'project': project, 'rows': seen, 'rotated': rotated, 'undecryptable': failed,
             'changed': changed, 'applied': apply}
 

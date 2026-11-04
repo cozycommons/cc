@@ -6,6 +6,7 @@ from cryptography.fernet import Fernet
 
 from credential_keys import credentials_fernet
 from ig_logger.sinks.beli import accounts as beli_accounts
+from espn import accounts as espn_accounts
 from partiful import accounts as partiful_accounts
 from resy import accounts as resy_accounts
 from scripts import rotate_credentials
@@ -15,7 +16,8 @@ class Table:
     """A table fake with the calls rotation makes: paged reads and conditional updates."""
 
     def __init__(self, rows):
-        self.rows, self.updates, self.page, self.change, self.filters = rows, [], None, None, []
+        self.rows, self.updates, self.change, self.filters = rows, [], None, []
+        self.after, self.size, self.reads = None, None, 0
 
     def select(self, *_):
         return self
@@ -23,8 +25,13 @@ class Table:
     def order(self, _):
         return self
 
-    def range(self, start, end):
-        self.page = (start, end)
+    def limit(self, size):
+        self.after, self.size = None, size
+        return self
+
+    def gt(self, key, value):
+        assert key == 'id'
+        self.after = value
         return self
 
     def update(self, change):
@@ -43,8 +50,9 @@ class Table:
             self.updates.append(self.change)
             self.change = None
             return SimpleNamespace(data=[dict(r) for r in matched])
-        start, end = self.page
-        return SimpleNamespace(data=[dict(r) for r in self.rows[start:end + 1]])
+        self.reads += 1
+        page = sorted((r for r in self.rows if self.after is None or r['id'] > self.after), key=lambda r: r['id'])
+        return SimpleNamespace(data=[dict(r) for r in page[:self.size]])
 
 
 def test_first_key_encrypts_and_every_key_decrypts(monkeypatch):
@@ -109,7 +117,7 @@ def test_rotation_pages_past_one_page_and_never_overwrites_a_concurrent_refresh(
 
     def app_refreshes_p3_after_it_is_read():  # the app saves a new token between rotation's read and write
         result = real_execute()
-        if table.change is None and table.page == (2, 3) and rows[3]['refresh_token_enc'] != fresh:
+        if table.change is None and table.reads == 2 and rows[3]['refresh_token_enc'] != fresh:
             rows[3]['refresh_token_enc'] = fresh
         return result
     table.execute = app_refreshes_p3_after_it_is_read
@@ -119,3 +127,27 @@ def test_rotation_pages_past_one_page_and_never_overwrites_a_concurrent_refresh(
     monkeypatch.setenv('PARTIFUL_CREDENTIALS_KEY', new)
     assert partiful_accounts.decrypt_secret(rows[3]['refresh_token_enc']) == 'token-refreshed'
     assert partiful_accounts.decrypt_secret(rows[4]['refresh_token_enc']) == 'token-4'
+
+
+def test_a_row_deleted_mid_rotation_does_not_strand_a_later_row_on_the_old_key(monkeypatch):
+    old, new = Fernet.generate_key().decode(), Fernet.generate_key().decode()
+    monkeypatch.setenv('ESPN_CREDENTIALS_KEY', old)
+    monkeypatch.setattr(rotate_credentials, 'PAGE', 2)
+    rows = [{'id': f'e{i}', 'espn_s2_enc': espn_accounts.encrypt_secret(f's2-{i}'),
+             'swid_enc': espn_accounts.encrypt_secret('swid')} for i in range(3)]
+    table = Table(rows)
+    db = SimpleNamespace(table=lambda name: table)
+    monkeypatch.setenv('ESPN_CREDENTIALS_KEY', f'{new},{old}')
+    real_execute = table.execute
+
+    def user_deletes_e0_after_the_first_page():  # DELETE /espn/account between pages
+        if table.change is None and table.reads == 1 and rows[0]['id'] == 'e0':
+            del rows[0]  # e0 was already rotated; under offsets this pushed e2 out of page two
+        return real_execute()
+    table.execute = user_deletes_e0_after_the_first_page
+
+    result = rotate_credentials.rotate(db, 'espn', apply=True)
+    assert result['rotated'] == 3 and result['changed'] == [] and result['undecryptable'] == []
+    assert [r['id'] for r in rows] == ['e1', 'e2']
+    monkeypatch.setenv('ESPN_CREDENTIALS_KEY', new)
+    assert espn_accounts.decrypt_secret(next(r for r in rows if r['id'] == 'e2')['espn_s2_enc']) == 's2-2'
