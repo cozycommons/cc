@@ -42,7 +42,7 @@ export default function Connect() {
     }
   };
   return <div className="cc-page cc-connect">
-    <SiteHeader><Link to="/trips">Trips</Link></SiteHeader>
+    <SiteHeader />
     <main id="connect-main">
       <h1>Connect your agent</h1>
       <section aria-labelledby="connector-heading" className="cc-connect-endpoint">
@@ -84,8 +84,8 @@ export default function Connect() {
       </section>
       <section aria-labelledby="disconnect-heading">
         <h2 id="disconnect-heading">Disconnect</h2>
-        <p>Remove or disconnect the connector in your agent. To revoke the Cozy Commons application grant in Supabase Auth, contact the Cozy Commons administrator; there is currently no in-app grant revocation page.</p>
-        <p>Already-issued tokens may stay valid until expiry. After a grant or permission change, disconnect and reconnect to sign in and consent again.</p>
+        <p>Open <Link to="/account#agents">Connected agents</Link> on your account and choose Disconnect. That agent’s access stops on its next request, and it must sign in and approve again to reconnect. Also remove the connector in your agent so it stops asking.</p>
+        <p>A connection approved before the account page existed shows there after its next use.</p>
       </section>
     </main>
   </div>;

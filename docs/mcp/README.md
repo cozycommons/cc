@@ -30,10 +30,9 @@ The connector's approval page names the agent and the requested scopes
 then review the application and account on `/oauth/consent`. Choose Allow
 connection or Deny. Call `list_projects` first, then `enable_project` for any
 project that is off; preview writes and get user confirmation before committing.
-Remove the connector in the agent to disconnect. There is currently no in-app
-application-grant revocation page; contact the Cozy Commons administrator to
-revoke the Supabase Auth grant. Already-issued tokens may last until expiry
-(see the revocation details below).
+To disconnect, open Connected agents on [your account](https://cozycommons.dev/account#agents)
+(`/account#agents`) and choose Disconnect; that connection's access and refresh
+tokens stop working on the next request. Also remove the connector in the agent.
 
 ## Connection and deployment
 

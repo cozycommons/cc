@@ -1,8 +1,18 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SiteHeader from './SiteHeader.jsx';
+
+const identity = vi.hoisted(() => ({ current: null, signIn: vi.fn(), signOut: vi.fn() }));
+vi.mock('./commonsIdentity.js', () => ({ useCommonsIdentity: () => identity.current,
+  signInToCommons: identity.signIn, signOutOfCommons: identity.signOut }));
+beforeEach(() => {
+  identity.current = { status: 'signed-out', user: null, profile: null };
+  identity.signIn.mockReset(); identity.signOut.mockReset();
+});
+const sam = { status: 'signed-in', user: { id: 'u1' },
+  profile: { user_id: 'u1', display_name: 'Sam', email: 'sam@example.test', avatar_url: 'https://cdn.test/sam.webp' } };
 
 function Where() {
   const location = useLocation();
@@ -82,9 +92,46 @@ describe('SiteHeader back button after an in-page anchor', () => {
   });
 });
 
-it('links to agent setup from the shared account menu', () => {
-  render(<MemoryRouter><SiteHeader /></MemoryRouter>);
-  fireEvent.click(screen.getByText('Account'));
-  expect(screen.getByRole('navigation', { name: 'Account' })).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Connect your agent' })).toHaveAttribute('href', '/connect');
+describe('SiteHeader account', () => {
+  it('shows the signed-in avatar on every page, with account and agent links', () => {
+    identity.current = sam;
+    render(<MemoryRouter><SiteHeader /></MemoryRouter>);
+    const trigger = screen.getByRole('button', { name: 'Account: Sam' });
+    expect(trigger.querySelector('img')).toHaveAttribute('src', 'https://cdn.test/sam.webp');
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('navigation', { name: 'Account' });
+    expect(menu).toHaveTextContent('sam@example.test');
+    expect(screen.getByRole('link', { name: 'Your profile' })).toHaveAttribute('href', '/account');
+    expect(screen.getByRole('link', { name: 'Connected agents' })).toHaveAttribute('href', '/account#agents');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(identity.signOut).toHaveBeenCalled();
+  });
+
+  it('adds product links and closes on Escape', () => {
+    identity.current = sam;
+    const onSelect = vi.fn();
+    render(<MemoryRouter><SiteHeader product="Dice" to="/dice" accountItems={[
+      { label: 'Dice profile', to: '/dice/profile/u1' }, { label: 'Venmo', onSelect }]} /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: 'Account: Sam' }));
+    expect(screen.getByRole('link', { name: 'Dice profile' })).toHaveAttribute('href', '/dice/profile/u1');
+    fireEvent.click(screen.getByRole('button', { name: 'Venmo' }));
+    expect(onSelect).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Account: Sam' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
+  });
+
+  it('offers Google sign-in when signed out, a product sign-in instead, or none', () => {
+    const { unmount } = render(<MemoryRouter><SiteHeader /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(identity.signIn).toHaveBeenCalled();
+    unmount();
+    const harness = vi.fn();
+    const second = render(<MemoryRouter><SiteHeader onSignIn={harness} /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(harness).toHaveBeenCalled();
+    second.unmount();
+    render(<MemoryRouter><SiteHeader onSignIn={null} /></MemoryRouter>);
+    expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
+  });
 });

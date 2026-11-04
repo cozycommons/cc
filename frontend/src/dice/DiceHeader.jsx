@@ -1,13 +1,12 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { BarChart3, Plus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import PlayerAvatar from './components/PlayerAvatar.jsx';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { diceParentPath } from './diceBack.js';
 
 export default function DiceHeader({ auth }) {
-  const { user, profile, loading, signIn } = auth;
+  const { user, signIn } = auth;
   const navigate = useNavigate();
   const isSandbox = import.meta.env.VITE_DICE_LOCAL_HARNESS === 'true';
 
@@ -16,7 +15,8 @@ export default function DiceHeader({ auth }) {
       className="jk-dice-header w-full px-4 sm:px-6 py-3"
       style={{ background: 'var(--surface-page)' }}
     >
-      <SiteHeader product="Dice" to="/dice" icon="🎲" backFallback={diceParentPath}>
+      <SiteHeader product="Dice" to="/dice" icon="🎲" backFallback={diceParentPath} onSignIn={signIn}
+        accountItems={user ? [{ label: 'Dice profile', to: `/dice/profile/${user.id}` }, { label: 'Dice settings', to: '/dice/settings' }] : []}>
         {isSandbox && (
           <span
             className="jk-label px-2 py-1 rounded-full"
@@ -47,17 +47,6 @@ export default function DiceHeader({ auth }) {
           Start Match
         </Button>
 
-        {!loading && (
-          user ? (
-            <Link to={`/dice/profile/${user.id}`} className="block rounded-full" aria-label="My profile">
-              <PlayerAvatar profile={profile} size={32} linkToProfile={false} />
-            </Link>
-          ) : (
-            <Button size="sm" variant="outline" onClick={signIn}>
-              Sign in
-            </Button>
-          )
-        )}
       </div>
       </SiteHeader>
     </div>

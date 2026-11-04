@@ -54,9 +54,21 @@
 
 .jk-dice .cc-sitebar { width: 100%; }
 
-.cc-sitebar-account { position: relative; }
-.cc-sitebar-account summary { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; cursor: pointer; }
-.cc-sitebar-account summary:hover { background: var(--paper-light); }
-.cc-sitebar-account nav { position: absolute; z-index: 20; right: 0; top: 100%; width: 200px; padding: 8px; border: var(--hairline); border-radius: 10px; background: var(--paper-light); box-shadow: var(--paper-shadow); }
-.cc-sitebar-account nav a { display: flex; align-items: center; min-height: 44px; padding: 8px; border-radius: 6px; text-decoration: none; }
-.cc-sitebar-account nav a:hover { background: var(--paper); }
+.cc-account { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.cc-account-placeholder { display: inline-block; width: 44px; height: 44px; }
+.cc-account-trigger { display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 999px; background: none; cursor: pointer; }
+.cc-account-trigger:hover, .cc-account-trigger[aria-expanded=true] { border-color: var(--line); background: var(--paper-light); }
+.cc-account-signin { min-height: 44px; padding: 0 14px; border: var(--hairline); border-radius: 999px; background: var(--paper-light); color: var(--ink); font: 600 13px/1 var(--sans); cursor: pointer; }
+.cc-account-signin:hover { border-color: var(--line-strong); }
+.cc-account-error { color: var(--clay); font-size: 12px; }
+.cc-account-menu { position: absolute; z-index: 30; right: 0; top: calc(100% + 4px); display: flex; flex-direction: column; width: min(260px, calc(100vw - 32px)); padding: 8px; border: var(--hairline); border-radius: 12px; background: var(--paper-light); box-shadow: var(--paper-shadow); color: var(--ink); font: 14px/1.3 var(--sans); text-align: left; }
+.cc-account-who { display: flex; align-items: center; gap: 10px; padding: 6px 8px 10px; }
+.cc-account-who div { display: flex; flex-direction: column; min-width: 0; }
+.cc-account-who strong, .cc-account-who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-account-who span { color: var(--ink-soft); font-size: 12px; }
+.cc-account-menu a, .cc-account-menu button { display: flex; align-items: center; min-height: 40px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.cc-account-menu a:hover, .cc-account-menu button:hover { background: var(--paper); }
+.cc-account-menu hr { width: 100%; margin: 4px 0; border: 0; border-top: var(--hairline); }
+/* Products restyle bare buttons and links (e.g. `.crowdset button`); keep the menu on the shared look. */
+.crowdset .cc-account-menu button, .crowdset .cc-account-trigger, .crowdset .cc-account-signin { gap: 0; min-height: 40px; font-size: 14px; }
+.crowdset .cc-account-menu a { color: var(--ink); }

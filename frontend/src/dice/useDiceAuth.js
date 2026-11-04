@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { diceApi } from './api.js';
+import { refreshCommonsIdentity } from '../components/commonsIdentity.js';
 import { resolveRuntimeServiceUrl } from '../runtimeConfig.js';
 
 function isLocalHarnessOrigin(origin) {
@@ -176,6 +177,8 @@ export function useDiceAuth() {
     const p = await diceApi.getMyProfile(requestedToken);
     if (activeToken.current !== requestedToken) return undefined;
     setProfile(p);
+    // Name and photo edits show in the shared header too.
+    refreshCommonsIdentity();
     return p;
   };
 

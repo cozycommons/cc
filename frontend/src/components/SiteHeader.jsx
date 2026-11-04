@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import AccountMenu from './AccountMenu.jsx';
 import CozyMascot from './CozyMascot.jsx';
 import './SiteHeader.css';
 
@@ -47,7 +48,9 @@ function BackButton({ home, fallback, disabled }) {
 }
 
 // Shared Cozy Commons navbar: a back button, the mascot with an optional
-// product sticker, and a right-hand slot for account or admin controls.
+// product sticker, a right-hand slot for product controls, and the signed-in
+// person's avatar. Products get identity for free; `accountItems` adds their
+// own links to the account menu and `onSignIn` (or `null`) changes sign-in.
 //
 // Products get the back button by default on every page below their home
 // (`to`). `back={false}` opts a product or page out; `backFallback` (a path, or
@@ -55,6 +58,7 @@ function BackButton({ home, fallback, disabled }) {
 // in-app page, defaulting to the product home. It is disabled with the product link.
 export default function SiteHeader({
   product, to, icon, children, onProductClick, productDisabled = false, back = true, backFallback,
+  accountItems, onSignIn,
 }) {
   return (
     <header className={`cc-sitebar${product ? ' cc-sitebar--product' : ''}`}>
@@ -75,9 +79,7 @@ export default function SiteHeader({
         )}
       </div>
       <div className="cc-sitebar-end">{children}
-        <details className="cc-sitebar-account"><summary>Account</summary>
-          <nav aria-label="Account"><Link to="/connect" onClick={event => event.currentTarget.closest('details').removeAttribute('open')}>Connect your agent</Link></nav>
-        </details>
+        <AccountMenu items={accountItems} onSignIn={onSignIn} />
       </div>
     </header>
   );
