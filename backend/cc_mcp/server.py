@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import time
 from collections.abc import Mapping
@@ -32,8 +33,10 @@ from starlette.routing import Route, request_response
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 
-from . import projects
+from . import connections, projects
 from .oauth_storage import SupabaseOAuthStore
+
+logger = logging.getLogger(__name__)
 
 # Two stable scopes cover every project. Adding a project or tool never changes
 # them, so existing connections keep working; per-user enablement picks projects.
@@ -339,11 +342,21 @@ class SupabaseOAuthTokenVerifier(TokenVerifier):
         return verified
 
 
-class ResourceBoundOAuthProxy(OAuthProxy):
-    """Keep MCP scopes local and upstream Supabase credentials server-side."""
+# A connection's last_used_at is written at most this often per worker.
+TOUCH_INTERVAL_SECONDS = 300
 
-    def __init__(self, *args, default_scopes=(), legacy_scopes=None, **kwargs):
+
+class ResourceBoundOAuthProxy(OAuthProxy):
+    """Keep MCP scopes local and upstream Supabase credentials server-side.
+
+    With `index_client`, approvals, refreshes and use also write the
+    cc_mcp_connections index (best effort: an index failure never fails auth).
+    """
+
+    def __init__(self, *args, default_scopes=(), legacy_scopes=None, index_client=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self._index_client = index_client
+        self._touched: dict[str, float] = {}
         self._resource_scopes = frozenset(kwargs.get("valid_scopes", ()))
         # Pre-commons scope -> (project, level). Tokens issued before commons
         # scopes keep exactly their old per-project reach until they expire.
@@ -421,7 +434,71 @@ class ResourceBoundOAuthProxy(OAuthProxy):
                 break
         return routes
 
+    async def exchange_authorization_code(self, client, authorization_code):
+        issued = await super().exchange_authorization_code(client, authorization_code)
+        await self._index(issued.access_token, used=False,
+                          redirect_host=connections.redirect_host(authorization_code.redirect_uri))
+        return issued
+
+    async def exchange_refresh_token(self, client, refresh_token, scopes):
+        issued = await super().exchange_refresh_token(client, refresh_token, scopes)
+        await self._index(issued.access_token, used=False)  # moves expires_at
+        return issued
+
     async def load_access_token(self, token: str) -> AccessToken | None:
+        access = await self._load_access_token(token)
+        if access is None:
+            return None
+        # Throttled per worker; this also indexes connections approved before
+        # the index existed the first time they are used.
+        upstream_token_id = access.claims["_upstream_token_id"]
+        now = time.monotonic()
+        if now - self._touched.get(upstream_token_id, -TOUCH_INTERVAL_SECONDS) >= TOUCH_INTERVAL_SECONDS:
+            if len(self._touched) > 10_000:
+                self._touched = {key: at for key, at in self._touched.items() if now - at < TOUCH_INTERVAL_SECONDS}
+            self._touched[upstream_token_id] = now
+            await self._index(token, used=True, access=access)
+        return access
+
+    async def _index(self, token: str, *, used: bool, redirect_host: str | None = None,
+                     access: AccessToken | None = None) -> None:
+        if self._index_client is None:
+            return
+        try:
+            access = access or await self._load_access_token(token)
+            if access is None:
+                return
+            upstream_token_id = access.claims["_upstream_token_id"]
+            tokens = await self._upstream_token_store.get(key=upstream_token_id)
+            if tokens is None:
+                return
+            client = await self.get_client(access.client_id)
+            if redirect_host is None and client is not None:
+                redirect_host = connections.redirect_host(*(client.redirect_uris or ()))
+            await run_in_threadpool(
+                connections.touch, self._index_client,
+                upstream_token_id=upstream_token_id,
+                user_id=access.claims["sub"],
+                client_id=access.client_id,
+                client_name=connections.client_label(getattr(client, "client_name", None)),
+                redirect_host=redirect_host,
+                scopes=access.scopes,
+                approved_at=connections.timestamp(tokens.created_at),
+                expires_at=connections.timestamp(tokens.refresh_token_expires_at or tokens.expires_at),
+                last_used_at=connections.timestamp(time.time()) if used else None,
+            )
+        except Exception:  # noqa: BLE001 - the index is display data; auth never depends on it.
+            logger.warning("Agent connection index write failed", exc_info=True)
+
+    async def _mark_revoked(self, upstream_token_id: str) -> None:
+        if self._index_client is None:
+            return
+        try:
+            await run_in_threadpool(connections.mark_revoked, self._index_client, upstream_token_id)
+        except Exception:  # noqa: BLE001 - the tokens are already gone; the row expires with them.
+            logger.warning("Agent connection index revoke failed", exc_info=True)
+
+    async def _load_access_token(self, token: str) -> AccessToken | None:
         try:
             local_claims = self.jwt_issuer.verify_token(token)
         except Exception:
@@ -472,6 +549,7 @@ class ResourceBoundOAuthProxy(OAuthProxy):
                 if jti:
                     await self._jti_mapping_store.delete(key=jti)
                 await self._revoke_proxy_token_set(mapping.upstream_token_id)
+                await self._mark_revoked(mapping.upstream_token_id)
             await super().revoke_token(token)
             return
 
@@ -547,6 +625,7 @@ def create_agent_app(
         client_storage=storage,
         jwt_signing_key=settings.jwt_signing_key,
         require_authorization_consent=True,
+        index_client=service_client,
     )
     mcp = build_server(service_client, providers, auth=oauth)
     app = mcp.http_app(path=MCP_PATH, transport="streamable-http", stateless_http=True)

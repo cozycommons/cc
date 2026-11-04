@@ -806,6 +806,52 @@ async def exercise(args):
                 await refused(session, 'list_floor_plans', {}, 'Reconnect your agent once',
                               'pre-commons token refused outside its old project with a reconnect step')
                 assert not (await session.call_tool('disable_project', {'project_id': 'floor-planner'})).isError
+
+        # Disconnect from the account page: the same API and session the /account page uses.
+        origin = endpoint[:-len('/mcp')]
+        main_tokens, readonly_tokens = auth.context.current_tokens, readonly.context.current_tokens
+        mcp_call = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'whoami', 'arguments': {}}}
+
+        def bearer(token):
+            return {'Authorization': f'Bearer {token}', 'Accept': 'application/json, text/event-stream'}
+
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as http:
+            mine = {'Authorization': 'Bearer ' + user_token}
+            listed = await http.get(origin + '/account/connections', headers=mine)
+            assert listed.status_code == 200 and listed.headers['cache-control'] == 'private, no-store'
+            agents = {tuple(agent['scopes']): agent for agent in listed.json()}
+            assert set(agents) == {('commons:read', 'commons:edit'), ('commons:read',)}, listed.json()
+            assert {(a['client_name'], a['redirect_host']) for a in agents.values()} == {
+                ('Commons loopback connector exercise', '127.0.0.1')}
+            assert all(a['approved_at'] and a['last_used_at'] and a['expires_at'] for a in agents.values())
+            print('PASS account lists each agent connection with its client name, redirect host and last use')
+            target = agents[('commons:read', 'commons:edit')]['id']
+
+            email, password = f'commons-e2e-other-{uuid4().hex}@example.test', secrets.token_urlsafe(32)
+            created = await http.post(database_url + '/auth/v1/admin/users', headers=service_headers,
+                                      json={'email': email, 'password': password, 'email_confirm': True})
+            assert created.status_code == 200, f'Create second synthetic user: HTTP {created.status_code}'
+            other = await http.post(database_url + '/auth/v1/token?grant_type=password',
+                                    headers={'apikey': service_headers['apikey']}, json={'email': email, 'password': password})
+            theirs = {'Authorization': 'Bearer ' + other.json()['access_token']}
+            assert (await http.get(origin + '/account/connections', headers=theirs)).json() == []
+            assert (await http.delete(f'{origin}/account/connections/{target}', headers=theirs)).status_code == 404
+            assert (await http.post(endpoint, headers=bearer(main_tokens.access_token), json=mcp_call)).status_code == 200
+            print("PASS another user's disconnect returns 404 and the connection keeps working")
+
+            assert (await http.delete(f'{origin}/account/connections/{target}', headers=mine)).status_code == 204
+            assert (await http.post(endpoint, headers=bearer(main_tokens.access_token), json=mcp_call)).status_code == 401
+            assert (await http.post(endpoint, headers=bearer(legacy), json=mcp_call)).status_code == 401
+            refreshed = await http.post(origin + '/token', data={
+                'grant_type': 'refresh_token', 'refresh_token': main_tokens.refresh_token,
+                'client_id': auth.context.client_info.client_id})
+            assert refreshed.status_code == 400 and refreshed.json()['error'] == 'invalid_grant', refreshed.text
+            assert (await http.delete(f'{origin}/account/connections/{target}', headers=mine)).status_code == 204
+            remaining = (await http.get(origin + '/account/connections', headers=mine)).json()
+            assert [tuple(agent['scopes']) for agent in remaining] == [('commons:read',)]
+            still = await http.post(endpoint, headers=bearer(readonly_tokens.access_token), json=mcp_call)
+            assert still.status_code == 200 and '"result"' in still.text and '"isError":true' not in still.text, still.text
+            print('PASS disconnect from account revokes access and refresh')
     finally:
         await asyncio.to_thread(server.shutdown)
         server.server_close()

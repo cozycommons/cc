@@ -27,6 +27,7 @@ from floor_planner.scans import router as floor_planner_scans_router
 from cc_mcp.server import create_agent_app
 from cc_mcp.registry import PROVIDERS as cc_mcp_providers
 from cc_mcp.mount import mount_agent_app
+from commons_account.routes import router as account_router
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -102,6 +103,7 @@ async def private_admin_responses(request, call_next):
     response = await call_next(request)
     if (request.url.path == '/admin' or request.url.path.startswith('/admin/')
             or request.url.path == '/floor-planner' or request.url.path.startswith('/floor-planner/')
+            or request.url.path == '/account' or request.url.path.startswith('/account/')
             or request.url.path in {'/mcp', '/authorize', '/token', '/register', '/revoke', '/consent', '/auth/callback'}):
         response.headers['Cache-Control'] = 'private, no-store'
     return response
@@ -152,4 +154,7 @@ app.mount("/espn/mcp", espn_mcp.streamable_http_app())
 
 app.state.mcp_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 cc_mcp_app = create_agent_app(app.state.mcp_supabase, providers=cc_mcp_providers)
+# None when agent access is unconfigured; the account connection routes then return 503.
+app.state.cc_mcp_oauth = getattr(cc_mcp_app.state, 'cc_mcp_oauth', None)
+app.include_router(account_router, prefix="/account")
 mount_agent_app(app, cc_mcp_app)
