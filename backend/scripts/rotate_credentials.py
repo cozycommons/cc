@@ -2,7 +2,9 @@
 
 Rotation (see credential_keys.py): prepend a new key to the env var and deploy,
 run this with --apply, then drop the old key and deploy again. Without --apply
-it only counts what would change. It never prints a credential.
+it only counts what would change. It never prints a credential. A non-zero
+exit means some rows were not rotated (undecryptable, or changed by the app
+during the run); rerun it before dropping the old key.
 
     SUPABASE_URL=... SUPABASE_SERVICE_KEY=... BELI_CREDENTIALS_KEY=new,old \\
         python -m scripts.rotate_credentials beli [--apply] [--host db.example.supabase.co]
@@ -35,23 +37,44 @@ class RotationError(Exception):
     pass
 
 
+PAGE = 500  # well under PostgREST's max_rows, so a page is never silently truncated
+
+
 def rotate(supabase, project: str, apply: bool) -> dict:
-    """Re-encrypt every row of `project`; returns counts and the ids of rows that would not decrypt."""
+    """Re-encrypt every row of `project` and report what happened; never returns a credential.
+
+    Each write is conditional on the row still holding the values read, so a
+    token the app refreshed mid-rotation (already encrypted with the new key)
+    is never overwritten with a stale one; such rows are listed under `changed`.
+    """
     table, env_name, columns = PROJECTS[project]
     fernet = credentials_fernet(env_name, RotationError)
-    rows = supabase.table(table).select(','.join(('id',) + columns)).execute().data or []
-    rotated, failed = 0, []
-    for row in rows:
-        try:
-            changes = {column: fernet.rotate(row[column].encode()).decode()
-                       for column in columns if row.get(column)}
-        except InvalidToken:
-            failed.append(row['id'])  # no listed key decrypts it; left untouched
-            continue
-        if changes and apply:
-            supabase.table(table).update(changes).eq('id', row['id']).execute()
-        rotated += bool(changes)
-    return {'project': project, 'rows': len(rows), 'rotated': rotated, 'undecryptable': failed, 'applied': apply}
+    seen, rotated, failed, changed = 0, 0, [], []
+    while True:
+        rows = (supabase.table(table).select(','.join(('id',) + columns))
+                .order('id').range(seen, seen + PAGE - 1).execute().data or [])
+        for row in rows:
+            try:
+                changes = {column: fernet.rotate(row[column].encode()).decode()
+                           for column in columns if row.get(column)}
+            except InvalidToken:
+                failed.append(row['id'])  # no listed key decrypts it; left untouched
+                continue
+            if not changes:
+                continue
+            if apply:
+                query = supabase.table(table).update(changes).eq('id', row['id'])
+                for column in changes:
+                    query = query.eq(column, row[column])
+                if not query.execute().data:
+                    changed.append(row['id'])
+                    continue
+            rotated += 1
+        seen += len(rows)
+        if len(rows) < PAGE:
+            break
+    return {'project': project, 'rows': seen, 'rotated': rotated, 'undecryptable': failed,
+            'changed': changed, 'applied': apply}
 
 
 def main(argv=None) -> int:
@@ -69,7 +92,7 @@ def main(argv=None) -> int:
     from supabase import create_client
     result = rotate(create_client(url, key), args.project, args.apply)
     print(result)
-    return 1 if result['undecryptable'] else 0
+    return 1 if result['undecryptable'] or result['changed'] else 0
 
 
 if __name__ == '__main__':

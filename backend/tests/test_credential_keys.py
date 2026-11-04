@@ -6,33 +6,45 @@ from cryptography.fernet import Fernet
 
 from credential_keys import credentials_fernet
 from ig_logger.sinks.beli import accounts as beli_accounts
+from partiful import accounts as partiful_accounts
 from resy import accounts as resy_accounts
 from scripts import rotate_credentials
 
 
 class Table:
+    """A table fake with the calls rotation makes: paged reads and conditional updates."""
+
     def __init__(self, rows):
-        self.rows, self.updates, self.change, self.match = rows, [], None, None
+        self.rows, self.updates, self.page, self.change, self.filters = rows, [], None, None, []
 
     def select(self, *_):
         return self
 
+    def order(self, _):
+        return self
+
+    def range(self, start, end):
+        self.page = (start, end)
+        return self
+
     def update(self, change):
-        self.change = change
+        self.change, self.filters = change, []
         return self
 
     def eq(self, key, value):
-        self.match = (key, value)
+        self.filters.append((key, value))
         return self
 
     def execute(self):
         if self.change is not None:
-            for row in self.rows:
-                if row[self.match[0]] == self.match[1]:
-                    row.update(self.change)
+            matched = [r for r in self.rows if all(r[k] == v for k, v in self.filters)]
+            for row in matched:
+                row.update(self.change)
             self.updates.append(self.change)
             self.change = None
-        return SimpleNamespace(data=[dict(row) for row in self.rows])
+            return SimpleNamespace(data=[dict(r) for r in matched])
+        start, end = self.page
+        return SimpleNamespace(data=[dict(r) for r in self.rows[start:end + 1]])
 
 
 def test_first_key_encrypts_and_every_key_decrypts(monkeypatch):
@@ -65,7 +77,8 @@ def test_rotation_reencrypts_rows_so_the_old_key_can_be_dropped(monkeypatch):
     monkeypatch.setenv('RESY_CREDENTIALS_KEY', f'{new},{old}')
 
     counted = rotate_credentials.rotate(db, 'resy', apply=False)
-    assert counted == {'project': 'resy', 'rows': 2, 'rotated': 1, 'undecryptable': ['r2'], 'applied': False}
+    assert counted == {'project': 'resy', 'rows': 2, 'rotated': 1, 'undecryptable': ['r2'], 'changed': [],
+                       'applied': False}
     assert table.updates == []
 
     assert rotate_credentials.rotate(db, 'resy', apply=True)['rotated'] == 1
@@ -80,3 +93,29 @@ def test_rotation_refuses_a_remote_database_unless_named(monkeypatch, capsys):
     with pytest.raises(SystemExit):
         rotate_credentials.main(['beli'])
     assert 'pass --host db.example.supabase.co' in capsys.readouterr().err
+
+
+def test_rotation_pages_past_one_page_and_never_overwrites_a_concurrent_refresh(monkeypatch):
+    old, new = Fernet.generate_key().decode(), Fernet.generate_key().decode()
+    monkeypatch.setenv('PARTIFUL_CREDENTIALS_KEY', old)
+    monkeypatch.setattr(rotate_credentials, 'PAGE', 2)
+    rows = [{'id': f'p{i}', 'refresh_token_enc': partiful_accounts.encrypt_secret(f'token-{i}'),
+             'uid_enc': partiful_accounts.encrypt_secret('uid')} for i in range(5)]
+    table = Table(rows)
+    db = SimpleNamespace(table=lambda name: table)
+    monkeypatch.setenv('PARTIFUL_CREDENTIALS_KEY', f'{new},{old}')
+    fresh = partiful_accounts.encrypt_secret('token-refreshed')
+    real_execute = table.execute
+
+    def app_refreshes_p3_after_it_is_read():  # the app saves a new token between rotation's read and write
+        result = real_execute()
+        if table.change is None and table.page == (2, 3) and rows[3]['refresh_token_enc'] != fresh:
+            rows[3]['refresh_token_enc'] = fresh
+        return result
+    table.execute = app_refreshes_p3_after_it_is_read
+
+    result = rotate_credentials.rotate(db, 'partiful', apply=True)
+    assert result['rows'] == 5 and result['rotated'] == 4 and result['changed'] == ['p3']
+    monkeypatch.setenv('PARTIFUL_CREDENTIALS_KEY', new)
+    assert partiful_accounts.decrypt_secret(rows[3]['refresh_token_enc']) == 'token-refreshed'
+    assert partiful_accounts.decrypt_secret(rows[4]['refresh_token_enc']) == 'token-4'
