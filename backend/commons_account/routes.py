@@ -325,7 +325,7 @@ PARTIFUL_DOWN = 'Partiful did not answer. Try again in a minute.'
 def send_partiful_code(body: PartifulPhone, request: Request, user=Depends(current_user)):
     """Step 1: text a Partiful sign-in code to the phone. Counted per user and per phone, so it cannot spam one."""
     phone = partiful_phone(body.phone)
-    connect_rate_check('user:' + str(user.id), 'partiful:' + phone)
+    connect_rate_check('partiful-user:' + str(user.id), 'partiful:' + phone)
     try:
         PartifulClient.send_auth_code(phone)
     except (PartifulError, urllib.error.URLError, TimeoutError):  # the client wraps URLError; a read timeout escapes it
@@ -340,7 +340,7 @@ def connect_partiful(body: PartifulCode, request: Request, user=Depends(current_
     code = body.code.strip()
     if not (4 <= len(code) <= 10 and code.isascii() and code.isdigit()):
         raise HTTPException(400, 'Enter the number Partiful texted you.')
-    connect_rate_check('user:' + str(user.id), 'partiful:' + phone)
+    connect_rate_check('partiful-user:' + str(user.id), 'partiful:' + phone)
     try:
         outcome, account = partiful_accounts.connect_account_for_owner(client(request), str(user.id), phone, code)
     except PartifulCodeRejected:
