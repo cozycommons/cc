@@ -31,9 +31,11 @@ from .beli_client import BeliClient, BeliError
 
 logger = logging.getLogger(__name__)
 
-# Absolute lifetime, shorter than Beli's seven-day refresh token validity.
-# Entries are pruned on cache access; capacity also bounds idle secret retention.
-SESSION_TTL_S = 6 * 24 * 60 * 60
+# Absolute lifetime. One day keeps logins to about one per account per day while
+# bounding how long a cached session outlives a password change made in the Beli
+# app (Beli may not revoke refresh tokens). Entries are pruned on cache access;
+# capacity also bounds idle secret retention.
+SESSION_TTL_S = 24 * 60 * 60
 MAX_CACHED_SESSIONS = 256
 _clients: dict[str, tuple[float, BeliClient]] = {}
 _clients_lock = threading.Lock()
@@ -272,11 +274,14 @@ def connect_account_for_owner(supabase, user_id: str, beli_id: str, password: st
             raise AccountError("could not create the Beli account")
         sources.subscribe(supabase, created["id"], "beli_eats", enabled=True)
         account = {"id": created["id"], "label": "beli", "watcher_opt_in": True}
+    previous = linked_account_summary(supabase, user_id)
     outcome = supabase.rpc(
         "beli_link_account", {"p_account_id": account["id"], "p_user_id": str(user_id)}
     ).execute().data
     if outcome not in ("linked", "already_linked", "other_owner"):
         raise AccountError("could not link the Beli account")
+    if outcome == "linked" and previous and previous["id"] != account["id"]:
+        _evict_client(str(previous["id"]))  # the unlinked account's session should not idle on
     # Refresh the stored password only once the row is the caller's, so a lost
     # race or a wrong match can never rewrite someone else's credentials.
     if row and outcome != "other_owner":

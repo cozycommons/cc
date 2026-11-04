@@ -61,29 +61,35 @@ to application sinks. Routes: `/beli/*`. MCP: `/beli/mcp`.
 
 All Beli callers (REST, both MCP endpoints, and the Instagram watcher) use
 the same process-local cache keyed by account row ID. Each entry owns its
-client, tokens, request pacing, and auth lock. Concurrent requests for one
-account perform one login or refresh; other accounts authenticate independently.
+client, tokens, request pacing, and auth lock. The lock covers only login and
+refresh, so concurrent requests for one account share one login or refresh but
+their API calls run in parallel; other accounts authenticate independently.
 The User-Agent is derived from the account ID and stays stable across requests,
 credential changes and restarts. Onboarding probes use their login as the key
 before a row exists.
 
-Access tokens refresh one minute before expiry. A rejected refresh (400/401)
-falls back to password login; a refresh outage does not. A Beli 401 evicts the
-cached client. The in-flight API call can retry once using its refresh token
-before attempting password login, but its client is not reinserted into the
-cache. A stale client's 401 cannot evict a newer entry.
+Access tokens refresh one minute before expiry, and a refresh token Beli
+returns replaces the stored one. A rejected refresh (400/401) falls back to
+password login on the same client; a refresh outage does not. A 401 on an API
+call drops only the token that call used, so `api_with_reauth` recovers with
+one refresh. Only a rejected password login evicts the cached client, and a
+stale client cannot evict a newer entry.
 
 Successful relinking on `/account` evicts the local entry after the password
-write. Every caller also resolves the stored credentials before cache lookup;
-a changed login or password replaces the entry, including in other workers.
-Already-running requests may finish with their previously resolved credentials.
+write, and linking a different Beli login also evicts the previously linked
+account's session. Every caller resolves the stored credentials before cache
+lookup; a changed login or password replaces the entry, including in other
+workers. Already-running requests may finish with their previously resolved
+credentials.
 
-Entries have a six-day absolute TTL (below the seven-day refresh lifetime),
-pruned on the next cache lookup, and a 256-account capacity that evicts the
-oldest entry. No expired entry is returned by a lookup. Idle entries can remain
-in memory until another lookup or process exit. Tokens are never persisted:
-the small deployment accepts one cold login per account per process after a
-restart, avoiding a second stored secret and cross-process token coordination.
+Entries have a one-day absolute TTL, pruned on the next cache lookup, and a
+256-account capacity that evicts the oldest entry. One day keeps logins to about
+one per account per day while bounding how long a session outlives a password
+change made in the Beli app, since Beli may not revoke refresh tokens. No
+expired entry is returned by a lookup. Idle entries can remain in memory until
+another lookup or process exit. Tokens are never persisted: the small
+deployment accepts one cold login per account per process after a restart,
+avoiding a second stored secret and cross-process token coordination.
 
 ## User onboarding
 

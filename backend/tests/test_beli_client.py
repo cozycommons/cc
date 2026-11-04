@@ -36,6 +36,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/token/":
             if Handler.mode == "bad-login":
                 self._json(400, {"detail": "bad"})
+            elif Handler.mode == "rejected-login":
+                self._json(401, {"detail": "No active account found with the given credentials"})
             else:
                 self._json(200, {"access": _token(body.get("email", body.get("phone_no"))), "refresh": "refresh-1"})
         elif self.path == "/api/token/refresh/":
@@ -43,6 +45,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(401, {})
             elif Handler.mode == "refresh-outage":
                 self._json(503, {})
+            elif Handler.mode == "rotate-refresh":
+                Handler.refreshes_used.append(body.get("refresh"))
+                self._json(200, {"access": _token(), "refresh": f"refresh-{len(Handler.refreshes_used) + 1}"})
             else:
                 self._json(200, {"access": _token()})
         elif self.path == "/api/add-bookmark/":
@@ -71,6 +76,7 @@ def mock_beli(monkeypatch):
     Handler.headers_seen = []
     Handler.mode = "ok"
     Handler.flipped = False
+    Handler.refreshes_used = []
     server = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_port}"
