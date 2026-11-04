@@ -20,7 +20,8 @@ begin
     'fantasy_leagues',
     'beli_agent_receipts',
     'resy_agent_receipts',
-    'espn_agent_receipts'
+    'espn_agent_receipts',
+    'espn_lineup_approvals'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -60,6 +61,9 @@ begin
     'espn_agent_receipts.payload',
     'espn_agent_receipts.target',
     'espn_agent_receipts.result',
+    'espn_lineup_approvals.proposal_id',
+    'espn_lineup_approvals.user_id',
+    'espn_lineup_approvals.idempotency_key',
     'espn_public_predictions.id',
     'espn_public_predictions.matchup_id',
     'espn_public_predictions.generated_at',
@@ -185,7 +189,7 @@ begin
   end loop;
   foreach object_name in array array[
     'beli_accounts', 'beli_agent_receipts', 'resy_accounts', 'resy_agent_receipts', 'partiful_accounts',
-    'espn_accounts', 'espn_agent_receipts'
+    'espn_accounts', 'espn_agent_receipts', 'espn_lineup_approvals'
   ] loop
     if not exists (select 1 from pg_catalog.pg_class
                    where oid = to_regclass('public.' || object_name) and relrowsecurity)
@@ -203,7 +207,8 @@ begin
     'resy_agent_receipts.SELECT', 'resy_agent_receipts.INSERT', 'resy_agent_receipts.UPDATE',
     'resy_accounts.SELECT', 'resy_accounts.UPDATE', 'partiful_accounts.SELECT', 'partiful_accounts.UPDATE',
     'espn_agent_receipts.SELECT', 'espn_agent_receipts.INSERT', 'espn_agent_receipts.UPDATE',
-    'espn_accounts.SELECT', 'espn_accounts.UPDATE'
+    'espn_accounts.SELECT', 'espn_accounts.UPDATE',
+    'espn_lineup_approvals.SELECT', 'espn_lineup_approvals.INSERT'
   ] loop
     if not pg_catalog.has_table_privilege('service_role', 'public.' || split_part(column_spec, '.', 1),
                                           split_part(column_spec, '.', 2)) then
@@ -217,5 +222,14 @@ begin
       raise exception 'Beli schema contract: service_role may delete % connector receipts', object_name;
     end if;
   end loop;
+  -- A lineup proposal is approved live at most once, under whichever key claimed it first (0021).
+  if not exists (
+    select 1 from pg_catalog.pg_index i
+    join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
+    where i.indrelid = to_regclass('public.espn_lineup_approvals') and i.indisprimary
+      and i.indnatts = 1 and a.attname = 'proposal_id'
+  ) or pg_catalog.has_table_privilege('service_role', 'public.espn_lineup_approvals', 'UPDATE,DELETE,TRUNCATE') then
+    raise exception 'Beli schema contract: ESPN lineup approvals are not one per proposal and permanent';
+  end if;
 end
 $$;

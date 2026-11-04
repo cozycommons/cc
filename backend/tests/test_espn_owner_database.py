@@ -1,4 +1,4 @@
-"""Real PostgreSQL checks for ESPN connector links and receipts (0020).
+"""Real PostgreSQL checks for ESPN connector links and receipts (0020) and lineup approval claims (0021).
 
 Synthetic disposable databases on the allowlisted test server; never ESPN calls.
 Locally: DICE_TEST_DATABASE=1 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_<n>_<n>.
@@ -56,7 +56,7 @@ def receipt(user_id, key="approve-1"):
 
 
 def test_schema_attests_and_replays(db):
-    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "20"
+    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "21"
     assert "Applying " not in db.sql(migration_runner.render(["beli"])).stdout
     db.sql(CONTRACT)
 
@@ -90,6 +90,31 @@ def test_legacy_disconnect_still_deletes_a_linked_account(db):
     db.sql(f"SET ROLE service_role; DELETE FROM public.espn_accounts WHERE id='{linked}';")  # DELETE /espn/account
     assert db.sql("SELECT count(*) FROM public.espn_accounts;").stdout.strip() == "0"
 
+def lineup_proposal(db, account_id):
+    return db.sql(f"""SET ROLE service_role; INSERT INTO public.espn_lineup_runs(account_id,league_id,season,mode,status)
+        VALUES ('{account_id}',999,2027,'dry_run','dry_run') RETURNING id;""").stdout.split()[0]
+
+
+def claim(db, proposal_id, user_id, key):
+    return db.sql(f"""SET ROLE service_role; INSERT INTO public.espn_lineup_approvals(proposal_id,user_id,idempotency_key)
+        VALUES ('{proposal_id}','{user_id}','{key}') ON CONFLICT (proposal_id) DO NOTHING RETURNING 1;""").stdout.strip()
+
+
+def test_a_lineup_proposal_is_claimed_once_across_keys_and_never_released(db):
+    sam = user(db)
+    proposal = lineup_proposal(db, account(db, owner=sam))
+    db.sql(receipt(sam) + ";")
+    db.sql(receipt(sam, "approve-2") + ";")
+    assert claim(db, proposal, sam, "approve-1") == "1"
+    assert claim(db, proposal, sam, "approve-2") == ""
+    unreserved = db.sql(f"""SET ROLE service_role; INSERT INTO public.espn_lineup_approvals(proposal_id,user_id,idempotency_key)
+        VALUES ('{lineup_proposal(db, account(db))}','{sam}','no-receipt');""", check=False)
+    assert unreserved.returncode != 0 and "foreign key" in unreserved.stderr
+    for statement in ("DELETE FROM public.espn_lineup_approvals", "UPDATE public.espn_lineup_approvals SET idempotency_key='x'"):
+        denied = db.sql(f"SET ROLE service_role; {statement};", check=False)
+        assert denied.returncode != 0 and "permission denied" in denied.stderr
+
+
 def test_receipts_are_unique_need_a_target_and_are_never_deleted(db):
     sam = user(db)
     db.sql(receipt(sam) + ";")
@@ -114,6 +139,7 @@ def test_receipts_are_unique_need_a_target_and_are_never_deleted(db):
     "INSERT INTO public.espn_agent_receipts(user_id,idempotency_key,payload,target) "
     "VALUES (gen_random_uuid(),'k','{}','{}')",
     "SELECT public.espn_link_account(gen_random_uuid(), gen_random_uuid())",
+    "SELECT * FROM public.espn_lineup_approvals",
 ])
 def test_browser_roles_are_denied(db, role, statement):
     denied = db.sql(f"SET ROLE {role}; {statement};", check=False)
@@ -130,6 +156,8 @@ def test_browser_roles_are_denied(db, role, statement):
     "GRANT EXECUTE ON FUNCTION public.espn_link_account(uuid,uuid) TO PUBLIC;",
     "ALTER FUNCTION public.espn_link_account(uuid,uuid) SECURITY DEFINER;",
     "DROP INDEX public.espn_accounts_owner_user_id_key;",
+    "GRANT DELETE ON public.espn_lineup_approvals TO service_role;",
+    "ALTER TABLE public.espn_lineup_approvals DROP CONSTRAINT espn_lineup_approvals_pkey;",
 ])
 def test_release_contract_rejects_unsafe_links(db, tamper):
     result = db.sql("BEGIN; " + tamper + "\n" + CONTRACT, check=False)

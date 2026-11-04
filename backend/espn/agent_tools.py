@@ -12,7 +12,8 @@ lineup run, a pending roster edit or trade) and sends nothing to ESPN.
 approve_fantasy_change previews by default and, with dry_run=false, submits that
 one proposal under a durable idempotency_key receipt written just before the
 submission and never released. A key whose outcome was not recorded is settled
-only by reading ESPN, never by submitting again.
+only by reading ESPN, never by submitting again. Each proposal is claimed before
+it can reach ESPN, so a second key replays or rereads the first attempt.
 """
 from datetime import date as Date, datetime, timedelta, timezone
 import logging
@@ -40,6 +41,7 @@ LINK_STEP = (f'Call link_espn_account(api_token) once with your existing cce_ ES
 RELINK_STEP = (f'ESPN rejected the stored cookies. Onboard again at POST {ONBOARD_URL} with fresh espn_s2/SWID '
                'cookies, then call link_espn_account with the new token.')
 RECEIPTS = 'espn_agent_receipts'
+LINEUP_APPROVALS = 'espn_lineup_approvals'
 RUN_COLUMNS = 'id,league_id,season,scoring_period_id,mode,status,plan,moves,conflicts,error,created_at'
 # A lineup preview is approvable as long as a roster edit or trade proposal is.
 LINEUP_TTL_MINUTES = roster_edits.EDIT_TTL_MINUTES
@@ -392,8 +394,35 @@ def replay(client, user, account, espn, key, found, fingerprint):
     return settle(client, user, account, espn, key, found)
 
 
+def claim_lineup(client, user, key, proposal_id):
+    """Claim a lineup proposal for this key. Returns None, or the approval that claimed it first.
+
+    A lineup proposal is an append-only dry-run row with no status to claim, so the
+    claim is its own row: one per proposal, never released, whatever the key.
+    """
+    claimed = (client.table(LINEUP_APPROVALS).upsert(
+        {'proposal_id': proposal_id, 'user_id': user.id, 'idempotency_key': key},
+        on_conflict='proposal_id', ignore_duplicates=True).execute().data)
+    if claimed:
+        return None
+    return (client.table(LINEUP_APPROVALS).select('user_id,idempotency_key')
+            .eq('proposal_id', proposal_id).execute().data)[0]
+
+
+def approved_earlier(client, user, account, espn, key, first):
+    """Answer a second key for a lineup proposal another key claimed: replay or reread, never submit."""
+    rows = (client.table(RECEIPTS).select('result').eq('user_id', first['user_id'])
+            .eq('idempotency_key', first['idempotency_key']).execute().data)
+    if rows and rows[0]['result'] is not None:
+        record(client, user, key, rows[0]['result'])
+        return rows[0]['result']
+    # The first approval may still be running: settle this key from the ESPN lineup alone.
+    return settle(client, user, account, espn, key, receipt(client, user, key))
+
+
 def send(client, account, espn, kind, row):
-    """The one approval that may reach ESPN. The existing gates claim the proposal atomically."""
+    """The one approval that may reach ESPN. Its proposal is claimed atomically first: here for a lineup,
+    by the existing gates for an edit or trade."""
     if kind == 'lineup':
         return lineup.run_lineup(client, account, espn, dry_run=False, scoring_period_id=row['scoring_period_id'],
                                  scoreboard=ScoreboardClient())
@@ -420,6 +449,8 @@ def approve(client, user, kind, proposal_id, key, dry_run):
         on_conflict='user_id,idempotency_key', ignore_duplicates=True).execute().data)
     if not reserved:
         return replay(client, user, account, espn, key, receipt(client, user, key), fingerprint)
+    if kind == 'lineup' and (first := claim_lineup(client, user, key, proposal_id)):
+        return approved_earlier(client, user, account, espn, key, first)
     try:
         answer, error = send(client, account, espn, kind, row), None
     except Exception as failure:

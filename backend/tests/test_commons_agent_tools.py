@@ -110,7 +110,8 @@ LINKED_TABLES = {'beli_accounts': 'beli', 'beli_agent_receipts': 'beli',
                  'resy_accounts': 'resy', 'resy_agent_receipts': 'resy', 'partiful_accounts': 'partiful',
                  'espn_accounts': 'espn', 'espn_agent_receipts': 'espn'}
 # ESPN's own gate tables, stored as plain rows (the write-claim trigger is tested on Postgres).
-ESPN_TABLES = ('espn_lineup_runs', 'espn_roster_edits', 'espn_trade_proposals', 'espn_snapshots')
+ESPN_TABLES = ('espn_lineup_runs', 'espn_roster_edits', 'espn_trade_proposals', 'espn_snapshots',
+               'espn_lineup_approvals')
 
 
 class Database:
@@ -164,6 +165,12 @@ class Database:
 
     def espn_execute(self, query):
         rows = self.espn_tables[query.table]
+        if query.write is not None:  # a lineup approval claim: one per proposal (0021)
+            assert query.table == 'espn_lineup_approvals' and query.ignore_duplicates
+            if any(row['proposal_id'] == query.write['proposal_id'] for row in rows):
+                return SimpleNamespace(data=[])
+            rows.append(deepcopy(query.write))
+            return SimpleNamespace(data=[deepcopy(query.write)])
         if query.inserted is not None:
             self.clock += timedelta(milliseconds=1)  # created_at orders rows like now() does
             stamp = 'captured_at' if query.table == 'espn_snapshots' else 'created_at'

@@ -257,6 +257,42 @@ async def test_unrecorded_lineup_run_settles_from_the_espn_lineup(espn, monkeypa
     assert [kind for kind, _swid in sends(db)] == ['lineup']
 
 
+@pytest.mark.asyncio
+async def test_lineup_proposal_is_submitted_once_whatever_the_key(espn):
+    db, call, _listed = espn
+    row = await linked_user(db, call)
+    plan = await call('propose_fantasy_change', kind='lineup')
+    league(db, row).hidden = True  # ESPN took the moves; reads still show the old lineup
+    first = await approve(call, 'lineup', plan['proposal_id'])
+    again = await approve(call, 'lineup', plan['proposal_id'], key='approve-2')
+    assert [kind for kind, _swid in sends(db)] == ['lineup']
+    assert again == first and await approve(call, 'lineup', plan['proposal_id'], key='approve-2') == first
+    assert [(c['proposal_id'], c['idempotency_key']) for c in db.espn_tables['espn_lineup_approvals']] == [
+        (plan['proposal_id'], 'approve-1')]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_lineup_approvals_submit_once(espn, monkeypatch):
+    db, call, _listed = espn
+    await linked_user(db, call)
+    plan = await call('propose_fantasy_change', kind='lineup')
+    real_send, overlapping = agent_tools.send, []
+
+    def racing(*args):
+        # A second key arrives while the first approval is about to submit.
+        with pytest.raises(ToolError) as error:
+            agent_tools.approve(db, db.user, 'lineup', plan['proposal_id'], 'approve-2', False)
+        overlapping.append(str(error.value))
+        return real_send(*args)
+    monkeypatch.setattr(agent_tools, 'send', racing)
+    done = await approve(call, 'lineup', plan['proposal_id'])
+    assert done['status'] == 'ok'
+    assert len(overlapping) == 1 and 'lineup approval is not confirmed' in overlapping[0]
+    settled = await approve(call, 'lineup', plan['proposal_id'], key='approve-2')
+    assert settled['status'] == 'set' and settled['confirmed_from'] == 'your ESPN lineup'
+    assert [kind for kind, _swid in sends(db)] == ['lineup']
+
+
 def test_retry_messages_never_suggest_a_new_key():
     for message in (UNCONFIRMED, UNSETTLED):
         assert 'same idempotency_key' in message and 'new key' not in message and 'new idempotency' not in message

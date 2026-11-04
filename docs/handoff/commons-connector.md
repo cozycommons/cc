@@ -356,7 +356,9 @@ PASS read-only token reads Partiful events; linking refused
   an open key is waited out (the first request may not have claimed it yet)
   until it expires. An approval refused before its claim records `not_sent`.
   The proposal claim (pending -> executing) still prevents double submission
-  across keys, `/espn` and `/espn/mcp`.
+  across keys, `/espn` and `/espn/mcp`; a lineup proposal has no status, so its
+  claim is a row in `espn_lineup_approvals` (0021, one per proposal, never
+  released) and a second key replays or rereads the first attempt.
 - **Sharing and team claims.** One Commons user per ESPN account (the same
   partial unique index as Beli/Resy/Partiful), so league cookies are never
   shared between Commons users, and every write acts on the team the linked
