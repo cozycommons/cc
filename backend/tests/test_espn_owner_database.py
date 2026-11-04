@@ -10,7 +10,7 @@ import pytest
 import migration_runner
 from tests.migration_harness import REPO, checkout_release, disposable_migration_database, migration_database  # noqa: F401
 
-PRE_LINK_RELEASE = "edb4fa8f9811c58acf2260ca742ba1b49fabff9e"  # main before the Partiful and ESPN links (0019, 0020)
+PRE_LINK_RELEASE = "9b84d2ccacd2e60687390817e27855046cad49af"  # main with Partiful connector (#204, 0019), before 0020
 CONTRACT = (REPO / "backend/migrations/beli_schema_contract.sql").read_text()
 
 
