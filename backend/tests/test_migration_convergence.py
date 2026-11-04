@@ -164,3 +164,59 @@ def test_shared_mcp_installs_without_feature_tables_and_attests_grants(migration
     database.sql("REVOKE UPDATE ON public.cc_mcp_oauth_state FROM service_role;")
     failed = database.sql("SELECT public.cc_mcp_release_readiness();", check=False)
     assert failed.returncode != 0 and 'service_role grants changed' in failed.stderr
+
+
+def test_cc_mcp_connection_index_keeps_approval_and_revocation(migration_database):
+    from migration_runner import render
+
+    database = migration_database
+    database.sql(render(["cc_mcp"]))
+    owner, other = "6f1d7a9e-0d3b-4c55-9a51-1b2c3d4e5f60", "6f1d7a9e-0d3b-4c55-9a51-1b2c3d4e5f61"
+    database.sql(f"INSERT INTO auth.users(id) VALUES ('{owner}'), ('{other}');")
+
+    def touch(user, name, approved, expires, used):
+        def literal(value):
+            return 'NULL' if value is None else f"'{value}'"
+        database.sql(
+            "SET ROLE service_role; SELECT public.cc_mcp_touch_connection("
+            f"'family-1', '{user}', 'client-1', {literal(name)}, 'claude.ai', array['commons:read'], "
+            f"{literal(approved)}, {literal(expires)}, {literal(used)});")
+
+    def row():
+        return database.sql(
+            "SELECT user_id, client_name, approved_at, expires_at, last_used_at, revoked_at IS NOT NULL "
+            "FROM public.cc_mcp_connections WHERE upstream_token_id = 'family-1';").stdout.strip()
+
+    touch(owner, 'Claude', '2026-11-01 00:00+00', '2026-12-01 00:00+00', None)
+    approved = row()
+    assert approved.endswith('||f') and '|Claude|2026-11-01 00:00:00+00|2026-12-01 00:00:00+00|' in approved
+    # Use and refresh move last_used_at forward and expires_at; nothing else changes.
+    touch(owner, 'Renamed', '2026-11-02 00:00+00', None, '2026-11-03 10:00+00')
+    touch(owner, 'Renamed', '2026-11-02 00:00+00', '2026-12-02 00:00+00', '2026-11-03 09:00+00')
+    assert row() == f'{owner}|Claude|2026-11-01 00:00:00+00|2026-12-02 00:00:00+00|2026-11-03 10:00:00+00|f'
+    database.sql("UPDATE public.cc_mcp_connections SET revoked_at = now() WHERE upstream_token_id = 'family-1';")
+    touch(owner, 'Claude', '2026-11-01 00:00+00', '2026-12-03 00:00+00', '2026-11-04 00:00+00')
+    assert row().endswith('|t')
+    # Another user can never take over or touch an existing connection.
+    touch(other, 'Claude', '2026-11-01 00:00+00', '2026-12-09 00:00+00', '2026-11-09 00:00+00')
+    assert row().startswith(owner) and '2026-12-09' not in row()
+
+    for role in ('anon', 'authenticated'):
+        denied = database.sql(f"SET ROLE {role}; SELECT * FROM public.cc_mcp_connections;", check=False)
+        assert denied.returncode != 0 and 'permission denied' in denied.stderr
+        denied = database.sql(
+            f"SET ROLE {role}; SELECT public.cc_mcp_touch_connection('x', '{owner}', 'c', NULL, NULL, "
+            "array[]::text[], now(), NULL, NULL);", check=False)
+        assert denied.returncode != 0 and 'permission denied' in denied.stderr
+    signature = "public.cc_mcp_touch_connection(text, uuid, text, text, text, text[], timestamptz, timestamptz, timestamptz)"
+    database.sql(f"GRANT EXECUTE ON FUNCTION {signature} TO authenticated;")
+    failed = database.sql("SELECT public.cc_mcp_release_readiness();", check=False)
+    assert failed.returncode != 0 and 'unsafe browser grants on connections' in failed.stderr
+    database.sql(f"REVOKE EXECUTE ON FUNCTION {signature} FROM authenticated;")
+    database.sql("REVOKE UPDATE ON public.cc_mcp_connections FROM service_role;")
+    failed = database.sql("SELECT public.cc_mcp_release_readiness();", check=False)
+    assert failed.returncode != 0 and 'connections service_role grants changed' in failed.stderr
+    database.sql("GRANT UPDATE ON public.cc_mcp_connections TO service_role;")
+    assert database.sql("SELECT public.cc_mcp_release_readiness();").stdout.strip() == 't'
+    database.sql(f"DELETE FROM auth.users WHERE id = '{owner}';")
+    assert row() == ''

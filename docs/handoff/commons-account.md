@@ -1,7 +1,8 @@
 # M4 plan: Commons account page at `/account`
 
-Status: PR 1 (profile table and backfill) is on `main` (#203). PR 2 (readers and writers) built on
-`commons-account-readers`; PRs 3 to 5 are plan only.
+Status: PRs 1 and 2 (profile table, readers and writers) are on `main` (#203,
+#206). PR 3 (connection index and disconnect) built on
+`commons-account-connections`; PRs 4 and 5 are plan only.
 
 Owner direction: connector auth and connectors get a home in the UI, managed at
 the profile level. The Dice profile identity becomes the Commons identity for
@@ -314,7 +315,8 @@ Writes, all in `ResourceBoundOAuthProxy` (`cc_mcp/server.py`):
 1. Load the row by `id` and `user_id = caller`, else 404 (no existence leak).
 2. `await oauth._revoke_proxy_token_set(upstream_token_id)` (exists today).
    From the next request every token of that connection fails to load.
-3. Set `revoked_at`. Repeating the call is a no-op 204.
+3. Set `revoked_at`. Repeating the call deletes the token set again and
+   returns 204; the token store, not `revoked_at`, decides whether tokens work.
 
 Order matters: delete first, then mark, so a failure never shows
 "disconnected" while tokens still work. The DCR client record and the Supabase
@@ -330,6 +332,58 @@ To verify in the PR, not assumed: whether the upstream Supabase session behind
 the OAuth grant should also be signed out (`POST /auth/v1/logout?scope=local`
 with the upstream access token). Deleting our only copy of the upstream refresh
 token already makes it unusable, so this is defense in depth, not a requirement.
+
+### As built in PR 3
+
+- `0003_cc_mcp_connections.sql` (cc_mcp contract 3) as sketched, plus checks
+  on `upstream_token_id`, `client_id`, `client_name` (≤80) and `redirect_host`
+  (≤255). `cc_mcp_touch_connection` only moves `last_used_at` forward and
+  refreshes `expires_at`. It never rewrites `approved_at`, the client details or
+  `revoked_at`, and it ignores a call for another user's `upstream_token_id`.
+  `cc_mcp_release_readiness()` keeps its name and now also calls
+  `cc_mcp_connections_readiness()`, which attests RLS, browser denial on the
+  table and the RPC, and the service grants.
+- Index writes live in `ResourceBoundOAuthProxy` and `cc_mcp/connections.py`.
+  They are best effort: a failed write is logged and auth carries on.
+  - Approve (`exchange_authorization_code`): the row takes `sub` from the
+    verified upstream token, the DCR `client_name` (whitespace collapsed, cut
+    to 80), the host of the redirect URI this approval used, and
+    `last_used_at` null.
+  - Refresh (`exchange_refresh_token`): moves `expires_at`.
+  - Refresh racing a disconnect: FastMCP reads the upstream token set, awaits
+    Supabase, then writes the set back. That write-back is an existing-only
+    `UPDATE` in `cc_mcp_oauth_state` (`oauth_storage.ExistingOnly`), so a
+    disconnect that lands during the wait wins: the refresh gets
+    `invalid_grant`, no new proxy tokens are issued, and the new upstream
+    session is signed out (`logout?scope=local`, best effort).
+  - Use (`load_access_token`): touches at most once per connection per 5
+    minutes per worker. The first touch indexes a pre-M4 connection, with
+    `approved_at` from the upstream token set's `created_at` (the original
+    approval). A lazily indexed row lists every host the client registered,
+    because the approval's redirect URI is no longer known.
+  - Client `/revoke` of a refresh token sets `revoked_at`.
+  - `expires_at` is the refresh family end. Supabase sends no
+    `refresh_expires_in`, so it is FastMCP's 30-day default from approval.
+- `commons_account/routes.py`: `GET /account/connections` and
+  `DELETE /account/connections/{id}`, using the uncached `app.state.mcp_supabase`
+  so a disconnect shows on the next list. A malformed id, someone else's id and
+  a missing id all return the same 404. `/account/*` responses are
+  `private, no-store`. The response never includes `upstream_token_id` or
+  `user_id`. `client_name` is whatever the agent registered, so the page
+  must show `redirect_host` next to it and never call the name verified.
+  `GET /account` and the profile endpoints are not in this PR.
+- **Upstream Supabase sign-out: checked, not added.** On the loopback stack,
+  every Supabase OAuth grant gets its own auth session. Each agent's
+  `session_id` differs from the browser's and from every other agent's.
+  `logout?scope=local` with agent A's upstream access token ended only A's
+  session: A's upstream token got 403 on `/auth/v1/user` and its refresh got
+  400, while agent B and the browser session kept working. So it would be safe.
+  It is still left out because it adds nothing reachable. After disconnect
+  nobody holds the upstream tokens, since our encrypted copy was the only one.
+  It would also only work while the upstream access token is unexpired (one
+  hour after the last refresh), so for an idle agent it would mean refreshing
+  just to sign out. The leftover is an orphaned GoTrue session whose refresh
+  token nobody has. Revisit if "disconnect all" comes back (owner answer 6).
 
 ## 3. Projects and linked accounts
 

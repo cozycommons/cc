@@ -17,6 +17,7 @@ def test_family_rendering_and_receipt_guards():
     shared = migration_runner.render(["cc_mcp"])
     assert "Applying 0001_cc_mcp_oauth_state.sql" in shared
     assert "Applying 0002_cc_mcp_project_settings.sql" in shared
+    assert "Applying 0003_cc_mcp_connections.sql" in shared
     assert "cc_mcp_schema_migrations" in shared
     assert "floor_plan_documents" not in shared
     assert "floor_planner" not in shared
