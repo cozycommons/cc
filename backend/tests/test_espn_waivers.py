@@ -27,7 +27,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from espn import routes, scoreboard, waivers
+from espn import espn_client, routes, scoreboard, waivers
 from espn.accounts import AccountError
 from espn.espn_client import EspnAuthError, EspnError
 
@@ -231,10 +231,10 @@ class FakeClient:
         self.auth_fail = auth_fail
         self.strip_ownership = strip_ownership
 
-    def get_league(self, views):
+    def get_league(self, views, max_age=0):
         return LEAGUE_PAYLOAD
 
-    def get_league_players(self, limit=1000):
+    def get_league_players(self, limit=1000, max_age=0):
         entries = []
         for pid, player in POOL_PLAYERS.items():
             player = dict(player)
@@ -250,7 +250,7 @@ class FakeClient:
             entries.append(entry)
         return entries
 
-    def get_league_players_for_period(self, scoring_period_id, limit=1000):
+    def get_league_players_for_period(self, scoring_period_id, limit=1000, max_age=0):
         if self.auth_fail:
             raise EspnAuthError("cookies expired")
         if scoring_period_id in self.fail_periods:
@@ -387,6 +387,20 @@ def test_period_auth_failure_propagates():
         _report(FakeClient(auth_fail=True))
 
 
+def test_settled_days_are_cached_for_hours_and_today_briefly():
+    ages = {}
+
+    class Recording(FakeClient):
+        def get_league_players_for_period(self, scoring_period_id, limit=1000, max_age=0):
+            ages[scoring_period_id] = max_age
+            return super().get_league_players_for_period(scoring_period_id, limit)
+
+    _report(Recording())
+    assert ages.pop(CURRENT) == espn_client.READ_CACHE_TTL_S
+    assert set(ages.values()) == {espn_client.SETTLED_PERIOD_TTL_S}
+    assert all(period < CURRENT for period in ages)
+
+
 # --- route ------------------------------------------------------------------------
 
 
@@ -410,7 +424,7 @@ def test_current_period_derived_when_status_omits_it():
     payload["proGamesByScoringPeriod"] = block
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     report = _report(_Client())
@@ -449,7 +463,7 @@ def test_current_period_derived_from_scoreboard_without_schedule_block():
     payload = _payload_without_period_or_schedule()
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     today_et = datetime.now(ZoneInfo("America/New_York")).date()
@@ -470,7 +484,7 @@ def test_period_underivable_without_scoreboard_still_raises():
     payload = _payload_without_period_or_schedule()
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     with pytest.raises(ValueError, match="no current scoring period"):
@@ -483,7 +497,7 @@ def test_period_before_season_start_still_raises():
     payload = _payload_without_period_or_schedule()
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     today_et = datetime.now(ZoneInfo("America/New_York")).date()
@@ -556,7 +570,7 @@ def test_games_next_7d_from_scoreboard_when_block_absent():
     payload = _payload_without_schedule_block()
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     report = waivers.get_waivers(
@@ -584,7 +598,7 @@ def test_games_next_7d_anchor_reused_from_period_derivation():
     payload = _payload_without_period_or_schedule()
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     report = waivers.get_waivers(
@@ -604,7 +618,7 @@ def test_games_next_7d_partial_scoreboard_coverage():
     payload = _payload_without_schedule_block()
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     report = waivers.get_waivers(
@@ -626,7 +640,7 @@ def test_games_next_7d_scoreboard_down_degrades_to_zero():
     payload = _payload_without_schedule_block()
 
     class _Client(FakeClient):
-        def get_league(self, views):
+        def get_league(self, views, max_age=0):
             return payload
 
     report = waivers.get_waivers(

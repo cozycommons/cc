@@ -57,7 +57,12 @@ import statistics
 from datetime import datetime, timedelta, timezone
 
 from . import lineup, logic
-from .espn_client import EspnAuthError, EspnError
+from .espn_client import (
+    READ_CACHE_TTL_S,
+    SETTLED_PERIOD_TTL_S,
+    EspnAuthError,
+    EspnError,
+)
 from .scoreboard import PRO_TEAM_ABBR
 
 LAST15_PERIODS = 15
@@ -174,8 +179,12 @@ def _day_fantasy_points(player: dict, period: int, items: list):
     return None
 
 
-def _fetch_day_points(client, periods: list, items: list):
+def _fetch_day_points(client, periods: list, items: list, current: int):
     """{player_id: {period: fantasy points}} over the given periods.
+
+    Periods before ``current`` are finished days whose stats are
+    settled, so their fetches are reused for hours; only today's
+    period is re-read on the short read-cache age.
 
     A failed period fetch is recorded and skipped (the windows just get
     thinner); an auth failure is fatal and propagates — expired cookies
@@ -186,7 +195,11 @@ def _fetch_day_points(client, periods: list, items: list):
     for period in periods:
         try:
             entries = client.get_league_players_for_period(
-                period, limit=POOL_LIMIT
+                period,
+                limit=POOL_LIMIT,
+                max_age=(
+                    SETTLED_PERIOD_TTL_S if period < current else READ_CACHE_TTL_S
+                ),
             )
         except EspnAuthError:
             raise
@@ -308,7 +321,12 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
     from the public scoreboard when the payload carries no schedule
     at all.
     """
-    payload = client.get_league(["mSettings", "mTeam", "mRoster"]) or {}
+    payload = (
+        client.get_league(
+            ["mSettings", "mTeam", "mRoster"], max_age=READ_CACHE_TTL_S
+        )
+        or {}
+    )
     items = lineup.scoring_items(payload)
     notes: list[str] = []
     period_anchor = None  # (period, date) for the scoreboard schedule
@@ -408,7 +426,9 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
 
     # The pool.
     pool: dict = {}  # player_id -> {player, on_team_id}
-    raw_pool = client.get_league_players(POOL_LIMIT) or []
+    raw_pool = (
+        client.get_league_players(POOL_LIMIT, max_age=READ_CACHE_TTL_S) or []
+    )
     for entry in raw_pool:
         player = _entry_player(entry)
         pid = _entry_player_id(entry, player)
@@ -421,7 +441,7 @@ def get_waivers(client, swid, scoreboard=None) -> dict:
 
     # Per-day form over the last-15 window.
     day_points, failed_periods = _fetch_day_points(
-        client, list(range(last15_start, current + 1)), items
+        client, list(range(last15_start, current + 1)), items, current
     )
     if failed_periods and len(failed_periods) < LAST15_PERIODS:
         notes.append(
