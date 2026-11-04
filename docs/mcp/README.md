@@ -468,7 +468,7 @@ an offer the other manager sees, and a lineup moves players between slots.
   existing `cce_` token.
 
 Linking mirrors the other projects: migration
-`0020_beli_espn_account_owner.sql` adds `espn_accounts.owner_user_id` (partial
+`0089_beli_espn_account_owner.sql` adds `espn_accounts.owner_user_id` (partial
 unique index, `on delete set null`), `espn_link_account(account, user)` and
 `espn_agent_receipts`. One Commons user links one ESPN account, and an account
 has at most one Commons owner, so a league's cookies are never shared between

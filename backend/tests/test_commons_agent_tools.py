@@ -165,7 +165,7 @@ class Database:
 
     def espn_execute(self, query):
         rows = self.espn_tables[query.table]
-        if query.write is not None:  # a lineup approval claim: one per proposal (0021)
+        if query.write is not None:  # a lineup approval claim: one per proposal (0090)
             assert query.table == 'espn_lineup_approvals' and query.ignore_duplicates
             if any(row['proposal_id'] == query.write['proposal_id'] for row in rows):
                 return SimpleNamespace(data=[])
@@ -205,7 +205,7 @@ class Database:
 
 def link_account(rows, p_account_id, p_user_id):
     # Mirrors public.beli_link_account (0017), resy_link_account (0018), partiful_link_account (0019)
-    # and espn_link_account (0020).
+    # and espn_link_account (0089).
     account = next((row for row in rows if row['id'] == p_account_id), None)
     if account is None:
         return 'missing'

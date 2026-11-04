@@ -164,7 +164,7 @@ begin
   end loop;
 
   -- Connector account links and receipts are service-role only (Beli 0017, Resy 0018,
-  -- Partiful 0019, ESPN 0020).
+  -- Partiful 0019, ESPN 0089).
   foreach object_name in array array['beli', 'resy', 'partiful', 'espn'] loop
     if not exists (
       select 1 from pg_catalog.pg_index i
@@ -222,7 +222,7 @@ begin
       raise exception 'Beli schema contract: service_role may delete % connector receipts', object_name;
     end if;
   end loop;
-  -- A lineup proposal is approved live at most once, under whichever key claimed it first (0021).
+  -- A lineup proposal is approved live at most once, under whichever key claimed it first (0090).
   if not exists (
     select 1 from pg_catalog.pg_index i
     join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]

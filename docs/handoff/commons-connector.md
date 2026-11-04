@@ -348,7 +348,7 @@ PASS read-only token reads Partiful events; linking refused
   (its row id is the proposal id) and approved with a live run for that scoring
   period, approvable for 30 minutes like edits and trades. The live run replans
   from ESPN, so its record, not the preview, says what moved.
-- **Idempotency.** `espn_agent_receipts` (0020, no DELETE grant, contract-checked
+- **Idempotency.** `espn_agent_receipts` (0089, no DELETE grant, contract-checked
   with Resy's) is written just before the approval and never released. A key
   with no recorded outcome is settled only by reading ESPN: edits and trades
   through the existing `get_edit`/`get_proposal` reconciliation, lineups by a
@@ -357,7 +357,7 @@ PASS read-only token reads Partiful events; linking refused
   until it expires. An approval refused before its claim records `not_sent`.
   The proposal claim (pending -> executing) still prevents double submission
   across keys, `/espn` and `/espn/mcp`; a lineup proposal has no status, so its
-  claim is a row in `espn_lineup_approvals` (0021, one per proposal, never
+  claim is a row in `espn_lineup_approvals` (0090, one per proposal, never
   released) and a second key replays or rereads the first attempt.
 - **Sharing and team claims.** One Commons user per ESPN account (the same
   partial unique index as Beli/Resy/Partiful), so league cookies are never
@@ -389,7 +389,7 @@ PASS read-only token reads Partiful events; linking refused
   ESPN) plus a linked-caller isolation test. Mutation check: an owner-ignoring
   account lookup fails the isolation test.
 - Frontend: 98 files, 770 tests; production build and lint passed.
-- Shared loopback stack: beli 0017–0020 and dice 0087–0088 applied for the e2e
+- Shared loopback stack: beli 0017–0019, ESPN 0020 (since renumbered 0089) and dice 0087–0088 applied for the e2e
   (whoami now reads `commons_profiles`, and the stack was at dice 86), then
   rolled back to beli 16 and dice 86. The schema catalog after the dice rollback
   is byte-identical to the one before it; the pre-0017 beli contract and

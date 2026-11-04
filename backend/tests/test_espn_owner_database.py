@@ -1,4 +1,4 @@
-"""Real PostgreSQL checks for ESPN connector links and receipts (0020) and lineup approval claims (0021).
+"""Real PostgreSQL checks for ESPN connector links and receipts (0089) and lineup approval claims (0090).
 
 Synthetic disposable databases on the allowlisted test server; never ESPN calls.
 Locally: DICE_TEST_DATABASE=1 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_<n>_<n>.
@@ -10,7 +10,7 @@ import pytest
 import migration_runner
 from tests.migration_harness import REPO, checkout_release, disposable_migration_database, migration_database  # noqa: F401
 
-PRE_LINK_RELEASE = "9b84d2ccacd2e60687390817e27855046cad49af"  # main with Partiful connector (#204, 0019), before 0020
+PRE_LINK_RELEASE = "9b84d2ccacd2e60687390817e27855046cad49af"  # main with Partiful connector (#204, 0019), before 0089
 CONTRACT = (REPO / "backend/migrations/beli_schema_contract.sql").read_text()
 
 
@@ -56,7 +56,7 @@ def receipt(user_id, key="approve-1"):
 
 
 def test_schema_attests_and_replays(db):
-    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "21"
+    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "90"
     assert "Applying " not in db.sql(migration_runner.render(["beli"])).stdout
     db.sql(CONTRACT)
 
@@ -174,7 +174,7 @@ def test_upgrade_keeps_existing_accounts_unlinked(migration_database, tmp_path):
     columns = ("id,label,league_id,season,espn_s2_enc,swid_enc,token_hash,token_prefix,"
                "lineup_automation_enabled,created_at")
     before = database.sql(f"SELECT {columns} FROM public.espn_accounts;").stdout
-    assert "Applying 0020_beli_espn_account_owner.sql" in database.release().stdout
+    assert "Applying 0089_beli_espn_account_owner.sql" in database.release().stdout
     assert database.sql(f"SELECT {columns} FROM public.espn_accounts;").stdout == before
     assert database.sql("SELECT count(*) FROM public.espn_accounts WHERE owner_user_id IS NOT NULL;").stdout.strip() == "0"
     assert "Applying " not in database.release().stdout
