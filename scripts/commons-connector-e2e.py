@@ -451,7 +451,7 @@ async def exercise(args):
     partiful_serving = asyncio.create_task(asyncio.to_thread(partiful_server.serve_forever, poll_interval=0.1))
 
     async def onboard_partiful(label):
-        """The real /partiful/onboard start + verify path, against the fake. Returns (ccp_ token, synthetic uid)."""
+        """The real /partiful/onboard start + verify path, against the fake. Returns (ccp_ token, synthetic uid, phone)."""
         phone = '+1555' + ''.join(secrets.choice('0123456789') for _ in range(7))
         async with httpx.AsyncClient(timeout=30) as http:
             started = await http.post(endpoint[:-len('/mcp')] + '/partiful/onboard/start', json={'phone': phone})
@@ -459,7 +459,7 @@ async def exercise(args):
             response = await http.post(endpoint[:-len('/mcp')] + '/partiful/onboard/verify',
                                        json={'phone': phone, 'code': '123456', 'label': label})
         assert response.status_code == 200, f'Partiful onboarding: HTTP {response.status_code}'
-        return response.json()['token'], partiful_state['uids'][phone]
+        return response.json()['token'], partiful_state['uids'][phone], phone
 
     espn_server, espn_state = fake_espn()
     espn_serving = asyncio.create_task(asyncio.to_thread(espn_server.serve_forever, poll_interval=0.1))
@@ -842,15 +842,15 @@ async def exercise(args):
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['partiful']['enabled'] is False and projects['partiful']['linked'] is False
                 enabled = await call('enable_project', project_id='partiful', evidence='enable_project partiful')
-                assert enabled['linked'] is False and 'link_partiful_account' in enabled['next_step']
+                assert enabled['linked'] is False and 'cozycommons.dev/account#partiful' in enabled['next_step']
+                assert 'ccp_ token in chat' in enabled['next_step']
                 assert partiful <= await listed(session)
                 print('PASS list_projects/enable_project show Partiful unlinked with the link step')
                 await refused(session, 'get_partiful_events', {}, 'Link your Partiful account first',
                               'unlinked get_partiful_events refused with the link step')
-                partiful_token, mine_uid = await onboard_partiful('e2e-mine')
-                other_partiful, other_uid = await onboard_partiful('e2e-other')
+                partiful_token, mine_uid, mine_phone = await onboard_partiful('e2e-mine')
+                other_partiful, other_uid, other_phone = await onboard_partiful('e2e-other')
                 print('PASS synthetic Partiful onboarding through /partiful/onboard (fake loopback Partiful API)')
-                onboarded_reads = len(partiful_state['reads'])  # onboarding probes each new session once
                 from partiful.accounts import get_account_row_by_token as partiful_account_row
                 mine_row = partiful_account_row(service, partiful_token)['id']
                 assert service.rpc('partiful_link_account', {
@@ -862,11 +862,32 @@ async def exercise(args):
                               'No Partiful account matches', 'link_partiful_account refused for a wrong token')
                 stored = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
                     .eq('id', mine_row).single().execute().data
-                linked = await call('link_partiful_account', api_token=partiful_token, evidence='link_partiful_account')
-                assert linked['status'] == 'linked' and partiful_token not in json.dumps(linked)
-                assert service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
-                    .eq('id', mine_row).single().execute().data == stored
-                print('PASS linking changes only the owner; the stored Partiful session is untouched')
+                # The account page links with a texted code: no ccp_ token or code reaches the agent.
+                partiful_page = endpoint[:-len('/mcp')] + '/account/linked-accounts/partiful'
+                page_auth = {'Authorization': 'Bearer ' + user_token}
+                async with httpx.AsyncClient(timeout=30) as http:
+                    for phone in (other_phone, mine_phone):
+                        sent = await http.post(partiful_page + '/code', headers=page_auth, json={'phone': phone})
+                        assert sent.json() == {'status': 'code_sent', 'phone': phone}, sent.text
+                    taken = await http.post(partiful_page, headers=page_auth, json={'phone': other_phone, 'code': '123456'})
+                    assert taken.status_code == 409, f"Other user's Partiful phone: HTTP {taken.status_code}"
+                    print("PASS account page refuses another user's Partiful account")
+                    wrong = await http.post(partiful_page, headers=page_auth, json={'phone': mine_phone, 'code': '000000'})
+                    assert wrong.status_code == 400 and '000000' not in wrong.text
+                    print('PASS account page refuses a wrong Partiful code')
+                    linked = await http.post(partiful_page, headers=page_auth,
+                                             json={'phone': mine_phone[2:], 'code': '123456'})  # 10-digit form
+                    assert linked.status_code == 200 and linked.json() == {
+                        'status': 'linked', 'account': {'id': mine_row, 'label': 'e2e-mine'}}, linked.text
+                    assert partiful_token not in linked.text and mine_uid not in linked.text
+                    summary = (await http.get(partiful_page[:-len('/partiful')], headers=page_auth)).json()
+                assert summary['partiful'] == {'id': mine_row, 'label': 'e2e-mine'}
+                relinked = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
+                    .eq('id', mine_row).single().execute().data
+                assert relinked['token_hash'] == stored['token_hash'] and relinked['uid_enc'] == stored['uid_enc']
+                assert relinked['refresh_token_enc'] != stored['refresh_token_enc']
+                print('PASS account page links the existing Partiful account by texted code and stores the fresh session')
+                onboarded_reads = len(partiful_state['reads'])  # each sign-in probes its new session once
                 async with httpx.AsyncClient(timeout=30) as http:
                     legacy_me = await http.get(endpoint[:-len('/mcp')] + '/partiful/me',
                                                headers={'Authorization': 'Bearer ' + partiful_token})
