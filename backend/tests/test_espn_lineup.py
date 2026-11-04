@@ -200,7 +200,7 @@ class StatefulClient:
         self.apply_posts = apply_posts
         self.posts = []
 
-    def get_league(self, views, scoring_period_id=None):
+    def get_league(self, views, scoring_period_id=None, max_age=0):
         return copy.deepcopy(self.payload)
 
     def post_lineup_transaction(self, member_id, team_id,
@@ -224,7 +224,7 @@ class StatefulClient:
 
 
 class AuthFailClient:
-    def get_league(self, views, scoring_period_id=None):
+    def get_league(self, views, scoring_period_id=None, max_age=0):
         raise EspnAuthError(
             "ESPN rejected the stored cookies (HTTP 401); "
             "re-onboard with fresh espn_s2/SWID cookies"

@@ -66,10 +66,10 @@ class FakeClient:
     league_id = 123456
     season = 2027
 
-    def get_league(self, views):
+    def get_league(self, views, max_age=0):
         return LEAGUE_PAYLOAD
 
-    def get_players(self, limit=300):
+    def get_players(self, limit=300, max_age=0):
         return []
 
 

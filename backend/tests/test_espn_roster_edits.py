@@ -209,10 +209,10 @@ class FakeClient:
         # period, so a roster re-read does not show it yet.
         self.apply_posts = True
 
-    def get_league(self, views, scoring_period_id=None):
+    def get_league(self, views, scoring_period_id=None, max_age=0):
         return copy.deepcopy(self.payload)
 
-    def get_league_players(self, limit=1000):
+    def get_league_players(self, limit=1000, max_age=0):
         return copy.deepcopy(self.pool)
 
     def post_roster_transaction(self, member_id, team_id,
