@@ -83,7 +83,10 @@ def test_rejected_refresh_falls_back_once(mock_beli):
     Handler.mode = 'bad-refresh'
     client.api('/api/user/logged-in/')
     assert paths() == ['/api/token/', '/api/token/refresh/', '/api/token/', '/api/user/logged-in/']
-    assert 'alice' not in accounts._clients
+    # The password login repaired this client, so the next request reuses it: no second login.
+    Handler.mode = 'ok'
+    accounts.make_client_for_account(account()).api('/api/user/logged-in/')
+    assert paths().count('/api/token/') == 2 and accounts.make_client_for_account(account()) is client
 
 
 def test_refresh_outage_does_not_password_login(mock_beli):
@@ -98,7 +101,7 @@ def test_refresh_outage_does_not_password_login(mock_beli):
 
 
 @pytest.mark.parametrize('retry', [False, True])
-def test_401_evicts_and_retry_refreshes_first(mock_beli, retry):
+def test_api_401_keeps_the_client_and_retry_refreshes_first(mock_beli, retry):
     client = accounts.make_client_for_account(account())
     client.ensure_access_token()
     Handler.mode = 'unauthorized-once'
@@ -109,15 +112,54 @@ def test_401_evicts_and_retry_refreshes_first(mock_beli, retry):
         with pytest.raises(BeliUnauthorized):
             client.api('/api/user/logged-in/')
     assert paths().count('/api/token/') == 1
+    # The client recovers in place (refresh, then password if needed); evicting it would
+    # only force another password login on the next request.
+    assert accounts.make_client_for_account(account()) is client
+    accounts.make_client_for_account(account()).api('/api/user/logged-in/')
+    assert paths().count('/api/token/') == 1
+
+
+def test_a_rejected_password_login_evicts_only_that_client(mock_beli):
+    client = accounts.make_client_for_account(account())
+    Handler.mode = 'rejected-login'
+    with pytest.raises(BeliUnauthorized):
+        client.api('/api/user/logged-in/')
     assert 'alice' not in accounts._clients
-    assert accounts.make_client_for_account(account()) is not client
+
+
+def test_a_rotated_refresh_token_is_kept(mock_beli):
+    client = accounts.make_client_for_account(account())
+    client.ensure_access_token()
+    Handler.mode = 'rotate-refresh'
+    for _ in range(2):
+        client._access_exp_ms = 0
+        client.ensure_access_token()
+    assert Handler.refreshes_used == ['refresh-1', 'refresh-2']
+    assert paths().count('/api/token/') == 1
+
+
+def test_api_calls_for_one_account_run_in_parallel(mock_beli, monkeypatch):
+    client = accounts.make_client_for_account(account())
+    client.ensure_access_token()
+    inside, release = threading.Barrier(2, timeout=5), threading.Event()
+    original = client._request
+    def slow_request(host, path, *rest):
+        if path == '/api/user/logged-in/':
+            inside.wait()  # both calls must be in flight at once, or this times out
+        return original(host, path, *rest)
+    monkeypatch.setattr(client, '_request', slow_request)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: client.api('/api/user/logged-in/'), range(2)))
+    assert results == [{'uuid': 'user-1'}] * 2
 
 
 def test_old_401_cannot_evict_replacement(mock_beli):
     old = accounts.make_client_for_account(account())
     old.ensure_access_token()
     replacement = accounts.make_client_for_account(account(password='new-password'))
-    Handler.mode = 'unauthorized-once'
+    old._access_exp_ms = 0
+    Handler.mode = 'rejected-login'
+    old._refresh = None
     with pytest.raises(BeliUnauthorized):
         old.api('/api/user/logged-in/')
     assert accounts.make_client_for_account(account(password='new-password')) is replacement
