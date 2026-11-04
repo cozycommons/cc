@@ -29,10 +29,14 @@ TEST_FILES = [
 
 class SelectionTests(unittest.TestCase):
     def test_compute_dependencies_and_test_only_changes(self):
-        plan = ci.select(["backend/compute/worker.py"], TEST_FILES)
-        self.assertEqual([j for j in ci.JOBS if plan[j]], ["crowdset", "crowdset-container", "compute"])
-        plan = ci.select(["backend/compute/tests/test_compute.py"], TEST_FILES)
-        self.assertEqual([j for j in ci.JOBS if plan[j]], ["compute"])
+        for path in ["backend/compute/worker.py", "backend/requirements-compute.in", "backend/requirements-compute.txt"]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], ["crowdset", "crowdset-container", "compute"])
+        for path in ["backend/compute/tests/test_compute.py", "backend/compute/tests/requirements.in", "backend/compute/tests/requirements.txt"]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], ["compute"])
 
     def test_docs_only_skips_every_expensive_job(self):
         plan = ci.select(["README.md", "AGENTS.md", "docs/deployment.md", "backend/dice/TECH.md"], TEST_FILES)
@@ -67,7 +71,7 @@ class SelectionTests(unittest.TestCase):
                 self.assertFalse(plan["crowdset"])
 
     def test_crowdset_backend_is_isolated(self):
-        for path in ["scripts/test_crowdset_ci_image.py", ".github/images/crowdset-tests.Dockerfile", "scripts/crowdset-ci-image.sh", "backend/crowdset/video.py", "backend/crowdset/tests/test_video.py", "backend/crowdset/tests/requirements.txt", "backend/requirements-crowdset.txt", "scripts/crowdset-dev.sh"]:
+        for path in ["scripts/test_crowdset_ci_image.py", ".github/images/crowdset-tests.Dockerfile", "scripts/crowdset-ci-image.sh", "backend/crowdset/video.py", "backend/crowdset/tests/test_video.py", "backend/crowdset/tests/requirements.txt", "backend/requirements-crowdset.txt", "backend/requirements-crowdset.in", "scripts/crowdset-dev.sh"]:
             with self.subTest(path=path):
                 plan = ci.select([path], TEST_FILES)
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["crowdset", "crowdset-container"])
