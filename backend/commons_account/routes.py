@@ -18,6 +18,8 @@ from espn.espn_client import EspnAuthError, EspnError
 from espn.routes import _default_season
 from ig_logger.sinks.beli import accounts as beli_accounts
 from ig_logger.sinks.beli.beli_client import BeliError, BeliUnauthorized
+from partiful import accounts as partiful_accounts
+from partiful.partiful_client import PartifulClient, PartifulCodeRejected, PartifulError, normalize_phone
 from resy import accounts as resy_accounts
 from resy.resy_client import ResyAuthError, ResyError
 from trips.profiles import avatar_url
@@ -146,7 +148,8 @@ def linked_accounts(request: Request, user=Depends(current_user)):
     """Which third-party accounts the caller has connected; summaries hold no secrets."""
     return {'beli': beli_accounts.linked_account_summary(client(request), user.id),
             'resy': resy_accounts.linked_account_summary(client(request), user.id),
-            'espn': espn_accounts.linked_account_summary(client(request), user.id)}
+            'espn': espn_accounts.linked_account_summary(client(request), user.id),
+            'partiful': partiful_accounts.linked_account_summary(client(request), user.id)}
 
 
 @router.post('/linked-accounts/beli')
@@ -294,3 +297,62 @@ def connect_espn_cookies(body: EspnCookies, request: Request, user=Depends(curre
     connect_rate_check('user:' + str(user.id), 'espn-swid:' + espn_accounts.swid_key(swid))
     return espn_connect(request, user, swid_proven=False, league_id=body.league_id, season=body.season,
                         espn_s2=espn_s2, swid=swid, enable_automation=body.enable_automation)
+
+
+class PartifulPhone(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    phone: str = Field(min_length=1, max_length=32, pattern=r'^[\x20-\x7e]+$')
+
+
+class PartifulCode(PartifulPhone):
+    # No constraints here: FastAPI's 422 body echoes the rejected input, so the route checks the code.
+    code: str
+
+
+def partiful_phone(raw):
+    try:
+        return normalize_phone(raw)
+    except PartifulError:
+        raise HTTPException(400, 'Enter a 10-digit US number or a + international number.')
+
+
+PARTIFUL_DOWN = 'Partiful did not answer. Try again in a minute.'
+
+
+@router.post('/linked-accounts/partiful/code')
+def send_partiful_code(body: PartifulPhone, request: Request, user=Depends(current_user)):
+    """Step 1: text a Partiful sign-in code to the phone. Counted per user and per phone, so it cannot spam one."""
+    phone = partiful_phone(body.phone)
+    connect_rate_check('user:' + str(user.id), 'partiful:' + phone)
+    try:
+        PartifulClient.send_auth_code(phone)
+    except (PartifulError, urllib.error.URLError, TimeoutError):  # the client wraps URLError; a read timeout escapes it
+        raise HTTPException(502, PARTIFUL_DOWN)
+    return {'status': 'code_sent', 'phone': phone}
+
+
+@router.post('/linked-accounts/partiful')
+def connect_partiful(body: PartifulCode, request: Request, user=Depends(current_user)):
+    """Step 2: connect the Partiful account the texted code signs in to."""
+    phone = partiful_phone(body.phone)
+    code = body.code.strip()
+    if not (4 <= len(code) <= 10 and code.isascii() and code.isdigit()):
+        raise HTTPException(400, 'Enter the number Partiful texted you.')
+    connect_rate_check('user:' + str(user.id), 'partiful:' + phone)
+    try:
+        outcome, account = partiful_accounts.connect_account_for_owner(client(request), str(user.id), phone, code)
+    except PartifulCodeRejected:
+        raise HTTPException(400, 'Partiful did not accept that code. Check it or send a new one.')
+    except PartifulError as error:
+        if error.status is not None and 400 <= error.status < 500 and error.status != 429:
+            raise HTTPException(400, 'Partiful did not accept that code. Check it or send a new one.')
+        raise HTTPException(502, PARTIFUL_DOWN)
+    except (urllib.error.URLError, TimeoutError):
+        raise HTTPException(502, PARTIFUL_DOWN)
+    except partiful_accounts.AccountError:
+        raise HTTPException(503, 'Could not save your Partiful sign-in. Try again later.')
+    if outcome == 'other_owner':
+        raise HTTPException(409, 'This Partiful account is connected to another Cozy Commons user. '
+                                 'Sign in as that user to manage it.')
+    return {'status': outcome, 'account': account}

@@ -65,6 +65,10 @@ class PartifulAuthError(PartifulError):
     """The refresh token is dead — the user must re-onboard."""
 
 
+class PartifulCodeRejected(PartifulError):
+    """Partiful did not accept the SMS code (wrong or expired)."""
+
+
 def normalize_phone(value: str) -> str:
     """Normalize a phone number to +E.164.
 
@@ -288,7 +292,7 @@ class PartifulClient:
             else None
         )
         if not custom_token:
-            raise PartifulError("wrong or expired SMS code")
+            raise PartifulCodeRejected("wrong or expired SMS code")
         data = client._post(
             IDENTITY_TOOLKIT_URL,
             json_body={"token": custom_token, "returnSecureToken": True},
