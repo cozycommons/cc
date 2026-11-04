@@ -162,4 +162,42 @@ def test_connecting_needs_a_session_and_is_rate_limited(account_app):
                        json={'login': 'a', 'password': 'b', 'token': 'x'}).status_code == 422
     codes = [connect(client, 'new@example.test', password='wrong').status_code for _ in range(11)]
     assert codes[:10] == [400] * 10 and codes[10] == 429
-    assert connect(client, 'new@example.test', headers=KIM).status_code == 200  # per user
+    assert connect(client, 'other@example.test', headers=KIM).status_code == 200  # per user and per login
+
+
+def test_unicode_look_alike_logins_never_match_or_rewrite_another_account(account_app):
+    client, db = account_app
+    row, _ = beli_fakes.add_account(db)
+    before = row['password_enc']
+    look_alike = row['login'].replace('s', 'ſ', 1)  # LATIN SMALL LONG S lowercases to nothing ASCII
+    kelvin = 'K' + row['login'][1:]  # KELVIN SIGN .lower() == 'k'
+    for login in (look_alike, kelvin):
+        assert connect(client, login).status_code == 422
+    assert accounts.login_key(kelvin) != accounts.login_key('k' + row['login'][1:])
+    assert row['owner_user_id'] is None and row['password_enc'] == before and len(db.beli_accounts) == 1
+
+
+def test_validation_errors_never_echo_the_password(account_app):
+    client, _ = account_app
+    secret = 'p' * 201
+    response = client.post('/account/linked-accounts/beli', headers=SAM, json={'login': 'a@b.test', 'password': secret})
+    assert response.status_code == 400 and secret not in response.text
+    for body in ('{"login": "a@b.test", "password": "hunter2-secret"', '{"login": 5, "password": "hunter2-secret"}'):
+        response = client.post('/account/linked-accounts/beli', headers={**SAM, 'Content-Type': 'application/json'},
+                               content=body)
+        assert response.status_code == 422 and 'hunter2-secret' not in response.text, response.text
+
+
+def test_an_undecryptable_row_is_skipped_not_fatal(account_app):
+    client, db = account_app
+    row, _ = beli_fakes.add_account(db)
+    row['beli_id_enc'] = 'not-a-fernet-token'
+    assert connect(client, 'new@example.test').json()['status'] == 'linked'
+    assert row['owner_user_id'] is None and len(db.beli_accounts) == 2
+
+
+def test_guesses_against_one_beli_login_are_limited_across_commons_users(account_app):
+    client, db = account_app
+    for _ in range(10):
+        assert connect(client, 'victim@example.test', password='wrong').status_code == 400
+    assert connect(client, 'VICTIM@example.test', headers=KIM, password='wrong').status_code == 429
