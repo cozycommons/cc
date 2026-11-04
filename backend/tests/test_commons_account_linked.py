@@ -1,4 +1,4 @@
-"""/account/linked-accounts: connect Beli on the account page instead of pasting a token into an agent."""
+"""/account/linked-accounts: connect Beli and Resy on the account page instead of pasting a token into an agent."""
 import urllib.error
 from types import SimpleNamespace
 from uuid import uuid4
@@ -11,7 +11,9 @@ from commons_account import routes
 from ig_logger.accounts import hash_token
 from ig_logger.sinks.beli import accounts
 from ig_logger.sinks.beli.beli_client import BeliClient, BeliError, BeliUnauthorized
-from tests import beli_fakes
+from resy import accounts as resy_accounts
+from resy.resy_client import ResyAuthError, ResyClient, ResyError
+from tests import beli_fakes, resy_fakes
 from tests.test_commons_agent_tools import link_account
 
 PASSWORD = 'synthetic-password'
@@ -59,15 +61,15 @@ class Database:
         self.users = {'session-sam': SimpleNamespace(id='u-sam', email='sam@example.test'),
                       'session-kim': SimpleNamespace(id='u-kim', email='kim@example.test')}
         self.auth = SimpleNamespace(get_user=lambda token: SimpleNamespace(user=self.users.get(token)))
-        self.tables = {'beli_accounts': [], 'ig_logger_sources': []}
-        self.beli_accounts = self.tables['beli_accounts']
+        self.tables = {'beli_accounts': [], 'resy_accounts': [], 'ig_logger_sources': []}
+        self.beli_accounts, self.resy_accounts = self.tables['beli_accounts'], self.tables['resy_accounts']
 
     def table(self, name):
         return Rows(self, 'ig_logger_sources' if name not in self.tables else name)
 
     def rpc(self, name, args):
-        assert name == 'beli_link_account'
-        return SimpleNamespace(execute=lambda: SimpleNamespace(data=link_account(self.beli_accounts, **args)))
+        rows = {'beli_link_account': self.beli_accounts, 'resy_link_account': self.resy_accounts}[name]
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=link_account(rows, **args)))
 
 
 SAM = {'Authorization': 'Bearer session-sam'}
@@ -100,7 +102,7 @@ def connect(client, login, headers=SAM, password=PASSWORD):
 
 def test_a_new_beli_login_creates_and_links_an_account_whose_token_nobody_sees(account_app):
     client, db = account_app
-    assert client.get('/account/linked-accounts', headers=SAM).json() == {'beli': None}
+    assert client.get('/account/linked-accounts', headers=SAM).json() == {'beli': None, 'resy': None}
     response = connect(client, 'new@example.test')
     assert response.status_code == 200 and response.json()['status'] == 'linked'
     assert 'token' not in response.text and PASSWORD not in response.text
@@ -201,3 +203,119 @@ def test_guesses_against_one_beli_login_are_limited_across_commons_users(account
     for _ in range(10):
         assert connect(client, 'victim@example.test', password='wrong').status_code == 400
     assert connect(client, 'VICTIM@example.test', headers=KIM, password='wrong').status_code == 429
+
+
+# Resy: the same rules, with the email as the login and the Resy session stored beside the password.
+
+@pytest.fixture
+def resy_app(account_app, monkeypatch):
+    client, db = account_app
+    resy_fakes.install(db, monkeypatch)
+    db.resy_rejects = set()
+
+    class Session:
+        def __init__(self, email):
+            self._auth_token = 'resy-session-' + email
+
+    def login_with(email, password):
+        db.resy_logins.append(email)
+        if db.resy_failure:
+            raise db.resy_failure
+        if password != PASSWORD or email in db.resy_rejects:
+            raise ResyAuthError('Resy rejected the stored credentials')
+        return Session(email)
+    monkeypatch.setattr(ResyClient, 'login_with', staticmethod(login_with))
+    return client, db
+
+
+def connect_resy(client, login, headers=SAM, password=PASSWORD):
+    return client.post('/account/linked-accounts/resy', headers=headers, json={'login': login, 'password': password})
+
+
+def test_a_new_resy_login_creates_and_links_an_account_whose_token_nobody_sees(resy_app):
+    client, db = resy_app
+    response = connect_resy(client, 'new@example.test')
+    assert response.status_code == 200 and response.json()['status'] == 'linked'
+    for secret in ('token', PASSWORD, 'resy-session'):
+        assert secret not in response.text
+    row, = db.resy_accounts
+    assert row['owner_user_id'] == 'u-sam' and row['token_hash'] and row['token_prefix'].startswith('ccr_')
+    assert resy_accounts.decrypt_secret(row['password_enc']) == PASSWORD
+    assert resy_accounts.decrypt_secret(row['auth_token_enc']) == 'resy-session-new@example.test'
+    linked = client.get('/account/linked-accounts', headers=SAM).json()
+    assert linked['resy'] == {'id': row['id'], 'label': 'resy'} and linked['beli'] is None
+
+
+def test_a_legacy_resy_account_is_claimed_by_its_email_and_keeps_its_token(resy_app):
+    client, db = resy_app
+    row, token = resy_fakes.add_account(db)
+    response = connect_resy(client, '  ' + row['email'].upper())
+    assert response.json() == {'status': 'linked', 'account': {'id': row['id'], 'label': row['label']}}
+    assert len(db.resy_accounts) == 1 and row['owner_user_id'] == 'u-sam'
+    assert row['token_hash'] == resy_accounts.hash_token(token)  # the legacy /resy token keeps working
+    assert resy_accounts.decrypt_secret(row['email_enc']) == row['email']
+    assert connect_resy(client, row['email']).json()['status'] == 'already_linked'
+
+
+def test_reconnecting_resy_refreshes_the_stored_password_and_session(resy_app):
+    client, db = resy_app
+    row, _ = resy_fakes.add_account(db, owner='u-sam')
+    row['password_enc'] = resy_accounts.encrypt_secret('old-password')
+    assert connect_resy(client, row['email']).json()['status'] == 'already_linked'
+    assert resy_accounts.decrypt_secret(row['password_enc']) == PASSWORD
+    assert resy_accounts.decrypt_secret(row['auth_token_enc']) == 'resy-session-' + row['email']
+
+
+def test_another_users_resy_account_is_refused_and_untouched(resy_app):
+    client, db = resy_app
+    row, _ = resy_fakes.add_account(db, owner='u-kim')
+    before = (row['password_enc'], row['auth_token_enc'])
+    response = connect_resy(client, row['email'])
+    assert response.status_code == 409 and 'another Cozy Commons user' in response.json()['detail']
+    assert row['owner_user_id'] == 'u-kim' and (row['password_enc'], row['auth_token_enc']) == before
+
+
+def test_a_wrong_resy_password_or_outage_stores_nothing(resy_app):
+    client, db = resy_app
+    response = connect_resy(client, 'new@example.test', password='wrong')
+    assert response.status_code == 400 and response.json()['detail'] == 'Resy did not accept that email and password.'
+    for failure in (ResyError('Resy login -> 503', status=503), TimeoutError('read timed out')):
+        db.resy_failure = failure
+        response = connect_resy(client, 'new@example.test')
+        assert response.status_code == 502 and response.json()['detail'] == 'Resy did not answer. Try again in a minute.'
+    assert db.resy_accounts == []
+
+
+def test_a_resy_login_must_be_an_ascii_email_and_never_echoes_the_password(resy_app):
+    client, db = resy_app
+    row, _ = resy_fakes.add_account(db)
+    kelvin = '\u212a' + row['email'][1:]  # KELVIN SIGN .lower() == 'k'
+    assert connect_resy(client, kelvin).status_code == 422
+    assert resy_accounts.login_key(kelvin) != resy_accounts.login_key('k' + row['email'][1:])
+    response = connect_resy(client, '+1 818 555 1234')
+    assert response.status_code == 400 and 'email' in response.json()['detail']
+    secret = 'p' * 201
+    response = connect_resy(client, 'a@b.test', password=secret)
+    assert response.status_code == 400 and secret not in response.text
+    response = client.post('/account/linked-accounts/resy', headers={**SAM, 'Content-Type': 'application/json'},
+                           content='{"login": 5, "password": "hunter2-secret"}')
+    assert response.status_code == 422 and 'hunter2-secret' not in response.text
+    assert db.resy_logins == [] and row['owner_user_id'] is None and len(db.resy_accounts) == 1
+
+
+def test_resy_guesses_are_limited_per_user_and_per_resy_login(resy_app):
+    client, db = resy_app
+    assert client.post('/account/linked-accounts/resy', json={'login': 'a@b.test', 'password': 'b'}).status_code == 401
+    for _ in range(10):
+        assert connect_resy(client, 'victim@example.test', password='wrong').status_code == 400
+    assert connect_resy(client, 'other@example.test').status_code == 429  # per Commons user
+    assert connect_resy(client, 'VICTIM@example.test', headers=KIM, password='wrong').status_code == 429  # per login
+    assert connect_resy(client, 'kim@example.test', headers=KIM).status_code == 200
+
+
+def test_resy_and_beli_links_are_independent(resy_app):
+    client, db = resy_app
+    assert connect(client, 'same@example.test').status_code == 200
+    assert connect_resy(client, 'same@example.test').status_code == 200
+    linked = client.get('/account/linked-accounts', headers=SAM).json()
+    assert linked['beli']['id'] == db.beli_accounts[0]['id'] and linked['resy']['id'] == db.resy_accounts[0]['id']

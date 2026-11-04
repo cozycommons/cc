@@ -15,6 +15,8 @@ from cc_mcp import connections
 from commons_account import profile
 from ig_logger.sinks.beli import accounts as beli_accounts
 from ig_logger.sinks.beli.beli_client import BeliError, BeliUnauthorized
+from resy import accounts as resy_accounts
+from resy.resy_client import ResyAuthError, ResyError
 from trips.profiles import avatar_url
 
 router = APIRouter()
@@ -111,7 +113,7 @@ async def disconnect(connection_id: str, request: Request, user=Depends(current_
 
 # Linked accounts: the user signs in to the third-party service here, on our own
 # page, so neither the password nor a ccX_ token ever passes through an agent.
-class BeliLogin(BaseModel):
+class PasswordLogin(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     # Printable ASCII only, so Unicode look-alikes cannot match another login.
@@ -120,8 +122,8 @@ class BeliLogin(BaseModel):
     password: str = Field(min_length=1)
 
 
-# 10 attempts per hour per worker, counted per Commons user and per Beli login, so new
-# Commons accounts cannot buy more password guesses against one Beli login.
+# 10 attempts per hour per worker, counted per Commons user and per service login, so new
+# Commons accounts cannot buy more password guesses against one Beli or Resy login.
 _CONNECT_ATTEMPTS: dict[str, list[float]] = {}
 _CONNECT_LIMIT = 10
 _CONNECT_WINDOW_S = 3600
@@ -139,11 +141,12 @@ def connect_rate_check(*keys):
 @router.get('/linked-accounts')
 def linked_accounts(request: Request, user=Depends(current_user)):
     """Which third-party accounts the caller has connected; summaries hold no secrets."""
-    return {'beli': beli_accounts.linked_account_summary(client(request), user.id)}
+    return {'beli': beli_accounts.linked_account_summary(client(request), user.id),
+            'resy': resy_accounts.linked_account_summary(client(request), user.id)}
 
 
 @router.post('/linked-accounts/beli')
-def connect_beli(body: BeliLogin, request: Request, user=Depends(current_user)):
+def connect_beli(body: PasswordLogin, request: Request, user=Depends(current_user)):
     """Connect (or refresh the password of) the caller's Beli account from its login."""
     if len(body.password) > 200:
         raise HTTPException(400, 'That password is longer than Beli allows.')
@@ -161,3 +164,26 @@ def connect_beli(body: BeliLogin, request: Request, user=Depends(current_user)):
         raise HTTPException(409, 'This Beli account is connected to another Cozy Commons user. '
                                  'Sign in as that user to manage it.')
     return {'status': outcome, 'account': {'id': account['id'], 'label': account['label']}}
+
+
+@router.post('/linked-accounts/resy')
+def connect_resy(body: PasswordLogin, request: Request, user=Depends(current_user)):
+    """Connect (or refresh the password of) the caller's Resy account from its email."""
+    if len(body.password) > 200:
+        raise HTTPException(400, 'That password is longer than Resy allows.')
+    if '@' not in body.login:
+        raise HTTPException(400, 'Enter the email you use to sign in to Resy.')
+    connect_rate_check('user:' + str(user.id), 'resy:' + resy_accounts.login_key(body.login))
+    try:
+        outcome, account = resy_accounts.connect_account_for_owner(
+            client(request), str(user.id), body.login, body.password)
+    except ResyAuthError:
+        raise HTTPException(400, 'Resy did not accept that email and password.')
+    except (ResyError, urllib.error.URLError, TimeoutError):  # the client wraps URLError; a read timeout escapes it
+        raise HTTPException(502, 'Resy did not answer. Try again in a minute.')
+    except resy_accounts.AccountError:
+        raise HTTPException(503, 'Could not save your Resy login. Try again later.')
+    if outcome == 'other_owner':
+        raise HTTPException(409, 'This Resy account is connected to another Cozy Commons user. '
+                                 'Sign in as that user to manage it.')
+    return {'status': outcome, 'account': account}
