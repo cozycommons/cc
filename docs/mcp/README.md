@@ -487,8 +487,9 @@ an offer the other manager sees, and a lineup moves players between slots.
   scoring period. A lineup preview is approvable for 30 minutes, like edits and
   trades. Merges `approve_roster_edit`, `approve_trade` and the live
   `run_lineup`.
-- `link_espn_account(api_token)` (`edit`): the one-time link step with the
-  existing `cce_` token.
+- `link_espn_account(api_token)` (`edit`): links with a `cce_` token the user
+  already holds. The link step no longer asks for one: it sends the user to
+  `https://cozycommons.dev/account#espn`.
 
 Linking mirrors the other projects: migration
 `0089_beli_espn_account_owner.sql` adds `espn_accounts.owner_user_id` (partial
@@ -500,8 +501,37 @@ team those cookies own (the SWID member), as on `/espn`. Linking changes only
 `owner_user_id`: cookies, lineup automation and `espn_team_claims` are untouched,
 and the connector does not read or change team claims. `/espn/*`, `/espn/mcp`
 and `cce_` tokens are unchanged; existing accounts stay unlinked. ESPN is on by
-default once linked; linking happens only through the tool. A legacy
-`DELETE /espn/account` still deletes a linked account and its proposals.
+default once linked. A legacy `DELETE /espn/account` still deletes a linked
+account and its proposals.
+
+Linking on the account page, with the Commons session, two ways:
+
+- `POST /account/linked-accounts/espn` `{login, password, league_id?, season?,
+  enable_automation?}`: runs the MyDisney login once (as `/espn/onboard/login`
+  does; the password is never stored). Without `league_id` it looks up the
+  account's basketball leagues for the season (default: the current one, rolling
+  over July 1). With several it stores nothing and returns
+  `{status: "league_selection_required", season, leagues}`, and the page signs in
+  again with the chosen `league_id`. A wrong password and an unknown email get
+  the same message.
+- `POST /account/linked-accounts/espn/cookies` `{league_id, season, espn_s2,
+  swid, enable_automation?}`: cookies copied from a signed-in browser.
+
+Both probe the cookies against the league, then look for an account with the
+same SWID (case and braces ignored), league and season. Legacy
+`/espn/onboard` never checked that a SWID belongs to its cookies, so a legacy
+row, and whoever holds its `cce_` token, may not belong to that SWID's owner.
+Therefore the SWID from a MyDisney login may claim an unowned row, but typed
+cookies claim one only when they are its stored `espn_s2` (otherwise 409: sign in
+with email and password). Writing new cookies into an existing row also replaces
+its `cce_` token with one nobody sees, so fresh cookies reach only the linked
+Commons user; presenting the stored cookies changes nothing and keeps the token.
+Otherwise a new account is created (`enable_automation`, default true, sets
+lineup automation). `espn_link_account` links first, refusing another owner's
+account, and cookies are written only after, on the caller's row.
+`GET /account/linked-accounts` adds `espn: {id, label, league_id, season} |
+null`. Attempts are limited to 10 per hour per Commons user, per ESPN email and
+per SWID.
 
 Approvals. The proposal row is ESPN's own guard: an approval claims it
 atomically (pending -> executing) before anything is sent, and an unresolved
@@ -620,8 +650,10 @@ ESPN. The fake serves the connector tests' synthetic league
 (`backend/tests/espn_fakes.py`), one per SWID cookie, and records every write.
 The test checks that ESPN starts off and unlinked, onboards two synthetic
 accounts through the real `POST /espn/onboard`, refuses linking the one linked to
-the second user and a wrong token, links its own without changing the stored
-cookies, and checks the `cce_` token on `/espn/me`. It reads the league, your
+the second user and a wrong token through `link_espn_account`, refuses the
+other user's team and typed cookies that are not the stored ones on the account
+page, links its own there with its stored cookies, and checks the `cce_` token on
+`/espn/me`. It reads the league, your
 team, standings and both trends, then proposes, previews, approves and replays a
 lineup. It proposes a roster edit and approves it while the fake records the
 write, answers 504 and hides it from reads: the call reports an unconfirmed

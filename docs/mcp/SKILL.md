@@ -82,10 +82,11 @@ https://api.cozycommons.dev/partiful/onboard/start`, then
 
 ## ESPN
 
-ESPN fantasy basketball. Link once exactly like Beli, with the user's existing
-`cce_` token and `link_espn_account(api_token)`. A user without a token onboards
-at `POST https://api.cozycommons.dev/espn/onboard` (league id, season and
-espn_s2/SWID cookies) or `/espn/onboard/login`.
+ESPN fantasy basketball. Link once like Beli: send the user to
+https://cozycommons.dev/account#espn to sign in to ESPN there (or paste their
+espn_s2/SWID cookies there), then retry. Never ask for an ESPN password, cookies
+or a `cce_` token in chat. `link_espn_account(api_token)` still accepts an
+existing `cce_` token the user offers unprompted.
 
 - Read with `get_fantasy_league(view)` (`league` gives `your_team_id`; `team`
   defaults to the user's own team), `get_fantasy_trends(kind)` and
