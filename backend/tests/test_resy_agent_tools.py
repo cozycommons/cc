@@ -82,6 +82,7 @@ async def test_new_user_sees_resy_off_then_the_link_step(resy):
     assert not TOOLS & await listed()
     enabled = await call('enable_project', project_id='resy')
     assert enabled['linked'] is False and enabled['next_step'] == LINK_STEP
+    assert 'cozycommons.dev/account#resy' in LINK_STEP and 'Do not ask for their Resy password or a ccr_ token' in LINK_STEP
     assert TOOLS <= await listed()
 
 
@@ -95,7 +96,7 @@ async def test_unlinked_user_gets_the_link_step(resy, tool, arguments):
     db, call, _ = resy
     enable(db)
     resy_fakes.add_account(db, owner=str(uuid4()))  # someone else's linked account
-    with pytest.raises(ToolError, match='Link your Resy account first: Call link_resy_account'):
+    with pytest.raises(ToolError, match='Link your Resy account first: Ask the user to connect Resy at https://cozycommons.dev/account#resy'):
         await call(tool, **arguments)
     assert not db.resy_logins and not db.resy_sends and not db.resy_receipts
 
@@ -347,7 +348,7 @@ async def test_concurrent_holder_of_the_key_never_sends(resy):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('failure,message', [
     (ResyError('Resy find slots -> 503', status=503), r'Resy did not answer \(HTTP 503\).*nothing was booked'),
-    (ResyAuthError('dead'), 'Onboard again at POST')])
+    (ResyAuthError('dead'), 'sign in to Resy again at https://cozycommons.dev/account#resy')])
 async def test_read_failures_before_sending_name_the_fix_and_spend_no_key(resy, failure, message):
     db, call, _ = resy
     await linked_user(db, call)

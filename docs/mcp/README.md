@@ -358,8 +358,9 @@ cancellation fee to the user's saved card.
   desired_time?, payment_method_id?, terms_id?, dry_run=true)` (`edit`).
 - `cancel_resy_reservation(reservation_id, idempotency_key, terms_id?,
   dry_run=true)` (`edit`).
-- `link_resy_account(api_token)` (`edit`): the one-time link step with the
-  existing `ccr_` token.
+- `link_resy_account(api_token)` (`edit`): links with a `ccr_` token the user
+  already holds. The link step no longer asks for one: it sends the user to
+  `https://cozycommons.dev/account#resy`.
 
 Linking mirrors Beli: migration `0018_beli_resy_account_owner.sql` adds
 `resy_accounts.owner_user_id` (partial unique index, `on delete set null`) and
@@ -367,8 +368,18 @@ Linking mirrors Beli: migration `0018_beli_resy_account_owner.sql` adds
 moves the caller's earlier link in one transaction. The token is hashed and
 compared in constant time, never stored or returned, and limited to 10 attempts
 per user per hour. `/resy/*`, `/resy/mcp` and `ccr_` tokens are unchanged;
-existing accounts stay unlinked. Resy is on by default once linked. There is no
-Resy web onboarding page, so linking happens only through the tool.
+existing accounts stay unlinked. Resy is on by default once linked.
+
+Linking on the account page: `POST /account/linked-accounts/resy` with
+`{login, password}` (the Resy email) and the Commons session, under the same
+rules as Beli. Logins are printable-ASCII emails. The server logs in to Resy
+first; a wrong password stores nothing. An existing account with the same email
+(ASCII-case-insensitive) is reused and keeps its `ccr_` token and receipts.
+Otherwise a new account is created with a token nobody sees. `resy_link_account`
+then links it, refusing an account another Commons user owns; only after that
+are a reused row's stored password and Resy session refreshed.
+`GET /account/linked-accounts` adds `resy: summary | null`. Attempts are limited
+to 10 per hour per Commons user and per Resy email.
 
 Previews. A booking preview reads the slot from Resy's availability, the slot's
 booking details (`/3/details`) and the saved cards, and returns `terms`: venue,
@@ -580,8 +591,9 @@ on `127.0.0.1:8767` (synthetic API key, per-process credentials key, no request
 pacing), so nothing reaches Resy. The test checks that Resy starts off and
 unlinked and that its tools return the link step, onboards two synthetic accounts
 through the real `POST /resy/onboard`, refuses linking the one linked to the
-second user and a wrong token, links its own and checks the `ccr_` token still
-works on `/resy/me`. It finds tables, previews a booking (deposit, cancellation
+second user and a wrong token through `link_resy_account` and the account page,
+links its own on the account page from its email and checks the `ccr_` token
+still works on `/resy/me`. It finds tables, previews a booking (deposit, cancellation
 fee, policy and masked card in the summary), refuses a commit without
 `terms_id`, then commits while the fake records the booking and answers 504: the
 call reports an unconfirmed booking, and the same-key retry settles it from the
