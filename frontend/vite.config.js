@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs'
 import { createHash } from 'node:crypto'
 import { resolveCodespacesSandbox } from './sandboxConfig.js'
+import { contentSecurityPolicies } from './csp.js'
 import { DICE_SAME_ORIGIN } from './sandboxConstants.js'
 
 export default defineConfig(({ mode }) => {
@@ -35,7 +36,7 @@ export default defineConfig(({ mode }) => {
   )
   const apiUrl = codespacesSandbox
     ? '/api'
-    : clientEnv('VITE_API_URL', isProduction ? '' : 'http://localhost:8000')
+    : clientEnv('VITE_API_URL', isProduction ? '' : 'http://localhost:8000').replace(/\/+$/, '')
   const supabaseUrl = codespacesSandbox
     ? DICE_SAME_ORIGIN
     : clientEnv('VITE_SUPABASE_URL', '')
@@ -88,12 +89,21 @@ export default defineConfig(({ mode }) => {
   }
   hashSources(path.resolve(__dirname, 'src'));
   hashSources(path.resolve(__dirname, '../design'));
-  for (const filename of ['index.html', 'vite.config.js', 'package-lock.json']) buildHash.update(fs.readFileSync(path.resolve(__dirname, filename)));
+  for (const filename of ['index.html', 'vite.config.js', 'csp.js', 'package-lock.json']) buildHash.update(fs.readFileSync(path.resolve(__dirname, filename)));
   buildHash.update(JSON.stringify([mode, apiUrl, supabaseUrl, supabaseKey, localHarness]));
   const buildId = buildHash.digest('hex').slice(0, 16);
 
   return {
-    plugins: [react()],
+    plugins: [react(), {
+      name: 'production-nginx-csp',
+      generateBundle() {
+        if (codespacesSandbox) return;
+        const policies = contentSecurityPolicies(apiUrl || 'http://127.0.0.1:8000', supabaseUrl || 'http://127.0.0.1:54321', clientEnv('VITE_CSP_CROWDSET_UPLOAD_ORIGIN', ''));
+        const template = fs.readFileSync(path.resolve(__dirname, 'nginx.conf'), 'utf8');
+        this.emitFile({ type: 'asset', fileName: 'nginx.conf', source: template
+          .replaceAll('${CSP_GENERAL}', policies.general).replaceAll('${CSP_CREDENTIALS}', policies.credentials) });
+      },
+    }],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
