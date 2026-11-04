@@ -73,11 +73,11 @@ const openAt = (entry) => render(<MemoryRouter initialEntries={[entry]}><Account
 it("connects Beli on the page an agent's #beli link opens, without keeping the password", async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null };
     return { status: 'linked', account: { id: 'b1', label: 'beli' } };
   });
   openAt('/account#beli');
-  const row = (await screen.findByText('Not connected')).closest('li');
+  const row = (await screen.findByText('Beli')).closest('li');
   fireEvent.change(within(row).getByLabelText('Beli email or phone'), { target: { value: ' sam@example.test ' } });
   fireEvent.change(within(row).getByLabelText('Beli password'), { target: { value: 'synthetic-password' } });
   fireEvent.click(within(row).getByRole('button', { name: 'Connect Beli' }));
@@ -86,16 +86,18 @@ it("connects Beli on the page an agent's #beli link opens, without keeping the p
     { method: 'POST', body: { login: 'sam@example.test', password: 'synthetic-password' } });
   expect(within(row).queryByLabelText('Beli password')).not.toBeInTheDocument();
   expect(within(row).getByRole('button', { name: 'Update password' })).toBeInTheDocument();
+  const resy = screen.getByText('Resy').closest('li');
+  expect(within(resy).queryByLabelText('Resy password')).not.toBeInTheDocument();
 });
 
 it('shows a Beli refusal and clears the password for another try', async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: { id: 'b1', label: 'beli' } };
+    if (path === '/linked-accounts') return { beli: { id: 'b1', label: 'beli' }, resy: null };
     throw new Error('Beli did not accept that email or phone number and password.');
   });
   openAt('/account');
-  const row = (await screen.findByText('Connected')).closest('li');
+  const row = (await screen.findByText('Beli')).closest('li');
   fireEvent.click(within(row).getByRole('button', { name: 'Update password' }));
   fireEvent.change(within(row).getByLabelText('Beli email or phone'), { target: { value: 'sam@example.test' } });
   fireEvent.change(within(row).getByLabelText('Beli password'), { target: { value: 'wrong' } });
@@ -103,4 +105,40 @@ it('shows a Beli refusal and clears the password for another try', async () => {
   expect(await within(row).findByRole('alert')).toHaveTextContent('did not accept');
   expect(within(row).getByLabelText('Beli password')).toHaveValue('');
   expect(within(row).getByText('Connected')).toBeInTheDocument();
+});
+
+it("connects Resy on the page an agent's #resy link opens, leaving Beli closed", async () => {
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null, resy: null };
+    return { status: 'linked', account: { id: 'r1', label: 'resy' } };
+  });
+  openAt('/account#resy');
+  const row = (await screen.findByText('Resy')).closest('li');
+  expect(row).toHaveAttribute('id', 'resy');
+  expect(within(screen.getByText('Beli').closest('li')).queryByLabelText('Beli password')).not.toBeInTheDocument();
+  expect(within(row).getByLabelText('Resy email')).toHaveAttribute('type', 'email');
+  fireEvent.change(within(row).getByLabelText('Resy email'), { target: { value: ' sam@example.test ' } });
+  fireEvent.change(within(row).getByLabelText('Resy password'), { target: { value: 'synthetic-password' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect Resy' }));
+  expect(await within(row).findByText('Connected')).toBeInTheDocument();
+  expect(mocked.request).toHaveBeenCalledWith('/linked-accounts/resy',
+    { method: 'POST', body: { login: 'sam@example.test', password: 'synthetic-password' } });
+  expect(within(row).queryByLabelText('Resy password')).not.toBeInTheDocument();
+});
+
+it('shows a Resy refusal and clears the password', async () => {
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null, resy: null };
+    throw new Error('This Resy account is connected to another Cozy Commons user. Sign in as that user to manage it.');
+  });
+  openAt('/account#resy');
+  const row = (await screen.findByText('Resy')).closest('li');
+  fireEvent.change(within(row).getByLabelText('Resy email'), { target: { value: 'kim@example.test' } });
+  fireEvent.change(within(row).getByLabelText('Resy password'), { target: { value: 'synthetic-password' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect Resy' }));
+  expect(await within(row).findByRole('alert')).toHaveTextContent('another Cozy Commons user');
+  expect(within(row).getByLabelText('Resy password')).toHaveValue('');
+  expect(within(row).getByText('Not connected')).toBeInTheDocument();
 });
