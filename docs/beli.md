@@ -161,8 +161,9 @@ ChatGPT Custom GPT Action via the OpenAPI spec, MCP for Claude/clients).
 ## Shared Cozy Commons connector
 
 Beli is also on the shared OAuth connector at `/mcp`
-([docs/mcp/README.md](mcp/README.md#beli)): `get_restaurant_recs`,
-`save_restaurant` and the one-time `link_beli_account(api_token)`, which ties
-the account to the signed-in Commons user (`beli_accounts.owner_user_id`,
-migration `0017_beli_account_owner.sql`). Linking changes nothing for the
-`ccb_` token, `/beli/*`, `/beli/mcp` or the watcher.
+([docs/mcp/README.md](mcp/README.md#beli)): `get_restaurant_recs` and
+`save_restaurant`. The user ties their Beli account to their Commons sign-in
+once by signing in to Beli at https://cozycommons.dev/account#beli
+(`beli_accounts.owner_user_id`, migration `0017_beli_account_owner.sql`).
+Linking changes nothing for the `ccb_` token, `/beli/*`, `/beli/mcp` or the
+watcher.

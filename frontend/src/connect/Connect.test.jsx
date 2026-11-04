@@ -17,10 +17,9 @@ it('renders signed out with client instructions, permissions and disconnect guid
   expect(screen.getByRole('heading', { name: 'Connected before projects could be switched on?' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Disconnect' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Floor Planner' })).toHaveAttribute('href', '/floor-planner');
-  expect(screen.getByText('link_beli_account')).toBeInTheDocument();
-  expect(screen.getByText('link_resy_account')).toBeInTheDocument();
-  expect(screen.getByText('link_partiful_account')).toBeInTheDocument();
-  expect(screen.getByText('link_espn_account')).toBeInTheDocument();
+  const linked = screen.getAllByRole('link', { name: 'Linked accounts' }).map((link) => link.getAttribute('href'));
+  expect(linked).toEqual(['/account#beli', '/account#resy', '/account#partiful', '/account#espn']);
+  expect(screen.queryByText(/link_\w+_account/)).not.toBeInTheDocument();
 });
 it('copies the connector URL and confirms success', async () => {
   const writeText = vi.fn().mockResolvedValue();

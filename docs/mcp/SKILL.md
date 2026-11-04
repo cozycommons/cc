@@ -24,9 +24,8 @@ projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
 Beli needs a one-time link. Until then every Beli tool returns the link step:
 send the user to https://cozycommons.dev/account#beli, where they sign in to
 Beli on the Cozy Commons page, then retry. Never ask for a Beli password or a
-`ccb_` token in chat. If a user offers an existing `ccb_` token unprompted,
-`link_beli_account(api_token)` still accepts it once. If the error says the
-account is linked to another Commons user, the user must sign in as that user.
+`ccb_` token in chat; no tool takes one. If the page says the account is
+connected to another Commons user, the user must sign in as that user.
 
 - `get_restaurant_recs(neighborhood, day?, time?, table_size, limit)`: `day` is
   `YYYY-MM-DD` or a lowercase weekday, `time` is 24-hour `HH:MM`.
@@ -41,8 +40,7 @@ account is linked to another Commons user, the user must sign in as that user.
 Resy books real tables and can charge a deposit and a cancellation fee to the
 user's card. Link once like Beli: send the user to
 https://cozycommons.dev/account#resy to sign in to Resy there, then retry. Never
-ask for a Resy password or a `ccr_` token in chat. `link_resy_account(api_token)`
-still accepts an existing `ccr_` token the user offers unprompted.
+ask for a Resy password or a `ccr_` token in chat; no tool takes one.
 
 - `find_resy_tables(date, query or venue_id, party_size, time?)`: open slots with
   their `slot_token` and listed fees in cents.
@@ -68,8 +66,7 @@ still accepts an existing `ccr_` token the user offers unprompted.
 Partiful is read-only. Link once like Beli: send the user to
 https://cozycommons.dev/account#partiful, where they enter their phone number
 and the code Partiful texts them, then retry. Never ask for the code or a
-`ccp_` token in chat. `link_partiful_account(api_token)` still accepts an
-existing `ccp_` token the user offers unprompted.
+`ccp_` token in chat; no tool takes one.
 
 - `get_partiful_events(scope?, start?, end?)`: the user's events. `scope` is
   `all` (default), `hosted`, `rsvps` or `invited`; `start`/`end` are inclusive
@@ -85,8 +82,7 @@ existing `ccp_` token the user offers unprompted.
 ESPN fantasy basketball. Link once like Beli: send the user to
 https://cozycommons.dev/account#espn to sign in to ESPN there (or paste their
 espn_s2/SWID cookies there), then retry. Never ask for an ESPN password, cookies
-or a `cce_` token in chat. `link_espn_account(api_token)` still accepts an
-existing `cce_` token the user offers unprompted.
+or a `cce_` token in chat; no tool takes one.
 
 - Read with `get_fantasy_league(view)` (`league` gives `your_team_id`; `team`
   defaults to the user's own team), `get_fantasy_trends(kind)` and

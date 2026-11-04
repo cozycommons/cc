@@ -37,8 +37,8 @@ account and only ever touches that account's league.
   `get_trades`.
 - **Shared connector** — the same reads and the same propose → approve
   gates are also on the Cozy Commons connector at `/mcp` as five tools,
-  signed in with Google instead of a pasted token: link the account once
-  with `link_espn_account(cce_...)`. See
+  signed in with Google instead of a pasted token: connect the ESPN team
+  once at https://cozycommons.dev/account#espn. See
   [docs/mcp/README.md#espn](mcp/README.md#espn). `/espn/mcp` and its tokens
   are unchanged.
 - **Deliberate v1 limit** — no matchup summaries; there is no
