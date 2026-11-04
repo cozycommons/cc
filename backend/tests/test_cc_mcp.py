@@ -1,5 +1,6 @@
 """OAuth configuration and token-boundary tests for the shared MCP service."""
 
+import asyncio
 import base64
 import os
 from uuid import uuid4
@@ -21,6 +22,7 @@ from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import RefreshToken
 from mcp.shared.auth import OAuthClientInformationFull
 
+from cc_mcp import oauth_storage
 from cc_mcp.server import (
     ToolProvider,
     AgentConfigError,
@@ -30,6 +32,8 @@ from cc_mcp.server import (
     create_agent_app,
 )
 from cc_mcp.mount import mount_agent_app
+from cc_mcp.oauth_storage import SupabaseOAuthStore
+from tests.test_floor_planner_integration import local_floor_planner_api  # noqa: F401 - loopback fixture
 
 READ_SCOPE = "commons:read"
 EDIT_SCOPE = "commons:edit"
@@ -486,6 +490,17 @@ def ping_provider():
     return ToolProvider("commons", register, {"ping": "signin"})
 
 
+class LiveRowMemoryStore(MemoryStore):
+    """MemoryStore with SupabaseOAuthStore's existing-only puts (its SQL is
+    covered by the loopback test below)."""
+
+    async def put(self, key, value, *, collection=None, ttl=None):
+        if (oauth_storage.is_existing_only(collection or "default")
+                and await self.get(key, collection=collection) is None):
+            raise oauth_storage.RowGone(collection)
+        await super().put(key, value, collection=collection, ttl=ttl)
+
+
 def account_app(monkeypatch, oauth_configured=True):
     from commons_account.routes import router as account_router
 
@@ -493,7 +508,7 @@ def account_app(monkeypatch, oauth_configured=True):
     agent = create_agent_app(
         service, providers=(ping_provider(),),
         environment=settings_environment() if oauth_configured else {},
-        token_verifier=SessionVerifier(), storage=MemoryStore(),
+        token_verifier=SessionVerifier(), storage=LiveRowMemoryStore(),
     )
     root = FastAPI()
     root.state.mcp_supabase = service
@@ -650,6 +665,101 @@ async def test_disconnect_revokes_only_that_connection(monkeypatch):
             assert response.status_code == 204
             assert (await call_ping(browser, first["access_token"])).status_code == 401
             assert (await call_ping(browser, second["access_token"])).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_paused_across_a_disconnect_cannot_resurrect_the_connection(monkeypatch):
+    import httpx
+    from types import SimpleNamespace
+    import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
+
+    index = MemoryIndex().install(monkeypatch)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class PausedUpstream(FakeUpstream):
+        async def refresh_token(self, **kwargs):
+            entered.set()
+            await release.wait()
+            return await super().refresh_token(**kwargs)
+
+    monkeypatch.setattr(oauth_proxy_module, "AsyncOAuth2Client", PausedUpstream)
+    signed_out = []
+    monkeypatch.setattr(AccountServiceClient.auth, "admin", SimpleNamespace(
+        sign_out=lambda jwt, scope: signed_out.append((jwt, scope))), raising=False)
+    root, agent = account_app(monkeypatch)
+    oauth = agent.state.cc_mcp_oauth
+    signed_in = {"Authorization": "Bearer session-a"}
+    async with agent.router.lifespan_context(agent):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=root), base_url="http://testserver") as browser:
+            client_id, tokens = await approve(browser)
+            connection_id = (await browser.get("/account/connections", headers=signed_in)).json()[0]["id"]
+            refresh = {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": client_id}
+
+            # FastMCP has read the token set and is waiting on Supabase when the user disconnects.
+            refreshing = asyncio.create_task(browser.post("/token", data=refresh))
+            await asyncio.wait_for(entered.wait(), 5)
+            assert (await browser.delete(f"/account/connections/{connection_id}", headers=signed_in)).status_code == 204
+            release.set()
+            refreshed = await refreshing
+
+            assert refreshed.status_code == 400 and refreshed.json()["error"] == "invalid_grant", refreshed.text
+            assert await oauth._upstream_token_store.get(key=index.only()["upstream_token_id"]) is None
+            assert (await call_ping(browser, tokens["access_token"])).status_code == 401
+            assert signed_out == [("upstream-a-refreshed", "local")]  # the new upstream session ends too
+            retried = await browser.post("/token", data=refresh)
+            assert retried.status_code == 400 and retried.json()["error"] == "invalid_grant"
+
+
+@pytest.mark.asyncio
+async def test_repeating_a_disconnect_deletes_tokens_that_outlived_the_first(monkeypatch):
+    import httpx
+    import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
+
+    index = MemoryIndex().install(monkeypatch)
+    monkeypatch.setattr(oauth_proxy_module, "AsyncOAuth2Client", FakeUpstream)
+    root, agent = account_app(monkeypatch)
+    oauth = agent.state.cc_mcp_oauth
+    signed_in = {"Authorization": "Bearer session-a"}
+    async with agent.router.lifespan_context(agent):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=root), base_url="http://testserver") as browser:
+            _, tokens = await approve(browser)
+            connection_id = (await browser.get("/account/connections", headers=signed_in)).json()[0]["id"]
+            upstream_id = index.only()["upstream_token_id"]
+            token_set = await oauth._upstream_token_store.get(key=upstream_id)
+            assert (await browser.delete(f"/account/connections/{connection_id}", headers=signed_in)).status_code == 204
+            assert index.only()["revoked_at"]
+
+            # A token set written back after the first disconnect (as a pre-fix refresh could).
+            await oauth._upstream_token_store.put(key=upstream_id, value=token_set, ttl=3600)
+            assert (await call_ping(browser, tokens["access_token"])).status_code == 200
+            assert (await browser.delete(f"/account/connections/{connection_id}", headers=signed_in)).status_code == 204
+            assert await oauth._upstream_token_store.get(key=upstream_id) is None
+            assert (await call_ping(browser, tokens["access_token"])).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_existing_only_puts_update_live_rows_and_never_recreate_deleted_ones(local_floor_planner_api):
+    _, service, *_ = local_floor_planner_api
+    store = SupabaseOAuthStore(service)
+    collection, key = f"test-existing-only-{uuid4().hex}", uuid4().hex
+    try:
+        with pytest.raises(oauth_storage.RowGone), oauth_storage.ExistingOnly(collection):
+            await store.put(key, {"v": 0}, collection=collection, ttl=60)
+        assert await store.get(key, collection=collection) is None
+
+        await store.put(key, {"v": 1}, collection=collection, ttl=60)
+        with oauth_storage.ExistingOnly(collection):
+            await store.put(key, {"v": 2}, collection=collection, ttl=60)
+            await store.put(uuid4().hex, {"other": True}, collection="elsewhere-" + collection, ttl=60)
+        assert await store.get(key, collection=collection) == {"v": 2}
+
+        assert await store.delete(key, collection=collection)
+        with pytest.raises(oauth_storage.RowGone), oauth_storage.ExistingOnly(collection):
+            await store.put(key, {"v": 3}, collection=collection, ttl=60)
+        assert await store.get(key, collection=collection) is None
+    finally:
+        await store.destroy_collection(collection)
+        await store.destroy_collection("elsewhere-" + collection)
 
 
 def test_account_connections_require_a_real_session_and_a_configured_connector(monkeypatch):

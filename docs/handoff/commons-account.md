@@ -315,7 +315,8 @@ Writes, all in `ResourceBoundOAuthProxy` (`cc_mcp/server.py`):
 1. Load the row by `id` and `user_id = caller`, else 404 (no existence leak).
 2. `await oauth._revoke_proxy_token_set(upstream_token_id)` (exists today).
    From the next request every token of that connection fails to load.
-3. Set `revoked_at`. Repeating the call is a no-op 204.
+3. Set `revoked_at`. Repeating the call deletes the token set again and
+   returns 204; the token store, not `revoked_at`, decides whether tokens work.
 
 Order matters: delete first, then mark, so a failure never shows
 "disconnected" while tokens still work. The DCR client record and the Supabase
@@ -349,6 +350,12 @@ token already makes it unusable, so this is defense in depth, not a requirement.
     to 80), the host of the redirect URI this approval used, and
     `last_used_at` null.
   - Refresh (`exchange_refresh_token`): moves `expires_at`.
+  - Refresh racing a disconnect: FastMCP reads the upstream token set, awaits
+    Supabase, then writes the set back. That write-back is an existing-only
+    `UPDATE` in `cc_mcp_oauth_state` (`oauth_storage.ExistingOnly`), so a
+    disconnect that lands during the wait wins: the refresh gets
+    `invalid_grant`, no new proxy tokens are issued, and the new upstream
+    session is signed out (`logout?scope=local`, best effort).
   - Use (`load_access_token`): touches at most once per connection per 5
     minutes per worker. The first touch indexes a pre-M4 connection, with
     `approved_at` from the upstream token set's `created_at` (the original

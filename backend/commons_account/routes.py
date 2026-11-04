@@ -50,7 +50,7 @@ def list_connections(request: Request, user=Depends(current_user)):
 
 @router.delete('/connections/{connection_id}', status_code=204)
 async def disconnect(connection_id: str, request: Request, user=Depends(current_user)):
-    """Revoke one connection's access and refresh tokens. Repeating it is a no-op."""
+    """Revoke one connection's access and refresh tokens. Repeating it deletes them again."""
     oauth = agent_oauth(request)
     try:
         connection_id = str(UUID(connection_id))
@@ -59,8 +59,9 @@ async def disconnect(connection_id: str, request: Request, user=Depends(current_
     row = await run_in_threadpool(connections.own_connection, client(request), user.id, connection_id)
     if row is None:
         raise HTTPException(404, NOT_FOUND)  # Another user's connection looks exactly like a missing one.
+    # Delete the tokens first, then mark: a failure never shows "disconnected" while tokens still work.
+    # Delete even when already marked: the token store, not revoked_at, decides whether tokens work.
+    await oauth._revoke_proxy_token_set(row['upstream_token_id'])
     if row['revoked_at'] is None:
-        # Delete the tokens first, then mark: a failure never shows "disconnected" while tokens still work.
-        await oauth._revoke_proxy_token_set(row['upstream_token_id'])
         await run_in_threadpool(connections.mark_revoked, client(request), row['upstream_token_id'])
     return Response(status_code=204)
