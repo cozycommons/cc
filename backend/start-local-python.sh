@@ -92,7 +92,7 @@ fi
 if [ "$NEEDS_INSTALL" -eq 1 ]; then
   # `python -m pip` remains portable when a bind-mounted venv was originally
   # created at a different absolute workspace path.
-  "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
+  "$VENV_DIR/bin/python" -m pip install --require-hashes --only-binary=:all: -r "$SCRIPT_DIR/requirements.txt"
   printf '%s\n' "$REQUIREMENTS_CHECKSUM" > "$REQUIREMENTS_STAMP"
 fi
 

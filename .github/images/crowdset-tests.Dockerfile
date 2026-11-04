@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
 COPY backend/requirements-crowdset.txt /opt/requirements/runtime.txt
 COPY backend/crowdset/tests/requirements.txt /opt/requirements/tests.txt
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --require-hashes --no-cache-dir \
+    && /opt/venv/bin/pip install --require-hashes --only-binary=:all: --no-cache-dir \
        -r /opt/requirements/runtime.txt -r /opt/requirements/tests.txt
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH=/workspace/backend \

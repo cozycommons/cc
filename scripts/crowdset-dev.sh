@@ -16,7 +16,7 @@ case "${1:-run}" in
       exit 1
     fi
     "$PYTHON" -m venv "$VENV"
-    "$VENV/bin/python" -m pip install --require-hashes -r "$ROOT/backend/requirements-crowdset.txt"
+    "$VENV/bin/python" -m pip install --require-hashes --only-binary=:all: -r "$ROOT/backend/requirements-crowdset.txt"
     ;;
   run)
     if [ ! -x "$VENV/bin/python" ]; then
