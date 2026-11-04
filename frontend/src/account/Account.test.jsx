@@ -73,7 +73,7 @@ const openAt = (entry) => render(<MemoryRouter initialEntries={[entry]}><Account
 it("connects Beli on the page an agent's #beli link opens, without keeping the password", async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
     return { status: 'linked', account: { id: 'b1', label: 'beli' } };
   });
   openAt('/account#beli');
@@ -93,7 +93,7 @@ it("connects Beli on the page an agent's #beli link opens, without keeping the p
 it('shows a Beli refusal and clears the password for another try', async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: { id: 'b1', label: 'beli' }, resy: null };
+    if (path === '/linked-accounts') return { beli: { id: 'b1', label: 'beli' }, resy: null, espn: null };
     throw new Error('Beli did not accept that email or phone number and password.');
   });
   openAt('/account');
@@ -110,7 +110,7 @@ it('shows a Beli refusal and clears the password for another try', async () => {
 it("connects Resy on the page an agent's #resy link opens, leaving Beli closed", async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
     return { status: 'linked', account: { id: 'r1', label: 'resy' } };
   });
   openAt('/account#resy');
@@ -130,7 +130,7 @@ it("connects Resy on the page an agent's #resy link opens, leaving Beli closed",
 it('shows a Resy refusal and clears the password', async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
     throw new Error('This Resy account is connected to another Cozy Commons user. Sign in as that user to manage it.');
   });
   openAt('/account#resy');
@@ -141,4 +141,52 @@ it('shows a Resy refusal and clears the password', async () => {
   expect(await within(row).findByRole('alert')).toHaveTextContent('another Cozy Commons user');
   expect(within(row).getByLabelText('Resy password')).toHaveValue('');
   expect(within(row).getByText('Not connected')).toBeInTheDocument();
+});
+
+it('connects ESPN by email, asks which league, and keeps the password only until then', async () => {
+  const leagues = [{ league_id: 999, name: 'Synthetic League', team_name: 'Squad' }, { league_id: 1001, name: 'Other League', team_name: 'Squad' }];
+  mocked.request.mockImplementation(async (path, options) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
+    if (!options.body.league_id) return { status: 'league_selection_required', season: 2027, leagues };
+    return { status: 'linked', account: { id: 'e1', label: 'espn', league_id: 1001, season: 2027 } };
+  });
+  openAt('/account#espn');
+  const row = (await screen.findByText('ESPN')).closest('li');
+  fireEvent.change(within(row).getByLabelText('ESPN email'), { target: { value: ' sam@example.test ' } });
+  fireEvent.change(within(row).getByLabelText('ESPN password'), { target: { value: 'synthetic-password' } });
+  fireEvent.click(within(row).getByRole('checkbox', { name: 'Set my lineup automatically each day' }));
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect ESPN' }));
+  const choice = await within(row).findByRole('combobox', { name: 'Which league?' });
+  expect(within(row).getByLabelText('ESPN password')).toHaveValue('synthetic-password');
+  fireEvent.change(choice, { target: { value: '1001' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect this league' }));
+  expect(await within(row).findByText('Connected · League 1001, 2027 season')).toBeInTheDocument();
+  expect(mocked.request).toHaveBeenNthCalledWith(3, '/linked-accounts/espn', { method: 'POST', body: {
+    login: 'sam@example.test', password: 'synthetic-password', enable_automation: false } });
+  expect(mocked.request).toHaveBeenNthCalledWith(4, '/linked-accounts/espn', { method: 'POST', body: {
+    login: 'sam@example.test', password: 'synthetic-password', league_id: 1001, season: 2027, enable_automation: false } });
+  expect(within(row).queryByLabelText('ESPN password')).not.toBeInTheDocument();
+});
+
+it('connects ESPN from cookies and clears espn_s2 after a refusal', async () => {
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
+    throw new Error('This ESPN team was set up earlier with different cookies. Sign in with your ESPN email and password to connect it.');
+  });
+  openAt('/account#espn');
+  const row = (await screen.findByText('ESPN')).closest('li');
+  fireEvent.click(within(row).getByRole('button', { name: 'Use cookies instead' }));
+  expect(within(row).queryByLabelText('ESPN password')).not.toBeInTheDocument();
+  fireEvent.change(within(row).getByLabelText('League ID'), { target: { value: '999' } });
+  fireEvent.change(within(row).getByLabelText('Season (ending year)'), { target: { value: '2027' } });
+  fireEvent.change(within(row).getByLabelText('espn_s2 cookie'), { target: { value: ' synthetic-s2 ' } });
+  fireEvent.change(within(row).getByLabelText('SWID cookie'), { target: { value: '{SYNTHETIC}' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect ESPN' }));
+  expect(await within(row).findByRole('alert')).toHaveTextContent('different cookies');
+  expect(mocked.request).toHaveBeenCalledWith('/linked-accounts/espn/cookies', { method: 'POST', body: {
+    league_id: 999, season: 2027, espn_s2: 'synthetic-s2', swid: '{SYNTHETIC}', enable_automation: true } });
+  expect(within(row).getByLabelText('espn_s2 cookie')).toHaveValue('');
+  expect(within(row).getByLabelText('SWID cookie')).toHaveValue('{SYNTHETIC}');
 });
