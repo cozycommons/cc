@@ -676,7 +676,7 @@ async def exercise(args):
                 await call('get_trip_overview', evidence='Trips usable again after enable_project')
 
                 # Beli: off for a new user, then enable, link once, and use without a token.
-                beli = {'get_restaurant_recs', 'save_restaurant', 'link_beli_account'}
+                beli = {'get_restaurant_recs', 'save_restaurant'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['beli']['enabled'] is False and projects['beli']['linked'] is False
                 enabled = await call('enable_project', project_id='beli', evidence='enable_project beli')
@@ -700,10 +700,6 @@ async def exercise(args):
                 other_account = get_account_row_by_token(service, other_token)['id']
                 assert service.rpc('beli_link_account', {'p_account_id': other_account,
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_beli_account', {'api_token': other_token}, 'linked to another Commons user',
-                              "link_beli_account refused for another user's account")
-                await refused(session, 'link_beli_account', {'api_token': 'ccb_' + secrets.token_urlsafe(32)},
-                              'No Beli account matches', 'link_beli_account refused for a wrong token')
                 # The account page links with the Beli login itself: no ccb_ token reaches the agent.
                 page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
                 mine = {'Authorization': 'Bearer ' + user_token}
@@ -744,8 +740,7 @@ async def exercise(args):
                 print('PASS every Beli tool over real OAuth: link, recs, preview, commit, replay; one Beli write')
 
                 # Resy: off for a new user, then enable, link once, preview with fees, book and cancel.
-                resy = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation',
-                        'link_resy_account'}
+                resy = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation'}
                 when = (date.today() + timedelta(days=7)).isoformat()
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['resy']['enabled'] is False and projects['resy']['linked'] is False
@@ -765,10 +760,6 @@ async def exercise(args):
                 from resy.accounts import get_account_row_by_token as resy_account_row
                 assert service.rpc('resy_link_account', {'p_account_id': resy_account_row(service, other_resy)['id'],
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_resy_account', {'api_token': other_resy}, 'linked to another Commons user',
-                              "link_resy_account refused for another user's account")
-                await refused(session, 'link_resy_account', {'api_token': 'ccr_' + secrets.token_urlsafe(32)},
-                              'No Resy account matches', 'link_resy_account refused for a wrong token')
                 # The account page links with the Resy email itself: no ccr_ token reaches the agent.
                 resy_page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
                 async with httpx.AsyncClient(timeout=30) as http:
@@ -838,7 +829,7 @@ async def exercise(args):
                       'one booking and one cancellation sent')
 
                 # Partiful: read-only. Off for a new user, then enable, link once, list and read events.
-                partiful = {'get_partiful_events', 'link_partiful_account'}
+                partiful = {'get_partiful_events'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['partiful']['enabled'] is False and projects['partiful']['linked'] is False
                 enabled = await call('enable_project', project_id='partiful', evidence='enable_project partiful')
@@ -856,10 +847,6 @@ async def exercise(args):
                 assert service.rpc('partiful_link_account', {
                     'p_account_id': partiful_account_row(service, other_partiful)['id'],
                     'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_partiful_account', {'api_token': other_partiful},
-                              'linked to another Commons user', "link_partiful_account refused for another user's account")
-                await refused(session, 'link_partiful_account', {'api_token': 'ccp_' + secrets.token_urlsafe(32)},
-                              'No Partiful account matches', 'link_partiful_account refused for a wrong token')
                 stored = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
                     .eq('id', mine_row).single().execute().data
                 # The account page links with a texted code: no ccp_ token or code reaches the agent.
@@ -916,13 +903,16 @@ async def exercise(args):
 
                 # ESPN: off for a new user, then enable, link once, read, and propose -> approve each kind.
                 espn = {'get_fantasy_league', 'get_fantasy_trends', 'get_fantasy_activity', 'propose_fantasy_change',
-                        'approve_fantasy_change', 'link_espn_account'}
+                        'approve_fantasy_change'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['espn']['enabled'] is False and projects['espn']['linked'] is False
                 enabled = await call('enable_project', project_id='espn', evidence='enable_project espn')
                 assert enabled['linked'] is False and 'cozycommons.dev/account#espn' in enabled['next_step']
                 assert 'cce_ token in chat' in enabled['next_step']
                 assert espn <= await listed(session)
+                every_tool = await listed(session)
+                assert not {name for name in every_tool if name.startswith('link_')}, every_tool
+                print('PASS no token link tool is listed with Beli, Resy, Partiful and ESPN all on')
                 print('PASS list_projects/enable_project show ESPN unlinked with the link step')
                 await refused(session, 'get_fantasy_league', {}, 'Link your ESPN account first',
                               'unlinked get_fantasy_league refused with the link step')
@@ -934,10 +924,6 @@ async def exercise(args):
                 other_espn_id = espn_account_row(service, other_espn)['id']
                 assert service.rpc('espn_link_account', {'p_account_id': other_espn_id,
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_espn_account', {'api_token': other_espn}, 'linked to another Commons user',
-                              "link_espn_account refused for another user's account")
-                await refused(session, 'link_espn_account', {'api_token': 'cce_' + secrets.token_urlsafe(32)},
-                              'No ESPN account matches', 'link_espn_account refused for a wrong token')
                 stored_espn = service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash') \
                     .eq('id', mine_espn).single().execute().data
                 # The account page links from the cookies themselves: no cce_ token reaches the agent.
@@ -1090,11 +1076,9 @@ async def exercise(args):
                 assert not (await session.call_tool('find_resy_tables', {'date': when, 'venue_id': 7001})).isError
                 assert len(resy_state['sends']) == 2
                 print('PASS read-only token finds Resy tables; bookings and cancellations refused; nothing sent')
-                await refused(session, 'link_partiful_account', {'api_token': partiful_token}, 'commons:edit',
-                              'read-only token denied on link_partiful_account')
                 readonly_events = await session.call_tool('get_partiful_events', {})
                 assert not readonly_events.isError and readonly_events.structuredContent['count'] == 2
-                print('PASS read-only token reads Partiful events; linking refused')
+                print('PASS read-only token reads Partiful events')
                 await refused(session, 'propose_fantasy_change', {'kind': 'lineup'}, 'commons:edit',
                               'read-only token denied on propose_fantasy_change')
                 await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'commons:edit',
