@@ -19,7 +19,8 @@ begin
     'espn_trade_proposals',
     'fantasy_leagues',
     'beli_agent_receipts',
-    'resy_agent_receipts'
+    'resy_agent_receipts',
+    'espn_agent_receipts'
   ] loop
     if to_regclass('public.' || object_name) is null then
       raise exception 'Beli schema contract: missing table public.%', object_name;
@@ -53,6 +54,12 @@ begin
     'espn_accounts.espn_s2_enc',
     'espn_accounts.swid_enc',
     'espn_accounts.token_hash',
+    'espn_accounts.owner_user_id',
+    'espn_agent_receipts.user_id',
+    'espn_agent_receipts.idempotency_key',
+    'espn_agent_receipts.payload',
+    'espn_agent_receipts.target',
+    'espn_agent_receipts.result',
     'espn_public_predictions.id',
     'espn_public_predictions.matchup_id',
     'espn_public_predictions.generated_at',
@@ -153,8 +160,8 @@ begin
   end loop;
 
   -- Connector account links and receipts are service-role only (Beli 0017, Resy 0018,
-  -- Partiful 0019).
-  foreach object_name in array array['beli', 'resy', 'partiful'] loop
+  -- Partiful 0019, ESPN 0020).
+  foreach object_name in array array['beli', 'resy', 'partiful', 'espn'] loop
     if not exists (
       select 1 from pg_catalog.pg_index i
       join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
@@ -177,7 +184,8 @@ begin
     end if;
   end loop;
   foreach object_name in array array[
-    'beli_accounts', 'beli_agent_receipts', 'resy_accounts', 'resy_agent_receipts', 'partiful_accounts'
+    'beli_accounts', 'beli_agent_receipts', 'resy_accounts', 'resy_agent_receipts', 'partiful_accounts',
+    'espn_accounts', 'espn_agent_receipts'
   ] loop
     if not exists (select 1 from pg_catalog.pg_class
                    where oid = to_regclass('public.' || object_name) and relrowsecurity)
@@ -193,16 +201,21 @@ begin
     'beli_agent_receipts.SELECT', 'beli_agent_receipts.INSERT', 'beli_agent_receipts.UPDATE',
     'beli_agent_receipts.DELETE', 'beli_accounts.SELECT', 'beli_accounts.UPDATE',
     'resy_agent_receipts.SELECT', 'resy_agent_receipts.INSERT', 'resy_agent_receipts.UPDATE',
-    'resy_accounts.SELECT', 'resy_accounts.UPDATE', 'partiful_accounts.SELECT', 'partiful_accounts.UPDATE'
+    'resy_accounts.SELECT', 'resy_accounts.UPDATE', 'partiful_accounts.SELECT', 'partiful_accounts.UPDATE',
+    'espn_agent_receipts.SELECT', 'espn_agent_receipts.INSERT', 'espn_agent_receipts.UPDATE',
+    'espn_accounts.SELECT', 'espn_accounts.UPDATE'
   ] loop
     if not pg_catalog.has_table_privilege('service_role', 'public.' || split_part(column_spec, '.', 1),
                                           split_part(column_spec, '.', 2)) then
       raise exception 'Beli schema contract: connector service_role grants changed (%)', column_spec;
     end if;
   end loop;
-  -- A Resy receipt is never released: a booking key, once sent, stays spent.
-  if pg_catalog.has_table_privilege('service_role', 'public.resy_agent_receipts', 'DELETE,TRUNCATE') then
-    raise exception 'Beli schema contract: service_role may delete Resy connector receipts';
-  end if;
+  -- A Resy or ESPN receipt is never released: a write key, once sent, stays spent.
+  foreach object_name in array array['resy', 'espn'] loop
+    if pg_catalog.has_table_privilege('service_role', 'public.' || object_name || '_agent_receipts',
+                                      'DELETE,TRUNCATE') then
+      raise exception 'Beli schema contract: service_role may delete % connector receipts', object_name;
+    end if;
+  end loop;
 end
 $$;

@@ -52,7 +52,7 @@ def owner(db, account_id):
 
 
 def test_schema_19_attests_and_replays(db):
-    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "19"
+    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "20"
     assert "Applying " not in db.sql(migration_runner.render(["beli"])).stdout
     db.sql(CONTRACT)
 
