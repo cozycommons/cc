@@ -399,3 +399,116 @@ def test_probe_returns_league_payload(monkeypatch):
     (req,) = t.requests
     assert query_of(req) == {"view": ["mSettings", "mTeam"]}
     assert headers_of(req)["cookie"] == f"espn_s2={ESPN_S2}; SWID={SWID}"
+
+
+# --- shared access pattern: per-account pacing, read cache, coalescing ---------
+def test_clients_for_one_account_share_one_pacer():
+    assert _client()._pacer is _client()._pacer
+    assert _client()._pacer is not _client(swid="{OTHER}")._pacer
+
+
+def test_cached_reads_hit_espn_once_and_default_reads_always_go(monkeypatch):
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    for _ in range(3):
+        assert _client().get_league(["mTeam"], max_age=30) == {"id": LEAGUE_ID}
+    assert len(t.requests) == 1
+    _client().get_league(["mTeam"])
+    _client().get_league(["mTeam"])
+    assert len(t.requests) == 3
+
+
+def test_cached_reads_are_keyed_by_views_filter_and_account(monkeypatch):
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": []}))
+    _client().get_league(["mTeam"], max_age=30)
+    _client().get_league(["mRoster"], max_age=30)
+    _client(swid="{OTHER}").get_league(["mTeam"], max_age=30)
+    _client().get_league_players_for_period(1, max_age=30)
+    _client().get_league_players_for_period(2, max_age=30)
+    assert len(t.requests) == 5
+
+
+def test_cached_payloads_are_not_shared_objects(monkeypatch):
+    StubTransport(monkeypatch).on(LEAGUE_URL, ok({"teams": [1]}))
+    first = _client().get_league(["mTeam"], max_age=30)
+    first["teams"].append(2)
+    assert _client().get_league(["mTeam"], max_age=30) == {"teams": [1]}
+
+
+def test_cached_read_expires(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(espn_client.time, "monotonic", lambda: clock[0])
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    _client().get_league(["mTeam"], max_age=30)
+    clock[0] += 29
+    _client().get_league(["mTeam"], max_age=30)
+    clock[0] += 2
+    _client().get_league(["mTeam"], max_age=30)
+    assert len(t.requests) == 2
+
+
+def test_failed_reads_are_not_cached(monkeypatch):
+    responses = [fail(500), ok("<html>login</html>"), ok({"id": LEAGUE_ID})]
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, lambda req: responses.pop(0)(req))
+    with pytest.raises(EspnError):
+        _client().get_league(["mTeam"], max_age=30)
+    with pytest.raises(EspnAuthError):
+        _client().get_league(["mTeam"], max_age=30)
+    assert _client().get_league(["mTeam"], max_age=30) == {"id": LEAGUE_ID}
+    _client().get_league(["mTeam"], max_age=30)
+    assert len(t.requests) == 3
+
+
+def test_a_write_drops_the_accounts_cached_reads(monkeypatch):
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    client = _client()
+    t.on(client.transactions_url(), ok({}))
+    client.get_league(["mTeam"], max_age=30)
+    client.post_lineup_transaction("{M}", 1, 5, [])
+    client.get_league(["mTeam"], max_age=30)
+    assert [r.get_method() for r in t.requests] == ["GET", "POST", "GET"]
+
+
+def test_concurrent_identical_reads_share_one_request(monkeypatch):
+    import threading
+
+    release = threading.Event()
+    started = threading.Event()
+
+    def slow(req):
+        started.set()
+        assert release.wait(5)
+        return FakeHTTPResponse({"id": LEAGUE_ID})
+
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, slow)
+    results = []
+
+    def read():
+        results.append(_client().get_league(["mTeam"], max_age=30))
+
+    leader = threading.Thread(target=read)
+    leader.start()
+    assert started.wait(5)
+    waiters = [threading.Thread(target=read) for _ in range(3)]
+    for w in waiters:
+        w.start()
+    release.set()
+    for th in [leader, *waiters]:
+        th.join(5)
+    assert results == [{"id": LEAGUE_ID}] * 4
+    assert len(t.requests) == 1
+
+
+def test_interactive_clients_share_the_process_429_cooldown(monkeypatch):
+    def limited(req):
+        raise urllib.error.HTTPError(req.full_url, 429, "limited", {}, io.BytesIO())
+
+    first = EspnClient("synthetic-1", "{ONE}", 111, SEASON)
+    second = EspnClient("synthetic-2", "{TWO}", 222, SEASON)
+    t = StubTransport(monkeypatch).on(first.league_url(), limited)
+    t.on(second.league_url(), ok({"id": 222}))
+    with pytest.raises(EspnError):
+        first.get_league(["mTeam"])
+    with pytest.raises(EspnError) as exc:
+        second.get_league(["mTeam"])
+    assert exc.value.status == 429
+    assert len(t.requests) == 1
