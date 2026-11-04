@@ -152,6 +152,14 @@ def sb_server(monkeypatch):
     return calls
 
 
+def test_scoreboard_bodies_are_shared_across_runs(sb_server):
+    day = date(2026, 10, 14)
+    first = ScoreboardClient().get_day(day)
+    first["teams"].clear()
+    assert ScoreboardClient().get_day(day)["teams"] == {30, 27}
+    assert len(sb_server) == 1
+
+
 def test_scoreboard_single_day_parse_and_id_alignment(sb_server):
     client = ScoreboardClient()
     day = client.get_day(date(2026, 10, 14))
@@ -289,7 +297,7 @@ class StatefulClient:
         self.payload = payload
         self.posts = []
 
-    def get_league(self, views, scoring_period_id=None):
+    def get_league(self, views, scoring_period_id=None, max_age=0):
         return copy.deepcopy(self.payload)
 
     def post_lineup_transaction(self, member_id, team_id, scoring_period_id, items):
@@ -687,7 +695,7 @@ class KonaClient(StatefulClient):
         self.kona = kona or {}
         self.kona_calls = []
 
-    def get_league_players_for_period(self, scoring_period_id, limit=1000):
+    def get_league_players_for_period(self, scoring_period_id, limit=1000, max_age=0):
         self.kona_calls.append(scoring_period_id)
         result = self.kona.get(scoring_period_id, [])
         if isinstance(result, Exception):
