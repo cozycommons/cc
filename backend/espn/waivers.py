@@ -182,9 +182,11 @@ def _day_fantasy_points(player: dict, period: int, items: list):
 def _fetch_day_points(client, periods: list, items: list, current: int):
     """{player_id: {period: fantasy points}} over the given periods.
 
-    Periods before ``current`` are finished days whose stats are
-    settled, so their fetches are reused for hours; only today's
-    period is re-read on the short read-cache age.
+    Periods two or more days back are settled, so their fetches are
+    reused for hours. Today and yesterday stay on the short read-cache
+    age: late games and stat updates land after midnight ET. Because a
+    period only reaches the long age a full day after it ended, a
+    snapshot taken while it was live is always too old to be reused.
 
     A failed period fetch is recorded and skipped (the windows just get
     thinner); an auth failure is fatal and propagates — expired cookies
@@ -198,7 +200,9 @@ def _fetch_day_points(client, periods: list, items: list, current: int):
                 period,
                 limit=POOL_LIMIT,
                 max_age=(
-                    SETTLED_PERIOD_TTL_S if period < current else READ_CACHE_TTL_S
+                    SETTLED_PERIOD_TTL_S
+                    if period <= current - 2
+                    else READ_CACHE_TTL_S
                 ),
             )
         except EspnAuthError:

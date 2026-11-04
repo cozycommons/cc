@@ -3,6 +3,7 @@
 urllib.request.urlopen is stubbed — no network, no real ESPN cookies needed.
 """
 
+import concurrent.futures
 import io
 import json
 import urllib.error
@@ -468,34 +469,76 @@ def test_a_write_drops_the_accounts_cached_reads(monkeypatch):
     assert [r.get_method() for r in t.requests] == ["GET", "POST", "GET"]
 
 
-def test_concurrent_identical_reads_share_one_request(monkeypatch):
+def _hold_leader_until_waiters_join(monkeypatch, waiters, response):
+    """Block the one ESPN fetch until ``waiters`` threads wait on it."""
     import threading
 
-    release = threading.Event()
-    started = threading.Event()
+    joined = threading.Semaphore(0)
 
-    def slow(req):
-        started.set()
-        assert release.wait(5)
-        return FakeHTTPResponse({"id": LEAGUE_ID})
+    class CountingFuture(espn_client.Future):
+        def result(self, timeout=None):
+            joined.release()
+            return super().result(timeout)
 
-    t = StubTransport(monkeypatch).on(LEAGUE_URL, slow)
+    monkeypatch.setattr(espn_client, "Future", CountingFuture)
+
+    def held(req):
+        for _ in range(waiters):
+            assert joined.acquire(timeout=5)
+        return response(req)
+
+    return held
+
+
+def _read_concurrently(n):
+    import threading
+
     results = []
 
     def read():
-        results.append(_client().get_league(["mTeam"], max_age=30))
+        try:
+            results.append(_client().get_league(["mTeam"], max_age=30))
+        except EspnError as e:
+            results.append(e.status)
 
-    leader = threading.Thread(target=read)
-    leader.start()
-    assert started.wait(5)
-    waiters = [threading.Thread(target=read) for _ in range(3)]
-    for w in waiters:
-        w.start()
-    release.set()
-    for th in [leader, *waiters]:
+    threads = [threading.Thread(target=read) for _ in range(n)]
+    for th in threads:
+        th.start()
+    for th in threads:
         th.join(5)
-    assert results == [{"id": LEAGUE_ID}] * 4
+    return results
+
+
+def test_concurrent_identical_reads_share_one_request(monkeypatch):
+    held = _hold_leader_until_waiters_join(monkeypatch, 3, ok({"id": LEAGUE_ID}))
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, held)
+    assert _read_concurrently(4) == [{"id": LEAGUE_ID}] * 4
     assert len(t.requests) == 1
+
+
+def test_waiters_get_the_leaders_error_and_it_is_not_cached(monkeypatch):
+    held = _hold_leader_until_waiters_join(monkeypatch, 3, fail(500))
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, held)
+    assert _read_concurrently(4) == [500] * 4
+    assert len(t.requests) == 1
+    monkeypatch.setattr(espn_client, "Future", concurrent.futures.Future)
+    t.on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    assert _client().get_league(["mTeam"], max_age=30) == {"id": LEAGUE_ID}
+
+
+def test_a_read_in_flight_during_a_write_is_not_stored(monkeypatch):
+    client = _client()
+    t = StubTransport(monkeypatch)
+
+    def raced(req):
+        espn_client._READ_CACHE.invalidate(client._scope)  # a write lands mid-read
+        return FakeHTTPResponse({"id": "pre-write"})
+
+    t.on(LEAGUE_URL, raced)
+    assert client.get_league(["mTeam"], max_age=30) == {"id": "pre-write"}
+    t.on(LEAGUE_URL, ok({"id": "post-write"}))
+    assert client.get_league(["mTeam"], max_age=30) == {"id": "post-write"}
+    assert len(t.requests) == 2
 
 
 def test_interactive_clients_share_the_process_429_cooldown(monkeypatch):

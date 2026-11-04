@@ -387,7 +387,7 @@ def test_period_auth_failure_propagates():
         _report(FakeClient(auth_fail=True))
 
 
-def test_settled_days_are_cached_for_hours_and_today_briefly():
+def test_settled_days_are_cached_for_hours_and_recent_days_briefly():
     ages = {}
 
     class Recording(FakeClient):
@@ -397,8 +397,9 @@ def test_settled_days_are_cached_for_hours_and_today_briefly():
 
     _report(Recording())
     assert ages.pop(CURRENT) == espn_client.READ_CACHE_TTL_S
+    assert ages.pop(CURRENT - 1) == espn_client.READ_CACHE_TTL_S
     assert set(ages.values()) == {espn_client.SETTLED_PERIOD_TTL_S}
-    assert all(period < CURRENT for period in ages)
+    assert all(period <= CURRENT - 2 for period in ages)
 
 
 # --- route ------------------------------------------------------------------------
