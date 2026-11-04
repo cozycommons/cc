@@ -31,7 +31,7 @@ class RosterClient(edits_fixture.FakeClient):
         self.reads = []
         self.fail_verification = False
 
-    def get_league(self, views, scoring_period_id=None):
+    def get_league(self, views, scoring_period_id=None, max_age=0):
         self.reads.append(views)
         if self.posts and self.fail_verification:
             raise EspnError("read unavailable")
@@ -47,7 +47,7 @@ class TradeClient(trades_fixture.FakeClient):
         self.reads = []
         self.fail_verification = False
 
-    def get_league(self, views, scoring_period_id=None):
+    def get_league(self, views, scoring_period_id=None, max_age=0):
         self.reads.append(views)
         if self.posts and self.fail_verification:
             raise EspnError("read unavailable")

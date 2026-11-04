@@ -27,6 +27,11 @@ how the first regular-season date — the anchor for scoring-period
 Defensive like the fantasy client: one attempt per fetch (no retry
 hammering), a hard timeout, and every failure mapped onto EspnError.
 There is no auth here, so nothing raises EspnAuthError.
+
+The schedule is the same for every account, so fetched bodies are
+shared process-wide for ``SCOREBOARD_CACHE_TTL_S`` and identical
+concurrent fetches share one request. Five minutes is well inside how
+fast the schedule or a tip-off time actually changes.
 """
 
 from __future__ import annotations
@@ -39,7 +44,7 @@ from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from .espn_client import EspnError, RequestCooldown, USER_AGENT
+from .espn_client import EspnError, ReadCache, RequestCooldown, USER_AGENT
 
 SCOREBOARD_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
@@ -51,6 +56,13 @@ POSTSEASON = 3
 
 _ET = ZoneInfo("America/New_York")
 _TIMEOUT_S = 15
+SCOREBOARD_CACHE_TTL_S = 300.0
+_CACHE = ReadCache(max_chars=8_000_000)
+
+
+def reset_cache() -> None:
+    """Forget cached scoreboard bodies (tests only)."""
+    _CACHE.clear()
 
 # ESPN pro team id -> abbreviation, in the canonical NBA team-id
 # space this module documents (the space scoreboard competitor ids
@@ -164,9 +176,9 @@ def parse_scoreboard(payload) -> dict:
 class ScoreboardClient:
     """Fetches and caches scoreboard days for one lineup run.
 
-    Stateless across runs (construct one per run); within a run,
-    days and months already fetched are served from the cache and
-    never re-requested.
+    Construct one per run; within a run, days and months already
+    fetched are never re-requested. Across runs the module-level cache
+    (see the module docstring) absorbs repeats.
     """
 
     def __init__(self, *, cooldown: RequestCooldown | None = None):
@@ -177,7 +189,17 @@ class ScoreboardClient:
 
     # -- wire ---------------------------------------------------------------
     def _fetch(self, params: dict) -> dict:
-        """One GET round-trip; returns the parsed per-date buckets."""
+        """Parsed per-date buckets, through the process-wide cache."""
+        payload = _CACHE.read(
+            "scoreboard",
+            tuple(sorted(params.items())),
+            SCOREBOARD_CACHE_TTL_S,
+            lambda: self._fetch_text(params),
+        )
+        return parse_scoreboard(payload)
+
+    def _fetch_text(self, params: dict):
+        """One GET round-trip; returns ``(raw body, parsed JSON)``."""
         if self._cooldown is not None:
             self._cooldown.check()
         url = SCOREBOARD_URL + "?" + urllib.parse.urlencode(params)
@@ -200,10 +222,9 @@ class ScoreboardClient:
         except urllib.error.URLError as e:
             raise EspnError(f"ESPN scoreboard: network error {e}") from e
         try:
-            payload = json.loads(raw)
+            return raw, json.loads(raw)
         except json.JSONDecodeError as e:
             raise EspnError(f"ESPN scoreboard returned non-JSON: {e}") from e
-        return parse_scoreboard(payload)
 
     def _fetch_day(self, day: _date) -> None:
         parsed = self._fetch({"dates": day.strftime("%Y%m%d")})

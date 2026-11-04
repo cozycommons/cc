@@ -1,7 +1,8 @@
 """ESPN Fantasy read logic: pure functions over an EspnClient (no framework code).
 
 Every function takes the per-account client, pulls one league payload with the
-views it needs, and returns slim, JSON-friendly dicts. ESPN's unofficial v3
+views it needs, and returns slim, JSON-friendly dicts. These are read-only, so
+every read opts into the client's short shared cache (``READ_CACHE_TTL_S``). ESPN's unofficial v3
 payloads vary by season/era (e.g. a team's display name may be a single
 ``name`` or a ``location`` + ``nickname`` pair), so all extraction goes through
 defensive ``.get`` chains and tolerates missing blocks.
@@ -17,6 +18,8 @@ inside :func:`build_snapshot` and :func:`get_team_trends` in v1.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+
+from .espn_client import READ_CACHE_TTL_S
 
 # ESPN defaultPositionId / eligibleSlots ids -> display names.
 POSITION_NAMES = {
@@ -180,7 +183,7 @@ def _acquisition_settings(settings: dict) -> dict:
 
 def get_league(client) -> dict:
     """League settings plus a slim team list."""
-    payload = client.get_league(["mSettings", "mTeam"]) or {}
+    payload = client.get_league(["mSettings", "mTeam"], max_age=READ_CACHE_TTL_S) or {}
     settings = payload.get("settings") or {}
     status = payload.get("status") or {}
     members = _members_by_id(payload)
@@ -204,7 +207,7 @@ def get_league(client) -> dict:
 
 def get_standings(client) -> dict:
     """Slim teams ranked by wins (desc), then points_for (desc)."""
-    payload = client.get_league(["mTeam", "mStandings"]) or {}
+    payload = client.get_league(["mTeam", "mStandings"], max_age=READ_CACHE_TTL_S) or {}
     members = _members_by_id(payload)
     teams = [_slim_team(t, members) for t in _teams(payload)]
     teams.sort(
@@ -220,7 +223,7 @@ def get_standings(client) -> dict:
 
 def get_team(client, team_id: int) -> dict:
     """One slim team plus its slimmed roster."""
-    payload = client.get_league(["mTeam", "mRoster"]) or {}
+    payload = client.get_league(["mTeam", "mRoster"], max_age=READ_CACHE_TTL_S) or {}
     members = _members_by_id(payload)
     team = None
     for candidate in _teams(payload):
@@ -285,7 +288,7 @@ def get_transactions(client, limit: int = 25) -> dict:
     """
     if not 1 <= limit <= 200:
         raise ValueError("limit must be between 1 and 200")
-    payload = client.get_league(["mTransactions2"]) or {}
+    payload = client.get_league(["mTransactions2"], max_age=READ_CACHE_TTL_S) or {}
     raw = [t for t in payload.get("transactions") or [] if isinstance(t, dict)]
     raw = sorted(raw, key=lambda t: t.get("date") or 0, reverse=True)
 
@@ -321,7 +324,7 @@ def get_transactions(client, limit: int = 25) -> dict:
 
 def get_draft(client) -> dict:
     """Draft picks in overall-pick order, with team names resolved."""
-    payload = client.get_league(["mDraftDetail", "mTeam"]) or {}
+    payload = client.get_league(["mDraftDetail", "mTeam"], max_age=READ_CACHE_TTL_S) or {}
     team_names = {t.get("id"): _team_name(t) for t in _teams(payload)}
     detail = payload.get("draftDetail") or {}
     raw = [p for p in detail.get("picks") or [] if isinstance(p, dict)]
@@ -363,7 +366,7 @@ def get_team_trends(client) -> dict:
     ``(opponents with fewer points + 0.5 * opponents tied) / (num_teams - 1)``.
     ``luck`` is actual wins minus that expectation (positive = lucky).
     """
-    payload = client.get_league(["mTeam", "mMatchup"]) or {}
+    payload = client.get_league(["mTeam", "mMatchup"], max_age=READ_CACHE_TTL_S) or {}
     members = _members_by_id(payload)
     teams = _teams(payload)
     weekly = _weekly_points_by_team(payload.get("schedule") or [])
@@ -423,7 +426,7 @@ def build_snapshot(client) -> dict:
     extracted from the kona player stats splits.
     """
     payload = (
-        client.get_league(["mSettings", "mTeam", "mMatchup"]) or {}
+        client.get_league(["mSettings", "mTeam", "mMatchup"], max_age=READ_CACHE_TTL_S) or {}
     )
     settings = payload.get("settings") or {}
     status = payload.get("status") or {}
@@ -450,7 +453,7 @@ def build_snapshot(client) -> dict:
         )
 
     players = []
-    for entry in client.get_players(300) or []:
+    for entry in client.get_players(300, max_age=READ_CACHE_TTL_S) or []:
         if not isinstance(entry, dict):
             continue
         player = entry.get("player")

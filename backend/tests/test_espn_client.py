@@ -3,6 +3,7 @@
 urllib.request.urlopen is stubbed — no network, no real ESPN cookies needed.
 """
 
+import concurrent.futures
 import io
 import json
 import urllib.error
@@ -399,3 +400,158 @@ def test_probe_returns_league_payload(monkeypatch):
     (req,) = t.requests
     assert query_of(req) == {"view": ["mSettings", "mTeam"]}
     assert headers_of(req)["cookie"] == f"espn_s2={ESPN_S2}; SWID={SWID}"
+
+
+# --- shared access pattern: per-account pacing, read cache, coalescing ---------
+def test_clients_for_one_account_share_one_pacer():
+    assert _client()._pacer is _client()._pacer
+    assert _client()._pacer is not _client(swid="{OTHER}")._pacer
+
+
+def test_cached_reads_hit_espn_once_and_default_reads_always_go(monkeypatch):
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    for _ in range(3):
+        assert _client().get_league(["mTeam"], max_age=30) == {"id": LEAGUE_ID}
+    assert len(t.requests) == 1
+    _client().get_league(["mTeam"])
+    _client().get_league(["mTeam"])
+    assert len(t.requests) == 3
+
+
+def test_cached_reads_are_keyed_by_views_filter_and_account(monkeypatch):
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": []}))
+    _client().get_league(["mTeam"], max_age=30)
+    _client().get_league(["mRoster"], max_age=30)
+    _client(swid="{OTHER}").get_league(["mTeam"], max_age=30)
+    _client().get_league_players_for_period(1, max_age=30)
+    _client().get_league_players_for_period(2, max_age=30)
+    assert len(t.requests) == 5
+
+
+def test_cached_payloads_are_not_shared_objects(monkeypatch):
+    StubTransport(monkeypatch).on(LEAGUE_URL, ok({"teams": [1]}))
+    first = _client().get_league(["mTeam"], max_age=30)
+    first["teams"].append(2)
+    assert _client().get_league(["mTeam"], max_age=30) == {"teams": [1]}
+
+
+def test_cached_read_expires(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(espn_client.time, "monotonic", lambda: clock[0])
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    _client().get_league(["mTeam"], max_age=30)
+    clock[0] += 29
+    _client().get_league(["mTeam"], max_age=30)
+    clock[0] += 2
+    _client().get_league(["mTeam"], max_age=30)
+    assert len(t.requests) == 2
+
+
+def test_failed_reads_are_not_cached(monkeypatch):
+    responses = [fail(500), ok("<html>login</html>"), ok({"id": LEAGUE_ID})]
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, lambda req: responses.pop(0)(req))
+    with pytest.raises(EspnError):
+        _client().get_league(["mTeam"], max_age=30)
+    with pytest.raises(EspnAuthError):
+        _client().get_league(["mTeam"], max_age=30)
+    assert _client().get_league(["mTeam"], max_age=30) == {"id": LEAGUE_ID}
+    _client().get_league(["mTeam"], max_age=30)
+    assert len(t.requests) == 3
+
+
+def test_a_write_drops_the_accounts_cached_reads(monkeypatch):
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    client = _client()
+    t.on(client.transactions_url(), ok({}))
+    client.get_league(["mTeam"], max_age=30)
+    client.post_lineup_transaction("{M}", 1, 5, [])
+    client.get_league(["mTeam"], max_age=30)
+    assert [r.get_method() for r in t.requests] == ["GET", "POST", "GET"]
+
+
+def _hold_leader_until_waiters_join(monkeypatch, waiters, response):
+    """Block the one ESPN fetch until ``waiters`` threads wait on it."""
+    import threading
+
+    joined = threading.Semaphore(0)
+
+    class CountingFuture(espn_client.Future):
+        def result(self, timeout=None):
+            joined.release()
+            return super().result(timeout)
+
+    monkeypatch.setattr(espn_client, "Future", CountingFuture)
+
+    def held(req):
+        for _ in range(waiters):
+            assert joined.acquire(timeout=5)
+        return response(req)
+
+    return held
+
+
+def _read_concurrently(n):
+    import threading
+
+    results = []
+
+    def read():
+        try:
+            results.append(_client().get_league(["mTeam"], max_age=30))
+        except EspnError as e:
+            results.append(e.status)
+
+    threads = [threading.Thread(target=read) for _ in range(n)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(5)
+    return results
+
+
+def test_concurrent_identical_reads_share_one_request(monkeypatch):
+    held = _hold_leader_until_waiters_join(monkeypatch, 3, ok({"id": LEAGUE_ID}))
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, held)
+    assert _read_concurrently(4) == [{"id": LEAGUE_ID}] * 4
+    assert len(t.requests) == 1
+
+
+def test_waiters_get_the_leaders_error_and_it_is_not_cached(monkeypatch):
+    held = _hold_leader_until_waiters_join(monkeypatch, 3, fail(500))
+    t = StubTransport(monkeypatch).on(LEAGUE_URL, held)
+    assert _read_concurrently(4) == [500] * 4
+    assert len(t.requests) == 1
+    monkeypatch.setattr(espn_client, "Future", concurrent.futures.Future)
+    t.on(LEAGUE_URL, ok({"id": LEAGUE_ID}))
+    assert _client().get_league(["mTeam"], max_age=30) == {"id": LEAGUE_ID}
+
+
+def test_a_read_in_flight_during_a_write_is_not_stored(monkeypatch):
+    client = _client()
+    t = StubTransport(monkeypatch)
+
+    def raced(req):
+        espn_client._READ_CACHE.invalidate(client._scope)  # a write lands mid-read
+        return FakeHTTPResponse({"id": "pre-write"})
+
+    t.on(LEAGUE_URL, raced)
+    assert client.get_league(["mTeam"], max_age=30) == {"id": "pre-write"}
+    t.on(LEAGUE_URL, ok({"id": "post-write"}))
+    assert client.get_league(["mTeam"], max_age=30) == {"id": "post-write"}
+    assert len(t.requests) == 2
+
+
+def test_interactive_clients_share_the_process_429_cooldown(monkeypatch):
+    def limited(req):
+        raise urllib.error.HTTPError(req.full_url, 429, "limited", {}, io.BytesIO())
+
+    first = EspnClient("synthetic-1", "{ONE}", 111, SEASON)
+    second = EspnClient("synthetic-2", "{TWO}", 222, SEASON)
+    t = StubTransport(monkeypatch).on(first.league_url(), limited)
+    t.on(second.league_url(), ok({"id": 222}))
+    with pytest.raises(EspnError):
+        first.get_league(["mTeam"])
+    with pytest.raises(EspnError) as exc:
+        second.get_league(["mTeam"])
+    assert exc.value.status == 429
+    assert len(t.requests) == 1
