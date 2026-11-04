@@ -165,22 +165,6 @@ def get_account_by_owner(supabase, user_id: str) -> dict:
     }
 
 
-def link_account_to_owner(supabase, token: str, user_id: str) -> tuple[str, dict]:
-    """Link the account a personal token names to a Commons user, once.
-
-    The token is only hashed and compared; it is never stored. Only
-    owner_user_id changes, so the stored refresh token is never touched.
-    Returns (outcome, {"id", "label"}); outcome is linked | already_linked |
-    other_owner. Raises AccountError when the token is unknown.
-    """
-    row = get_account_row_by_token(supabase, token)
-    outcome = supabase.rpc(
-        "partiful_link_account", {"p_account_id": row["id"], "p_user_id": str(user_id)}
-    ).execute().data
-    if outcome == "missing":
-        raise AccountError("unknown token")
-    return outcome, row
-
 
 def _account_for_uid(supabase, uid: str) -> dict | None:
     # uid is Fernet-encrypted with a random IV, so there is no column to match

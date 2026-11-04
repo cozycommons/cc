@@ -48,43 +48,39 @@ def plans_foreign(_db, monkeypatch):
 
 
 def beli_foreign(db, _monkeypatch):
-    # Another user's linked account: the caller is unlinked and holds only that user's token.
-    _row, token = beli_fakes.add_account(db, owner=str(uuid4()))
+    # Another user's linked account: the caller is unlinked.
+    beli_fakes.add_account(db, owner=str(uuid4()))
     return {'get_restaurant_recs': {'neighborhood': 'West Village'},
-            'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1', 'dry_run': False},
-            'link_beli_account': {'api_token': token}}
+            'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1', 'dry_run': False}}
 
 
 def resy_foreign(db, _monkeypatch):
     # The caller is linked to their own Resy account; the targets belong to another linked user.
     resy_fakes.add_account(db, owner=db.user.id)
-    other, token = resy_fakes.add_account(db, owner=str(uuid4()))
+    other, _token = resy_fakes.add_account(db, owner=str(uuid4()))
     theirs = resy_fakes.add_reservation(db, other['email'])
     stale = {'terms_id': '0' * 16, 'dry_run': False}
     return {'book_resy_table': {**RESY_BOOK, 'payment_method_id': db.resy_cards[other['email']][0]['id'], **stale},
             'cancel_resy_reservation': {'reservation_id': theirs['reservation_id'], 'idempotency_key': 'cancel-1',
-                                        **stale},
-            'link_resy_account': {'api_token': token}}
+                                        **stale}}
 
 
 def partiful_foreign(db, _monkeypatch):
-    # The caller is linked to their own Partiful account; the event and token belong to another linked user.
+    # The caller is linked to their own Partiful account; the event belongs to another linked user.
     partiful_fakes.add_account(db, owner=db.user.id)
-    other, token = partiful_fakes.add_account(db, owner=str(uuid4()))
-    return {'get_partiful_events': {'event_id': db.partiful_events[other['uid']]['hosted'][0]['id']},
-            'link_partiful_account': {'api_token': token}}
+    other, _token = partiful_fakes.add_account(db, owner=str(uuid4()))
+    return {'get_partiful_events': {'event_id': db.partiful_events[other['uid']]['hosted'][0]['id']}}
 
 
 def espn_foreign(db, _monkeypatch):
-    # The caller is linked to their own ESPN account; the edit, player and token belong to another linked user.
+    # The caller is linked to their own ESPN account; the edit and player belong to another linked user.
     espn_fakes.add_account(db, owner=db.user.id)
-    other, token = espn_fakes.add_account(db, owner=str(uuid4()))
+    other, _token = espn_fakes.add_account(db, owner=str(uuid4()))
     theirs = espn_fakes.add_edit(db, other)
     return {'get_fantasy_activity': {'kind': 'roster_edits', 'proposal_id': theirs['id']},
             'propose_fantasy_change': {'kind': 'roster_edit', 'drop_player_id': espn_fakes.RIVAL_STAR},
             'approve_fantasy_change': {'kind': 'roster_edit', 'proposal_id': theirs['id'],
-                                       'idempotency_key': 'approve-1', 'dry_run': False},
-            'link_espn_account': {'api_token': token}}
+                                       'idempotency_key': 'approve-1', 'dry_run': False}}
 
 
 ESPN_APPROVE = {'kind': 'roster_edit', 'proposal_id': str(uuid4()), 'idempotency_key': 'approve-1'}
@@ -112,37 +108,31 @@ FIXTURES = {
                      'describe_floor_plan_schema': 'static schema'}),
     'beli': Fixture(
         args=lambda db: {'get_restaurant_recs': {'neighborhood': 'West Village'},
-                         'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1'},
-                         'link_beli_account': {'api_token': 'ccb_' + 'x' * 43}},
+                         'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1'}},
         foreign=beli_foreign,
         foreign_error={'get_restaurant_recs': 'Link your Beli account first',
-                       'save_restaurant': 'Link your Beli account first',
-                       'link_beli_account': 'linked to another Commons user'}),
+                       'save_restaurant': 'Link your Beli account first'}),
     'resy': Fixture(
         args=lambda db: {'find_resy_tables': {'date': resy_fakes.day(), 'venue_id': resy_fakes.VENUE_ID},
                          'list_resy_reservations': {}, 'book_resy_table': RESY_BOOK,
-                         'cancel_resy_reservation': {'reservation_id': 1, 'idempotency_key': 'cancel-1'},
-                         'link_resy_account': {'api_token': 'ccr_' + 'x' * 43}},
+                         'cancel_resy_reservation': {'reservation_id': 1, 'idempotency_key': 'cancel-1'}},
         foreign=resy_foreign,
         foreign_error={'book_resy_table': 'is not on your Resy account',
-                       'cancel_resy_reservation': 'No reservation .* in your Resy account',
-                       'link_resy_account': 'linked to another Commons user'},
+                       'cancel_resy_reservation': 'No reservation .* in your Resy account'},
         no_resource={'find_resy_tables': 'public venue availability, read with the caller’s own linked login',
                      'list_resy_reservations': 'lists only the caller’s own linked Resy account'}),
     'partiful': Fixture(
-        args=lambda db: {'get_partiful_events': {}, 'link_partiful_account': {'api_token': 'ccp_' + 'x' * 43}},
+        args=lambda db: {'get_partiful_events': {}},
         foreign=partiful_foreign,
-        foreign_error={'get_partiful_events': 'Event not found',
-                       'link_partiful_account': 'linked to another Commons user'}),
+        foreign_error={'get_partiful_events': 'Event not found'}),
     'espn': Fixture(
         args=lambda db: {'get_fantasy_league': {}, 'get_fantasy_trends': {'kind': 'teams'},
                          'get_fantasy_activity': {'kind': 'roster_edits'}, 'propose_fantasy_change': ESPN_PROPOSE,
-                         'approve_fantasy_change': ESPN_APPROVE, 'link_espn_account': {'api_token': 'cce_' + 'x' * 43}},
+                         'approve_fantasy_change': ESPN_APPROVE},
         foreign=espn_foreign,
         foreign_error={'get_fantasy_activity': 'No roster edit .* in your ESPN account',
                        'propose_fantasy_change': 'is not on your roster',
-                       'approve_fantasy_change': 'No roster edit .* in your ESPN account',
-                       'link_espn_account': 'linked to another Commons user'},
+                       'approve_fantasy_change': 'No roster edit .* in your ESPN account'},
         no_resource={'get_fantasy_league': 'reads only the league of the caller’s own linked cookies',
                      'get_fantasy_trends': 'reads only the league of the caller’s own linked cookies'}),
 }

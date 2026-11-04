@@ -22,7 +22,6 @@ EDIT = {'kind': 'roster_edit', 'add_player_id': FREE_AGENT, 'drop_player_id': DR
 async def espn(monkeypatch):
     db = Database()
     espn_fakes.install(db, monkeypatch)
-    monkeypatch.setattr(agent_tools, '_LINK_ATTEMPTS', {})
     token = AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE])
     monkeypatch.setattr('cc_mcp.server.get_access_token', lambda: token)
     call, listed = connect(build_server(db, PROVIDERS))
@@ -31,8 +30,7 @@ async def espn(monkeypatch):
 
 async def linked_user(db, call):
     db.settings[(db.user.id, 'espn')] = {'user_id': db.user.id, 'project_id': 'espn', 'enabled': True}
-    row, token = espn_fakes.add_account(db)
-    await call('link_espn_account', api_token=token)
+    row, _token = espn_fakes.add_account(db, owner=db.user.id)  # as the account page links it
     return row
 
 
@@ -54,7 +52,7 @@ async def test_new_user_sees_espn_off_and_every_tool_needs_the_link(espn):
     assert project['on_connector'] and project['enabled'] is False and project['linked'] is False
     assert {t['name']: t['access'] for t in project['tools']} == {
         'get_fantasy_league': 'read', 'get_fantasy_trends': 'read', 'get_fantasy_activity': 'read',
-        'propose_fantasy_change': 'edit', 'approve_fantasy_change': 'edit', 'link_espn_account': 'edit'}
+        'propose_fantasy_change': 'edit', 'approve_fantasy_change': 'edit'}
     enabled = await call('enable_project', project_id='espn')
     assert enabled['next_step'] == LINK_STEP and 'cozycommons.dev/account#espn' in LINK_STEP
     assert 'Do not ask for their ESPN password, espn_s2/SWID cookies or a cce_ token' in LINK_STEP
@@ -63,22 +61,16 @@ async def test_new_user_sees_espn_off_and_every_tool_needs_the_link(espn):
 
 
 @pytest.mark.asyncio
-async def test_link_never_echoes_the_token_refuses_other_owners_and_replaces_your_own(espn):
-    db, call, _listed = espn
-    first = await linked_user(db, call)
-    assert first['owner_user_id'] == db.user.id
+async def test_a_page_linked_account_turns_espn_on_and_no_token_tool_exists(espn):
+    db, call, listed = espn
+    row, token = espn_fakes.add_account(db, owner=db.user.id)  # as /account/linked-accounts links it
     project = {p['id']: p for p in (await call('list_projects'))['projects']}['espn']
-    assert project['linked'] is True and project['status']['in_use'] is True
-    theirs, their_token = espn_fakes.add_account(db, owner='another-user')
-    with pytest.raises(ToolError, match='linked to another Commons user'):
-        await call('link_espn_account', api_token=their_token)
-    with pytest.raises(ToolError, match='No ESPN account matches'):
-        await call('link_espn_account', api_token='cce_' + 'x' * 43)
-    second, token = espn_fakes.add_account(db, label='second')
-    result = await call('link_espn_account', api_token=token)
-    assert result['replaced_account']['id'] == first['id'] and token not in repr(result)
-    assert first['owner_user_id'] is None and second['owner_user_id'] == db.user.id
-    assert theirs['owner_user_id'] == 'another-user' and not db.espn_logins  # linking decrypts nothing
+    assert project['enabled'] and project['linked'] and project['status']['in_use']
+    assert project['enabled_reason'] == 'default: you already use it'
+    assert 'link_espn_account' not in await listed()
+    with pytest.raises(ToolError, match='Unknown tool'):
+        await call('link_espn_account', api_token=token)
+
 
 
 # Reads

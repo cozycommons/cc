@@ -1,8 +1,7 @@
 """ESPN Fantasy tools on the shared OAuth connector (/mcp).
 
 The ESPN account is resolved from the signed-in Commons user, never from a
-pasted token: the user connects it on the account page (link_espn_account
-remains for people who already hold a cce_ token). The legacy
+pasted token: the user connects it on the account page. The legacy
 token-per-call server at /espn/mcp, the /espn routes and espn_team_claims are
 unchanged.
 
@@ -18,7 +17,6 @@ it can reach ESPN, so a second key replays or rereads the first attempt.
 """
 from datetime import date as Date, datetime, timedelta, timezone
 import logging
-import time
 from typing import Annotated, Literal
 
 from fastmcp.exceptions import ToolError
@@ -67,10 +65,6 @@ UNSETTLED_LINEUP = ('This lineup approval is not confirmed: ESPN still shows {co
                     'moves remain, propose the lineup again and approve that new proposal with a new key: a new run '
                     'plans from the lineup ESPN shows then, so no landed move repeats.')
 
-# Same limit as /espn/onboard: 10 attempts per hour (here per Commons user).
-_LINK_ATTEMPTS: dict[str, list[float]] = {}
-_LINK_LIMIT = 10
-_LINK_WINDOW_S = 3600
 
 Key = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Id = Annotated[int, Field(strict=True, ge=1)]
@@ -476,35 +470,6 @@ def approve(client, user, kind, proposal_id, key, dry_run):
     return finish(client, user, key, kind, current, summary, error)
 
 
-def rate_check(user_id):
-    now = time.time()
-    attempts = [t for t in _LINK_ATTEMPTS.get(user_id, []) if now - t < _LINK_WINDOW_S]
-    if len(attempts) >= _LINK_LIMIT:
-        raise ToolError('Too many link attempts. Try again in an hour.')
-    attempts.append(now)
-    _LINK_ATTEMPTS[user_id] = attempts
-
-
-def link(client, user, api_token):
-    rate_check(str(user.id))
-    previous = linked(client, user)
-    try:
-        result, account = accounts.link_account_to_owner(client, api_token, user.id)
-    except AccountError as error:
-        raise ToolError('No ESPN account matches that token. Use the cce_ token from your ESPN onboarding '
-                        f'exactly as shown, or ask the user to connect ESPN at {ACCOUNT_URL}.') from error
-    if result == 'other_owner':
-        raise ToolError('This ESPN account is linked to another Commons user. Sign in as that user, '
-                        f'or connect their own ESPN team at {ACCOUNT_URL}.')
-    if result not in {'linked', 'already_linked'}:
-        raise ToolError('Could not link the account. Retry in a moment; nothing changed.')
-    linked_result = {'linked': True, 'status': result, 'account': {'id': account['id'], 'label': account['label']},
-                     'next_step': "Call get_fantasy_league(view='league')."}
-    if result == 'linked' and previous and previous['id'] != account['id']:
-        linked_result['replaced_account'] = {'id': previous['id'], 'label': previous['label']}
-    return linked_result
-
-
 def register_tools(mcp, context):
     async def invoke(scope, operation, *args):
         access = context.need_scope(scope)
@@ -579,24 +544,12 @@ def register_tools(mcp, context):
         """
         return await invoke(EDIT_SCOPE, approve, kind, proposal_id, idempotency_key, dry_run)
 
-    @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'idempotentHint': True,
-                           'openWorldHint': False})
-    async def link_espn_account(api_token: str) -> dict:
-        """Link an ESPN account with a cce_ token the user already offered. Never ask for one.
-
-        New users connect ESPN at https://cozycommons.dev/account#espn instead. The token proves ownership; it is checked against its stored hash and never
-        stored or returned. Afterwards the ESPN tools need no token. Linking a different
-        account of yours replaces the earlier link; an account linked to another Commons
-        user is refused.
-        """
-        return await invoke(EDIT_SCOPE, link, api_token)
-
 
 provider = ToolProvider(
     'espn', register_tools,
     {'get_fantasy_league': 'read', 'get_fantasy_trends': 'read', 'get_fantasy_activity': 'read',
-     'propose_fantasy_change': 'edit', 'approve_fantasy_change': 'edit', 'link_espn_account': 'edit'},
+     'propose_fantasy_change': 'edit', 'approve_fantasy_change': 'edit'},
     title='ESPN', description='Read your ESPN fantasy basketball league; propose and approve lineups, '
                               'roster edits and trades.',
     url=DOCS_URL, status=status,
-    link=AccountLink(LINK_STEP, linked=linked, tool='link_espn_account', url=ACCOUNT_URL))
+    link=AccountLink(LINK_STEP, linked=linked, url=ACCOUNT_URL))
