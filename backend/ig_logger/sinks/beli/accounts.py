@@ -15,6 +15,7 @@ Platform-level identity (token -> account row) lives in
 
 from __future__ import annotations
 
+import os
 import secrets
 
 from cryptography.fernet import InvalidToken, MultiFernet
