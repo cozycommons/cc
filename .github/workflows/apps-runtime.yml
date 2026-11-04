@@ -1,0 +1,32 @@
+name: Apps runtime prototype
+on:
+  pull_request:
+    paths:
+      - 'backend/app_runtime/**'
+      - 'infra/apps/**'
+      - 'scripts/apps-dev.sh'
+      - '.github/workflows/apps-runtime.yml'
+  workflow_dispatch:
+jobs:
+  local-prototype:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: scripts/apps-dev.sh setup
+      - run: PYTHONPATH=backend .apps-dev/venv/bin/python -m pytest backend/app_runtime/tests/test_core.py backend/app_runtime/tests/test_api.py -q
+      - run: scripts/apps-dev.sh start
+      - name: Wait for manager
+        run: curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:8091/health
+      - run: scripts/apps-dev.sh smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apps-runtime-evidence
+          path: .apps-dev/smoke-result.json
+          if-no-files-found: ignore
+      - run: scripts/apps-dev.sh stop
+        if: always()

@@ -1,0 +1,61 @@
+name: cc-apps-local
+services:
+  manager:
+    build:
+      context: ../..
+      dockerfile: infra/apps/Dockerfile
+    container_name: cc-apps-local-manager
+    environment:
+      APPS_STATE: /state
+      APPS_PROXY_CONFIG: /proxy/Caddyfile
+      APPS_USERS: /run/users.json
+      APPS_POSTGRES_PASSWORD: ${APPS_POSTGRES_PASSWORD:?Run scripts/apps-dev.sh setup}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - state:/state
+      - proxy-config:/proxy
+      - ../../.apps-dev/users.json:/run/users.json:ro
+    ports:
+      - "127.0.0.1:8091:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [control]
+  proxy:
+    image: caddy:2.10.2-alpine
+    container_name: cc-apps-local-proxy
+    entrypoint: ["sh", "-c", "test -f /proxy/Caddyfile || cp /etc/caddy/initial /proxy/Caddyfile; exec caddy run --config /proxy/Caddyfile --adapter caddyfile"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/initial:ro
+      - proxy-config:/proxy
+    ports:
+      - "127.0.0.1:8090:80"
+    networks: [control]
+  postgres:
+    image: postgres:17-bookworm
+    container_name: cc-apps-local-postgres
+    environment:
+      POSTGRES_PASSWORD: ${APPS_POSTGRES_PASSWORD:?Run scripts/apps-dev.sh setup}
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [control]
+  runtime-image:
+    image: cc-apps-runtime:local
+    build:
+      context: ../..
+      dockerfile: infra/apps/runtime/Dockerfile
+    profiles: [build]
+networks:
+  control:
+    name: cc-apps-local-control
+volumes:
+  state:
+    name: cc-apps-local-state
+  postgres:
+    name: cc-apps-local-postgres
+  proxy-config:
+    name: cc-apps-local-proxy-config

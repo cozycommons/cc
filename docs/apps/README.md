@@ -1,9 +1,10 @@
 # Cozy Commons apps: software shaped by its community
 
-Status: **proposed direction, not implemented.** Until a phase below lands,
+Status: **local prototype; hosted platform remains proposed.** See
+[the local walkthrough](PROTOTYPE.md), [product contract](PRODUCT.md) and
+[technical design](TECH.md). Existing deployed projects still follow
 `docs/deployment.md#project-placement-policy` and the current Coolify/Supabase
-setup remain authoritative. This document records the decisions and the plan so
-later work can pick them up.
+setup. No existing app migration or VPS deployment is part of this prototype.
 
 ## Vision
 
@@ -72,7 +73,7 @@ Rent from agent products:
 - Chat, voice and mobile interfaces.
 - Proactive check-ins and scheduled tasks.
 - Understanding photos and documents.
-- Coding harnesses and sandboxes.
+- Coding harnesses and temporary task sandboxes; the app environment stays ours.
 - Their own built-in memory.
 
 Own in Cozy Commons:
@@ -92,11 +93,11 @@ Support at least two agent vendors so the design stays vendor-neutral.
 
 ```
 internet ─► platform proxy (route access policy) ─┬─► /mcp    shell + files connector
-                                               └─► /<app>  web apps
+                                               └─► app subdomains → chosen ports
                                                         │
           ┌─────────────────────────────────────────────▼─────────────────┐
           │ app: AGENTS.md · code · tests · memory/ · git history           │
-          │       own Postgres database + role (local Unix socket)          │
+          │       own Postgres database + role (local service)              │
           └──────────────────────────────────────────────────────────────────┘
                      │ continuous WAL + volume snapshots
                      ▼
@@ -114,13 +115,15 @@ and is the only part protected from careless agent edits. It provides:
   verifies its JWT; agent connections use OAuth and scoped authorization.
 - Membership and permissions: invite people and grant use, contribution or
   stewardship access. Agents act within the connecting person's permissions.
-- Hosting and domains: stable addresses and a proxy routing `/<app>` and app
-  hosts to their runtimes.
+- Hosting and domains: `<app>.cozycommons.dev` routes to the app's default
+  published port. Additional services use `<app>--<service>.cozycommons.dev`.
+  Platform names such as admin, api, auth and www are reserved; `--` is reserved
+  as the service separator. The local prototype uses `.localhost` on port 8090.
 - Publishing: explicit private, community or public route policies. Public
   app access never grants shell, file or database access.
 - An app runtime: start, stop and resource limits for each app.
 - Snapshots, backups and restore.
-- Preview, swap and rollback for changes.
+- Dynamic publication and removal of named HTTP ports, private by default.
 - A generic shell and files connector for agents.
 - Shared identity (today's `commons_profiles`) as a platform service.
 
@@ -129,24 +132,31 @@ they cannot remove platform controls or grant themselves additional access.
 
 ### Apps
 
-An app has a directory with `AGENTS.md`, code, tests, memory files, git
-history and its own database. Dice, Trips, Beli and a personal health app are
-all apps. Each app is stewarded by a person or community. A person can belong
-to several apps with different permissions in each.
+One app normally has one persistent Docker container, organized around a purpose:
+a new app idea, someone's health, or a particular trip. It holds files, code,
+`AGENTS.md`, tests, memory and git history, with access to its own database. It
+can start with context and files and acquire interfaces and behavior over time.
+Each app is stewarded by a person or community; people may belong to several.
 
-- An app runs in its own runtime and reads its local database.
+- The container behaves like a small computer. Authorized agents can download
+  files, install dependencies, write code and start multiple processes.
+- A primary web server, an experiment, a background worker and a preview can all
+  run in the same container. They are part of the same purpose-oriented app.
+- Agents expose selected ports through the platform. The platform owns hostname
+  allocation, access policy and proxy configuration; arbitrary container ports
+  are not automatically public. Publishing a port does not start its server.
+- There is no special preview subsystem. An agent can run another server and
+  publish its port when useful. Processes in the same container share resources
+  and an access boundary; a preview is not isolated from the live process.
+- Workspace files persist on a volume. Dependencies installed outside it must
+  be reproducible when replacing the container. Registered services restart with
+  the container; ad-hoc processes do not necessarily restart.
 - Apps use each other's HTTP APIs, never each other's tables.
-- **Personal apps** can allow low-risk live edits, with a snapshot taken
-  before each change. Personal ownership does not make destructive data
-  changes low risk.
-- **Shared apps** use a preview and checks, plus approval where the community
-  requires it, before a change goes live. A snapshot-based preview database
-  (`CREATE DATABASE … TEMPLATE …`) is proposed; promotion must preserve writes
-  made to the live app while the preview is running. The exact promotion and
-  recovery protocol remains to be designed.
-- Each code change is a git commit. Reverting code and restoring data are
-  distinct operations; a code revert alone cannot undo database or file writes.
-  Health checks and automatic rollback must account for that distinction.
+- Community policy decides which changes need agreement. The local prototype
+  trusts contributors with the entire app and does not implement approval gates.
+- Code reverts and data recovery are distinct. The local prototype supports
+  explicit maintenance-window workspace/database backups and restoration, not
+  automatic rollback or swapping preview data into a live database.
 
 ### Agent access
 
@@ -163,8 +173,9 @@ to several apps with different permissions in each.
   contributor permissions need a concrete enforcement design.
 - Scheduling and proactive work use the agent vendor's scheduled tasks. Cozy
   Commons does not build its own.
-- Apps do not embed their own agent. They can link out ("Ask ChatGPT about
-  this").
+- For now, people invoke agents in their existing agent products and connect
+  them to the app. Invoking an agent from inside the app is explicitly deferred;
+  seamless in-app interaction is not a prerequisite for this prototype.
 
 ## Decisions
 
@@ -172,8 +183,8 @@ to several apps with different permissions in each.
 |---|---|---|
 | D1 | Every app, existing or new, follows the same basic structure | Agents build all of it, so separate classes add cost without benefit |
 | D2 | Community policy and change risk set how a change ships | Members can shape software without granting every change automatic publication |
-| D3 | Each app's database is local to the host | Sub-millisecond queries, cheap previews, isolation, and agents can work on it directly |
-| D4 | One local Postgres server, one database and role per app; Postgres is the only engine | Existing apps move by `pg_dump`/restore instead of a rewrite; `TEMPLATE` copies make previews cheap; no joins across databases enforces app boundaries; one dialect for agents |
+| D3 | Each app's database is local to the host | Direct agent access and locally managed storage and recovery |
+| D4 | One local Postgres server, one database and role per app; Postgres is the only engine | A common SQL dialect and separate data ownership; existing apps can eventually migrate with dump/restore |
 | D5 | Keep Supabase Auth for sign-in | Replacing it makes nothing easier for agents |
 | D6 | Generic machine access, initially shell and files over MCP, with SSH for coding agents | The shared environment stays independent of the agent vendor and access transport |
 | D7 | Rent agent capabilities and own data, context and apps | Benefit from each vendor release instead of competing with it |
@@ -181,6 +192,9 @@ to several apps with different permissions in each.
 | D9 | The platform stays small and changes slowly | It is the one part a careless change can break for every app |
 | D10 | Apps support shared stewardship, contribution and use as distinct responsibilities | A community can shape an app whose audience includes non-editors and the public |
 | D11 | Cozy Commons supplies common identity, hosting, domains, publishing and recovery | Each group should not have to assemble this infrastructure separately with its agents |
+| D12 | Normally one app, one persistent Docker container; agents control its files and processes | An app can evolve around its purpose without prescribing its interfaces or process layout |
+| D13 | Publish a default port and arbitrary named service ports through the shared proxy | Previews and experiments need no special platform abstraction |
+| D14 | Invoke external agents; defer invoking an agent from inside the app | Prove the shared environment before building an agent interaction surface |
 
 ### Postgres details (D4)
 
@@ -241,31 +255,18 @@ secrets.
 
 ## Plan
 
-1. **Deploy loop:** prerequisites 1–4 above, for the current shared app.
-2. **Platform skeleton:**
-   - App runtime on Coolify.
-   - Local Postgres with WAL backups and a rehearsed restore.
-   - Proxy with Supabase Auth, membership permissions and explicit public routes.
-   - Stable domains and private/community/public publishing controls.
-   - Shell and files connector with OAuth and per-member app authorization.
-3. **First app:** the personal health app. Move the workout app from `dummi`
-   and add memory files and `health_log`. This proves live editing, snapshots
-   and the connector from ChatGPT and Claude.
-4. **Preview and promotion:** define the shared-app change path, including
-   community approval rules, concurrent live writes, schema changes and data
-   recovery. Prove it before relying on automatic promotion or rollback.
-5. **First shared app:** a small, loosely coupled `cc` project such as Beli or
-   Partiful, moved from Supabase to local Postgres. Validate the central shared
-   stewardship workflow: invite another contributor, connect their agent,
-   preview a change, approve and publish it, and recover from a failed change.
-   Also verify that a non-editor can use the app and that a public route exposes
-   only its intended content. The health app tests the mechanics; this step
-   tests collaboration across people and agents.
-6. **Identity service:** move `commons_profiles` and cross-project identity
-   into the platform, and replace cross-project table access with APIs.
-7. **Remaining projects:** convert each one when it is next touched. Dice goes
-   last because it has the most migrations and users. Until a project moves, it
-   runs in the current shared application as today.
+1. **Local prototype:** persistent app containers, generic MCP shell/files,
+   contributor/viewer permissions, dynamic port publication, and a tested local
+   backup/restore path. Use synthetic data and loopback-only host ports.
+2. **Hosted pilot:** OAuth for external agents, real DNS/TLS, hosted browser
+   sign-in, durable off-server backups and a restore drill. Use a new app before
+   moving any existing personal or shared app.
+3. **Shared stewardship:** exercise two people's agents shaping the same app,
+   including non-editor use and intentional public publication. Refine change
+   agreement and concurrent editing policies from actual use.
+4. **Existing projects:** evaluate migrations separately after the platform is
+   proven. Preserve the shared application and its deployment workflow until a
+   specific migration is approved; Dice remains last due to its users and history.
 
 ## Open questions
 
@@ -277,8 +278,8 @@ secrets.
   how are they enforced consistently through MCP, SSH and app access?
 - **Public access:** which screens and operations can be public, and who may
   change that policy? Public readership must not imply public data access.
-- **Promotion and recovery:** how do preview changes preserve concurrent live
-  writes, and what does undo mean for code, schema, data and memory files?
+- **Recovery:** what additional recovery guarantees are needed beyond explicit
+  local workspace/database restoration before hosting real community data?
 
 - **Codex:** Codex cloud tasks or the Codex CLI inside app runtimes? Check whether
   automated use from a ChatGPT subscription is permitted before relying on it.

@@ -1,0 +1,7 @@
+{
+    auto_https off
+    admin localhost:2019
+}
+:80 {
+    respond "No published route" 404
+}
