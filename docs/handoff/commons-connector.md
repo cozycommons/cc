@@ -8,10 +8,13 @@
   enablement, filtered tool list, account-link contract, generic safety test).
 - M3b: merged in #200 (Beli on `/mcp`).
 - M3c: merged in #201 (Resy on `/mcp`).
-- M3d (this PR, `commons-connector-m3d-partiful`): Partiful on `/mcp`, from main
-  after #201. Opened non-draft; the orchestrator runs the external review and
-  merges.
-- M3e: not started. Plan below.
+- M3d: merged in #204 (Partiful on `/mcp`).
+- M3e (this PR, `commons-connector-m3e-espn`): ESPN on `/mcp`, rebased on main
+  after #204 (9b84d2c). ESPN PRs #179, #184 and #185 are still open; this PR
+  touches none of their files (`espn/waivers.py`, `espn/roster_edits.py` and
+  their tests) and calls `approve_edit` and the other gates as they are on main.
+  Opened non-draft; the orchestrator runs the external review and merges.
+  With M3e every project with a separate MCP endpoint is on `/mcp`.
 - Loopback only. Local OAuth client credentials and signing/encryption keys live
   only in ignored `.dice-dev/commons-mcp.json` (0600). No production connection.
 
@@ -324,6 +327,110 @@ PASS legacy /partiful/events still works after connector reads rotated the refre
 PASS every Partiful tool over real OAuth: link, list, details; only the caller's session read
 PASS read-only token denied on link_partiful_account
 PASS read-only token reads Partiful events; linking refused
+```
+
+### M3e decisions
+
+- **Tools (5 + link).** `get_fantasy_league(view)` merges league, standings,
+  team, draft and transactions, and adds `your_team_id`; `team` defaults to the
+  caller's own team. `get_fantasy_trends(kind)` merges player and team trends.
+  `get_fantasy_activity(kind, proposal_id?)` merges lineup runs, roster edits and
+  trades; with an id an unresolved edit or trade is reconciled from ESPN (the
+  legacy `get_roster_edits(edit_id)` behavior). `propose_fantasy_change(kind)`
+  and `approve_fantasy_change(kind, proposal_id, idempotency_key, dry_run)` keep
+  the existing gate, as the plan said.
+- **dry_run on every write.** Propose is itself the preview and sends nothing to
+  ESPN (it stores a pending row, as the legacy propose tools do). Approve takes
+  `dry_run` (default true) and `idempotency_key`, so the one call that reaches
+  ESPN is previewed and keyed like every other connector write.
+- **Lineups join the gate.** The legacy `run_lineup` submits directly
+  (`dry_run=false` by default). On `/mcp` a lineup is proposed as a dry-run run
+  (its row id is the proposal id) and approved with a live run for that scoring
+  period, approvable for 30 minutes like edits and trades. The live run replans
+  from ESPN, so its record, not the preview, says what moved.
+- **Idempotency.** `espn_agent_receipts` (0020, no DELETE grant, contract-checked
+  with Resy's) is written just before the approval and never released. A key
+  with no recorded outcome is settled only by reading ESPN: edits and trades
+  through the existing `get_edit`/`get_proposal` reconciliation, lineups by a
+  read-only replan that must show no move left. A still-pending proposal under
+  an open key is waited out (the first request may not have claimed it yet)
+  until it expires. An approval refused before its claim records `not_sent`.
+  The proposal claim (pending -> executing) still prevents double submission
+  across keys, `/espn` and `/espn/mcp`.
+- **Sharing and team claims.** One Commons user per ESPN account (the same
+  partial unique index as Beli/Resy/Partiful), so league cookies are never
+  shared between Commons users, and every write acts on the team the linked
+  cookies own, as on `/espn`. The plan suggested defaulting `team_id` from
+  `espn_team_claims`; I used the cookies' own team instead, because claims are a
+  public-profile association for one league and season that can differ from the
+  linked league, while the cookies are what ESPN acts on. The connector does not
+  read or change claims.
+- **Local exercise.** `serve` points ESPN reads, writes and the public
+  scoreboard at the e2e's fake on 8769, which serves the unit tests' synthetic
+  league (`tests/espn_fakes.py`) per SWID cookie.
+
+### M3e validation evidence
+
+- Backend, all DB/integration opt-ins (fresh bootstrapped
+  `dummi_regression_501_2026` + real PostgREST, loopback Floor Planner stack,
+  dedicated Trips stack, analytics opt-in): **2256 passed, 0 skipped**, on a tree
+  identical to main 9b84d2c plus this change. After the rebase the ESPN owner,
+  Partiful owner and ESPN write-claim Postgres suites reran with the upgrade pin
+  moved to 9b84d2c: 101 passed. Plain `python -m pytest tests -q`: 1970 passed,
+  286 skipped.
+- New: `tests/test_espn_agent_tools.py` (14),
+  `tests/test_espn_owner_database.py` (27, real Postgres: link outcomes, unique
+  owner, user deletion, a linked account still deletable through
+  `DELETE /espn/account`, receipts never deletable, browser denial, contract
+  tampering, upgrade from main's 0019 release (9b84d2c, #204) with an existing
+  account left unlinked and unchanged). Safety test: 145 cases over 27 tools (35
+  ESPN) plus a linked-caller isolation test. Mutation check: an owner-ignoring
+  account lookup fails the isolation test.
+- Frontend: 98 files, 770 tests; production build and lint passed.
+- Shared loopback stack: beli 0017–0020 and dice 0087–0088 applied for the e2e
+  (whoami now reads `commons_profiles`, and the stack was at dice 86), then
+  rolled back to beli 16 and dice 86. The schema catalog after the dice rollback
+  is byte-identical to the one before it; the pre-0017 beli contract and
+  `dice_release_readiness()` pass.
+- Real OAuth e2e: 139 PASS lines, none failed; the ESPN lines:
+
+```text
+PASS enable_project espn
+PASS list_projects/enable_project show ESPN unlinked with the link step
+PASS unlinked get_fantasy_league refused with the link step
+PASS synthetic ESPN onboarding through /espn/onboard (fake loopback ESPN API)
+PASS link_espn_account refused for another user's account
+PASS link_espn_account refused for a wrong token
+PASS link_espn_account
+PASS linking changes only the owner; the legacy cce_ token still works on /espn
+PASS get_fantasy_league view=league
+PASS get_fantasy_league view=team (yours)
+PASS get_fantasy_league view=standings
+PASS get_fantasy_trends kind=teams
+PASS get_fantasy_trends kind=players
+PASS propose_fantasy_change lineup
+PASS approve_fantasy_change lineup dry_run
+PASS approve_fantasy_change lineup commit
+PASS approve_fantasy_change lineup idempotent replay
+PASS propose_fantasy_change roster_edit
+PASS approve_fantasy_change roster_edit dry_run
+PASS approve_fantasy_change lost ESPN answer keeps its key and asks for a same-key retry
+PASS approve_fantasy_change same-key retry before ESPN shows it: reads only, still open
+PASS approve_fantasy_change same-key retry settles from ESPN
+PASS approve_fantasy_change roster_edit idempotent replay
+PASS approve_fantasy_change key reuse for another proposal refused
+PASS lost roster-edit answer settled once by reading ESPN; no second submission
+PASS propose_fantasy_change trade
+PASS approve_fantasy_change trade commit
+PASS get_fantasy_activity
+PASS get_fantasy_activity one trade
+PASS get_fantasy_activity refused for another user's edit
+PASS approve_fantasy_change refused for another user's edit
+PASS legacy /espn/roster/edits sees the connector edit through the same gate
+PASS every ESPN tool over real OAuth: link, league, trends, activity, propose and approve; one lineup, one roster edit and one trade sent
+PASS read-only token denied on propose_fantasy_change
+PASS read-only token denied on approve_fantasy_change
+PASS read-only token reads the ESPN league; proposals and approvals refused; nothing sent
 ```
 
 ## M3 plan: one PR per project
