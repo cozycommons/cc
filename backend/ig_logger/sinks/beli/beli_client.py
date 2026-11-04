@@ -17,14 +17,15 @@ per-instance (the backend is multi-tenant; nothing is shared across accounts).
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
-import random
 import re
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 
 import jwt
 
@@ -53,7 +54,7 @@ class BeliError(Exception):
 
 
 class BeliUnauthorized(BeliError):
-    """The access token was rejected (triggers a re-login)."""
+    """Beli rejected authentication."""
 
 
 def is_phone_identifier(value: str) -> bool:
@@ -107,9 +108,19 @@ def _read_json_response(resp) -> object:
 class BeliClient:
     """Authenticated Beli API access for a single Beli account."""
 
-    def __init__(self, beli_id: str, password: str):
+    def __init__(
+        self, beli_id: str, password: str, *,
+        on_unauthorized: Callable[[BeliClient], None] | None = None,
+        user_agent_key: str | None = None,
+    ):
         self.beli_id = beli_id
         self.password = password
+        # Account rows keep the same agent across credential changes/restarts.
+        # Credential probes have no row yet, so use their login instead.
+        digest = hashlib.sha256((user_agent_key or beli_id.strip()).encode()).digest()
+        self.user_agent = USER_AGENTS[int.from_bytes(digest[:4], "big") % len(USER_AGENTS)]
+        self._on_unauthorized = on_unauthorized
+        self._session_lock = threading.RLock()
         self._lock = threading.Lock()
         self._last_call_at = 0.0
         self._access: str | None = None
@@ -136,7 +147,7 @@ class BeliClient:
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(host + path, data=data, method=method)
         req.add_header("Content-Type", "application/json")
-        req.add_header("User-Agent", random.choice(USER_AGENTS))
+        req.add_header("User-Agent", self.user_agent)
         req.add_header("Origin", ORIGIN)
         if access_token:
             req.add_header("Authorization", f"Bearer {access_token}")
@@ -156,6 +167,18 @@ class BeliClient:
         return self._request(ONBOARD_HOST, path, method, body)
 
     def ensure_access_token(self) -> str:
+        # One login/refresh at a time, even when a watcher and HTTP requests
+        # share this account. Other accounts have independent locks.
+        with self._session_lock:
+            try:
+                return self._ensure_access_token()
+            except BeliUnauthorized:
+                self._access = self._refresh = None
+                if self._on_unauthorized:
+                    self._on_unauthorized(self)
+                raise
+
+    def _ensure_access_token(self) -> str:
         now_ms = time.time() * 1000
         if self._access and self._access_exp_ms - now_ms > 60_000:
             return self._access
@@ -169,8 +192,11 @@ class BeliClient:
                     self._access = access
                     self._access_exp_ms = _jwt_exp_ms(access) or (now_ms + 20 * 60_000)
                     return access
-            except BeliError:
-                pass  # refresh died; fall through to full login
+            except BeliError as error:
+                if error.status not in (400, 401):
+                    raise  # an outage is not a reason to attempt password login
+                if error.status == 401 and self._on_unauthorized:
+                    self._on_unauthorized(self)
             self._access = self._refresh = None
         data = self._onboard("/api/token/", "POST", login_body(self.beli_id, self.password))
         if not isinstance(data, dict) or not data.get("access"):
@@ -183,15 +209,22 @@ class BeliClient:
     # -- public API ---------------------------------------------------------
     def api(self, path: str, method: str = "GET", body: object = None) -> object:
         """Authenticated request against the main API host (no re-auth)."""
-        return self._request(API_HOST, path, method, body, self.ensure_access_token())
+        with self._session_lock:
+            try:
+                return self._request(API_HOST, path, method, body, self.ensure_access_token())
+            except BeliUnauthorized:
+                self._access = None
+                if self._on_unauthorized:
+                    self._on_unauthorized(self)
+                raise
 
     def api_with_reauth(self, path: str, method: str = "GET", body: object = None) -> object:
-        """Same as api() but retries once after a full re-login on 401."""
-        try:
-            return self.api(path, method, body)
-        except BeliUnauthorized:
-            self._access = self._refresh = None
-            return self.api(path, method, body)
+        """Retry once on 401, refreshing before falling back to password login."""
+        with self._session_lock:
+            try:
+                return self.api(path, method, body)
+            except BeliUnauthorized:
+                return self.api(path, method, body)
 
     @staticmethod
     def probe_credentials(beli_id: str, password: str) -> dict:

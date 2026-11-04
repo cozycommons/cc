@@ -33,6 +33,7 @@ class BeliSink:
         try:
             client = make_client_for_account(
                 {
+                    "id": account["id"],
                     "beli_id": accounts.decrypt_secret(account["beli_id_enc"]),
                     "password": accounts.decrypt_secret(account["password_enc"]),
                 }

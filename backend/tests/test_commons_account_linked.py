@@ -124,8 +124,11 @@ def test_reconnecting_refreshes_the_stored_password(account_app):
     client, db = account_app
     row, _ = beli_fakes.add_account(db, owner='u-sam')
     row['password_enc'] = accounts.encrypt_secret('old-password')
+    cached = BeliClient(row['login'], 'old-password')
+    accounts._clients[row['id']] = (0, cached)
     assert connect(client, row['login']).json()['status'] == 'already_linked'
     assert accounts.decrypt_secret(row['password_enc']) == PASSWORD
+    assert row['id'] not in accounts._clients
 
 
 def test_another_users_beli_account_is_refused_and_untouched(account_app):
