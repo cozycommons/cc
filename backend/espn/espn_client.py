@@ -52,8 +52,23 @@ ESPN answers 401/403, or a 200 whose body is an HTML login page instead
 of JSON. Both raise EspnAuthError — the user must re-onboard with fresh
 espn_s2/SWID cookies, and the client never returns the HTML as data.
 
-One EspnClient instance = one ESPN account / one league. Request pacing
-is per-instance; scheduler clients share a 429 cooldown within a tick.
+Access pattern (the goal is to stay far below anything ESPN would notice):
+
+  - Pacing is per ACCOUNT, not per client instance: every EspnClient
+    built for the same (league, season, SWID) shares one 1-request-per-
+    second gate, so concurrent API/MCP requests for an account queue
+    behind each other instead of firing together.
+  - A 429 starts a cooldown during which requests fail fast instead of
+    being sent. Interactive clients share one process-wide cooldown;
+    the scheduler passes its own per-tick cooldown.
+  - Read-only callers may opt into the shared read cache with
+    ``max_age`` (seconds). Within that age a repeated read is served
+    from memory, and identical reads in flight at the same time share
+    one ESPN request. The default ``max_age=0`` always goes to ESPN
+    and never joins another request: lineup, roster-edit, trade and
+    write-reconciliation paths read fresh. Any write clears the
+    account's cached reads.
+
 Cookies are never logged.
 """
 
@@ -63,6 +78,8 @@ import http.client
 import json
 import math
 import threading
+from collections import OrderedDict
+from concurrent.futures import Future
 import time
 import urllib.error
 import urllib.parse
@@ -77,6 +94,14 @@ USER_AGENT = (
 )
 MIN_GAP_S = 1.0
 RATE_LIMIT_COOLDOWN_S = 60.0
+# Read-cache ages for read-only callers. League state (rosters,
+# standings, transactions) may change at any moment, so it is cached
+# just long enough to absorb an agent or page fanning out over several
+# tools. A completed scoring period's stats are settled, so they are
+# reused for hours (stat corrections are rare and small).
+READ_CACHE_TTL_S = 30.0
+SETTLED_PERIOD_TTL_S = 6 * 3600.0
+READ_CACHE_MAX_CHARS = 96_000_000
 
 AUTH_EXPIRED_MESSAGE = (
     "ESPN cookies expired or were rejected; re-onboard with fresh "
@@ -147,6 +172,123 @@ class RequestCooldown:
             raise EspnError("ESPN requests deferred after HTTP 429", status=429)
 
 
+class ReadCache:
+    """Process-wide TTL cache of response bodies with single-flight reads.
+
+    Entries are raw JSON text, parsed fresh for every caller so no two
+    callers share (and could mutate) one object. Only bodies that
+    parsed successfully are stored; errors are handed to the requests
+    waiting on the same fetch and never cached. Size is bounded by a
+    total-characters budget with least-recently-used eviction.
+    """
+
+    def __init__(self, max_chars: int = READ_CACHE_MAX_CHARS):
+        self._lock = threading.Lock()
+        self._entries: OrderedDict = OrderedDict()  # key -> (stored_at, text)
+        self._chars = 0
+        self._max_chars = max_chars
+        self._inflight: dict = {}  # key -> Future[text]
+        self._generations: dict = {}  # scope -> int, bumped on invalidate
+
+    def read(self, scope, key, max_age: float, fetch):
+        """Parsed JSON for ``key``; ``fetch()`` returns ``(text, data)``.
+
+        ``scope`` groups keys for :meth:`invalidate`.
+        """
+        full_key = (scope, key)
+        with self._lock:
+            hit = self._entries.get(full_key)
+            if hit is not None and time.monotonic() - hit[0] <= max_age:
+                self._entries.move_to_end(full_key)
+                text = hit[1]
+                future = None
+            else:
+                text = None
+                future = self._inflight.get(full_key)
+                leader = future is None
+                if leader:
+                    future = self._inflight[full_key] = Future()
+                    generation = self._generations.get(scope, 0)
+        if text is not None:
+            return json.loads(text)
+        if not leader:
+            return json.loads(future.result())
+        try:
+            text, data = fetch()
+        except BaseException as e:
+            with self._lock:
+                if self._inflight.get(full_key) is future:
+                    del self._inflight[full_key]
+            future.set_exception(e)
+            raise
+        with self._lock:
+            if self._inflight.get(full_key) is future:
+                del self._inflight[full_key]
+            if generation == self._generations.get(scope, 0):
+                self._store(full_key, text)
+        future.set_result(text)
+        return data
+
+    def _store(self, full_key, text: str) -> None:
+        old = self._entries.pop(full_key, None)
+        if old is not None:
+            self._chars -= len(old[1])
+        if len(text) > self._max_chars:
+            return
+        self._entries[full_key] = (time.monotonic(), text)
+        self._chars += len(text)
+        while self._chars > self._max_chars:
+            _, (_, evicted) = self._entries.popitem(last=False)
+            self._chars -= len(evicted)
+
+    def invalidate(self, scope) -> None:
+        """Drop the scope's entries; reads already in flight are not stored."""
+        with self._lock:
+            self._generations[scope] = self._generations.get(scope, 0) + 1
+            for full_key in [k for k in self._entries if k[0] == scope]:
+                self._chars -= len(self._entries.pop(full_key)[1])
+            for full_key in [k for k in self._inflight if k[0] == scope]:
+                del self._inflight[full_key]
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+            self._inflight.clear()
+            self._generations.clear()
+            self._chars = 0
+
+
+class _Pacer:
+    """The 1-request-per-second gate shared by one account's clients."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.last_call_at = 0.0
+
+
+_READ_CACHE = ReadCache()
+_PROCESS_COOLDOWN = RequestCooldown()
+_PACERS: dict = {}
+_PACERS_LOCK = threading.Lock()
+
+
+def _pacer_for(scope) -> _Pacer:
+    with _PACERS_LOCK:
+        pacer = _PACERS.get(scope)
+        if pacer is None:
+            pacer = _PACERS[scope] = _Pacer()
+        return pacer
+
+
+def reset_shared_state() -> None:
+    """Forget all pacing, cooldown and cached reads (tests only)."""
+    global _PROCESS_COOLDOWN
+    _READ_CACHE.clear()
+    with _PACERS_LOCK:
+        _PACERS.clear()
+    _PROCESS_COOLDOWN = RequestCooldown()
+
+
 class EspnClient:
     """Authenticated ESPN Fantasy access for a single league.
 
@@ -162,21 +304,21 @@ class EspnClient:
         self._swid = (swid or "").strip()
         self.league_id = league_id
         self.season = season
-        self._lock = threading.Lock()
-        self._last_call_at = 0.0
-        self._cooldown = cooldown
+        # Pacing and cached reads belong to the account, not to this
+        # instance: routes build a fresh client per request.
+        self._scope = (league_id, season, self._swid)
+        self._pacer = _pacer_for(self._scope)
+        self._cooldown = cooldown if cooldown is not None else _PROCESS_COOLDOWN
 
     # -- internals ---------------------------------------------------------
     def _pace(self) -> None:
-        with self._lock:
-            if self._cooldown is not None:
-                self._cooldown.check()
-            wait = MIN_GAP_S - (time.monotonic() - self._last_call_at)
+        with self._pacer.lock:
+            self._cooldown.check()
+            wait = MIN_GAP_S - (time.monotonic() - self._pacer.last_call_at)
             if wait > 0:
                 time.sleep(wait)
-            if self._cooldown is not None:
-                self._cooldown.check()
-            self._last_call_at = time.monotonic()
+            self._cooldown.check()
+            self._pacer.last_call_at = time.monotonic()
 
     def _headers(self, extra: dict | None = None) -> dict:
         headers = {
@@ -188,13 +330,33 @@ class EspnClient:
             headers.update(extra)
         return headers
 
-    def _get(self, url: str, headers: dict | None = None, what: str = "ESPN request"):
-        """One paced GET round-trip; returns the parsed JSON body.
+    def _get(
+        self,
+        url: str,
+        headers: dict | None = None,
+        what: str = "ESPN request",
+        max_age: float = 0,
+    ):
+        """One GET; returns the parsed JSON body.
 
-        Maps every failure mode onto EspnError / EspnAuthError: 401/403
-        and HTML-login 200s are auth failures (re-onboard), other HTTP
-        errors carry their status, and non-JSON bodies are never
-        returned as data.
+        ``max_age > 0`` reads through the shared cache (see the module
+        docstring); otherwise this is always one paced round-trip.
+        """
+        if max_age <= 0:
+            return self._parse_get(self._get_text(url, headers, what), what)
+        key = (url, (headers or {}).get("X-Fantasy-Filter"))
+
+        def fetch():
+            text = self._get_text(url, headers, what)
+            return text, self._parse_get(text, what)
+
+        return _READ_CACHE.read(self._scope, key, max_age, fetch)
+
+    def _get_text(self, url: str, headers: dict | None, what: str) -> str:
+        """One paced GET round-trip; returns the raw body.
+
+        Maps HTTP failures onto EspnError / EspnAuthError: 401/403 are
+        auth failures (re-onboard), other HTTP errors carry their status.
         """
         self._pace()
         req = urllib.request.Request(url, method="GET")
@@ -217,6 +379,12 @@ class EspnClient:
             raise EspnError(f"{what} -> {e.code} {detail}", status=e.code) from e
         except urllib.error.URLError as e:
             raise EspnError(f"{what}: network error {e}") from e
+        return raw
+
+    @staticmethod
+    def _parse_get(raw: str, what: str):
+        """Parse a GET body; HTML-login bodies are auth failures and
+        non-JSON bodies are never returned as data."""
         text = raw.strip()
         try:
             return json.loads(text)
@@ -234,6 +402,19 @@ class EspnClient:
 
     def _post(self, url: str, body: dict, what: str = "ESPN write"):
         """One paced POST round-trip; returns the parsed JSON body.
+
+        The account's cached reads are dropped before and after the
+        write, so neither a read that raced the write nor one from
+        before it is served afterwards.
+        """
+        _READ_CACHE.invalidate(self._scope)
+        try:
+            return self._post_once(url, body, what)
+        finally:
+            _READ_CACHE.invalidate(self._scope)
+
+    def _post_once(self, url: str, body: dict, what: str):
+        """The write round-trip behind :meth:`_post`.
 
         401/403 and HTML-login responses are auth failures. Lost responses
         and server errors are uncertain writes; malformed success
@@ -282,7 +463,13 @@ class EspnClient:
             f"/leagues/{self.league_id}"
         )
 
-    def get_league(self, views: list[str], scoring_period_id: int | None = None) -> dict:
+    def get_league(
+        self,
+        views: list[str],
+        scoring_period_id: int | None = None,
+        *,
+        max_age: float = 0,
+    ) -> dict:
         """League payload merged across the requested views.
 
         ``views`` are sent as repeated ``view`` query params; ESPN
@@ -290,6 +477,9 @@ class EspnClient:
         ``scoring_period_id`` is given it rides along as a query param
         and ESPN scopes the roster to that day — that is how lineups
         for future days are read (and verified) in advance.
+
+        ``max_age`` opts a read-only caller into the shared read cache
+        (see the module docstring); the default always reads fresh.
         """
         url = self.league_url()
         params = [("view", view) for view in views]
@@ -297,12 +487,12 @@ class EspnClient:
             params.append(("scoringPeriodId", scoring_period_id))
         if params:
             url += "?" + urllib.parse.urlencode(params)
-        data = self._get(url, what="ESPN league")
+        data = self._get(url, what="ESPN league", max_age=max_age)
         if not isinstance(data, dict):
             raise EspnError("ESPN league: unexpected response (expected object)")
         return data
 
-    def _fetch_players(self, players_filter: dict) -> list:
+    def _fetch_players(self, players_filter: dict, max_age: float = 0) -> list:
         """One kona_player_info fetch with the given filter document."""
         url = (
             f"{API_BASE}/seasons/{self.season}/players"
@@ -312,12 +502,13 @@ class EspnClient:
             url,
             headers={"X-Fantasy-Filter": json.dumps(players_filter)},
             what="ESPN players",
+            max_age=max_age,
         )
         if not isinstance(data, list):
             raise EspnError("ESPN players: unexpected response (expected list)")
         return data
 
-    def get_players(self, limit: int = 300) -> list:
+    def get_players(self, limit: int = 300, *, max_age: float = 0) -> list:
         """Player entries for the season, sorted by percent owned (desc).
 
         The filter/sort document travels in the ``X-Fantasy-Filter``
@@ -329,7 +520,8 @@ class EspnClient:
                     "limit": limit,
                     "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
                 }
-            }
+            },
+            max_age=max_age,
         )
 
     def get_players_for_period(
@@ -342,7 +534,7 @@ class EspnClient:
         """
         return self.get_league_players_for_period(scoring_period_id, limit=limit)
 
-    def _fetch_league_players(self, players_filter: dict) -> list:
+    def _fetch_league_players(self, players_filter: dict, max_age: float = 0) -> list:
         """One league-scoped kona_player_info fetch with the given filter.
 
         The kona view rides on the LEAGUE URL; the response is the
@@ -354,6 +546,7 @@ class EspnClient:
             url,
             headers={"X-Fantasy-Filter": json.dumps(players_filter)},
             what="ESPN league players",
+            max_age=max_age,
         )
         if not isinstance(data, dict):
             raise EspnError(
@@ -367,7 +560,7 @@ class EspnClient:
             )
         return players
 
-    def get_league_players(self, limit: int = 1000) -> list:
+    def get_league_players(self, limit: int = 1000, *, max_age: float = 0) -> list:
         """Player entries for THIS league, sorted by percent owned (desc).
 
         The league-scoped kona view is the rich player source: entries
@@ -393,11 +586,12 @@ class EspnClient:
                     "limit": limit,
                     "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
                 }
-            }
+            },
+            max_age=max_age,
         )
 
     def get_league_players_for_period(
-        self, scoring_period_id: int, limit: int = 1000
+        self, scoring_period_id: int, limit: int = 1000, *, max_age: float = 0
     ) -> list:
         """League-kona entries with stat splits for ONE scoring period.
 
@@ -419,7 +613,8 @@ class EspnClient:
                     "limit": limit,
                     "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
                 }
-            }
+            },
+            max_age=max_age,
         )
 
     # -- writes: transactions (lineup moves, roster edits, trades) ---------

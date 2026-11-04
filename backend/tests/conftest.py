@@ -15,3 +15,13 @@ def pytest_sessionfinish(session, exitstatus):
         if any("test_dice" in report.nodeid or "test_migration" in report.nodeid for report in skipped):
             reporter.write_sep("=", "Required Dice or migration tests unexpectedly skipped")
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+@pytest.fixture(autouse=True)
+def _reset_espn_shared_state():
+    """ESPN pacing, 429 cooldown and read caches are process-wide; start each test clean."""
+    from espn import espn_client, scoreboard
+
+    espn_client.reset_shared_state()
+    scoreboard.reset_cache()
+    yield
