@@ -16,6 +16,7 @@ Platform-level identity (token -> account row) lives in
 from __future__ import annotations
 
 import os
+import logging
 import secrets
 
 from cryptography.fernet import InvalidToken, MultiFernet
@@ -25,6 +26,8 @@ from credential_keys import credentials_fernet
 from ... import sources
 from ...accounts import AccountError, get_account_row_by_token, hash_token
 from .beli_client import BeliClient, BeliError
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AccountError",
@@ -36,6 +39,7 @@ __all__ = [
     "get_account_by_owner",
     "linked_account_summary",
     "link_account_to_owner",
+    "connect_account_for_owner",
     "make_client_for_account",
 ]
 
@@ -175,6 +179,93 @@ def link_account_to_owner(supabase, token: str, user_id: str) -> tuple[str, dict
         raise AccountError("unknown token")
     return outcome, {"id": row["id"], "label": row.get("label"),
                      "watcher_opt_in": row["watcher_opt_in"]}
+
+
+def login_key(beli_id: str) -> str:
+    """One Beli login's canonical form: an ASCII-lowercased email, or a phone's digits.
+
+    Only ASCII is case-folded: str.lower() maps look-alikes such as the Kelvin
+    sign to ASCII letters, which would let a different Beli login match.
+    """
+    value = beli_id.strip()
+    if "@" in value:
+        return value.lower() if value.isascii() else value
+    digits = "".join(c for c in value if c.isdigit())
+    return "tel:" + digits if digits and value.isascii() else value
+
+
+def _account_for_login(supabase, beli_id: str) -> dict | None:
+    # beli_id is Fernet-encrypted with a random IV, so there is no column to
+    # match on; decrypting every row is fine at the handful of accounts we hold.
+    # A row that will not decrypt (a key mismatch) is skipped with a warning
+    # rather than blocking every connect; at worst it leads to a duplicate row.
+    rows = (
+        supabase.table("beli_accounts")
+        .select("id,label,watcher_opt_in,beli_id_enc,owner_user_id")
+        .execute()
+    ).data or []
+    wanted = login_key(beli_id)
+    for row in rows:
+        try:
+            login = decrypt_secret(row["beli_id_enc"])
+        except AccountError:
+            logger.warning("Skipping Beli account %s: its login does not decrypt", row["id"])
+            continue
+        if login_key(login) == wanted:
+            return row
+    return None
+
+
+def connect_account_for_owner(supabase, user_id: str, beli_id: str, password: str) -> tuple[str, dict]:
+    """Link a Beli login to a Commons user, proving ownership with the login itself.
+
+    This is the web replacement for presenting a ccb_ token. The login is
+    validated live first. An existing account with the same login is reused
+    (its stored password refreshed), so a legacy user keeps their watcher and
+    receipts and their ccb_ token keeps working; otherwise a new account is
+    created with a token nobody ever sees. Returns (outcome, summary) where
+    outcome is linked | already_linked | other_owner.
+    Raises AccountError for missing fields and BeliError when Beli refuses.
+    """
+    beli_id = (beli_id or "").strip()
+    if not beli_id or not password:
+        raise AccountError("beli_id and password are required")
+    if not beli_id.isascii():
+        raise AccountError("beli_id must be ASCII")
+    BeliClient.probe_credentials(beli_id, password)
+
+    row = _account_for_login(supabase, beli_id)
+    if row and row.get("owner_user_id") not in (None, str(user_id)):
+        return "other_owner", {"id": row["id"], "label": row.get("label")}
+    if row:
+        account = {"id": row["id"], "label": row.get("label"),
+                   "watcher_opt_in": bool(row.get("watcher_opt_in"))}
+    else:
+        token = mint_token()  # the column is required; this token is never shown
+        created = (supabase.table("beli_accounts").insert({
+            "label": "beli",
+            "beli_id_enc": encrypt_secret(beli_id),
+            "password_enc": encrypt_secret(password),
+            "token_hash": hash_token(token),
+            "token_prefix": token[:12],
+            "watcher_opt_in": True,
+        }).execute().data or [{}])[0]
+        if not created.get("id"):
+            raise AccountError("could not create the Beli account")
+        sources.subscribe(supabase, created["id"], "beli_eats", enabled=True)
+        account = {"id": created["id"], "label": "beli", "watcher_opt_in": True}
+    outcome = supabase.rpc(
+        "beli_link_account", {"p_account_id": account["id"], "p_user_id": str(user_id)}
+    ).execute().data
+    if outcome not in ("linked", "already_linked", "other_owner"):
+        raise AccountError("could not link the Beli account")
+    # Refresh the stored password only once the row is the caller's, so a lost
+    # race or a wrong match can never rewrite someone else's credentials.
+    if row and outcome != "other_owner":
+        supabase.table("beli_accounts").update(
+            {"password_enc": encrypt_secret(password)}
+        ).eq("id", row["id"]).eq("owner_user_id", str(user_id)).execute()
+    return outcome, account
 
 
 def make_client_for_account(account: dict) -> BeliClient:
