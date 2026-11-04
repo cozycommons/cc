@@ -122,8 +122,9 @@ class PasswordLogin(BaseModel):
     password: str = Field(min_length=1)
 
 
-# 10 attempts per hour per worker, counted per Commons user and per service login, so new
-# Commons accounts cannot buy more password guesses against one Beli or Resy login.
+# 10 attempts per hour per worker, counted per Commons user for each service and per service
+# login, so new Commons accounts cannot buy more password guesses against one Beli or Resy
+# login, and connecting several services cannot lock a user out of the next one.
 _CONNECT_ATTEMPTS: dict[str, list[float]] = {}
 _CONNECT_LIMIT = 10
 _CONNECT_WINDOW_S = 3600
@@ -150,7 +151,7 @@ def connect_beli(body: PasswordLogin, request: Request, user=Depends(current_use
     """Connect (or refresh the password of) the caller's Beli account from its login."""
     if len(body.password) > 200:
         raise HTTPException(400, 'That password is longer than Beli allows.')
-    connect_rate_check('user:' + str(user.id), 'beli:' + beli_accounts.login_key(body.login))
+    connect_rate_check('beli-user:' + str(user.id), 'beli:' + beli_accounts.login_key(body.login))
     try:
         outcome, account = beli_accounts.connect_account_for_owner(
             client(request), str(user.id), body.login, body.password)
@@ -173,7 +174,7 @@ def connect_resy(body: PasswordLogin, request: Request, user=Depends(current_use
         raise HTTPException(400, 'That password is longer than Resy allows.')
     if '@' not in body.login:
         raise HTTPException(400, 'Enter the email you use to sign in to Resy.')
-    connect_rate_check('user:' + str(user.id), 'resy:' + resy_accounts.login_key(body.login))
+    connect_rate_check('resy-user:' + str(user.id), 'resy:' + resy_accounts.login_key(body.login))
     try:
         outcome, account = resy_accounts.connect_account_for_owner(
             client(request), str(user.id), body.login, body.password)

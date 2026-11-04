@@ -313,6 +313,14 @@ def test_resy_guesses_are_limited_per_user_and_per_resy_login(resy_app):
     assert connect_resy(client, 'kim@example.test', headers=KIM).status_code == 200
 
 
+def test_attempts_on_one_service_do_not_block_another(resy_app):
+    client, db = resy_app
+    for _ in range(10):
+        assert connect(client, 'typo@example.test', password='wrong').status_code == 400
+    assert connect(client, 'new@example.test').status_code == 429
+    assert connect_resy(client, 'new@example.test').status_code == 200
+
+
 def test_resy_and_beli_links_are_independent(resy_app):
     client, db = resy_app
     assert connect(client, 'same@example.test').status_code == 200
