@@ -1,7 +1,7 @@
 # Cozy Commons MCP
 
 One connection and browser sign-in serves every registered project: Commons
-discovery and enablement, Trips, Floor Planner, Beli, Resy and Partiful. Two
+discovery and enablement, Trips, Floor Planner, Beli, Resy, Partiful and ESPN. Two
 stable scopes, `commons:read` and `commons:edit`, cover all of them, and each
 user enables the projects whose tools their agent sees. Adding a project or tool therefore never
 changes the scope set or forces existing users to reconnect. The existing Beli,
@@ -233,8 +233,7 @@ connector project, `list_projects` returns whether it is enabled and why
 (`your choice`, `default: you already use it` or `default: off until enabled`),
 whether its account is linked (projects with an account link), its tools with
 their access level, its status and the exact next step. Other public projects
-and the separate MCP integration not yet here (ESPN) are listed
-with their URL or endpoint.
+are listed with their URL.
 Status lookup failures do not prevent discovery. `enable_project(project_id)`
 returns the project's tools and any one-time link step.
 
@@ -279,7 +278,7 @@ conflict asks the agent to read/review the trip before retrying.
 
 DCR requests omitting scope receive `commons:read commons:edit`. A missing
 permission says, for example, “Reconnect your agent to grant commons:edit.”
-The unrelated `/beli/mcp`, `/resy/mcp`, `/partiful/mcp`, and `/espn/mcp`
+The legacy `/beli/mcp`, `/resy/mcp`, `/partiful/mcp`, and `/espn/mcp`
 endpoints remain unchanged.
 
 ## Beli
@@ -429,6 +428,77 @@ the shared 120-second read cache, which would otherwise hand them a refresh
 token another path had already retired. A dead session asks the user to
 onboard again and relink.
 
+## ESPN
+
+Provider `backend/espn/agent_tools.py`, five tools plus the link step. The
+legacy `/espn/mcp` has fifteen; reads merge by a parameter and every write keeps
+the existing propose -> approve gate. Approving submits for real: a roster edit
+adds and drops players (a waiver target becomes a claim, bid 0), a trade sends
+an offer the other manager sees, and a lineup moves players between slots.
+
+- `get_fantasy_league(view="league", team_id?, limit=25)` (`read`): `league`
+  (settings, teams and `your_team_id`), `standings`, `team` (one roster;
+  `team_id` defaults to your own team), `draft` or `transactions`. Merges
+  `get_league`, `get_standings`, `get_team`, `get_draft` and `get_transactions`.
+- `get_fantasy_trends(kind="players", limit=10)` (`read`): `players` (ownership
+  and performance from league snapshots) or `teams`. Merges
+  `get_player_trends` and `get_team_trends`.
+- `get_fantasy_activity(kind, proposal_id?, limit=25, scoring_period_id?)`
+  (`read`): `lineup_runs`, `roster_edits` or `trades`, newest first, or one by
+  id. An edit or trade with an unresolved ESPN outcome is reconciled by
+  rereading ESPN, never resubmitted. Merges `get_lineup_runs`,
+  `get_roster_edits` and `get_trades`.
+- `propose_fantasy_change(kind, ...)` (`edit`): validates against the live league
+  and stores a pending proposal; sends nothing to ESPN. `lineup` (`date` or
+  `scoring_period_id`, neither = today) records a dry-run lineup run under the
+  standing rule that every scheduled player starts; `roster_edit`
+  (`add_player_id` and/or `drop_player_id`) and `trade`
+  (`counterparty_team_id`, `give_player_ids`, `receive_player_ids`) store a
+  pending row with a 30-minute expiry. Arguments of another kind are refused.
+  Returns `proposal_id` and a `summary`. Merges `run_lineup(dry_run=true)`,
+  `propose_roster_edit` and `propose_trade`.
+- `approve_fantasy_change(kind, proposal_id, idempotency_key, dry_run=true)`
+  (`edit`): `dry_run=true` shows what approving submits and sends nothing;
+  `dry_run=false` submits that one proposal through `roster_edits.approve_edit`,
+  `trades.approve_trade` or a live `lineup.run_lineup` for the previewed
+  scoring period. A lineup preview is approvable for 30 minutes, like edits and
+  trades. Merges `approve_roster_edit`, `approve_trade` and the live
+  `run_lineup`.
+- `link_espn_account(api_token)` (`edit`): the one-time link step with the
+  existing `cce_` token.
+
+Linking mirrors the other projects: migration
+`0089_beli_espn_account_owner.sql` adds `espn_accounts.owner_user_id` (partial
+unique index, `on delete set null`), `espn_link_account(account, user)` and
+`espn_agent_receipts`. One Commons user links one ESPN account, and an account
+has at most one Commons owner, so a league's cookies are never shared between
+Commons users. The account is one manager's cookies, and every write acts on the
+team those cookies own (the SWID member), as on `/espn`. Linking changes only
+`owner_user_id`: cookies, lineup automation and `espn_team_claims` are untouched,
+and the connector does not read or change team claims. `/espn/*`, `/espn/mcp`
+and `cce_` tokens are unchanged; existing accounts stay unlinked. ESPN is on by
+default once linked; linking happens only through the tool. A legacy
+`DELETE /espn/account` still deletes a linked account and its proposals.
+
+Approvals. The proposal row is ESPN's own guard: an approval claims it
+atomically (pending -> executing) before anything is sent, and an unresolved
+row is only reconciled. On top, a commit writes a receipt (user, key, the kind
+and proposal id, and the summary) immediately before the approval and records
+the outcome on it. The receipt is never released: the connector has no `DELETE`
+grant on the table, and the Beli schema contract fails release if one appears.
+When ESPN's answer is lost, the call says the change "may have gone through"
+and asks for the same key and arguments. A retry with that key never submits
+again: for an edit or trade it rereads ESPN through the existing
+reconciliation, and for a lineup it replans that day read-only (a dry-run run)
+and counts the change set when no move remains. Otherwise it asks for a same-key
+retry later. An approval refused before it claimed its proposal (for example,
+another unresolved write with the same players) records `not_sent`, so the key
+replays that refusal; nothing was sent under it. A key with recorded details
+refuses another proposal. Replays return the original result. Before any key is
+reserved, an unknown, expired, already decided or unresolved proposal is
+refused with the fix (`get_fantasy_activity` to reconcile an unresolved one).
+Expired cookies ask the user to onboard again and relink.
+
 ## Local real OAuth exercise
 
 Use Python 3.12/3.13, Node 22, Docker and psql. Start the isolated stack;
@@ -519,7 +589,25 @@ session, and checks the `ccp_` token on `/partiful/me`. It lists events (no
 guest data), filters by scope, reads one event, is refused another user's
 event, and then calls the legacy `/partiful/events`, which must still work after
 the connector's rotations. The read-only grant reads events and cannot link.
-Synthetic users, trips and Beli, Resy and Partiful accounts remain in the
+
+For ESPN, `serve` points ESPN reads, writes and the public scoreboard at a fake
+on `127.0.0.1:8769` (per-process credentials key, no pacing), so nothing reaches
+ESPN. The fake serves the connector tests' synthetic league
+(`backend/tests/espn_fakes.py`), one per SWID cookie, and records every write.
+The test checks that ESPN starts off and unlinked, onboards two synthetic
+accounts through the real `POST /espn/onboard`, refuses linking the one linked to
+the second user and a wrong token, links its own without changing the stored
+cookies, and checks the `cce_` token on `/espn/me`. It reads the league, your
+team, standings and both trends, then proposes, previews, approves and replays a
+lineup. It proposes a roster edit and approves it while the fake records the
+write, answers 504 and hides it from reads: the call reports an unconfirmed
+approval, a same-key retry stays open, and once the fake shows the write the
+same-key retry settles it from ESPN with exactly one roster request sent. It
+refuses the key for another proposal, approves a trade offer, reads activity,
+is refused another user's edit on both read and approve, and checks that the
+legacy `/espn/roster/edits` lists the connector's edit. The read-only grant reads
+the league and is refused on proposals and approvals.
+Synthetic users, trips and Beli, Resy, Partiful and ESPN accounts remain in the
 loopback sandbox for inspection. Tokens and keys are never printed or committed. For interactive mode, also run the normal local frontend
 on port 8080 (for example `scripts/start-local-dice-frontend.sh`) and sign in
 with a synthetic sandbox account. The script can also run directly with

@@ -283,6 +283,80 @@ def fake_partiful():
     return ThreadingHTTPServer(FAKE_PARTIFUL, Partiful), state
 
 
+# ESPN reads, writes and the public scoreboard come here too; nothing reaches ESPN.
+FAKE_ESPN = ('127.0.0.1', 8769)
+
+
+def fake_espn():
+    """Synthetic ESPN Fantasy API over the connector tests' League model, one league per SWID cookie.
+
+    Each league records every write (League.sends). Set answer_lost and hidden on a
+    league to record the next write, answer 504 and keep it out of reads until reveal().
+    """
+    from espn.espn_client import EspnWriteUncertain
+    from tests.espn_fakes import League
+
+    state = {'leagues': {}}
+
+    class Espn(BaseHTTPRequestHandler):
+        def answer(self, payload):
+            body = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def league(self):
+            cookies = dict(part.strip().split('=', 1) for part in self.headers.get('Cookie', '').split(';')
+                           if '=' in part)
+            swid = cookies.get('SWID', '')
+            if not cookies.get('espn_s2', '').startswith('synthetic-s2-') or not swid:
+                return None
+            return state['leagues'].setdefault(swid, League(swid, 'e2e'))
+
+        def do_GET(self):
+            path, query = urlsplit(self.path).path, parse_qs(urlsplit(self.path).query)
+            if path == '/scoreboard':
+                return self.answer({'events': []})
+            league = self.league()
+            if league is None:
+                return self.send_error(401)
+            if path == '/reads/seasons/2027/players':
+                return self.answer([row['player'] for row in league.league_players()])
+            if path == '/reads/seasons/2027/segments/0/leagues/999':
+                if query.get('view') == ['kona_player_info']:
+                    return self.answer({'players': league.league_players()})
+                return self.answer(league.payload(query.get('view', [])))
+            self.send_error(404)
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
+            league = self.league()
+            if league is None:
+                return self.send_error(401)
+            if urlsplit(self.path).path != '/writes/seasons/2027/segments/0/leagues/999/transactions/':
+                return self.send_error(404)
+            assert body['memberId'] == league.swid, 'a transaction is only ever sent for the cookie owner'
+            team, items = body['teamId'], body['items']
+            try:
+                if body['type'] == 'ROSTER':
+                    return self.answer(league.lineup(team, items))
+                if body['type'] in ('FREEAGENT', 'WAIVER'):
+                    return self.answer(league.roster(team, [{'action': i['type'], 'playerId': i['playerId']}
+                                                            for i in items]))
+                give = [i['playerId'] for i in items if i['fromTeamId'] == team]
+                receive = [i['playerId'] for i in items if i['toTeamId'] == team]
+                counterparty = next(i['toTeamId'] for i in items if i['fromTeamId'] == team)
+                return self.answer(league.trade(team, counterparty, give, receive))
+            except EspnWriteUncertain:
+                return self.send_error(504)
+
+        def log_message(self, *_args):
+            pass
+
+    return ThreadingHTTPServer(FAKE_ESPN, Espn), state
+
+
 class MemoryTokens:
     tokens = None
     client = None
@@ -365,6 +439,22 @@ async def exercise(args):
                                        json={'phone': phone, 'code': '123456', 'label': label})
         assert response.status_code == 200, f'Partiful onboarding: HTTP {response.status_code}'
         return response.json()['token'], partiful_state['uids'][phone]
+
+    espn_server, espn_state = fake_espn()
+    espn_serving = asyncio.create_task(asyncio.to_thread(espn_server.serve_forever, poll_interval=0.1))
+
+    async def onboard_espn(label):
+        """The real /espn/onboard path, against the fake ESPN API. Returns (cce_ token, synthetic SWID)."""
+        swid = '{' + str(uuid4()).upper() + '}'
+        async with httpx.AsyncClient(timeout=30) as http:
+            response = await http.post(endpoint[:-len('/mcp')] + '/espn/onboard', json={
+                'label': label, 'league_id': 999, 'season': 2027, 'enable_automation': False,
+                'espn_s2': 'synthetic-s2-' + secrets.token_urlsafe(16), 'swid': swid})
+        assert response.status_code == 200, f'ESPN onboarding: HTTP {response.status_code}'
+        return response.json()['token'], swid
+
+    def espn_sends():
+        return [(swid, kind) for swid, league in espn_state['leagues'].items() for kind in league.sends]
 
     async def onboard_resy(label):
         """The real /resy/onboard path, against the fake Resy API. Returns (ccr_ token, synthetic email)."""
@@ -751,6 +841,112 @@ async def exercise(args):
                 assert legacy_events.json()['count'] == 2
                 print('PASS legacy /partiful/events still works after connector reads rotated the refresh token')
                 print('PASS every Partiful tool over real OAuth: link, list, details; only the caller\'s session read')
+
+                # ESPN: off for a new user, then enable, link once, read, and propose -> approve each kind.
+                espn = {'get_fantasy_league', 'get_fantasy_trends', 'get_fantasy_activity', 'propose_fantasy_change',
+                        'approve_fantasy_change', 'link_espn_account'}
+                projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+                assert projects['espn']['enabled'] is False and projects['espn']['linked'] is False
+                enabled = await call('enable_project', project_id='espn', evidence='enable_project espn')
+                assert enabled['linked'] is False and 'link_espn_account' in enabled['next_step']
+                assert espn <= await listed(session)
+                print('PASS list_projects/enable_project show ESPN unlinked with the link step')
+                await refused(session, 'get_fantasy_league', {}, 'Link your ESPN account first',
+                              'unlinked get_fantasy_league refused with the link step')
+                espn_token, mine_swid = await onboard_espn('e2e-mine')
+                other_espn, other_swid = await onboard_espn('e2e-other')
+                print('PASS synthetic ESPN onboarding through /espn/onboard (fake loopback ESPN API)')
+                from espn.accounts import get_account_row_by_token as espn_account_row
+                mine_espn = espn_account_row(service, espn_token)['id']
+                other_espn_id = espn_account_row(service, other_espn)['id']
+                assert service.rpc('espn_link_account', {'p_account_id': other_espn_id,
+                                   'p_user_id': other.json()['id']}).execute().data == 'linked'
+                await refused(session, 'link_espn_account', {'api_token': other_espn}, 'linked to another Commons user',
+                              "link_espn_account refused for another user's account")
+                await refused(session, 'link_espn_account', {'api_token': 'cce_' + secrets.token_urlsafe(32)},
+                              'No ESPN account matches', 'link_espn_account refused for a wrong token')
+                stored_espn = service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash') \
+                    .eq('id', mine_espn).single().execute().data
+                linked = await call('link_espn_account', api_token=espn_token, evidence='link_espn_account')
+                assert linked['status'] == 'linked' and espn_token not in json.dumps(linked)
+                assert service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash') \
+                    .eq('id', mine_espn).single().execute().data == stored_espn
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_me = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                               headers={'Authorization': 'Bearer ' + espn_token})
+                assert legacy_me.status_code == 200 and legacy_me.json()['label'] == 'e2e-mine'
+                print('PASS linking changes only the owner; the legacy cce_ token still works on /espn')
+                overview = await call('get_fantasy_league', evidence='get_fantasy_league view=league')
+                assert overview['your_team_id'] == 7 and len(overview['teams']) == 2
+                team = await call('get_fantasy_league', view='team', evidence='get_fantasy_league view=team (yours)')
+                assert team['team']['team_id'] == 7
+                await call('get_fantasy_league', view='standings', evidence='get_fantasy_league view=standings')
+                await call('get_fantasy_trends', kind='teams', evidence='get_fantasy_trends kind=teams')
+                await call('get_fantasy_trends', kind='players', evidence='get_fantasy_trends kind=players')
+                assert not espn_sends()
+                plan = await call('propose_fantasy_change', kind='lineup', evidence='propose_fantasy_change lineup')
+                assert 'Synthetic Player 101 bench -> UTIL' in plan['summary'] and not espn_sends()
+                lineup_approval = dict(kind='lineup', proposal_id=plan['proposal_id'], idempotency_key=f'lineup-{uuid4()}')
+                preview = await call('approve_fantasy_change', **lineup_approval,
+                                     evidence='approve_fantasy_change lineup dry_run')
+                assert preview['status'] == 'would_approve' and not espn_sends()
+                lineup_done = await call('approve_fantasy_change', **lineup_approval, dry_run=False,
+                                         evidence='approve_fantasy_change lineup commit')
+                assert lineup_done['status'] == 'ok' and espn_sends() == [(mine_swid, 'lineup')]
+                assert await call('approve_fantasy_change', **lineup_approval, dry_run=False,
+                                  evidence='approve_fantasy_change lineup idempotent replay') == lineup_done
+                edit = await call('propose_fantasy_change', kind='roster_edit', add_player_id=9001, drop_player_id=105,
+                                  evidence='propose_fantasy_change roster_edit')
+                edit_approval = dict(kind='roster_edit', proposal_id=edit['proposal_id'],
+                                     idempotency_key=f'edit-{uuid4()}')
+                assert (await call('approve_fantasy_change', **edit_approval,
+                                   evidence='approve_fantasy_change roster_edit dry_run'))['status'] == 'would_approve'
+                espn_state['leagues'][mine_swid].answer_lost = espn_state['leagues'][mine_swid].hidden = True
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'not confirmed',
+                              'approve_fantasy_change lost ESPN answer keeps its key and asks for a same-key retry')
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'not confirmed',
+                              'approve_fantasy_change same-key retry before ESPN shows it: reads only, still open')
+                espn_state['leagues'][mine_swid].reveal()
+                settled = await call('approve_fantasy_change', **edit_approval, dry_run=False,
+                                     evidence='approve_fantasy_change same-key retry settles from ESPN')
+                assert settled['status'] == 'executed' and settled['confirmed_from'] == 'ESPN'
+                assert await call('approve_fantasy_change', **edit_approval, dry_run=False,
+                                  evidence='approve_fantasy_change roster_edit idempotent replay') == settled
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'proposal_id': plan['proposal_id'],
+                              'kind': 'lineup', 'dry_run': False}, 'already used for',
+                              'approve_fantasy_change key reuse for another proposal refused')
+                assert espn_sends() == [(mine_swid, 'lineup'), (mine_swid, 'roster_edit')]
+                print('PASS lost roster-edit answer settled once by reading ESPN; no second submission')
+                offer = await call('propose_fantasy_change', kind='trade', counterparty_team_id=8,
+                                   give_player_ids=[106], receive_player_ids=[201],
+                                   evidence='propose_fantasy_change trade')
+                offered = await call('approve_fantasy_change', kind='trade', proposal_id=offer['proposal_id'],
+                                     idempotency_key=f'trade-{uuid4()}', dry_run=False,
+                                     evidence='approve_fantasy_change trade commit')
+                assert offered['status'] == 'offered'
+                activity = await call('get_fantasy_activity', kind='roster_edits', evidence='get_fantasy_activity')
+                assert [e['status'] for e in activity['edits']] == ['executed']
+                one = await call('get_fantasy_activity', kind='trades', proposal_id=offer['proposal_id'],
+                                 evidence='get_fantasy_activity one trade')
+                assert one['status'] == 'offered'
+                theirs = service.table('espn_roster_edits').insert({
+                    'account_id': other_espn_id, 'league_id': 999, 'season': 2027, 'team_id': 7,
+                    'drop_player_id': 105, 'preview': 'Synthetic other edit', 'status': 'pending',
+                    'expires_at': '2099-01-01T00:00:00+00:00'}).execute().data[0]['id']
+                await refused(session, 'get_fantasy_activity', {'kind': 'roster_edits', 'proposal_id': theirs},
+                              'in your ESPN account', "get_fantasy_activity refused for another user's edit")
+                await refused(session, 'approve_fantasy_change', {'kind': 'roster_edit', 'proposal_id': theirs,
+                              'idempotency_key': f'x-{uuid4()}', 'dry_run': False}, 'in your ESPN account',
+                              "approve_fantasy_change refused for another user's edit")
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_edits = await http.get(endpoint[:-len('/mcp')] + '/espn/roster/edits',
+                                                  headers={'Authorization': 'Bearer ' + espn_token})
+                assert legacy_edits.status_code == 200 and legacy_edits.json()['count'] == 1
+                print('PASS legacy /espn/roster/edits sees the connector edit through the same gate')
+                assert espn_sends() == [(mine_swid, 'lineup'), (mine_swid, 'roster_edit'), (mine_swid, 'trade')]
+                assert other_swid not in {swid for swid, _kind in espn_sends()}
+                print('PASS every ESPN tool over real OAuth: link, league, trends, activity, propose and approve; '
+                      'one lineup, one roster edit and one trade sent')
                 access_token = auth.context.current_tokens.access_token
         callback = loop.create_future()
         readonly = provider('commons:read')
@@ -785,6 +981,13 @@ async def exercise(args):
                 readonly_events = await session.call_tool('get_partiful_events', {})
                 assert not readonly_events.isError and readonly_events.structuredContent['count'] == 2
                 print('PASS read-only token reads Partiful events; linking refused')
+                await refused(session, 'propose_fantasy_change', {'kind': 'lineup'}, 'commons:edit',
+                              'read-only token denied on propose_fantasy_change')
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'commons:edit',
+                              'read-only token denied on approve_fantasy_change')
+                assert not (await session.call_tool('get_fantasy_league', {})).isError
+                assert len(espn_sends()) == 3
+                print('PASS read-only token reads the ESPN league; proposals and approvals refused; nothing sent')
 
         # A token minted exactly as the M1 deployment did: same signing key and
         # upstream mapping (jti), pre-commons scopes. It keeps its old reach.
@@ -865,6 +1068,9 @@ async def exercise(args):
         await asyncio.to_thread(partiful_server.shutdown)
         partiful_server.server_close()
         await partiful_serving
+        await asyncio.to_thread(espn_server.shutdown)
+        espn_server.server_close()
+        await espn_serving
 
 
 if __name__ == '__main__':

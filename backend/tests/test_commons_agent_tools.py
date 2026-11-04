@@ -1,5 +1,6 @@
 """Agent tool auth, exact money, dry runs, durable retry protocol and registry."""
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ class Query:
         self.head = False
         self.write = None
         self.action = None
+        self.inserted = self.sort = self.cap = None
 
     def select(self, *args, **kwargs):
         self.head = kwargs.get('head', False)
@@ -36,7 +38,16 @@ class Query:
         self.filters[key] = value
         return self
 
-    def order(self, *args, **kwargs):
+    def order(self, column, desc=False):
+        self.sort = (column, desc)
+        return self
+
+    def limit(self, count):
+        self.cap = count
+        return self
+
+    def insert(self, row):
+        self.inserted = row
         return self
 
     def in_(self, key, values):
@@ -76,6 +87,8 @@ class Query:
     def execute(self):
         if self.table in LINKED_TABLES:
             return self.db.linked_execute(self)
+        if self.table in ESPN_TABLES:
+            return self.db.espn_execute(self)
         if self.write is not None:
             assert self.table == 'cc_mcp_project_settings'
             self.db.settings[(self.write['user_id'], self.write['project_id'])] = deepcopy(self.write)
@@ -94,7 +107,11 @@ class Query:
 
 
 LINKED_TABLES = {'beli_accounts': 'beli', 'beli_agent_receipts': 'beli',
-                 'resy_accounts': 'resy', 'resy_agent_receipts': 'resy', 'partiful_accounts': 'partiful'}
+                 'resy_accounts': 'resy', 'resy_agent_receipts': 'resy', 'partiful_accounts': 'partiful',
+                 'espn_accounts': 'espn', 'espn_agent_receipts': 'espn'}
+# ESPN's own gate tables, stored as plain rows (the write-claim trigger is tested on Postgres).
+ESPN_TABLES = ('espn_lineup_runs', 'espn_roster_edits', 'espn_trade_proposals', 'espn_snapshots',
+               'espn_lineup_approvals')
 
 
 class Database:
@@ -107,10 +124,13 @@ class Database:
             self.row, _ = apply_command(self.row, self.user.id, 'add_member', {'name': name, 'revision': self.row['revision']})
         self.receipts, self.commits, self.conflicts = {}, 0, 0
         self.settings = {}
-        # Beli, Resy and Partiful: account rows (with owner_user_id) and connector receipts.
+        # Beli, Resy, Partiful and ESPN: account rows (with owner_user_id) and connector receipts.
         self.beli_accounts, self.beli_receipts = [], {}
         self.resy_accounts, self.resy_receipts = [], {}
         self.partiful_accounts = []  # read-only on the connector: no receipts
+        self.espn_accounts, self.espn_receipts = [], {}
+        self.espn_tables = {name: [] for name in ESPN_TABLES}
+        self.clock = datetime.now(timezone.utc)
 
     def table(self, table):
         return Query(self, table)
@@ -133,7 +153,8 @@ class Database:
         matched = [row for row in rows if query.matches(row)]
         if query.action:
             kind, change = query.action
-            assert not (project == 'resy' and kind == 'delete'), 'Resy receipts are never released (no DELETE grant)'
+            assert not (project in ('resy', 'espn') and kind == 'delete'), \
+                f'{project} receipts are never released (no DELETE grant)'
             for row in matched:
                 key = (row['user_id'], row['idempotency_key'])
                 if kind == 'delete':
@@ -142,8 +163,32 @@ class Database:
                     receipts[key].update(deepcopy(change))
         return SimpleNamespace(data=[deepcopy(row) for row in matched])
 
+    def espn_execute(self, query):
+        rows = self.espn_tables[query.table]
+        if query.write is not None:  # a lineup approval claim: one per proposal (0090)
+            assert query.table == 'espn_lineup_approvals' and query.ignore_duplicates
+            if any(row['proposal_id'] == query.write['proposal_id'] for row in rows):
+                return SimpleNamespace(data=[])
+            rows.append(deepcopy(query.write))
+            return SimpleNamespace(data=[deepcopy(query.write)])
+        if query.inserted is not None:
+            self.clock += timedelta(milliseconds=1)  # created_at orders rows like now() does
+            stamp = 'captured_at' if query.table == 'espn_snapshots' else 'created_at'
+            row = {'id': str(uuid4()), stamp: self.clock.isoformat(), **deepcopy(query.inserted)}
+            rows.append(row)
+            return SimpleNamespace(data=[deepcopy(row)])
+        matched = [row for row in rows if query.matches(row)]
+        if query.action:
+            kind, change = query.action
+            assert kind == 'update', 'the connector never deletes ESPN gate rows'
+            for row in matched:
+                row.update(deepcopy(change))
+        if query.sort:
+            matched.sort(key=lambda row: row.get(query.sort[0]) or '', reverse=query.sort[1])
+        return SimpleNamespace(data=[deepcopy(row) for row in matched[:query.cap]])
+
     def rpc(self, name, args):
-        if name in ('beli_link_account', 'resy_link_account', 'partiful_link_account'):
+        if name in ('beli_link_account', 'resy_link_account', 'partiful_link_account', 'espn_link_account'):
             rows = getattr(self, name.replace('_link_account', '_accounts'))
             return SimpleNamespace(execute=lambda: SimpleNamespace(data=link_account(rows, **args)))
         assert name == 'trips_agent_commit'
@@ -159,7 +204,8 @@ class Database:
 
 
 def link_account(rows, p_account_id, p_user_id):
-    # Mirrors public.beli_link_account (0017), resy_link_account (0018) and partiful_link_account (0019).
+    # Mirrors public.beli_link_account (0017), resy_link_account (0018), partiful_link_account (0019)
+    # and espn_link_account (0089).
     account = next((row for row in rows if row['id'] == p_account_id), None)
     if account is None:
         return 'missing'
@@ -231,8 +277,10 @@ async def test_whoami_and_extensible_registry_without_feature_scopes(tools):
     assert projects['resy']['next_step'] == "Call enable_project('resy') to add its 5 tools."
     assert projects['partiful']['on_connector'] is True and projects['partiful']['linked'] is False
     assert projects['partiful']['next_step'] == "Call enable_project('partiful') to add its 2 tools."
-    assert projects['espn']['on_connector'] is False
-    assert '/espn/mcp' in projects['espn']['next_step']
+    assert projects['espn']['on_connector'] is True and projects['espn']['linked'] is False
+    assert projects['espn']['next_step'] == "Call enable_project('espn') to add its 6 tools."
+    # Every project with a separate MCP endpoint is now on the connector.
+    assert not [p for p in projects.values() if not p['on_connector'] and 'api_token' in p['next_step']]
 
 
 @pytest.mark.asyncio
@@ -256,7 +304,7 @@ async def test_enable_and_disable_persist_a_choice_and_gate_calls(tools):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('project_id,message', [('commons', 'Unknown project'), ('nope', 'Unknown project'),
-    ('espn', 'not on this connector yet'), ('dice', 'no agent tools yet')])
+    ('dice', 'no agent tools yet')])
 async def test_enable_project_errors_name_the_fix(tools, project_id, message):
     db, _, call = tools
     with pytest.raises(ToolError, match=message):

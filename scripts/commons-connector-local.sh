@@ -92,6 +92,12 @@ else:
     partiful_client.API_BASE, partiful_client.MIN_GAP_S = 'http://127.0.0.1:8768', 0.0
     partiful_client.IDENTITY_TOOLKIT_URL = 'http://127.0.0.1:8768/identitytoolkit'
     partiful_client.SECURE_TOKEN_URL = 'http://127.0.0.1:8768/securetoken'
+    # ESPN reads, writes and the public scoreboard go to the exercise's fake on 8769.
+    os.environ['ESPN_CREDENTIALS_KEY'] = Fernet.generate_key().decode()
+    from espn import espn_client, scoreboard
+    espn_client.API_BASE, espn_client.MIN_GAP_S = 'http://127.0.0.1:8769/reads', 0.0
+    espn_client.WRITE_API_BASE = 'http://127.0.0.1:8769/writes'
+    scoreboard.SCOREBOARD_URL = 'http://127.0.0.1:8769/scoreboard'
     import uvicorn
     uvicorn.run('main:app', host='127.0.0.1', port=8000, access_log=False)
 PY
