@@ -97,9 +97,7 @@ export default function Admin() {
   const signIn = async () => {
     try { const { error: authError } = await getClient().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/admin` } }); if (authError) throw authError; } catch (err) { setError(err.message); }
   };
-  return <div className="admin-workspace"><SiteHeader product="Admin" to="/admin" icon={<ChartColumn size={22} />}>
-    {access === 'allowed' && <button className="cc-button cc-button--ghost" onClick={signOut}>Sign out</button>}
-  </SiteHeader><main className="admin-main"><h1>Admin</h1>
+  return <div className="admin-workspace"><SiteHeader product="Admin" to="/admin" icon={<ChartColumn size={22} />} onSignIn={null} /><main className="admin-main"><h1>Admin</h1>
     {access !== 'allowed' ? <section className="cc-data-panel admin-card">{access === 'loading' ? <><Skeleton label="Loading admin" />{error && <><p className="cc-notice cc-notice--error" role="alert">{error}</p><button className="cc-button cc-button--secondary" onClick={() => setRefresh((n) => n + 1)}>Retry</button></>}</> : access === 'denied' ? <><p>Access denied</p><button className="cc-button cc-button--ghost" onClick={signOut}>Sign out</button></> : <><button className="cc-button cc-button--secondary" onClick={signIn}>Sign in with Google</button>{error && <p className="cc-notice cc-notice--error" role="alert">{error}</p>}</>}</section> : <>
       <SegmentedControl label="Admin section" options={['Analytics', 'Users'].map((value) => ({ value, label: value }))} value={tab} onChange={setTab} />
       {tab === 'Users' ? <Users onAccessLost={accessLost} onRoleChanged={roleChanged} /> : <>

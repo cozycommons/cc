@@ -181,16 +181,13 @@ export default function TripsApp() {
   const signIn = async (name) => { setError(''); setSigningIn(true); try { if (name) await auth.signInLocal(name); else await auth.signIn(); } catch (e) { setError(e.message); } finally { setSigningIn(false); } };
   const signOut = async () => { try { setProfileOpen(false); await auth.signOut(); } catch (e) { setError(e.message); } };
   return <div className="cc-page trips"><a href="#trips-main" className="trips-skip">Skip to trip</a>
-    <SiteHeader product="Cozy Trips" to="/trips" icon={<Suitcase size={26} />}>
+    {/* Sign-in lives on the Trips welcome, which also offers the local test accounts. */}
+    <SiteHeader product="Cozy Trips" to="/trips" icon={<Suitcase size={26} />} onSignIn={null}
+      accountItems={auth.user ? [{ label: 'Venmo for trips', onSelect: () => setProfileOpen(true) }] : []}>
       {localDemo && <span className="trips-demo-badge">LOCAL</span>}
-      {auth.user && <>
-        <button className="trips-account-identity" aria-label={`Signed in as ${headerProfile.display_name}. Open profile`} onClick={() => setProfileOpen(true)}>
-          <PlayerAvatar profile={headerProfile} size={32} linkToProfile={false} /><span className="trips-account-name">{headerProfile.display_name}</span></button>
-        <Button variant="ghost" className="trips-signout" aria-label="Sign out" onClick={signOut}><LogOut size={14} aria-hidden="true" /><span>Sign out</span></Button>
-      </>}
     </SiteHeader>
     {(error || auth.error) && <p className="trips-error" role="alert">{error || auth.error}</p>}
-    <main id="trips-main"><p><Link to="/connect">Connect your agent</Link></p>{auth.loading ? <p className="trips-loading" role="status">Loading…</p> : auth.user
+    <main id="trips-main">{auth.loading ? <p className="trips-loading" role="status">Loading…</p> : auth.user
       ? <Workspace key={workspaceKey} auth={auth} tripId={tripId} joinId={joinId} invitation={invitation.current} onEditProfile={() => setProfileOpen(true)} />
       : <section className="trips-welcome"><span className="trips-welcome-mark" aria-hidden="true"><Suitcase size={40} /></span><h1>Cozy Trips</h1><p className="trips-intro">Split trip costs with friends, then square up.</p>{joinId && <p>Sign in to accept your invite.</p>}
         {!localDemo && <Button variant="primary" disabled={signingIn} onClick={() => signIn()}>Continue with Google <ArrowRight size={17} aria-hidden="true" /></Button>}

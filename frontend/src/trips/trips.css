@@ -8,10 +8,6 @@ body.trips-body { margin: 0; min-width: 320px; background: var(--paper); color: 
 .trips :focus-visible, .trips-modal :focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 /* Header: shared SiteHeader; Trips keeps its sticker logo. */
-.trips-account-identity { min-width: var(--cc-tap-target); display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 10px 4px 4px; border: 1px solid transparent; border-radius: 999px; background: none; color: var(--ink); cursor: pointer; }
-.trips-account-identity:hover { border-color: var(--line); background: var(--paper-light); }
-.trips-account-identity > :first-child { flex: 0 0 auto; }
-.trips-account-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trips-demo-badge { padding: 4px 6px; border: 1px dashed var(--moss); color: var(--moss-dark); font: var(--cc-text-min) var(--mono); letter-spacing: .06em; }
 
 /* Buttons and text */
@@ -280,8 +276,6 @@ img.trips-avatar { display: block; object-fit: cover; background: var(--paper-de
 /* Phones: bottom tab bar, floating add button, bottom-sheet dialogs. */
 @media (max-width: 640px) {
   .trips { --tabbar: calc(78px + var(--cc-safe-bottom)); --cc-page-gutter: 16px; padding-bottom: calc(var(--tabbar) + 88px); }
-  .trips-account-name, .trips-signout { display: none !important; }
-  .trips-account-identity { min-width: var(--cc-tap-target); padding: 4px; }
   .trips-heading { align-items: flex-start; flex-direction: column; gap: 10px; padding-top: 8px; }
   .trips-heading--home { padding-top: 22px; }
   .trips h1 { font-size: 25px; }

@@ -1,12 +1,17 @@
 """Commons account API under /account, authenticated by the Supabase session bearer."""
 from uuid import UUID
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gotrue.errors import AuthApiError
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from cc_mcp import connections
+from commons_account import profile
+from trips.profiles import avatar_url
 
 router = APIRouter()
 bearer = HTTPBearer(auto_error=False)
@@ -31,6 +36,39 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials | N
     if getattr(user, 'is_anonymous', False):
         raise HTTPException(403, 'Sign in with Google to manage your account.')
     return user
+
+
+class ProfileChanges(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=profile.NAME_LIMIT)
+    avatar_url: Optional[str] = None
+
+
+def identity(user, row):
+    """What every project header shows for the signed-in user."""
+    return {'user_id': str(user.id), 'email': user.email,
+            'display_name': row['display_name'], 'avatar_url': avatar_url(row['avatar_url'])}
+
+
+@router.get('')
+def get_account(request: Request, user=Depends(current_user)):
+    """The caller's Commons identity, creating the profile row on first sign-in."""
+    return identity(user, profile.own_profile(client(request), user))
+
+
+@router.patch('/profile')
+def patch_profile(changes: ProfileChanges, request: Request, user=Depends(current_user)):
+    """Name and photo for every project. Venmo stays on /trips/me, which confirms ownership."""
+    write = changes.model_dump(exclude_unset=True)
+    if write.get('avatar_url') is not None and avatar_url(write['avatar_url']) is None:
+        raise HTTPException(400, 'Use an http(s) image URL.')
+    if not write:
+        return identity(user, profile.own_profile(client(request), user))
+    try:
+        return identity(user, profile.update_profile(client(request), user.id, write, user=user))
+    except ValueError as error:
+        raise HTTPException(400, str(error))
 
 
 def agent_oauth(request):

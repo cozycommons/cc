@@ -1,8 +1,19 @@
 # M4 plan: Commons account page at `/account`
 
-Status: PRs 1 and 2 (profile table, readers and writers) are on `main` (#203,
-#206). PR 3 (connection index and disconnect) built on
-`commons-account-connections`; PRs 4 and 5 are plan only.
+Status: PRs 1–3 (profile table, readers and writers, connection index and
+disconnect) are on `main` (#203, #206, #209). PR 5 is built on
+`commons-account-header` without its Projects and Privacy sections, which wait
+on PR 4 (project toggles and unlink, plan only):
+
+- `GET /account` returns the header identity (`user_id`, `email`,
+  `display_name`, `avatar_url`); `PATCH /account/profile` edits name and photo
+  through `commons_account.profile.update_profile` and never creates a Dice row.
+- `SiteHeader` renders `AccountMenu` on every page: the avatar (Google photo
+  from the session until `/account` answers), Your profile, Connected agents,
+  product links (`accountItems`) and Sign out. Products no longer draw their
+  own identity; Trips, Dice and Admin removed theirs.
+- `/account` edits name and photo and lists and disconnects agents;
+  `/connect` stays the per-client setup guide.
 
 Owner direction: connector auth and connectors get a home in the UI, managed at
 the profile level. The Dice profile identity becomes the Commons identity for
