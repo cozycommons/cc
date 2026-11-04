@@ -415,13 +415,13 @@ async def exercise(args):
                        'Authorization': 'Bearer ' + os.environ['LOCAL_SUPABASE_SERVICE_ROLE_KEY']}
 
     async def onboard_beli(label):
-        """The real /beli/onboard path, against the fake Beli API. Returns the ccb_ token."""
+        """The real /beli/onboard path, against the fake Beli API. Returns (ccb_ token, login, password)."""
+        login, password = f'beli-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(16)
         async with httpx.AsyncClient(timeout=30) as http:
             response = await http.post(endpoint[:-len('/mcp')] + '/beli/onboard', json={
-                'label': label, 'beli_id': f'beli-e2e-{uuid4().hex}@example.test',
-                'password': secrets.token_urlsafe(16)})
+                'label': label, 'beli_id': login, 'password': password})
         assert response.status_code == 200, f'Beli onboarding: HTTP {response.status_code}'
-        return response.json()['token']
+        return response.json()['token'], login, password
 
     resy_server, resy_state = fake_resy()
     resy_serving = asyncio.create_task(asyncio.to_thread(resy_server.serve_forever, poll_interval=0.1))
@@ -659,7 +659,8 @@ async def exercise(args):
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['beli']['enabled'] is False and projects['beli']['linked'] is False
                 enabled = await call('enable_project', project_id='beli', evidence='enable_project beli')
-                assert enabled['linked'] is False and 'link_beli_account' in enabled['next_step']
+                assert enabled['linked'] is False and 'cozycommons.dev/account#beli' in enabled['next_step']
+                assert 'ccb_ token in chat' in enabled['next_step']
                 assert beli <= await listed(session)
                 print('PASS list_projects/enable_project show Beli unlinked with the link step')
                 await refused(session, 'get_restaurant_recs', {'neighborhood': 'West Village'},
@@ -667,7 +668,8 @@ async def exercise(args):
                 await refused(session, 'save_restaurant', {'name': 'Synthetic Bistro', 'idempotency_key': 'unlinked',
                               'dry_run': False}, 'Link your Beli account first',
                               'unlinked save_restaurant refused with the link step')
-                beli_token, other_token = await onboard_beli('e2e-mine'), await onboard_beli('e2e-other')
+                (beli_token, beli_login, beli_password), (other_token, other_login, _) = (
+                    await onboard_beli('e2e-mine'), await onboard_beli('e2e-other'))
                 print('PASS synthetic Beli onboarding through /beli/onboard (fake loopback Beli API)')
                 async with httpx.AsyncClient(timeout=30) as http:
                     other = await http.post(database_url + '/auth/v1/admin/users', headers=service_headers,
@@ -681,8 +683,22 @@ async def exercise(args):
                               "link_beli_account refused for another user's account")
                 await refused(session, 'link_beli_account', {'api_token': 'ccb_' + secrets.token_urlsafe(32)},
                               'No Beli account matches', 'link_beli_account refused for a wrong token')
-                linked = await call('link_beli_account', api_token=beli_token, evidence='link_beli_account')
-                assert linked['status'] == 'linked' and beli_token not in json.dumps(linked)
+                # The account page links with the Beli login itself: no ccb_ token reaches the agent.
+                page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
+                mine = {'Authorization': 'Bearer ' + user_token}
+                async with httpx.AsyncClient(timeout=30) as http:
+                    taken = await http.post(page + '/beli', headers=mine,
+                                            json={'login': other_login, 'password': 'synthetic'})
+                    assert taken.status_code == 409, f"Other user's Beli login: HTTP {taken.status_code}"
+                    print("PASS account page refuses another user's Beli login")
+                    linked = await http.post(page + '/beli', headers=mine,
+                                             json={'login': beli_login.upper(), 'password': beli_password})
+                    assert linked.status_code == 200 and linked.json()['status'] == 'linked', linked.text
+                    assert beli_token not in linked.text and beli_password not in linked.text
+                    assert linked.json()['account']['id'] == get_account_row_by_token(service, beli_token)['id']
+                    summary = (await http.get(page, headers=mine)).json()['beli']
+                assert summary['id'] == linked.json()['account']['id']
+                print('PASS account page links the existing Beli account from its login (fake loopback Beli API)')
                 async with httpx.AsyncClient(timeout=30) as http:
                     legacy_me = await http.get(endpoint[:-len('/mcp')] + '/beli/me',
                                                headers={'Authorization': 'Bearer ' + beli_token})

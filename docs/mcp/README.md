@@ -292,7 +292,19 @@ Provider `backend/ig_logger/sinks/beli/agent_tools.py`, three tools:
   existing confidence-gated bookmark flow (`logic.bookmark_name`). Ambiguous
   names return candidates and save nothing; saved or ranked places are reported,
   never duplicated.
-- `link_beli_account(api_token)` (`edit`): the one-time link step.
+- `link_beli_account(api_token)` (`edit`): links with a `ccb_` token the user
+  already holds. The link step no longer asks for one: it sends the user to
+  `https://cozycommons.dev/account#beli`.
+
+Linking on the account page: `POST /account/linked-accounts/beli` with
+`{login, password}` and the Commons session. The server checks the login with
+Beli first; a wrong password stores nothing. An existing account with the same
+login (emails compared case-insensitively, phone numbers by digits) is reused:
+its stored password is refreshed and its `ccb_` token, receipts and watcher
+subscription stay. Otherwise a new account is created with a token nobody sees.
+Then `beli_link_account` links it, refusing an account another Commons user
+owns. `GET /account/linked-accounts` returns `{beli: summary | null}`. Attempts
+are limited to 10 per user per hour.
 
 A Beli account belongs to whoever holds its `ccb_` token (minted once by
 `POST /beli/onboard`; only its sha256 hash is stored). Migration

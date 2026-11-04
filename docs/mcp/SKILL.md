@@ -21,13 +21,12 @@ projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
 
 ## Beli
 
-Beli needs a one-time link. Until then every Beli tool returns the link step.
-Ask the user for their existing `ccb_` Beli token and call
-`link_beli_account(api_token)` once. The token proves ownership. It is never
-stored or returned, and you must not keep it or ask for it again. If the user
-has no token, they onboard at `POST https://api.cozycommons.dev/beli/onboard`
-(see the step text). If the error says the account is linked to another Commons
-user, the user must sign in as that user; do not retry other tokens.
+Beli needs a one-time link. Until then every Beli tool returns the link step:
+send the user to https://cozycommons.dev/account#beli, where they sign in to
+Beli on the Cozy Commons page, then retry. Never ask for a Beli password or a
+`ccb_` token in chat. If a user offers an existing `ccb_` token unprompted,
+`link_beli_account(api_token)` still accepts it once. If the error says the
+account is linked to another Commons user, the user must sign in as that user.
 
 - `get_restaurant_recs(neighborhood, day?, time?, table_size, limit)`: `day` is
   `YYYY-MM-DD` or a lowercase weekday, `time` is 24-hour `HH:MM`.

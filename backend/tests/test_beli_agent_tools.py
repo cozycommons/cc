@@ -63,7 +63,8 @@ async def test_new_user_sees_beli_off_then_the_link_step(beli):
     enabled = await call('enable_project', project_id='beli')
     assert enabled['linked'] is False and enabled['next_step'] == LINK_STEP
     project = {p['id']: p for p in (await call('list_projects'))['projects']}['beli']
-    assert project['next_step'] == LINK_STEP and 'link_beli_account' in project['next_step']
+    assert project['next_step'] == LINK_STEP and 'cozycommons.dev/account#beli' in project['next_step']
+    assert 'Do not ask for their Beli password or a ccb_ token' in LINK_STEP
 
 
 @pytest.mark.asyncio
@@ -73,7 +74,7 @@ async def test_unlinked_user_gets_the_link_step(beli, tool, arguments):
     db, _, call, _ = beli
     enable(db)
     beli_fakes.add_account(db, owner=str(uuid4()))  # someone else's linked account
-    with pytest.raises(ToolError, match='Link your Beli account first: Call link_beli_account'):
+    with pytest.raises(ToolError, match='Link your Beli account first: Ask the user to connect Beli at https://cozycommons.dev/account#beli'):
         await call(tool, **arguments)
     assert not db.beli_logins and not db.beli_writes and not db.beli_receipts
 
@@ -260,7 +261,7 @@ async def test_unconfirmed_write_keeps_the_key_and_settles_on_retry(beli, failur
 @pytest.mark.asyncio
 @pytest.mark.parametrize('failure,message', [
     (BeliError('Beli GET /api -> 503', status=503), r'Beli did not answer \(HTTP 503\)'),
-    (BeliUnauthorized('unauthorized', status=401), 'Onboard again at POST')])
+    (BeliUnauthorized('unauthorized', status=401), 'sign in to Beli again at https://cozycommons.dev/account#beli')])
 async def test_beli_failures_name_the_fix_and_release_the_key(beli, failure, message):
     db, _, call, _ = beli
     await linked_user(db, call)

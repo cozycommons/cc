@@ -1,7 +1,8 @@
 """Beli tools on the shared OAuth connector (/mcp).
 
 The Beli account is resolved from the signed-in Commons user, never from a
-pasted token: the user links it once with link_beli_account. The legacy
+pasted token: the user connects it on the account page (link_beli_account
+remains for people who already hold a ccb_ token). The legacy
 token-per-call server at /beli/mcp is unchanged.
 """
 from datetime import date as Date
@@ -21,12 +22,13 @@ from .logic import bookmark_name, get_recs
 
 logger = logging.getLogger(__name__)
 
-ONBOARD_URL = 'https://api.cozycommons.dev/beli/onboard'
+ACCOUNT_URL = 'https://cozycommons.dev/account#beli'
 DOCS_URL = 'https://github.com/cozycommons/cc/blob/main/docs/beli.md'
-LINK_STEP = (f'Call link_beli_account(api_token) once with your existing ccb_ Beli token. No token yet? '
-             f'Onboard with your Beli login at POST {ONBOARD_URL} (see {DOCS_URL}), then link the token it returns.')
-RELINK_STEP = (f'Beli rejected the stored login. Onboard again at POST {ONBOARD_URL} with your current Beli '
-               'password, then call link_beli_account with the new token.')
+# Agents never collect a Beli password or ccb_ token: the user connects Beli on the account page.
+LINK_STEP = (f'Ask the user to connect Beli at {ACCOUNT_URL} by signing in to Beli there, then call this tool '
+             'again. Do not ask for their Beli password or a ccb_ token in chat.')
+RELINK_STEP = (f'Beli rejected the stored login. Ask the user to sign in to Beli again at {ACCOUNT_URL}, then '
+               'retry. Do not ask for their Beli password in chat.')
 RECEIPTS = 'beli_agent_receipts'
 NO_WRITE = {'ambiguous', 'no_results'}
 # What a preview reports for a place an unfinished save may have written, mapped to the recorded status.
@@ -193,10 +195,10 @@ def link(client, user, api_token):
         outcome, account = accounts.link_account_to_owner(client, api_token, user.id)
     except AccountError as error:
         raise ToolError('No Beli account matches that token. Use the ccb_ token from your Beli onboarding '
-                        f'exactly as shown, or onboard again at POST {ONBOARD_URL}.') from error
+                        f'exactly as shown, or ask the user to connect Beli at {ACCOUNT_URL}.') from error
     if outcome == 'other_owner':
         raise ToolError('This Beli account is linked to another Commons user. Sign in as that user, '
-                        f'or onboard your own Beli login at POST {ONBOARD_URL}.')
+                        f'or connect their own Beli login at {ACCOUNT_URL}.')
     if outcome not in {'linked', 'already_linked'}:
         raise ToolError('Could not link the account. Retry in a moment; nothing changed.')
     result = {'linked': True, 'status': outcome, 'account': {'id': account['id'], 'label': account['label']},
@@ -250,9 +252,9 @@ def register_tools(mcp, context):
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'idempotentHint': True,
                            'openWorldHint': False})
     async def link_beli_account(api_token: str) -> dict:
-        """Link your Beli account to your Commons sign-in once, using its existing ccb_ token.
+        """Link a Beli account with a ccb_ token the user already offered. Never ask for one.
 
-        The token proves ownership; it is checked against its stored hash and never
+        New users connect Beli at https://cozycommons.dev/account#beli instead. The token proves ownership; it is checked against its stored hash and never
         stored or returned. Afterwards the Beli tools need no token. Linking a different
         account of yours replaces the earlier link; an account linked to another Commons
         user is refused.
@@ -265,4 +267,4 @@ provider = ToolProvider(
     {'get_restaurant_recs': 'read', 'save_restaurant': 'edit', 'link_beli_account': 'edit'},
     title='Beli', description='Restaurant recommendations and your Beli Want to Try list.',
     url=DOCS_URL, status=status,
-    link=AccountLink(LINK_STEP, linked=linked, tool='link_beli_account', url=ONBOARD_URL))
+    link=AccountLink(LINK_STEP, linked=linked, tool='link_beli_account', url=ACCOUNT_URL))
