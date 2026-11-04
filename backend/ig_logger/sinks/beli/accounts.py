@@ -18,6 +18,8 @@ from __future__ import annotations
 import os
 import logging
 import secrets
+import threading
+import time
 
 from cryptography.fernet import InvalidToken, MultiFernet
 
@@ -28,6 +30,22 @@ from ...accounts import AccountError, get_account_row_by_token, hash_token
 from .beli_client import BeliClient, BeliError
 
 logger = logging.getLogger(__name__)
+
+# Absolute lifetime, shorter than Beli's seven-day refresh token validity.
+# Entries are pruned on cache access; capacity also bounds idle secret retention.
+SESSION_TTL_S = 6 * 24 * 60 * 60
+MAX_CACHED_SESSIONS = 256
+_clients: dict[str, tuple[float, BeliClient]] = {}
+_clients_lock = threading.Lock()
+
+
+def _evict_client(account_id: str, client: BeliClient | None = None) -> None:
+    with _clients_lock:
+        entry = _clients.get(account_id)
+        # An old in-flight request must not evict a replacement session.
+        if entry and (client is None or entry[1] is client):
+            del _clients[account_id]
+
 
 __all__ = [
     "AccountError",
@@ -265,8 +283,37 @@ def connect_account_for_owner(supabase, user_id: str, beli_id: str, password: st
         supabase.table("beli_accounts").update(
             {"password_enc": encrypt_secret(password)}
         ).eq("id", row["id"]).eq("owner_user_id", str(user_id)).execute()
+        _evict_client(str(row["id"]))
     return outcome, account
 
 
 def make_client_for_account(account: dict) -> BeliClient:
-    return BeliClient(account["beli_id"], account["password"])
+    """Share only this account's session, after callers resolve current credentials.
+
+    No tokens are persisted. Each process warms its own cache; a restart logs
+    in again. Comparing both credentials also catches changes made by another
+    worker, without storing an extra password hash or encrypted secret.
+    """
+    account_id = str(account["id"])
+    if not account_id or account_id == "None":
+        raise AccountError("Beli account id is required")
+    with _clients_lock:
+        now = time.monotonic()
+        for key, (created, _) in list(_clients.items()):
+            if now - created >= SESSION_TTL_S:
+                del _clients[key]
+        entry = _clients.get(account_id)
+        if entry:
+            client = entry[1]
+            if (client.beli_id, client.password) == (account["beli_id"], account["password"]):
+                return client
+            del _clients[account_id]
+        if len(_clients) >= MAX_CACHED_SESSIONS:
+            del _clients[next(iter(_clients))]
+        client = BeliClient(
+            account["beli_id"], account["password"],
+            on_unauthorized=lambda failed: _evict_client(account_id, failed),
+            user_agent_key=account_id,
+        )
+        _clients[account_id] = (now, client)
+        return client
