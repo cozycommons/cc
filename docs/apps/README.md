@@ -1,4 +1,4 @@
-# Cozy Commons cells: software shaped by its community
+# Cozy Commons apps: software shaped by its community
 
 Status: **proposed direction, not implemented.** Until a phase below lands,
 `docs/deployment.md#project-placement-policy` and the current Coolify/Supabase
@@ -27,10 +27,10 @@ shapes the software. Its audience can also include members who do not edit,
 invited guests and the public. Using an app does not grant permission to edit
 it, and publishing a screen does not expose private data or machine access.
 
-Every app has the same cell shape. Its access, ownership and change rules can
-differ:
+Every app follows the same basic structure. Its access, ownership and change
+rules can differ:
 
-- **Community:** a person or group that stewards the app. A personal cell is
+- **Community:** a person or group that stewards the app. A personal app is
   the one-member version.
 - **Audience:** members, invited users or the public, with access decided by
   the community.
@@ -92,10 +92,10 @@ Support at least two agent vendors so the design stays vendor-neutral.
 
 ```
 internet ─► platform proxy (route access policy) ─┬─► /mcp    shell + files connector
-                                               └─► /<app>  cell web apps
+                                               └─► /<app>  web apps
                                                         │
           ┌─────────────────────────────────────────────▼─────────────────┐
-          │ cell: AGENTS.md · code · tests · memory/ · git history          │
+          │ app: AGENTS.md · code · tests · memory/ · git history           │
           │       own Postgres database + role (local Unix socket)          │
           └──────────────────────────────────────────────────────────────────┘
                      │ continuous WAL + volume snapshots
@@ -114,32 +114,32 @@ and is the only part protected from careless agent edits. It provides:
   verifies its JWT; agent connections use OAuth and scoped authorization.
 - Membership and permissions: invite people and grant use, contribution or
   stewardship access. Agents act within the connecting person's permissions.
-- Hosting and domains: stable addresses and a proxy routing `/<app>` and cell
+- Hosting and domains: stable addresses and a proxy routing `/<app>` and app
   hosts to their runtimes.
 - Publishing: explicit private, community or public route policies. Public
   app access never grants shell, file or database access.
-- A cell runtime: start, stop and resource limits for each cell.
+- An app runtime: start, stop and resource limits for each app.
 - Snapshots, backups and restore.
 - Preview, swap and rollback for changes.
 - A generic shell and files connector for agents.
 - Shared identity (today's `commons_profiles`) as a platform service.
 
-Authorized agents can change cell software within their granted access, but
+Authorized agents can change app software within their granted access, but
 they cannot remove platform controls or grant themselves additional access.
 
-### Cells
+### Apps
 
-A cell is one app: a directory with `AGENTS.md`, code, tests, memory files, git
+An app has a directory with `AGENTS.md`, code, tests, memory files, git
 history and its own database. Dice, Trips, Beli and a personal health app are
-all cells. Each cell is stewarded by a person or community. A person can belong
-to several cells with different permissions in each.
+all apps. Each app is stewarded by a person or community. A person can belong
+to several apps with different permissions in each.
 
-- A cell's apps run inside the cell and read its local database.
-- Cells use each other's HTTP APIs, never each other's tables.
-- **Personal cells** can allow low-risk live edits, with a snapshot taken
+- An app runs in its own runtime and reads its local database.
+- Apps use each other's HTTP APIs, never each other's tables.
+- **Personal apps** can allow low-risk live edits, with a snapshot taken
   before each change. Personal ownership does not make destructive data
   changes low risk.
-- **Shared cells** use a preview and checks, plus approval where the community
+- **Shared apps** use a preview and checks, plus approval where the community
   requires it, before a change goes live. A snapshot-based preview database
   (`CREATE DATABASE … TEMPLATE …`) is proposed; promotion must preserve writes
   made to the live app while the preview is running. The exact promotion and
@@ -152,12 +152,12 @@ to several cells with different permissions in each.
 
 - **Chat agents** (ChatGPT, Claude) connect through one generic MCP connector
   with shell and file tools (roughly `exec`, `read_file`, `write_file`),
-  protected by OAuth and limited to the cells and operations the user is
+  protected by OAuth and limited to the apps and operations the user is
   authorized to access. Apps get no app-specific MCP tools; agents work with
   files, code and SQL directly.
-- **Coding agents** (Codex CLI, Claude Code) can run inside the cell or connect
+- **Coding agents** (Codex CLI, Claude Code) can run inside the app's runtime or connect
   over SSH. Every route sees the same files.
-- MCP and SSH are access mechanisms, not the defining property of a cell.
+- MCP and SSH are access mechanisms, not the defining property of an app.
   Either must enforce the same access boundaries. Machine access is a trusted
   contribution capability, separate from ordinary app use; more granular
   contributor permissions need a concrete enforcement design.
@@ -170,40 +170,40 @@ to several cells with different permissions in each.
 
 | # | Decision | Why |
 |---|---|---|
-| D1 | Every app, existing or new, is a cell with the same shape | Agents build all of it, so separate classes add cost without benefit |
+| D1 | Every app, existing or new, follows the same basic structure | Agents build all of it, so separate classes add cost without benefit |
 | D2 | Community policy and change risk set how a change ships | Members can shape software without granting every change automatic publication |
-| D3 | Each cell's database is local to the host | Sub-millisecond queries, cheap previews, isolation, and agents can work on it directly |
-| D4 | One local Postgres server, one database and role per cell; Postgres is the only engine | Existing apps move by `pg_dump`/restore instead of a rewrite; `TEMPLATE` copies make previews cheap; no joins across databases enforces cell boundaries; one dialect for agents |
+| D3 | Each app's database is local to the host | Sub-millisecond queries, cheap previews, isolation, and agents can work on it directly |
+| D4 | One local Postgres server, one database and role per app; Postgres is the only engine | Existing apps move by `pg_dump`/restore instead of a rewrite; `TEMPLATE` copies make previews cheap; no joins across databases enforces app boundaries; one dialect for agents |
 | D5 | Keep Supabase Auth for sign-in | Replacing it makes nothing easier for agents |
 | D6 | Generic machine access, initially shell and files over MCP, with SSH for coding agents | The shared environment stays independent of the agent vendor and access transport |
 | D7 | Rent agent capabilities and own data, context and apps | Benefit from each vendor release instead of competing with it |
 | D8 | Store memory as plain files per user, outside git history for personal data | Readable by any vendor's agent; vendor memory acts as a cache |
-| D9 | The platform stays small and changes slowly | It is the one part a careless change can break for every cell |
-| D10 | Cells support shared stewardship, contribution and use as distinct responsibilities | A community can shape an app whose audience includes non-editors and the public |
+| D9 | The platform stays small and changes slowly | It is the one part a careless change can break for every app |
+| D10 | Apps support shared stewardship, contribution and use as distinct responsibilities | A community can shape an app whose audience includes non-editors and the public |
 | D11 | Cozy Commons supplies common identity, hosting, domains, publishing and recovery | Each group should not have to assemble this infrastructure separately with its agents |
 
 ### Postgres details (D4)
 
-- Each cell gets a database and a role with `CONNECT` on only that database,
+- Each app gets a database and a role with `CONNECT` on only that database,
   plus a per-role `statement_timeout` and connection limit. The Postgres
   container has a memory cap.
-- A cell that needs strict isolation can get its own Postgres container with
+- An app that needs strict isolation can get its own Postgres container with
   the same conventions.
 - Back up continuously with WAL-G or pgBackRest to object storage, for
   point-in-time restore. Rehearse a full restore onto a new VM before moving
-  any shared cell. Until that test passes, the backups are unproven.
+  any shared app. Until that test passes, the backups are unproven.
 - When moving off Supabase:
   - Define a local `auth.uid()` that reads the user ID the backend sets for
     each request, so existing row-level security policies keep working.
   - Replace foreign keys to `auth.users` with plain UUID columns.
   - Remove grants to `anon` and `authenticated`.
-  - Move Supabase Storage objects to cell disk or R2.
+  - Move Supabase Storage objects to the app's disk or R2.
 
 ## Prerequisites from the current pipeline
 
 Automated checks and recovery are prerequisites for automatic shipping; they
 do not replace a community's approval rules. These items come before any shared
-cell ships automatically:
+app ships automatically:
 
 1. **Deploy visibility:** `/version` (backend) and `version.json` (frontend)
    report the git commit they were built from. `scripts/verify-deploy` waits for
@@ -221,12 +221,12 @@ cell ships automatically:
 Items 2 and 3 need a Coolify API token and application IDs stored as GitHub
 secrets.
 
-## Example: personal health cell
+## Example: personal health app
 
 - The person talks to ChatGPT through the shell connector.
-- Logging a meal, a metric or a workout becomes rows in the health cell's
+- Logging a meal, a metric or a workout becomes rows in the health app's
   database or lines in files. The agent decides how to store them and records
-  its conventions in the cell's `AGENTS.md`.
+  its conventions in the app's `AGENTS.md`.
 - A generic `health_log` table (timestamp, kind, JSON details, note) holds new
   kinds of entries before they have a UI. When a kind is used often, the agent
   adds a proper table and screen for it.
@@ -234,7 +234,7 @@ secrets.
   a session that is ready to start in the workout app.
 - Low-risk UI changes can ship live under the owner's policy. Changes that
   risk stored history need checks and an explicit recovery path.
-- The existing workout app in `jasonkeung/dummi` moves into this cell.
+- The existing workout app in `jasonkeung/dummi` moves into this app.
 - Wearables come later. Apple Health needs an on-device exporter (a Shortcut or
   an export app) posting to an authenticated endpoint. Whoop, Oura and Garmin
   have web APIs that can be synced on a schedule.
@@ -243,36 +243,36 @@ secrets.
 
 1. **Deploy loop:** prerequisites 1–4 above, for the current shared app.
 2. **Platform skeleton:**
-   - Cell runtime on Coolify.
+   - App runtime on Coolify.
    - Local Postgres with WAL backups and a rehearsed restore.
    - Proxy with Supabase Auth, membership permissions and explicit public routes.
    - Stable domains and private/community/public publishing controls.
-   - Shell and files connector with OAuth and per-member cell authorization.
-3. **First cell:** the personal health cell. Move the workout app from `dummi`
+   - Shell and files connector with OAuth and per-member app authorization.
+3. **First app:** the personal health app. Move the workout app from `dummi`
    and add memory files and `health_log`. This proves live editing, snapshots
    and the connector from ChatGPT and Claude.
-4. **Preview and promotion:** define the shared-cell change path, including
+4. **Preview and promotion:** define the shared-app change path, including
    community approval rules, concurrent live writes, schema changes and data
    recovery. Prove it before relying on automatic promotion or rollback.
-5. **First shared cell:** a small, loosely coupled `cc` project such as Beli or
+5. **First shared app:** a small, loosely coupled `cc` project such as Beli or
    Partiful, moved from Supabase to local Postgres. Validate the central shared
    stewardship workflow: invite another contributor, connect their agent,
    preview a change, approve and publish it, and recover from a failed change.
    Also verify that a non-editor can use the app and that a public route exposes
-   only its intended content. The health cell tests the mechanics; this step
+   only its intended content. The health app tests the mechanics; this step
    tests collaboration across people and agents.
 6. **Identity service:** move `commons_profiles` and cross-project identity
    into the platform, and replace cross-project table access with APIs.
 7. **Remaining projects:** convert each one when it is next touched. Dice goes
    last because it has the most migrations and users. Until a project moves, it
-   runs as today, as one large existing cell.
+   runs in the current shared application as today.
 
 ## Open questions
 
 - **Community governance:** which changes can contributors ship independently,
   which need approval, who approves, and how is stewardship transferred?
 - **Concurrent editing:** how do multiple members' agents coordinate changes
-  to the same cell and resolve conflicting edits?
+  to the same app and resolve conflicting edits?
 - **Permission enforcement:** what capabilities does each role receive, and
   how are they enforced consistently through MCP, SSH and app access?
 - **Public access:** which screens and operations can be public, and who may
@@ -280,13 +280,13 @@ secrets.
 - **Promotion and recovery:** how do preview changes preserve concurrent live
   writes, and what does undo mean for code, schema, data and memory files?
 
-- **Codex:** Codex cloud tasks or the Codex CLI inside cells? Check whether
+- **Codex:** Codex cloud tasks or the Codex CLI inside app runtimes? Check whether
   automated use from a ChatGPT subscription is permitted before relying on it.
 - **Hosting:** VPS (Coolify container and volume) or a hosted machine with
   persistent storage, such as Fly Machines? The default is the VPS.
-- **Human access:** do people get a web terminal or SSH into their cells, or do
+- **Human access:** do people get a web terminal or SSH into their app runtimes, or do
   only agents get in?
-- **Personal vs shared UI changes:** does a UI change in a shared cell apply to
+- **Personal vs shared UI changes:** does a UI change in a shared app apply to
   everyone, or become a per-user setting or a fork?
 - **Health data privacy:** private by default; decide what, if anything,
   friends can see.
@@ -296,11 +296,11 @@ secrets.
 
 ## Risks
 
-- **A single VPS** holds every cell. Off-server backups and a tested restore
+- **A single VPS** holds every app. Off-server backups and a tested restore
   are required, not optional.
 - **The internet-facing shell connector** is the largest attack surface. It
-  needs strong OAuth, per-member cell authorization, no platform secrets inside
-  cells, and resource limits.
+  needs strong OAuth, per-member app authorization, no platform secrets inside
+  apps, and resource limits.
 - **Vendor lock-in pressure:** agent products may limit third-party connectors
   or favour their own memory. Keep the connector thin and data portable, so
   switching vendors means reconnecting, not migrating.
