@@ -7,7 +7,6 @@ import { favorite, orderMatchups } from './paths.js';
 import MatchupPage from './MatchupPage.jsx';
 import SeasonRace from './SeasonRace.jsx';
 import ClaimPanel from './ClaimPanel.jsx';
-import OnboardPanel from './OnboardPanel.jsx';
 import { fetchOwners, leagueLinks } from './claims.js';
 import { acquiredLabel, finished, highlights, lowlights, matchupRead } from './analysis.js';
 import { Manager, OwnersContext, TeamLogo, WinChart, round, useNarrow, weekday, winPct } from './parts.jsx';
@@ -90,13 +89,20 @@ function Loading({ received, total }) {
   </div>;
 }
 
-// The ESPN login form lives on its own page so the hub stays a clean,
-// sign-in-free scoreboard (the design assertion in Fantasy.test.jsx).
-function ConnectPage({ apiUrl }) {
+// ESPN sign-in lives only on the account page, which runs under the strict CSP. A plain link
+// (not a router Link) loads /account as a new document, so that policy applies there.
+function ConnectPage() {
   return (
     <>
       <Link className="fx-back" to="..">← All matchups</Link>
-      <OnboardPanel apiUrl={apiUrl} />
+      <section className="fx-onboard" aria-label="Automatic lineups">
+        <h3>Automatic lineups</h3>
+        <p className="fx-small">
+          Connect ESPN on your Cozy Commons account and choose whether to set your starting lineup every day.
+          Lineup moves only: starters, bench and IR.
+        </p>
+        <a className="fx-onboard-link" href="/account#espn">Connect ESPN on your account</a>
+      </section>
     </>
   );
 }
@@ -228,7 +234,7 @@ function Fantasy() {
             <OwnersContext.Provider value={owners}><LeagueLinksContext.Provider value={links?.season === data?.year ? links : null}>
               <Routes>
                 <Route index element={<Hub data={data} apiUrl={apiUrl} onOwnersChange={reloadOwners} progress={progress} loading={status === 'loading'} />} />
-                <Route path="connect" element={<ConnectPage apiUrl={apiUrl} />} />
+                <Route path="connect" element={<ConnectPage />} />
                 <Route path=":key" element={data ? <MatchupPage data={data} /> : <Hub apiUrl={apiUrl} loading />} />
               </Routes>
             </LeagueLinksContext.Provider></OwnersContext.Provider>
