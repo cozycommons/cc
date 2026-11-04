@@ -125,8 +125,9 @@ class PasswordLogin(BaseModel):
     password: str = Field(min_length=1)
 
 
-# 10 attempts per hour per worker, counted per Commons user and per service login, so new
-# Commons accounts cannot buy more password guesses against one third-party login.
+# 10 attempts per hour per worker, counted per Commons user for each service and per service
+# login, so new Commons accounts cannot buy more password guesses against one third-party
+# login, and connecting several services cannot lock a user out of the next one.
 _CONNECT_ATTEMPTS: dict[str, list[float]] = {}
 _CONNECT_LIMIT = 10
 _CONNECT_WINDOW_S = 3600
@@ -154,7 +155,7 @@ def connect_beli(body: PasswordLogin, request: Request, user=Depends(current_use
     """Connect (or refresh the password of) the caller's Beli account from its login."""
     if len(body.password) > 200:
         raise HTTPException(400, 'That password is longer than Beli allows.')
-    connect_rate_check('user:' + str(user.id), 'beli:' + beli_accounts.login_key(body.login))
+    connect_rate_check('beli-user:' + str(user.id), 'beli:' + beli_accounts.login_key(body.login))
     try:
         outcome, account = beli_accounts.connect_account_for_owner(
             client(request), str(user.id), body.login, body.password)
@@ -177,7 +178,7 @@ def connect_resy(body: PasswordLogin, request: Request, user=Depends(current_use
         raise HTTPException(400, 'That password is longer than Resy allows.')
     if '@' not in body.login:
         raise HTTPException(400, 'Enter the email you use to sign in to Resy.')
-    connect_rate_check('user:' + str(user.id), 'resy:' + resy_accounts.login_key(body.login))
+    connect_rate_check('resy-user:' + str(user.id), 'resy:' + resy_accounts.login_key(body.login))
     try:
         outcome, account = resy_accounts.connect_account_for_owner(
             client(request), str(user.id), body.login, body.password)
@@ -252,7 +253,7 @@ def connect_espn(body: EspnLogin, request: Request, user=Depends(current_user)):
         raise HTTPException(400, 'That password is longer than ESPN allows.')
     if '@' not in body.login:
         raise HTTPException(400, 'Enter the email you use to sign in to ESPN.')
-    connect_rate_check('user:' + str(user.id), 'espn:' + body.login.strip().lower())  # ASCII by the model
+    connect_rate_check('espn-user:' + str(user.id), 'espn:' + body.login.strip().lower())  # ASCII by the model
     season = body.season or _default_season()
     try:
         cookies = disney_login.login(body.login, body.password)
@@ -291,6 +292,6 @@ def connect_espn_cookies(body: EspnCookies, request: Request, user=Depends(curre
         raise HTTPException(400, 'Paste the espn_s2 cookie value.')
     if not 1 <= len(swid) <= 64 or not swid.isascii() or not swid.isprintable():
         raise HTTPException(400, 'Paste the SWID cookie value, such as {XXXXXXXX-XXXX-...}.')
-    connect_rate_check('user:' + str(user.id), 'espn-swid:' + espn_accounts.swid_key(swid))
+    connect_rate_check('espn-user:' + str(user.id), 'espn-swid:' + espn_accounts.swid_key(swid))
     return espn_connect(request, user, swid_proven=False, league_id=body.league_id, season=body.season,
                         espn_s2=espn_s2, swid=swid, enable_automation=body.enable_automation)
