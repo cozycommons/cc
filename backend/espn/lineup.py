@@ -1277,127 +1277,87 @@ def _locked_skip(plan_entry: dict, source: str, tipoff) -> dict:
 
 
 def _reconcile_lock_exclusions(plan, locked_ids, tipoffs, counts):
-    """(submittable moves, locked skips) for a plan under per-player locks.
+    """Exclude locked movers and reconcile their dependent moves to a fixed point.
 
-    Step 1 excludes every locked player's own move. Step 2 reconciles
-    slot occupancy: with the excluded players reverted to their
-    current slots, any slot that would end OVER its count — while
-    the plan's own final state respected the count — overflows only
-    because a locked player is staying in it, so the lowest-value
-    inbound move to that slot is excluded as a collateral skip
-    (source ``blocked_by_lock``, naming who is staying in the slot:
-    the locked player, or — in a cascade — an earlier collateral
-    victim whose own exclusion keeps the slot full) and the scan
-    repeats: one exclusion can cascade (a reverted mover can itself
-    overfill the slot it stays in). The loop is bounded by the
-    number of plan moves — each pass excludes one. A slot with no inbound mover left is left as-is:
-    ESPN will 409 and the run records an error, today's residual
-    behaviour for shapes the planner itself produced.
-
-    Skips come back ordered by plan move order, so the run log reads
-    like the plan.
+    Reverting a mover can overfill the slot he keeps, or leave the starting
+    slot he was replacing empty. Exclude inbound moves in the first case
+    (lowest value first) and preserve outgoing incumbents in the second
+    (highest value first). Either exclusion can cascade in either direction.
+    Each pass excludes one mover, so retries remain bounded by roster size.
     """
-    plan_by_id = {p["player_id"]: p for p in plan["players"]}
-    counts = counts or {}
-    excluded: dict = {}
-
-    for move in plan["moves"]:
-        pid = move["playerId"]
-        if pid in locked_ids:
-            excluded[pid] = _locked_skip(
-                plan_by_id[pid], "schedule", tipoffs.get(pid)
-            )
-
-    if excluded:
-        plan_occ = Counter(p["to_slot"] for p in plan["players"])
-
-        def occupancy():
-            return Counter(
-                p["from_slot"] if p["player_id"] in excluded else p["to_slot"]
-                for p in plan["players"]
-            )
-
-        stuck: set = set()
-        while True:
-            occ = occupancy()
-            target_slot = None
-            candidates: list = []
-            for slot in sorted(occ):
-                if slot in stuck or slot not in counts:
-                    continue
-                if occ[slot] <= counts[slot]:
-                    continue
-                if plan_occ.get(slot, 0) > counts[slot]:
-                    continue  # planner-sanctioned, not lock-caused
-                candidates = [
-                    plan_by_id[m["playerId"]]
-                    for m in plan["moves"]
-                    if m["playerId"] not in excluded
-                    and m["playerId"] not in locked_ids
-                    and m["toLineupSlotId"] == slot
-                    and m["fromLineupSlotId"] != slot
-                ]
-                if not candidates:
-                    # Nothing submittable feeds this overflow (e.g. a
-                    # locked bench player simply staying put): leave
-                    # it and keep scanning — another slot may still
-                    # be fixable.
-                    stuck.add(slot)
-                    continue
-                target_slot = slot
+    players = {p["player_id"]: p for p in plan["players"]}
+    excluded = {m["playerId"]: _locked_skip(players[m["playerId"]], "schedule",
+                                           tipoffs.get(m["playerId"]))
+                for m in plan["moves"] if m["playerId"] in locked_ids}
+    plan_occ = Counter(p["to_slot"] for p in plan["players"])
+    while excluded:
+        occupancy = Counter(p["from_slot"] if p["player_id"] in excluded else p["to_slot"]
+                            for p in plan["players"])
+        remaining = [players[m["playerId"]] for m in plan["moves"]
+                     if m["playerId"] not in excluded]
+        victim, blockers, underfill = None, [], False
+        for slot in sorted(occupancy):
+            if occupancy[slot] <= counts.get(slot, 0) or plan_occ[slot] > counts.get(slot, 0):
+                continue  # Existing planner conflicts are not caused by locks.
+            inbound = [p for p in remaining if p["to_slot"] == slot]
+            if inbound:
+                victim = min(inbound, key=lambda p: (p["value"], p["player_id"]))
+                blockers = [p for p in plan["players"]
+                            if p["from_slot"] == slot and p["player_id"] in excluded]
                 break
-            if target_slot is None:
-                break
-            victim = min(
-                candidates, key=lambda p: (p["value"], p["player_id"])
-            )
-            blockers = [
-                p
-                for p in plan["players"]
-                if p["from_slot"] == target_slot
-                and (
-                    p["player_id"] in locked_ids
-                    or p["player_id"] in excluded
-                )
-            ]
-            skip = _locked_skip(
-                victim, "blocked_by_lock", tipoffs.get(victim["player_id"])
-            )
-            if blockers:
-                # Name who is staying in the slot: a locked player
-                # when one is there; otherwise an earlier collateral
-                # victim whose own exclusion is what keeps the slot
-                # full (the cascade case — his game has NOT started,
-                # so the reason must not claim it has).
-                locked_blockers = [
-                    p for p in blockers if p["player_id"] in locked_ids
-                ]
-                blocker = min(
-                    locked_blockers or blockers,
-                    key=lambda p: p["player_id"],
-                )
-                skip["detail"]["blocked_by_player_id"] = blocker["player_id"]
-                skip["detail"]["blocked_by_name"] = blocker.get("name")
-                if blocker["player_id"] in locked_ids:
-                    skip["reason"] = (
-                        f"player_locked: {blocker.get('name')} is locked in "
-                        "the slot this move targets, so the move cannot "
-                        "be submitted"
-                    )
-                else:
-                    skip["reason"] = (
-                        f"player_locked: {blocker.get('name')} is staying "
-                        "in the slot this move targets (his own move was "
-                        "lock-excluded), so the move cannot be submitted"
-                    )
-            excluded[victim["player_id"]] = skip
+        if victim is None:
+            def leads_to_benching(player):
+                # Keep harmless starter-to-starter shuffles. Follow the
+                # dependency chain only when it ends in a lost credited start.
+                pending, seen = [player], set()
+                while pending:
+                    current = pending.pop()
+                    if current["player_id"] in seen:
+                        continue
+                    seen.add(current["player_id"])
+                    if current["to_slot"] not in STARTING_SLOT_IDS:
+                        if current.get("scheduled", True):
+                            return True
+                    else:
+                        pending.extend(p for p in remaining
+                                       if p["from_slot"] == current["to_slot"])
+                return False
 
-    order = {m["playerId"]: i for i, m in enumerate(plan["moves"])}
-    skips = sorted(
-        excluded.values(), key=lambda s: order.get(s["player_id"], 1 << 30)
-    )
-    to_submit = [m for m in plan["moves"] if m["playerId"] not in excluded]
-    return to_submit, skips
+            for slot in sorted(STARTING_SLOT_IDS):
+                if occupancy[slot] >= min(plan_occ[slot], counts.get(slot, 0)):
+                    continue
+                outbound = [p for p in remaining if p["from_slot"] == slot
+                            and leads_to_benching(p)]
+                blockers = [p for p in plan["players"]
+                            if p["to_slot"] == slot and p["player_id"] in excluded]
+                if outbound and blockers:
+                    victim = min(outbound, key=lambda p: (-p["value"], p["player_id"]))
+                    underfill = True
+                    break
+        if victim is None:
+            break
+        skip = _locked_skip(victim, "blocked_by_lock", tipoffs.get(victim["player_id"]))
+        if blockers:
+            blocker = min(blockers, key=lambda p: (p["player_id"] not in locked_ids, p["player_id"]))
+            skip["detail"].update(blocked_by_player_id=blocker["player_id"],
+                                  blocked_by_name=blocker.get("name"))
+            if underfill:
+                skip["reason"] = (
+                    f"player_locked: {blocker.get('name')}'s replacement move was "
+                    "lock-excluded, so the incumbent keeps this starting slot")
+            elif blocker["player_id"] in locked_ids:
+                skip["reason"] = (
+                    f"player_locked: {blocker.get('name')} is locked in the slot "
+                    "this move targets, so the move cannot be submitted")
+            else:
+                skip["reason"] = (
+                    f"player_locked: {blocker.get('name')} is staying in the slot "
+                    "this move targets (his own move was lock-excluded), so the "
+                    "move cannot be submitted")
+        excluded[victim["player_id"]] = skip
+    moves = [m for m in plan["moves"] if m["playerId"] not in excluded]
+    skips = [excluded[m["playerId"]] for m in plan["moves"] if m["playerId"] in excluded]
+    return moves, skips
 
 
 def _submit_lineup(client, account, team_id, period, items, plan,
