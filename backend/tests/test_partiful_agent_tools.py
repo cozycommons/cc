@@ -58,6 +58,7 @@ async def test_new_user_sees_partiful_off_then_the_link_step(partiful):
     assert not {'get_partiful_events', 'link_partiful_account'} & await listed()
     enabled = await call('enable_project', project_id='partiful')
     assert enabled['linked'] is False and enabled['next_step'] == LINK_STEP
+    assert 'Do not ask for the code or a ccp_ token in chat' in LINK_STEP
 
 
 @pytest.mark.asyncio
@@ -65,7 +66,7 @@ async def test_unlinked_user_gets_the_link_step(partiful):
     db, call, _ = partiful
     enable(db)
     partiful_fakes.add_account(db, owner=str(uuid4()))  # someone else's linked account
-    with pytest.raises(ToolError, match='Link your Partiful account first: Call link_partiful_account'):
+    with pytest.raises(ToolError, match='Link your Partiful account first: Ask the user to connect Partiful at https://cozycommons.dev/account#partiful'):
         await call('get_partiful_events')
     assert not db.partiful_logins and not db.partiful_reads
 

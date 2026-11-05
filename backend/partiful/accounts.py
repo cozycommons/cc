@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 
 from cryptography.fernet import InvalidToken, MultiFernet
@@ -25,6 +26,8 @@ from cryptography.fernet import InvalidToken, MultiFernet
 from credential_keys import credentials_fernet
 
 from .partiful_client import PartifulClient, PartifulError, normalize_phone
+
+logger = logging.getLogger(__name__)
 
 
 class AccountError(Exception):
@@ -177,6 +180,82 @@ def link_account_to_owner(supabase, token: str, user_id: str) -> tuple[str, dict
     if outcome == "missing":
         raise AccountError("unknown token")
     return outcome, row
+
+
+def _account_for_uid(supabase, uid: str) -> dict | None:
+    # uid is Fernet-encrypted with a random IV, so there is no column to match
+    # on; decrypting every row is fine at the handful of accounts we hold. A row
+    # that will not decrypt (a key mismatch) is skipped rather than blocking
+    # every connect; at worst it leads to a duplicate row.
+    rows = (
+        supabase.table("partiful_accounts")
+        .select("id,label,uid_enc,owner_user_id")
+        .execute()
+    ).data or []
+    for row in rows:
+        try:
+            stored = decrypt_secret(row["uid_enc"])
+        except AccountError:
+            logger.warning("Skipping Partiful account %s: its uid does not decrypt", row["id"])
+            continue
+        if stored and hmac.compare_digest(stored.encode(), uid.encode()):
+            return row
+    return None
+
+
+def connect_account_for_owner(supabase, user_id: str, phone: str, code: str, on_verified=None) -> tuple[str, dict]:
+    """Link a Partiful account to a Commons user, proving ownership with an SMS code.
+
+    This is the web replacement for presenting a ccp_ token. The code is
+    verified live, which yields the account's Firebase uid; an existing account
+    with that uid is reused (its stored session replaced by the fresh one), so a
+    legacy user keeps their ccp_ token. Otherwise a new account is created with
+    a token nobody ever sees. Returns (outcome, {"id", "label"}) where outcome
+    is linked | already_linked | other_owner.
+    Raises AccountError for invalid fields and PartifulError when Partiful
+    refuses the code or does not answer. on_verified() runs as soon as Partiful
+    accepts the code, before anything is stored.
+    """
+    try:
+        phone = normalize_phone(phone)
+    except PartifulError as e:
+        raise AccountError(str(e))
+    code = (code or "").strip()
+    if not code:
+        raise AccountError("SMS code is required")
+    creds = PartifulClient.verify_auth_code(phone, code)
+    if on_verified is not None:
+        on_verified()
+
+    row = _account_for_uid(supabase, creds["uid"])
+    if row and row.get("owner_user_id") not in (None, str(user_id)):
+        return "other_owner", {"id": row["id"], "label": row.get("label")}
+    if row:
+        account = {"id": row["id"], "label": row.get("label")}
+    else:
+        token = mint_token()  # the column is required; this token is never shown
+        created = (supabase.table("partiful_accounts").insert({
+            "label": "partiful",
+            "refresh_token_enc": encrypt_secret(creds["refresh_token"]),
+            "uid_enc": encrypt_secret(creds["uid"]),
+            "token_hash": hash_token(token),
+            "token_prefix": token[:12],
+        }).execute().data or [{}])[0]
+        if not created.get("id"):
+            raise AccountError("could not create the Partiful account")
+        account = {"id": created["id"], "label": "partiful"}
+    outcome = supabase.rpc(
+        "partiful_link_account", {"p_account_id": account["id"], "p_user_id": str(user_id)}
+    ).execute().data
+    if outcome not in ("linked", "already_linked", "other_owner"):
+        raise AccountError("could not link the Partiful account")
+    # Store the fresh session only once the row is the caller's, so a lost race
+    # or a wrong match can never rewrite someone else's credentials.
+    if row and outcome != "other_owner":
+        supabase.table("partiful_accounts").update(
+            {"refresh_token_enc": encrypt_secret(creds["refresh_token"])}
+        ).eq("id", row["id"]).eq("owner_user_id", str(user_id)).execute()
+    return outcome, account
 
 
 def make_client_for_account(supabase, account: dict) -> PartifulClient:

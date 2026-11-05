@@ -281,6 +281,65 @@ function EspnAccount({ account, openOnLoad, onConnected }) {
   </li>;
 }
 
+function PartifulAccount({ account, openOnLoad, onConnected }) {
+  const [open, setOpen] = useState(openOnLoad && !account);
+  const [phone, setPhone] = useState('');
+  const [sentTo, setSentTo] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const row = useRef(null);
+  useEffect(() => { if (openOnLoad) row.current?.scrollIntoView?.(); }, [openOnLoad]);
+  const close = () => { setOpen(false); setSentTo(''); setCode(''); setError(''); };
+  const sendCode = async (event) => {
+    event?.preventDefault();
+    setBusy(true); setError('');
+    try {
+      const result = await accountRequest('/linked-accounts/partiful/code', { method: 'POST', body: { phone: phone.trim() } });
+      setSentTo(result.phone); setCode('');
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const verify = async (event) => {
+    event.preventDefault();
+    setBusy(true); setError('');
+    try {
+      const result = await accountRequest('/linked-accounts/partiful', { method: 'POST', body: { phone: sentTo, code: code.trim() } });
+      onConnected(result.account);
+      setPhone(''); close();
+    } catch (err) { setError(err.message); } finally { setBusy(false); setCode(''); }
+  };
+  return <li className="cc-account-connection" id="partiful" ref={row}>
+    <div>
+      <strong>Partiful</strong>
+      <p className="cc-account-muted">{account ? 'Connected' : 'Not connected'}</p>
+      {open && !sentTo && <form className="cc-account-login" onSubmit={sendCode}>
+        <input className="cc-input" type="tel" aria-label="Partiful phone number" placeholder="Partiful phone number" autoComplete="tel"
+          required maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} />
+        <div className="cc-account-confirm">
+          <button type="submit" className="cc-button cc-button--primary" disabled={busy || !phone.trim()}>{busy ? 'Sending…' : 'Text me a code'}</button>
+          <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={close}>Cancel</button>
+        </div>
+        <p className="cc-account-muted">Partiful texts a sign-in code to this number.</p>
+      </form>}
+      {open && sentTo && <form className="cc-account-login" onSubmit={verify}>
+        <p className="cc-account-muted">Code sent to {sentTo}.</p>
+        <input className="cc-input" inputMode="numeric" aria-label="Code from Partiful" placeholder="Code from Partiful" autoComplete="one-time-code"
+          required maxLength={10} value={code} onChange={(event) => setCode(event.target.value)} />
+        <div className="cc-account-confirm">
+          <button type="submit" className="cc-button cc-button--primary" disabled={busy || !code.trim()}>
+            {busy ? 'Checking with Partiful…' : account ? 'Save' : 'Connect Partiful'}</button>
+          <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={() => { setSentTo(''); setCode(''); setError(''); }}>Change number</button>
+          <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={() => sendCode()}>Send again</button>
+        </div>
+        <p className="cc-account-muted">The sign-in is stored encrypted and used only for your Partiful requests.</p>
+      </form>}
+      {error && <p className="cc-notice cc-notice--error" role="alert">{error}</p>}
+    </div>
+    {!open && <button type="button" className="cc-button cc-button--secondary" onClick={() => setOpen(true)}>
+      {account ? 'Sign in again' : 'Connect'}</button>}
+  </li>;
+}
+
 function LinkedAccounts({ hash }) {
   const [linked, setLinked] = useState(null);
   const [error, setError] = useState('');
@@ -301,6 +360,8 @@ function LinkedAccounts({ hash }) {
           onConnected={(account) => setLinked((current) => ({ ...current, [service.id]: account }))} />)}
         <EspnAccount account={linked.espn} openOnLoad={hash === '#espn'}
           onConnected={(account) => setLinked((current) => ({ ...current, espn: account }))} />
+        <PartifulAccount account={linked.partiful} openOnLoad={hash === '#partiful'}
+          onConnected={(account) => setLinked((current) => ({ ...current, partiful: account }))} />
       </ul>}
   </section>;
 }

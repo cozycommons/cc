@@ -1,4 +1,4 @@
-"""/account/linked-accounts: connect Beli, Resy and ESPN on the account page instead of pasting a token into an agent."""
+"""/account/linked-accounts: connect Beli, Resy, ESPN and Partiful on the account page instead of pasting a token into an agent."""
 import urllib.error
 from types import SimpleNamespace
 from uuid import uuid4
@@ -15,6 +15,8 @@ from espn.espn_client import EspnAuthError, EspnClient, EspnError
 from ig_logger.accounts import hash_token
 from ig_logger.sinks.beli import accounts
 from ig_logger.sinks.beli.beli_client import BeliClient, BeliError, BeliUnauthorized
+from partiful import accounts as partiful_accounts
+from partiful.partiful_client import PartifulClient, PartifulCodeRejected, PartifulError, normalize_phone
 from resy import accounts as resy_accounts
 from resy.resy_client import ResyAuthError, ResyClient, ResyError
 from tests import beli_fakes, resy_fakes
@@ -65,9 +67,10 @@ class Database:
         self.users = {'session-sam': SimpleNamespace(id='u-sam', email='sam@example.test'),
                       'session-kim': SimpleNamespace(id='u-kim', email='kim@example.test')}
         self.auth = SimpleNamespace(get_user=lambda token: SimpleNamespace(user=self.users.get(token)))
-        self.tables = {'beli_accounts': [], 'resy_accounts': [], 'espn_accounts': [], 'ig_logger_sources': []}
+        self.tables = {'beli_accounts': [], 'resy_accounts': [], 'espn_accounts': [], 'partiful_accounts': [],
+                       'ig_logger_sources': []}
         self.beli_accounts, self.resy_accounts = self.tables['beli_accounts'], self.tables['resy_accounts']
-        self.espn_accounts = self.tables['espn_accounts']
+        self.espn_accounts, self.partiful_accounts = self.tables['espn_accounts'], self.tables['partiful_accounts']
         self.espn_claims, self.claim_failure = [], None
 
     def table(self, name):
@@ -82,7 +85,7 @@ class Database:
                 return SimpleNamespace(data=claim_proven(self.espn_accounts, **args))
             return SimpleNamespace(execute=claim)
         rows = {'beli_link_account': self.beli_accounts, 'resy_link_account': self.resy_accounts,
-                'espn_link_account': self.espn_accounts}[name]
+                'espn_link_account': self.espn_accounts, 'partiful_link_account': self.partiful_accounts}[name]
 
         def execute():
             before = {r['id']: r['owner_user_id'] for r in rows}
@@ -153,7 +156,7 @@ def connect(client, login, headers=SAM, password=PASSWORD):
 
 def test_a_new_beli_login_creates_and_links_an_account_whose_token_nobody_sees(account_app):
     client, db = account_app
-    assert client.get('/account/linked-accounts', headers=SAM).json() == {'beli': None, 'resy': None, 'espn': None}
+    assert client.get('/account/linked-accounts', headers=SAM).json() == {'beli': None, 'resy': None, 'espn': None, 'partiful': None}
     response = connect(client, 'new@example.test')
     assert response.status_code == 200 and response.json()['status'] == 'linked'
     assert 'token' not in response.text and PASSWORD not in response.text
@@ -654,6 +657,154 @@ def test_espn_attempts_are_limited_per_user_per_email_and_per_swid(espn_app):
     assert connect_cookies(client, swid=SWID.lower(), headers=KIM).status_code == 429  # per SWID
 
 
+# Partiful: a texted code proves the phone, and Firebase names the account by uid.
+
+PHONE = '+18185551234'
+
+
+@pytest.fixture
+def partiful_app(account_app, monkeypatch):
+    client, db = account_app
+    monkeypatch.setenv('PARTIFUL_CREDENTIALS_KEY', Fernet.generate_key().decode())
+    monkeypatch.setattr(routes, '_PARTIFUL_CHALLENGES', {})
+    db.sms_sent, db.partiful_failure, db.partiful_uids = [], None, {PHONE: 'uid-sam'}
+    db.partiful_sessions = iter(f'refresh-{n}' for n in range(100))
+
+    def send_auth_code(phone):
+        if db.partiful_failure:
+            raise db.partiful_failure
+        db.sms_sent.append(phone)
+
+    def verify_auth_code(phone, code):
+        if db.partiful_failure:
+            raise db.partiful_failure
+        if code != '123456':
+            raise PartifulCodeRejected('wrong or expired SMS code')
+        return {'refresh_token': next(db.partiful_sessions), 'uid': db.partiful_uids.setdefault(phone, 'uid-' + phone)}
+    monkeypatch.setattr(PartifulClient, 'send_auth_code', staticmethod(send_auth_code))
+    monkeypatch.setattr(PartifulClient, 'verify_auth_code', staticmethod(verify_auth_code))
+    return client, db
+
+
+def send_code(client, phone='(818) 555-1234', headers=SAM):
+    return client.post('/account/linked-accounts/partiful/code', headers=headers, json={'phone': phone})
+
+
+def connect_partiful(client, phone='818 555 1234', code='123456', headers=SAM, send=True):
+    """send=True stands in for step 1: the caller holds a fresh challenge for this phone (no text is counted)."""
+    if send:
+        try:
+            normalized = normalize_phone(phone)
+        except PartifulError:
+            normalized = None
+        if normalized:
+            user = {SAM['Authorization']: 'u-sam', KIM['Authorization']: 'u-kim'}[headers['Authorization']]
+            routes.store_partiful_challenge(user, normalized)
+    return client.post('/account/linked-accounts/partiful', headers=headers, json={'phone': phone, 'code': code})
+
+
+def legacy_partiful(db, uid='uid-sam', owner=None):
+    token = partiful_accounts.mint_token()
+    row = {'id': str(uuid4()), 'label': 'legacy', 'refresh_token_enc': partiful_accounts.encrypt_secret('legacy-refresh'),
+           'uid_enc': partiful_accounts.encrypt_secret(uid), 'token_hash': partiful_accounts.hash_token(token),
+           'token_prefix': token[:12], 'owner_user_id': owner}
+    db.partiful_accounts.append(row)
+    return row, token
+
+
+def stored_refresh(row):
+    return partiful_accounts.decrypt_secret(row['refresh_token_enc'])
+
+
+def test_a_texted_code_creates_and_links_a_new_partiful_account(partiful_app):
+    client, db = partiful_app
+    sent = send_code(client)
+    assert sent.json() == {'status': 'code_sent', 'phone': PHONE} and db.sms_sent == [PHONE]
+    response = connect_partiful(client)
+    assert response.status_code == 200 and response.json()['status'] == 'linked'
+    for secret in ('refresh-0', 'uid-sam', '123456', 'ccp_'):
+        assert secret not in response.text
+    row, = db.partiful_accounts
+    assert row['owner_user_id'] == 'u-sam' and stored_refresh(row) == 'refresh-0'
+    assert client.get('/account/linked-accounts', headers=SAM).json()['partiful'] == {'id': row['id'], 'label': 'partiful'}
+
+
+def test_a_legacy_partiful_account_is_claimed_by_its_uid_and_keeps_its_token(partiful_app):
+    client, db = partiful_app
+    row, token = legacy_partiful(db)
+    response = connect_partiful(client)
+    assert response.json() == {'status': 'linked', 'account': {'id': row['id'], 'label': 'legacy'}}
+    assert len(db.partiful_accounts) == 1 and row['owner_user_id'] == 'u-sam' and stored_refresh(row) == 'refresh-0'
+    assert row['token_hash'] == partiful_accounts.hash_token(token)
+    assert connect_partiful(client).json()['status'] == 'already_linked' and stored_refresh(row) == 'refresh-1'
+
+
+def test_another_users_partiful_account_is_refused_and_untouched(partiful_app):
+    client, db = partiful_app
+    row, _ = legacy_partiful(db, owner='u-kim')
+    response = connect_partiful(client)
+    assert response.status_code == 409 and 'another Cozy Commons user' in response.json()['detail']
+    assert row['owner_user_id'] == 'u-kim' and stored_refresh(row) == 'legacy-refresh'
+
+
+def test_a_wrong_code_or_partiful_outage_stores_nothing(partiful_app):
+    client, db = partiful_app
+    response = connect_partiful(client, code='654321')
+    assert response.status_code == 400 and 'did not accept that code' in response.json()['detail']
+    db.partiful_failure = PartifulError('Partiful getLoginToken -> 400 bad code', status=400)
+    assert 'did not accept that code' in connect_partiful(client).json()['detail']
+    for failure in (PartifulError('Partiful getLoginToken -> 503', status=503), TimeoutError('read timed out'),
+                    PartifulError('Partiful getLoginToken -> 429', status=429)):
+        db.partiful_failure = failure
+        assert connect_partiful(client).json()['detail'] == 'Partiful did not answer. Try again in a minute.'
+        assert send_code(client).status_code == 502
+    assert db.partiful_accounts == [] and db.sms_sent == []
+
+
+def test_partiful_inputs_are_checked_without_echoing_the_code(partiful_app):
+    client, db = partiful_app
+    assert send_code(client, phone='12').status_code == 400
+    assert send_code(client, phone='\uff18' * 10).status_code == 422  # fullwidth digits are not ASCII
+    for code in ('12', '1' * 11, 'abcdef', '\u0661\u0662\u0663\u0664'):  # Arabic-Indic digits pass str.isdigit
+        response = connect_partiful(client, code=code)
+        assert response.status_code == 400 and 'texted you' in response.json()['detail'] and code not in response.text
+    response = client.post('/account/linked-accounts/partiful', headers={**SAM, 'Content-Type': 'application/json'},
+                           content='{"phone": 5, "code": "987654"}')
+    assert response.status_code == 422 and '987654' not in response.text
+    assert db.sms_sent == [] and db.partiful_accounts == []
+
+
+def test_partiful_codes_are_limited_per_user_and_per_phone(partiful_app):
+    client, db = partiful_app
+    assert send_code(client, headers={}).status_code == 401
+    for _ in range(5):
+        assert send_code(client).status_code == 200
+        assert connect_partiful(client, code='000000').status_code == 400
+    assert send_code(client, phone='2125550000').status_code == 429  # per Commons user
+    assert send_code(client, phone='+1 818-555-1234', headers=KIM).status_code == 429  # per phone: no SMS flood
+    assert connect_partiful(client, phone='2125550000', headers=KIM).status_code == 200
+
+
+def test_a_partiful_code_needs_this_users_unexpired_challenge_for_that_phone(partiful_app, monkeypatch):
+    client, db = partiful_app
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # no challenge yet
+    assert send_code(client, '2125550000').status_code == 200
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # challenged a different phone
+    assert send_code(client, headers=KIM).status_code == 200
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # Kim's challenge is not Sam's
+    assert send_code(client).status_code == 200
+    now = routes.time.time()
+    monkeypatch.setattr(routes.time, 'time', lambda: now + routes._PARTIFUL_CHALLENGE_S + 1)
+    assert 'within 10 minutes' in connect_partiful(client, send=False).json()['detail']
+    monkeypatch.setattr(routes.time, 'time', lambda: now)
+    assert 'u-sam' not in routes._PARTIFUL_CHALLENGES  # the expired challenge was pruned
+    assert send_code(client).status_code == 200
+    assert connect_partiful(client, code='000000', send=False).status_code == 400  # a wrong code keeps the challenge
+    assert connect_partiful(client, send=False).json()['status'] == 'linked'
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # consumed on success
+    assert db.partiful_accounts[0]['owner_user_id'] == 'u-sam' and len(db.partiful_accounts) == 1
+
+
 SECRET = 'SYNTHETIC-SECRET-VALUE'
 
 
@@ -689,3 +840,78 @@ def test_espn_422s_never_echo_the_password_or_cookies(espn_app):
         {'league_id': 999, 'season': 2027, 'espn_s2': 'x', 'swid': '{A}', 'note': SECRET},
     ])
     assert db.espn_logins == [] and db.espn_probes == []
+
+
+def test_partiful_422s_never_echo_the_code(partiful_app):
+    client, db = partiful_app
+    assert_422_hides(client, '/account/linked-accounts/partiful/code', [
+        {'number': SECRET},
+        {'phone': [SECRET]},
+        {'phone': '8185551234', 'note': SECRET},
+    ])
+    assert_422_hides(client, '/account/linked-accounts/partiful', [
+        {'phone': '8185551234'} | {'otp': SECRET},
+        {'code': SECRET},
+        {'phone': '8185551234', 'code': [SECRET]},
+        {'phone': SECRET + '\u00e9', 'code': SECRET},
+    ])
+    assert db.sms_sent == [] and db.partiful_accounts == []
+
+
+def test_a_verify_never_consumes_a_challenge_sent_while_it_ran(partiful_app, monkeypatch):
+    client, db = partiful_app
+    verify = PartifulClient.verify_auth_code
+
+    def verify_while_a_new_code_is_sent(phone, code):
+        assert routes.reserve_partiful_challenge('u-sam', PHONE) == (None, 'in_progress')  # reserved by this verify
+        routes.store_partiful_challenge('u-sam', '+12125550000')  # Sam asks for a code to another number
+        return verify(phone, code)
+    monkeypatch.setattr(PartifulClient, 'verify_auth_code', staticmethod(verify_while_a_new_code_is_sent))
+    assert connect_partiful(client).json()['status'] == 'linked'
+    pending = routes._PARTIFUL_CHALLENGES['u-sam']
+    assert pending['phone'] == '+12125550000' and pending['reserved'] is False  # the newer challenge survives
+
+
+def test_a_failed_verify_releases_its_challenge_for_another_try(partiful_app):
+    client, db = partiful_app
+    db.partiful_failure = PartifulError('Partiful getLoginToken -> 503', status=503)
+    assert connect_partiful(client).status_code == 502
+    db.partiful_failure = None
+    assert connect_partiful(client, code='000000', send=False).status_code == 400
+    assert routes._PARTIFUL_CHALLENGES['u-sam']['reserved'] is False
+    assert connect_partiful(client, send=False).json()['status'] == 'linked'
+    assert 'u-sam' not in routes._PARTIFUL_CHALLENGES
+
+
+def test_expired_partiful_challenges_are_pruned_on_store(partiful_app, monkeypatch):
+    now = routes.time.time()
+    routes.store_partiful_challenge('u-kim', '+12125550000')
+    monkeypatch.setattr(routes.time, 'time', lambda: now + routes._PARTIFUL_CHALLENGE_S + 1)
+    routes.store_partiful_challenge('u-sam', PHONE)
+    assert set(routes._PARTIFUL_CHALLENGES) == {'u-sam'}
+
+
+def test_a_code_partiful_accepted_is_spent_even_when_saving_fails(partiful_app, monkeypatch):
+    client, db = partiful_app
+
+    def save_fails(*_args, **_kwargs):
+        raise partiful_accounts.AccountError('could not create the Partiful account')
+    monkeypatch.setattr(partiful_accounts, '_account_for_uid', save_fails)
+    assert connect_partiful(client).status_code == 503
+    assert 'u-sam' not in routes._PARTIFUL_CHALLENGES  # consumed when Partiful accepted it
+    monkeypatch.undo()
+    retried = connect_partiful(client, send=False)
+    assert retried.status_code == 400 and 'Send a code' in retried.json()['detail']  # needs a new text
+
+
+def test_a_second_verify_of_a_reserved_challenge_says_one_is_in_progress(partiful_app, monkeypatch):
+    client, db = partiful_app
+    verify, seen = PartifulClient.verify_auth_code, []
+
+    def double_submit(phone, code):
+        seen.append(client.post('/account/linked-accounts/partiful', headers=SAM, json={'phone': phone, 'code': code}))
+        return verify(phone, code)
+    monkeypatch.setattr(PartifulClient, 'verify_auth_code', staticmethod(double_submit))
+    assert connect_partiful(client).json()['status'] == 'linked'
+    second, = seen
+    assert second.status_code == 409 and 'already being checked' in second.json()['detail']
