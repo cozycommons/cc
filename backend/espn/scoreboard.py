@@ -44,6 +44,7 @@ from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from .errors import scrub
 from .espn_client import EspnError, ReadCache, RequestCooldown, USER_AGENT
 
 SCOREBOARD_URL = (
@@ -213,14 +214,14 @@ class ScoreboardClient:
             if e.code == 429 and self._cooldown is not None:
                 self._cooldown.defer(e.headers.get("Retry-After") if e.headers else None)
             try:
-                detail = e.read().decode("utf-8", errors="replace")[:200]
+                detail = scrub(e.read(4096).decode("utf-8", errors="replace"))
             except Exception:
                 detail = ""
             raise EspnError(
                 f"ESPN scoreboard -> {e.code} {detail}", status=e.code
             ) from e
         except urllib.error.URLError as e:
-            raise EspnError(f"ESPN scoreboard: network error {e}") from e
+            raise EspnError(f"ESPN scoreboard: network error {scrub(e)}") from None
         try:
             return raw, json.loads(raw)
         except json.JSONDecodeError as e:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 
-from mcp.server.fastmcp import FastMCP
+from mcp_validation import FastMCP
 from supabase import create_client
 
 from . import accounts

@@ -313,6 +313,7 @@ def test_429_returned_as_run_error_defers_remaining_accounts(monkeypatch, source
         requests.append(req)
         if source == "scoreboard" and "fantasy.espn.com" in req.full_url:
             payload = _full_coverage_payload()
+            payload["settings"]["acquisitionSettings"] = {}
             payload.pop("proGamesByScoringPeriod")
             return FakeHTTPResponse(payload)
         raise urllib.error.HTTPError(req.full_url, 429, "limited", {"Retry-After": "120"}, io.BytesIO())

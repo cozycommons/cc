@@ -5,4 +5,4 @@
 # uv-exclude-newer: 2026-10-28T00:00:00Z
 # requires-python: >=3.12
 # environments: python_version >= '3.12' and python_version < '3.14'
-pytest==8.3.4
+pytest>=9.0.3,<10
