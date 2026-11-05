@@ -31,6 +31,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Verify API egress Compose with Coolify project-directory semantics
+        env:
+          API_RUNTIME_FILE: /daemon-only/api-runtime
+          EGRESS_SUPABASE_HOST: synthetic.supabase.co
+          EGRESS_DB_HOST: synthetic.pooler.supabase.com
+        run: |
+          docker compose --project-directory . -f deploy/api-egress/compose.yaml config --format json |
+            python3 scripts/check-api-egress-compose.py .
       - name: Verify project selection and required-check gates
         run: |
           python3 -m unittest discover -s scripts -p test_ci_selection.py -v
