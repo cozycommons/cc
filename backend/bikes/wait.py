@@ -64,7 +64,8 @@ def expected_wait_min(model, short_name, when):
 def minutes(value, adjective=False):
     count = max(1, round(value))
     if adjective:
-        return f'{count}-minute'
+        # "an 8-minute ride", "an 11-minute walk"
+        return f"{'an' if str(count).startswith('8') or count in (11, 18) else 'a'} {count}-minute"
     return f"{count} minute{'s' if count != 1 else ''}"
 
 
@@ -96,8 +97,8 @@ def decide(model, docks, lat, lng, when: datetime):
         f'A dock here usually opens in about {minutes(wait)}'
     if best and (wait is None or best.total_min < wait):
         return {**result, 'decision': 'ride', 'message': (
-            f'{prefix}Ride to {best.dock.name}: {best.dock.docks} open, a {minutes(best.ride_min, True)} ride '
-            f'and a {minutes(best.walk_min, True)} walk back. {usual}.')}
+            f'{prefix}Ride to {best.dock.name}: {best.dock.docks} open, {minutes(best.ride_min, True)} ride '
+            f'and {minutes(best.walk_min, True)} walk back. {usual}.')}
     if wait is not None:
         other = (f' Riding to {best.dock.name} would take {minutes(best.total_min)} with the walk back.'
                  if best else '')

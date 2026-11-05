@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from bikes import gbfs, routes
-from bikes.wait import Dock, decide
+from bikes.wait import Dock, decide, minutes
 
 # Weekday 17:00 is busy (60 departures/hour, one a minute); 03:00 has one an hour.
 SLOTS = [100] * 48
@@ -75,3 +75,9 @@ def test_route_hides_feed_failures(client, monkeypatch):
     response = http.get('/bikes/wait-or-ride', params={'lat': PENN.lat, 'lng': PENN.lng})
     assert response.status_code == 503
     assert 'URLError' not in response.text
+
+
+def test_minute_phrases():
+    assert [minutes(v, True) for v in (1, 8, 11, 18, 21, 84)] == [
+        'a 1-minute', 'an 8-minute', 'an 11-minute', 'an 18-minute', 'a 21-minute', 'an 84-minute']
+    assert (minutes(0.2), minutes(2)) == ('1 minute', '2 minutes')
