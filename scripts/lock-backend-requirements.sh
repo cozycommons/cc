@@ -22,6 +22,8 @@ if [[ "$have_uv" != "$want_uv" ]]; then
   printf 'uv %s is required (%s uv-version); found %s.\n' "$want_uv" "$in_path" "$have_uv" >&2
   exit 1
 fi
+# --no-config ignores the generated tool.uv cutoff; enforce it on the CLI too.
+exclude_newer="$(setting uv-exclude-newer)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 # Bound the universal resolve to the Python versions each consumer supports.
@@ -44,6 +46,7 @@ PY
   # --no-config and an explicit index: ambient uv.toml or UV_* index settings cannot change the source.
   (cd "$work" && unset UV_INDEX UV_INDEX_URL UV_DEFAULT_INDEX UV_EXTRA_INDEX_URL UV_FIND_LINKS UV_EXCLUDE_NEWER UV_CONFIG_FILE UV_RESOLUTION UV_PRERELEASE \
      && uv lock --quiet --no-config --default-index https://pypi.org/simple \
+       --exclude-newer "$exclude_newer" \
      && uv export --quiet --no-config --frozen --format requirements-txt \
      --no-header --no-annotate --no-emit-project)
 } > "$work/requirements.txt"
