@@ -258,7 +258,8 @@ it('opens a dedicated set URL directly and preserves it when reconnecting', asyn
   request.mockResolvedValue([ready]);
   render(<Crowdset />);
   expect(await screen.findByLabelText('Current mix')).toBeInTheDocument();
-  expect(document.title).toBe('A night together · Crowdset');
+  // The title is set in an effect that can run after the player appears.
+  await waitFor(() => expect(document.title).toBe('A night together · Crowdset'));
   expect(window.location.pathname).toBe('/crowdset/a-night-together');
 });
 
