@@ -12,7 +12,7 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastmcp.server.auth import AccessToken, TokenVerifier
-from fastmcp.server.auth.oauth_proxy import (
+from fastmcp.server.auth.oauth_proxy.models import (
     JTIMapping,
     RefreshTokenMetadata,
     UpstreamTokenSet,
