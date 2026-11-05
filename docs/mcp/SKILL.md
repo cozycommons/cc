@@ -65,11 +65,11 @@ still accepts an existing `ccr_` token the user offers unprompted.
 
 ## Partiful
 
-Partiful is read-only. Link once exactly like Beli, with the user's existing
-`ccp_` token and `link_partiful_account(api_token)`. A user without a token
-onboards with their phone number: `POST
-https://api.cozycommons.dev/partiful/onboard/start`, then
-`/partiful/onboard/verify` with the SMS code.
+Partiful is read-only. Link once like Beli: send the user to
+https://cozycommons.dev/account#partiful, where they enter their phone number
+and the code Partiful texts them, then retry. Never ask for the code or a
+`ccp_` token in chat. `link_partiful_account(api_token)` still accepts an
+existing `ccp_` token the user offers unprompted.
 
 - `get_partiful_events(scope?, start?, end?)`: the user's events. `scope` is
   `all` (default), `hosted`, `rsvps` or `invited`; `start`/`end` are inclusive

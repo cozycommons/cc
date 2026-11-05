@@ -430,8 +430,9 @@ step:
   what the legacy tools return: no guest lists. An event the user's own
   Partiful session cannot see is "Event not found"; the connector never uses
   another account's session.
-- `link_partiful_account(api_token)` (`edit`): the one-time link step with the
-  existing `ccp_` token.
+- `link_partiful_account(api_token)` (`edit`): links with a `ccp_` token the
+  user already holds. The link step no longer asks for one: it sends the user to
+  `https://cozycommons.dev/account#partiful`.
 
 Linking mirrors Beli and Resy: migration `0019_beli_partiful_account_owner.sql`
 adds `partiful_accounts.owner_user_id` (partial unique index, `on delete set
@@ -441,8 +442,30 @@ hashed and compared in constant time, never stored or returned, and limited to
 10 attempts per user per hour. Linking changes only `owner_user_id`; the stored
 Firebase refresh token and uid are untouched. `/partiful/*`, `/partiful/mcp` and
 `ccp_` tokens are unchanged; existing accounts stay unlinked. Partiful is on by
-default once linked. Onboarding is SMS-based and has no web page, so linking
-happens only through the tool. There are no writes and so no receipts table.
+default once linked. There are no writes and so no receipts table.
+
+Linking on the account page takes two requests with the Commons session:
+`POST /account/linked-accounts/partiful/code` `{phone}` texts the Partiful
+sign-in code (10-digit US numbers or `+` international, normalized to E.164),
+then `POST /account/linked-accounts/partiful` `{phone, code}` verifies it with
+Partiful, which yields the account's Firebase uid. An existing account with that
+uid is reused, keeps its `ccp_` token and gets the fresh session; otherwise a new
+account is created with a token nobody sees. `partiful_link_account` links first,
+refusing another owner's account, and the session is stored only after, on the
+caller's row. Step 1 records a pending challenge bound to the Commons user and
+the normalized phone, valid for 10 minutes (one per user; a new send replaces
+it, and like the attempt counters it lives in the single worker's memory). Step
+2 refuses a phone with no such challenge; it reserves the challenge by id under
+a short lock (never held across the call to Partiful) and consumes it the
+moment Partiful accepts the code, before anything is stored: if saving then
+fails, the same code cannot be retried and the user sends a new one. It is
+released only when verification did not succeed, a second verify while one is
+running gets 409 "already being checked", and a verify never touches a
+challenge a later send replaced. Expired challenges are pruned on
+every store operation. Codes are 4 to 10 ASCII digits, checked in the route so a 422 never
+echoes one. Both requests count toward 10 per hour per Commons user and
+per phone number, which also limits texts to any one phone.
+`GET /account/linked-accounts` adds `partiful`.
 
 Partiful may rotate the refresh token on any read, and every path (`/partiful`,
 `/partiful/mcp`, `/mcp`) persists the new one. The `/partiful` routes therefore
@@ -665,8 +688,9 @@ nothing reaches Partiful or Google. The fake rotates the refresh token on every
 refresh and retires the old one. The test checks that Partiful starts off and
 unlinked, onboards two synthetic phone numbers through the real
 `/partiful/onboard/start` and `/verify`, refuses linking the one linked to the
-second user and a wrong token, links its own without changing the stored
-session, and checks the `ccp_` token on `/partiful/me`. It lists events (no
+second user and a wrong token through `link_partiful_account`, refuses the other
+user's phone and a wrong code on the account page, links its own there by phone
+and texted code, and checks the `ccp_` token on `/partiful/me`. It lists events (no
 guest data), filters by scope, reads one event, is refused another user's
 event, and then calls the legacy `/partiful/events`, which must still work after
 the connector's rotations. The read-only grant reads events and cannot link.

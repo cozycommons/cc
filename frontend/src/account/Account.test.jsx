@@ -73,7 +73,7 @@ const openAt = (entry) => render(<MemoryRouter initialEntries={[entry]}><Account
 it("connects Beli on the page an agent's #beli link opens, without keeping the password", async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
     return { status: 'linked', account: { id: 'b1', label: 'beli' } };
   });
   openAt('/account#beli');
@@ -93,7 +93,7 @@ it("connects Beli on the page an agent's #beli link opens, without keeping the p
 it('shows a Beli refusal and clears the password for another try', async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: { id: 'b1', label: 'beli' }, resy: null, espn: null };
+    if (path === '/linked-accounts') return { beli: { id: 'b1', label: 'beli' }, resy: null, espn: null, partiful: null };
     throw new Error('Beli did not accept that email or phone number and password.');
   });
   openAt('/account');
@@ -110,7 +110,7 @@ it('shows a Beli refusal and clears the password for another try', async () => {
 it("connects Resy on the page an agent's #resy link opens, leaving Beli closed", async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
     return { status: 'linked', account: { id: 'r1', label: 'resy' } };
   });
   openAt('/account#resy');
@@ -130,7 +130,7 @@ it("connects Resy on the page an agent's #resy link opens, leaving Beli closed",
 it('shows a Resy refusal and clears the password', async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
     throw new Error('This Resy account is connected to another Cozy Commons user. Sign in as that user to manage it.');
   });
   openAt('/account#resy');
@@ -147,7 +147,7 @@ it('connects ESPN by email, asks which league, and keeps the password only until
   const leagues = [{ league_id: 999, name: 'Synthetic League', team_name: 'Squad' }, { league_id: 1001, name: 'Other League', team_name: 'Squad' }];
   mocked.request.mockImplementation(async (path, options) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
     if (!options.body.league_id) return { status: 'league_selection_required', season: 2027, leagues };
     return { status: 'linked', account: { id: 'e1', label: 'espn', league_id: 1001, season: 2027 } };
   });
@@ -172,7 +172,7 @@ it('connects ESPN by email, asks which league, and keeps the password only until
 it('connects ESPN from cookies and clears espn_s2 after a refusal', async () => {
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
-    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
     throw new Error('This ESPN team is already set up on Cozy Commons. If it is yours, sign in with your ESPN email and password to connect it.');
   });
   openAt('/account#espn');
@@ -189,4 +189,46 @@ it('connects ESPN from cookies and clears espn_s2 after a refusal', async () => 
     league_id: 999, season: 2027, espn_s2: 'synthetic-s2', swid: '{SYNTHETIC}', enable_automation: true } });
   expect(within(row).getByLabelText('espn_s2 cookie')).toHaveValue('');
   expect(within(row).getByLabelText('SWID cookie')).toHaveValue('{SYNTHETIC}');
+});
+
+it('connects Partiful with a phone number and then the texted code', async () => {
+  mocked.request.mockImplementation(async (path, options) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
+    if (path === '/linked-accounts/partiful/code') return { status: 'code_sent', phone: '+18185551234' };
+    if (options.body.code !== '123456') throw new Error('Partiful did not accept that code. Check it or send a new one.');
+    return { status: 'linked', account: { id: 'p1', label: 'partiful' } };
+  });
+  openAt('/account#partiful');
+  const row = (await screen.findByText('Partiful')).closest('li');
+  fireEvent.change(within(row).getByLabelText('Partiful phone number'), { target: { value: ' (818) 555-1234 ' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Text me a code' }));
+  expect(await within(row).findByText('Code sent to +18185551234.')).toBeInTheDocument();
+  expect(mocked.request).toHaveBeenCalledWith('/linked-accounts/partiful/code', { method: 'POST', body: { phone: '(818) 555-1234' } });
+  fireEvent.change(within(row).getByLabelText('Code from Partiful'), { target: { value: '000000' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect Partiful' }));
+  expect(await within(row).findByRole('alert')).toHaveTextContent('did not accept that code');
+  expect(within(row).getByLabelText('Code from Partiful')).toHaveValue('');
+  fireEvent.change(within(row).getByLabelText('Code from Partiful'), { target: { value: ' 123456 ' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect Partiful' }));
+  expect(await within(row).findByText('Connected')).toBeInTheDocument();
+  expect(mocked.request).toHaveBeenLastCalledWith('/linked-accounts/partiful',
+    { method: 'POST', body: { phone: '+18185551234', code: '123456' } });
+  expect(within(row).queryByLabelText('Code from Partiful')).not.toBeInTheDocument();
+  expect(within(row).getByRole('button', { name: 'Sign in again' })).toBeInTheDocument();
+});
+
+it('lets the user change the Partiful number after a code was sent', async () => {
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
+    return { status: 'code_sent', phone: '+18185551234' };
+  });
+  openAt('/account#partiful');
+  const row = (await screen.findByText('Partiful')).closest('li');
+  fireEvent.change(within(row).getByLabelText('Partiful phone number'), { target: { value: '8185551234' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Text me a code' }));
+  fireEvent.click(await within(row).findByRole('button', { name: 'Change number' }));
+  expect(within(row).getByLabelText('Partiful phone number')).toHaveValue('8185551234');
+  expect(within(row).queryByLabelText('Code from Partiful')).not.toBeInTheDocument();
 });
