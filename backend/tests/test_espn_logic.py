@@ -235,7 +235,7 @@ class FakeClient:
         self.requested_views.append(tuple(views))
         return self.league_payloads[frozenset(views)]
 
-    def get_players(self, limit=300, max_age=0):
+    def get_league_players(self, limit=300, max_age=0):
         self.requested_player_limits.append(limit)
         return self._players
 

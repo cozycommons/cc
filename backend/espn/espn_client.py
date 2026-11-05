@@ -103,6 +103,7 @@ RATE_LIMIT_COOLDOWN_S = 60.0
 READ_CACHE_TTL_S = 30.0
 SETTLED_PERIOD_TTL_S = 6 * 3600.0
 READ_CACHE_MAX_CHARS = 96_000_000
+MAX_READ_BYTES = 16 * 1024 * 1024
 
 AUTH_EXPIRED_MESSAGE = (
     "ESPN cookies expired or were rejected; re-onboard with fresh "
@@ -373,7 +374,10 @@ class EspnClient:
             req.add_header(k, v)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
+                body = resp.read(MAX_READ_BYTES + 1)
+                if len(body) > MAX_READ_BYTES:
+                    raise EspnError("ESPN read response exceeds size limit")
+                raw = body.decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             if e.code == 429 and self._cooldown is not None:
                 self._cooldown.defer(e.headers.get("Retry-After") if e.headers else None)
@@ -556,6 +560,7 @@ class EspnClient:
         league object (in practice just a ``players`` key) whose
         ``players`` array holds the nested entries.
         """
+        limit = (players_filter.get("players") or {}).get("limit")
         url = self.league_url() + "?view=kona_player_info"
         data = self._get(
             url,
@@ -573,7 +578,7 @@ class EspnClient:
                 "ESPN league players: unexpected response "
                 "(expected players list)"
             )
-        return players
+        return players[:limit] if limit is not None else players
 
     def get_league_players(self, limit: int = 1000, *, max_age: float = 0) -> list:
         """Player entries for THIS league, sorted by percent owned (desc).

@@ -32,8 +32,8 @@ class FakeHTTPResponse:
         else:
             self._raw = json.dumps(payload).encode("utf-8")
 
-    def read(self):
-        return self._raw
+    def read(self, size=-1):
+        return self._raw if size < 0 else self._raw[:size]
 
     def __enter__(self):
         return self
