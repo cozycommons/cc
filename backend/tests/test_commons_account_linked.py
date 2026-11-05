@@ -576,6 +576,27 @@ def test_a_proven_claim_detaches_unproven_duplicates_of_the_team(espn_app):
     assert squatted['token_hash'] != espn_accounts.hash_token(squat_token)
 
 
+def test_an_in_flight_cookie_refresh_never_reacquires_a_row_a_proven_claim_detached(espn_app, monkeypatch):
+    client, db = espn_app
+    squatted, _ = legacy_espn(db, owner='u-kim')  # Kim holds a duplicate of Sam's team without proof
+    unowned, _ = legacy_espn(db)
+    find = espn_accounts._accounts_for_team
+
+    def proven_claim_lands_between_read_and_write(*args):
+        matches = find(*args)  # Kim's cookie request has read its own row...
+        monkeypatch.setattr(espn_accounts, '_accounts_for_team', find)
+        outcome, _ = espn_accounts.connect_account_for_owner(  # ...then Sam's MyDisney claim commits
+            db, 'u-sam', league_id=999, season=2027, espn_s2='sams-s2', swid=SWID, swid_proven=True)
+        assert outcome == 'linked' and squatted['owner_user_id'] is None  # detached
+        return matches
+    monkeypatch.setattr(espn_accounts, '_accounts_for_team', proven_claim_lands_between_read_and_write)
+    response = connect_cookies(client, espn_s2='kims-new-s2', headers=KIM)
+    assert response.status_code == 409 and 'already set up' in response.json()['detail']
+    assert squatted['owner_user_id'] is None and squatted['owner_proven'] is False  # not re-acquired
+    assert squatted['token_hash'].startswith('retired:') and stored_s2(squatted) == 'legacy-s2'
+    assert unowned['owner_user_id'] == 'u-sam'
+
+
 def test_a_previous_link_drops_to_unproven_when_you_claim_another_team(espn_app):
     client, db = espn_app
     other_team, _ = legacy_espn(db, owner='u-sam', proven=True, swid='{OTHER-TEAM-SWID}')
@@ -898,7 +919,7 @@ def test_a_verify_never_consumes_a_challenge_sent_while_it_ran(partiful_app, mon
     verify = PartifulClient.verify_auth_code
 
     def verify_while_a_new_code_is_sent(phone, code):
-        assert routes.reserve_partiful_challenge('u-sam', PHONE) is None  # already reserved by this verify
+        assert routes.reserve_partiful_challenge('u-sam', PHONE) == (None, 'in_progress')  # reserved by this verify
         routes.store_partiful_challenge('u-sam', '+12125550000')  # Sam asks for a code to another number
         return verify(phone, code)
     monkeypatch.setattr(PartifulClient, 'verify_auth_code', staticmethod(verify_while_a_new_code_is_sent))
@@ -924,3 +945,29 @@ def test_expired_partiful_challenges_are_pruned_on_store(partiful_app, monkeypat
     monkeypatch.setattr(routes.time, 'time', lambda: now + routes._PARTIFUL_CHALLENGE_S + 1)
     routes.store_partiful_challenge('u-sam', PHONE)
     assert set(routes._PARTIFUL_CHALLENGES) == {'u-sam'}
+
+
+def test_a_code_partiful_accepted_is_spent_even_when_saving_fails(partiful_app, monkeypatch):
+    client, db = partiful_app
+
+    def save_fails(*_args, **_kwargs):
+        raise partiful_accounts.AccountError('could not create the Partiful account')
+    monkeypatch.setattr(partiful_accounts, '_account_for_uid', save_fails)
+    assert connect_partiful(client).status_code == 503
+    assert 'u-sam' not in routes._PARTIFUL_CHALLENGES  # consumed when Partiful accepted it
+    monkeypatch.undo()
+    retried = connect_partiful(client, send=False)
+    assert retried.status_code == 400 and 'Send a code' in retried.json()['detail']  # needs a new text
+
+
+def test_a_second_verify_of_a_reserved_challenge_says_one_is_in_progress(partiful_app, monkeypatch):
+    client, db = partiful_app
+    verify, seen = PartifulClient.verify_auth_code, []
+
+    def double_submit(phone, code):
+        seen.append(client.post('/account/linked-accounts/partiful', headers=SAM, json={'phone': phone, 'code': code}))
+        return verify(phone, code)
+    monkeypatch.setattr(PartifulClient, 'verify_auth_code', staticmethod(double_submit))
+    assert connect_partiful(client).json()['status'] == 'linked'
+    second, = seen
+    assert second.status_code == 409 and 'already being checked' in second.json()['detail']

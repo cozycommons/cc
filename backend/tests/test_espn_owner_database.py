@@ -1,9 +1,11 @@
 """Real PostgreSQL checks for ESPN connector links and receipts (0089), lineup approval claims (0090) and
-proven account claims (0091, one transaction since 0092).
+proven account claims (0091, one transaction since 0092, ordered locks since 0093).
 
 Synthetic disposable databases on the allowlisted test server; never ESPN calls.
 Locally: DICE_TEST_DATABASE=1 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/dummi_regression_<n>_<n>.
 """
+import subprocess
+import time
 from uuid import uuid4
 
 import pytest
@@ -93,7 +95,7 @@ def receipt(user_id, key="approve-1"):
 
 
 def test_schema_attests_and_replays(db):
-    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "92"
+    assert db.sql("SELECT max(version) FROM public.beli_schema_migrations;").stdout.strip() == "93"
     assert "Applying " not in db.sql(migration_runner.render(["beli"])).stdout
     db.sql(CONTRACT)
 
@@ -179,6 +181,60 @@ def test_a_proven_claim_detaches_unproven_duplicates_but_not_proven_ones(db):
     assert (owner_id, proven_flag, automation) == ("", "f", "f") and token_hash.startswith("retired:")
     assert status(db, "espn_roster_edits", edit) == "expired"
     assert owner(db, held) == lee and proven(db, held) == "t"  # a proven holder is never touched
+
+
+def account_in(db, season):
+    identity = account(db)
+    db.sql(f"UPDATE public.espn_accounts SET season={season} WHERE id='{identity}';")
+    return identity
+
+
+def test_a_duplicate_is_detached_only_for_the_same_league_and_season(db):
+    sam, kim = user(db), user(db)
+    team, elsewhere = account(db), account_in(db, 2026)
+    assert link(db, elsewhere, kim) == "linked"
+    assert claim_proven(db, team, sam, duplicates=[elsewhere]) == "linked"
+    assert owner(db, elsewhere) == kim  # another season is another team, whatever ids are passed
+
+
+@pytest.mark.parametrize("arguments", [
+    "NULL,'enc','hash','cce_x'", "'{user}','','hash','cce_x'", "'{user}','enc','','cce_x'", "'{user}','enc','hash',''",
+])
+def test_a_claim_without_user_cookies_or_token_is_refused(db, arguments):
+    sam = user(db)
+    team = account(db)
+    refused = db.sql(f"""SET ROLE service_role; SELECT public.espn_claim_account_proven('{team}',
+        {arguments.format(user=sam)},true,true,'{{}}');""", check=False)
+    assert refused.returncode != 0 and "required" in refused.stderr
+    assert owner(db, team) is None
+
+
+def test_opposite_claims_over_the_same_rows_never_deadlock(db):
+    # Each claim's target is the other's duplicate, both held without proof. A third session holds the first
+    # row so both claims queue: locking target-then-duplicates (0092), the first claim would then hold one row
+    # and wait for the second's, which waits for the first's (40P01). Ordered locks (0093) make one wait.
+    sam, pat, lee, kim = user(db), user(db), user(db), user(db)
+    first, second = account(db), account(db)
+    assert link(db, first, lee) == "linked" and link(db, second, kim) == "linked"
+
+    def session(sql):
+        return subprocess.Popen(["psql", db.url, "-X", "-v", "ON_ERROR_STOP=1", "-Atq", "-c", sql],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    def claim(target, duplicate, claimant):
+        return session(f"""SET ROLE service_role; SELECT public.espn_claim_account_proven('{target}','{claimant}',
+            'enc','hash-{uuid4().hex}','cce_x',true,true,ARRAY['{duplicate}']::uuid[]);""")
+    holder = session(f"""BEGIN; SELECT 1 FROM public.espn_accounts WHERE id='{first}' FOR UPDATE;
+        SELECT pg_sleep(1.5); COMMIT;""")
+    time.sleep(0.4)
+    runs = [claim(first, second, sam)]
+    time.sleep(0.4)
+    runs.append(claim(second, first, pat))
+    for run in [holder, *runs]:
+        _out, err = run.communicate(timeout=30)
+        assert run.returncode == 0 and "deadlock" not in err, err
+    assert owner(db, first) == sam and proven(db, first) == "t"
+    assert owner(db, second) == pat and proven(db, second) == "t"  # detached by the first claim, then linked
 
 
 def test_a_moved_link_leaves_the_previous_row_unproven(db):
@@ -293,6 +349,8 @@ def test_browser_roles_are_denied(db, role, statement):
     "GRANT EXECUTE ON FUNCTION public.espn_claim_account_proven(uuid,uuid,text,text,text,boolean,boolean,uuid[]) "
     "TO authenticated;",
     "ALTER FUNCTION public.espn_claim_account_proven(uuid,uuid,text,text,text,boolean,boolean,uuid[]) SECURITY DEFINER;",
+    "REVOKE UPDATE ON public.espn_lineup_runs FROM service_role; "
+    "REVOKE UPDATE (status) ON public.espn_lineup_runs FROM service_role;",
     "ALTER TABLE public.espn_accounts DROP COLUMN owner_proven;",
     "DROP INDEX public.espn_accounts_owner_user_id_key;",
     "GRANT DELETE ON public.espn_lineup_approvals TO service_role;",
@@ -327,5 +385,6 @@ def test_upgrade_marks_existing_links_unproven(migration_database, tmp_path):  #
         owner_user_id) VALUES ('{identity}','synthetic',999,2027,'enc-s2','enc-swid','synthetic-hash','cce_test','{sam}');""")
     applied = database.release().stdout
     assert "Applying 0091_beli_espn_proven_owner.sql" in applied and "Applying 0092_beli_espn_atomic_takeover.sql" in applied
+    assert "Applying 0093_beli_espn_claim_locking.sql" in applied
     assert owner(database, identity) == sam and proven(database, identity) == "f"
     assert "Applying " not in database.release().stdout

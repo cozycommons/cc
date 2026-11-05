@@ -223,7 +223,7 @@ begin
       raise exception 'Beli schema contract: service_role may delete % connector receipts', object_name;
     end if;
   end loop;
-  -- Only a MyDisney login marks an ESPN claim proven, through this function (0091, atomic since 0092).
+  -- Only a MyDisney login marks an ESPN claim proven, through this function (0091, atomic since 0092, ordered locks since 0093).
   if not exists (
     select 1 from pg_catalog.pg_proc
     where oid = to_regprocedure('public.espn_claim_account_proven(uuid,uuid,text,text,text,boolean,boolean,uuid[])')
@@ -232,6 +232,10 @@ begin
     or pg_catalog.has_function_privilege('anon', 'public.espn_claim_account_proven(uuid,uuid,text,text,text,boolean,boolean,uuid[])', 'EXECUTE')
     or pg_catalog.has_function_privilege('authenticated', 'public.espn_claim_account_proven(uuid,uuid,text,text,text,boolean,boolean,uuid[])', 'EXECUTE') then
     raise exception 'Beli schema contract: missing or unsafe public.espn_claim_account_proven';
+  end if;
+  -- A proven takeover expires lineup previews by status (0092, explicit since 0093).
+  if not pg_catalog.has_column_privilege('service_role', 'public.espn_lineup_runs', 'status', 'UPDATE') then
+    raise exception 'Beli schema contract: service_role cannot expire ESPN lineup previews';
   end if;
   -- A lineup proposal is approved live at most once, under whichever key claimed it first (0090).
   if not exists (

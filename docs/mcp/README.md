@@ -444,9 +444,12 @@ caller's row. Step 1 records a pending challenge bound to the Commons user and
 the normalized phone, valid for 10 minutes (one per user; a new send replaces
 it, and like the attempt counters it lives in the single worker's memory). Step
 2 refuses a phone with no such challenge; it reserves the challenge by id under
-a short lock (never held across the call to Partiful), then consumes it once
-Partiful accepts the code or releases it otherwise, so a verify can never
-consume a challenge a later send replaced. Expired challenges are pruned on
+a short lock (never held across the call to Partiful) and consumes it the
+moment Partiful accepts the code, before anything is stored: if saving then
+fails, the same code cannot be retried and the user sends a new one. It is
+released only when verification did not succeed, a second verify while one is
+running gets 409 "already being checked", and a verify never touches a
+challenge a later send replaced. Expired challenges are pruned on
 every store operation. Codes are 4 to 10 ASCII digits, checked in the route so a 422 never
 echoes one. Both requests count toward 10 per hour per Commons user and
 per phone number, which also limits texts to any one phone.
@@ -545,6 +548,15 @@ existing links, all made with a `cce_` token, start unproven):
   all of it with the ownership change in one transaction, so a failure leaves
   the previous holder's row exactly as it was and a retry still takes over.
 - A row a link moves away from drops to unproven.
+- Since `0093_beli_espn_claim_locking.sql` the claim locks the target and the
+  duplicates in one statement, in id order, before branching (no deadlock
+  between opposite claims), detaches only rows for the same league and season,
+  refuses a missing user or empty cookies/token, and `service_role`'s
+  `UPDATE (status)` on `espn_lineup_runs` is explicit and checked by the
+  schema contract.
+- Typed cookies refresh an existing row with one `UPDATE` filtered on the
+  caller still owning it, never through a link: a request already in flight
+  cannot re-acquire a row a proven claim just detached (it gets the 409).
 - Writing new cookies into an existing row also replaces its `cce_` token with
   one nobody sees, so fresh cookies reach only the linked Commons user, and
   clears the legacy read cache. A stored `espn_s2` is decrypted only on the
