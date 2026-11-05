@@ -113,6 +113,11 @@ VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-publishable-key
 ```
 
+The frontend enforces a build-generated Content Security Policy. See
+[the origin inventory and credential-page policy](frontend-csp.md) before adding
+a browser origin. `VITE_CSP_CROWDSET_UPLOAD_ORIGIN` is an optional exact upload
+origin for deployments serving Crowdset through nginx.
+
 The publishable/anon key is intentionally browser-visible. Supabase row-level
 security remains the authorization boundary. Do not substitute a secret or
 service-role key.

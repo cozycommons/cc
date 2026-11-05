@@ -23,8 +23,10 @@ COPY design/ /design/
 # Browser-visible deployment configuration is supplied explicitly at build time.
 ARG VITE_API_URL
 ARG VITE_SUPABASE_URL
+ARG VITE_CSP_CROWDSET_UPLOAD_ORIGIN
 ARG VITE_SUPABASE_ANON_KEY
-ENV VITE_API_URL=${VITE_API_URL} \
+ENV VITE_CSP_CROWDSET_UPLOAD_ORIGIN=${VITE_CSP_CROWDSET_UPLOAD_ORIGIN} \
+    VITE_API_URL=${VITE_API_URL} \
     VITE_SUPABASE_URL=${VITE_SUPABASE_URL} \
     VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
 
@@ -36,7 +38,8 @@ RUN npm run build -- --mode ${BUILD_MODE} \
 FROM nginx:stable-alpine AS production
 ENV PORT=80
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
+COPY --from=build /app/dist/nginx.conf /etc/nginx/templates/default.conf.template
+RUN rm /usr/share/nginx/html/nginx.conf
 EXPOSE ${PORT}
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
