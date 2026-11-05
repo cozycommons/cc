@@ -35,11 +35,11 @@ def select(paths, test_files):
     for path in paths:
         if path.endswith(".md") or path.startswith(("docs/", ".agents/")) or path in {"LICENSE", ".gitignore"}:
             continue
-        if path.startswith("backend/compute/") or path == "backend/requirements-compute.txt":
+        if path.startswith("backend/compute/") or path in {"backend/requirements-compute.in", "backend/requirements-compute.txt"}:
             compute = True
             if not path.startswith("backend/compute/tests/"):
                 crowdset = True
-        elif path in {".github/images/crowdset-tests.Dockerfile", "scripts/test_crowdset_ci_image.py"} or path.startswith("backend/crowdset/") or path == "backend/requirements-crowdset.txt" or path.startswith(("scripts/crowdset-", "scripts/systemd/crowdset-")):
+        elif path in {".github/images/crowdset-tests.Dockerfile", "scripts/test_crowdset_ci_image.py"} or path.startswith("backend/crowdset/") or path in {"backend/requirements-crowdset.in", "backend/requirements-crowdset.txt"} or path.startswith(("scripts/crowdset-", "scripts/systemd/crowdset-")):
             crowdset = True
         elif path.startswith("frontend/"):
             project = next((p for p in FRONTEND_PROJECTS if path.startswith((f"frontend/src/{p}/", f"frontend/public/{p}/"))), None)

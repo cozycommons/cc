@@ -6,17 +6,17 @@ case "${1:-run}" in
   setup)
     PYTHON=""
     for candidate in python3.12 python3.13 python3.14 python3.11 python3; do
-      if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+      if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys; sys.exit(not (3, 11) <= sys.version_info < (3, 15))' 2>/dev/null; then
         PYTHON="$candidate"
         break
       fi
     done
     if [ -z "$PYTHON" ]; then
-      echo "Crowdset requires Python 3.11 or newer. Install Python 3.12, then retry setup." >&2
+      echo "Crowdset requires Python 3.11-3.14. Install Python 3.12, then retry setup." >&2
       exit 1
     fi
     "$PYTHON" -m venv "$VENV"
-    "$VENV/bin/python" -m pip install -r "$ROOT/backend/requirements-crowdset.txt"
+    "$VENV/bin/python" -m pip install --require-hashes --only-binary=:all: -r "$ROOT/backend/requirements-crowdset.txt"
     ;;
   run)
     if [ ! -x "$VENV/bin/python" ]; then
