@@ -112,16 +112,28 @@ try: socket.create_connection(("1.1.1.1",443),timeout=.5)
 except OSError: pass
 else: raise AssertionError("extra network bypassed firewall")'
 echo 'PASS extra Coolify network: API ingress filtered, sidecars listen privately'
-# Reproduce netguard-only restart: Docker does not reattach an already-running API.
+# A netguard restart destroys the old namespace's proof. The API supervisor must
+# kill its child, restart and join the new namespace without manual recreation.
+api=$(compose "${files[@]}" ps -q api)
 netguard=$(compose "${files[@]}" ps -q netguard)
+restarts=$(docker inspect --format '{{.RestartCount}}' "$api")
 docker restart "$netguard" >/dev/null
-compose "${files[@]}" exec -T api python -c 'import socket; s=socket.socket(); s.settimeout(.5)
-try: s.connect(("1.1.1.1",443))
-except OSError: pass
-else: raise AssertionError("orphan namespace gained egress")'
-# Recover by removing the entire stack, not restarting API in its stale config.
-compose "${files[@]}" down
-compose "${files[@]}" up -d --wait --wait-timeout 120
+recovered=false
+for attempt in $(seq 1 120); do
+  state=$(docker inspect --format '{{.RestartCount}} {{.State.Health.Status}}' "$api")
+  current=${state%% *}
+  if [ "$current" -gt "$restarts" ] && [ "${state#* }" = healthy ]; then
+    recovered=true; break
+  fi
+  sleep 1
+done
+[ "$recovered" = true ]
+docker logs "$api" 2>&1 | grep 'Namespace firewall proof disappeared'
 compose "${files[@]}" exec -T ingress wget -qO- http://127.0.0.1:8000/ready | grep synthetic-egress-api
-echo 'PASS secret loader isolation and netguard restart containment/recovery'
+# The proof is loopback-only even for a trusted peer on the private network.
+compose "${files[@]}" exec -T proxy python3 -c 'import socket
+try: socket.create_connection(("172.30.87.2",8001),timeout=.5)
+except OSError: pass
+else: raise AssertionError("namespace proof exposed to peers")'
+echo 'PASS secret isolation, watchdog child termination and automatic netguard restart recovery'
 echo "PASS audit mode allows and logs unlisted host; evidence: $logs"

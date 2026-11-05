@@ -58,12 +58,16 @@ The namespace has an internal Docker network (plus any resource networks
 Coolify adds) and default-deny IPv4/IPv6 OUTPUT,
 INPUT and FORWARD rules. INPUT 8000 accepts only the internal ingress subnet
 172.30.87.0/24 and loopback, not other Coolify network sources. Only new outbound TCP connections to Squid:3128,
-DB-relay:5432 and the loopback API health endpoint:8000 are allowed. Existing
+DB-relay:5432, loopback API health endpoint:8000 and loopback proof:8001 are allowed. Existing
 connections can carry replies. No capability, Docker socket, host namespace,
 sidecar filesystem or API credential is shared with a sidecar. The daemon binds
 the raw runtime file only into API; a small nonroot entrypoint loads it before
 release or a scheduled command. Coolify/helper environments contain public
-interpolation values only. API processes
+interpolation values only. This describes container/CLI delivery, not a guarantee
+that Coolify never stores the bind content: older v4 parsers register a
+LocalFileVolume and can read/write the path through storage jobs. The runbook's
+pre-secret Storages gate must pass for the installed version. Privileged Coolify
+administrators and its host file-access jobs remain trusted. API processes
 cannot change the firewall, including after changing proxy environment variables.
 DNS UDP/TCP 53 is dropped before Docker's resolver DNAT; all other new sockets,
 including attempts to use the resolver's translated port, are denied by default.
@@ -142,45 +146,52 @@ CONNECT/SNI/subdomain/port denial, DNS drops and host-side packet capture, DB re
 ingress, audit logging, helper-invisible secret loading, scheduled-command
 loading, extra Coolify networks and netguard restart/recovery. It cleans up only its own project. It does not start
 `release` or run application migrations, and never touches the shared Supabase.
-For an actual daemon restart test, run `bash scripts/test-api-egress-reboot.sh`.
-It starts a **disposable privileged Docker-in-Docker container** with only the
-source and synthetic runtime file mounted, loads the locally built images,
-restarts that nested daemon and verifies full-stack recovery. It does not
-restart the shared Docker host/Colima VM. API has `restart: "no"`, and the test
-requires it to remain stopped after reboot so it cannot race firewall startup.
-Process crashes therefore also require explicit recovery. Both scripts clean up
-their containers.
-A netguard or daemon restart can orphan API's namespace; a complete stop-start
-is required recovery. Every deploy and mode change is a full-stop outage, not a
-rolling deployment. See the rollout runbook for task ownership and audit soak.
+The API entrypoint polls a namespace-local `127.0.0.1:8001` listener for at most
+30 seconds, then requires a failed raw connection to 1.1.1.1:443 before loading
+runtime settings or starting application code. `firewall.sh` execs that listener
+only after applying all rules; loopback-only rules cover the proof port. PID 1
+forks the child in a new process group, checks proof every five seconds, and
+terminates the child/group and exits if proof disappears. `unless-stopped` then
+rejoins netguard's current namespace. This replaces the old manual-recovery-only
+API policy. Ingress has static 172.30.87.5 to prevent restore-time IP collisions.
+
+Run `bash scripts/test-api-egress-reboot.sh` for three actual daemon restarts.
+It uses a **disposable privileged Docker-in-Docker container** with only source
+and synthetic runtime settings mounted. It requires every service to return
+without manual recovery, API application timestamps after the proof, and working
+ingress/proxy/DB plus confinement after every reboot. It never restarts the shared
+Docker/Colima host or a production VM. Planned deploys and mode changes still use
+full stop-start with task ownership checks; automatic reboot recovery is separate.
 
 On Colima, keep the checkout under `$HOME` for bind mounts. If Compose is missing
 from the host CLI, `API_EGRESS_COMPOSE` can name an executable wrapper around
 Compose running in a CLI container with `/var/run/docker.sock` and `$HOME` mounted.
 Do not expose a daemon TCP port. The script prints the evidence directory.
 
-The original verification on 2026-11-04 used the existing Colima arm64 Docker daemon
-and `$HOME` mounts. All 15 public allowlisted hosts completed certificate-validated
-TLS (root-path responses included 3xx, 4xx and Venmo image-host 502; these prove
-transport, not authenticated feature behavior). All denial, DNS packet-capture,
-PostgreSQL relay, ingress and audit checks passed. The real read-only API image
-also imported `main:app` and served `/health` with synthetic configuration and no
-network. Backend: 2,049 passed, 317 skipped; frontend: 813 passed; placeholder
-production frontend build passed. No real Supabase project query, release
-migration, third-party credential flow or Coolify/OVH deployment was exercised.
-
-The review follow-up reran the full checks: backend 2,053 passed / 317 skipped,
-frontend 813 passed (one initial five-second UI timeout passed on the full rerun),
-and placeholder frontend build passed. Coolify-style config validation and the
-helper-invisible runtime bind passed. The stable Docker smoke passed original
-TLS/CONNECT/DNS checks, extra-network ingress/listener checks, task-loader secret
-isolation and netguard restart/recovery. A disposable nested Docker daemon reboot
-left API stopped as required and full-stack recreation restored service with
-confinement intact. CI selection's 20 tests and shell/workflow syntax checks also
-passed. This does not verify the installed Coolify helper/parser, live task
-commands, production credentials, hosted migrations or the required audit soak.
+Current local verification on 2026-11-04 used Colima arm64 with `$HOME` mounts.
+All 15 public hosts completed certificate-validated TLS (3xx/4xx and image-host
+502 root responses prove transport, not authenticated features). The complete
+confinement smoke passed CONNECT/SNI/direct/DNS tests, packet capture, synthetic
+PostgreSQL, ingress, audit, helper-invisible secret loading, scheduled-command
+loading, extra-network restrictions, and automatic netguard watchdog recovery.
+The nested-daemon test passed three reboots with every service restored without
+manual recovery and every new application start after namespace proof (minimum observed delay
+10.7 ms across the three reboots). Backend: 2,058
+passed, 317 skipped; frontend: 813 passed; placeholder build passed. CI selection:
+20 passed; Compose rendering and shell/workflow syntax checks passed.
+No installed Coolify/OVH operation, real credential flow, hosted migration or
+production audit soak was exercised. Supabase same-zone fronting remains unverified.
 
 Mechanism references: [Docker DNS/network namespaces](https://docs.docker.com/engine/network/),
 [Squid ACL name sources](https://www.squid-cache.org/Doc/config/acl/),
 [Squid peek/splice](https://www.squid-cache.org/Doc/config/ssl_bump/),
 and [Coolify Compose build pack](https://coolify.io/docs/applications/builds/docker-compose).
+
+Coolify bind-file source inspection compared the [v4.3.23 parser](https://github.com/coollabsio/coolify/blob/v4.3.23/bootstrap/helpers/parsers.php#L827),
+[storage read/write model](https://github.com/coollabsio/coolify/blob/v4.3.23/app/Models/LocalFileVolume.php#L106),
+and [newer create-host-path-aware parser](https://github.com/coollabsio/coolify/blob/1e71d0d7a42e0a45971d61391d39a0f07b8984b2/bootstrap/helpers/parsers.php#L175).
+The older parser's managed storage can capture secrets in encrypted DB content
+and expose them through its storage UI, or create a directory despite the Docker
+option. The newer parser skips this record for a no-content, create-false bind.
+Neither source snapshot establishes the version or storage state on the OVH VM;
+the rollout now checks source and Storages with an absent path before file creation.

@@ -22,7 +22,7 @@ services:
     networks:
       private: {ipv4_address: 172.30.87.2}
     healthcheck:
-      test: [CMD, test, -f, /tmp/firewall-ready]
+      test: [CMD, python3, -c, "import socket; socket.create_connection(('127.0.0.1',8001),timeout=.5).close()"]
       interval: 2s
       timeout: 1s
       retries: 10
@@ -30,9 +30,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    # Docker restart policies ignore Compose health ordering after daemon reboot.
-    # Leave API stopped until an operator recreates the guarded stack.
-    restart: "no"
+    # The entrypoint gates and supervises the child against namespace readiness.
+    restart: unless-stopped
     network_mode: service:netguard
     depends_on:
       netguard: {condition: service_healthy, restart: true}
@@ -90,7 +89,9 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     depends_on: [api]
-    networks: [private, internet]
+    networks:
+      private: {ipv4_address: 172.30.87.5}
+      internet: {}
     expose: ['8000']
 networks:
   private:

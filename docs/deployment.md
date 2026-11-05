@@ -476,8 +476,10 @@ before treating hostname confinement as protection for credentials.
 full stop-start outage.** Stop the complete stack and deploy it afresh; do not use
 rolling replacement, `--no-deps`, or individual-service restart as recovery.
 `network_mode: service:netguard` references a particular network namespace.
-Docker restart policies do not coordinate API reattachment after netguard or the
-Docker daemon restarts. Budget this outage and announce it before operating.
+Automatic restart is supported separately: API waits for a loopback proof in
+its own namespace before importing application code, then a PID 1 watchdog kills
+the child if that proof disappears. Budget planned deployment outages and
+announce them before operating; reboot recovery no longer requires a redeploy.
 
 ### Prepare the approved rollout
 
@@ -494,27 +496,12 @@ Docker daemon restarts. Budget this outage and announce it before operating.
    Check IPv4/IPv6 iptables support and ensure `172.30.87.0/24` overlaps no Docker,
    VM or tailnet route. A subnet change requires updating all hardcoded internal
    addresses together and rerunning the smoke. No host firewall policy changes.
-3. Store the API's runtime settings in a **daemon-host file**, outside Git and
-   outside Coolify resource environment variables. Compose passes only an
-   absolute bind source to Docker; the helper does not need to see/read the file.
-   The API reads `/run/secrets/api-runtime` through `api_egress_entrypoint`.
-   Sidecars never mount it. On the VM, prepare the private directory and edit:
-
-   ```bash
-   sudo install -d -m 0700 /data/coolify/api-egress-secrets
-   sudo install -m 0600 /dev/null /data/coolify/api-egress-secrets/runtime.env
-   sudoedit /data/coolify/api-egress-secrets/runtime.env
-   ```
-
-   Copy all existing runtime values through the approved secret channel: keys,
-   Supabase service key, CORS/site, OAuth, notifications, analytics and scheduler
-   settings. Format is raw `NAME=value`, without quotes, exports or interpolation;
-   literal `$` and `=` are preserved. No duplicate keys or multiline values.
-   After building the API image, determine `id -u app` / `id -g app` in that exact
-   image and use `sudo chown "$API_UID:$API_GID" .../runtime.env` and
-   `sudo chmod 0400 .../runtime.env` with the full path above. The root-only parent
-   prevents other VM users reading it, while the API UID can read its bind mount.
-   Never make the API root to work around a permission error.
+3. Reserve a fresh absolute runtime-file path, **but do not create/populate it
+   yet**. Configure the candidate and run the Storages gate below first. This is
+   a Docker-daemon bind, not a Compose `env_file`, but Coolify can still manage
+   the host file separately from the helper. Do not assume `create_host_path:
+   false` alone protects secrets from the installed Coolify version. Sidecars
+   never mount `/run/secrets/api-runtime`.
 4. Require exact HTTPS `SUPABASE_URL` matching `EXPECTED_SUPABASE_PROJECT`. Both
    `SUPABASE_DB_URL` and optional `ANALYTICS_DATABASE_URL` must explicitly set
    `sslmode=require`, `verify-ca` or `verify-full`, and use the **same exact
@@ -537,16 +524,20 @@ Docker daemon restarts. Budget this outage and announce it before operating.
    Coolify appends its generated env file to **every service**. Therefore do not
    copy old API secrets into this resource's Environment Variables. Remove any
    inherited/shared secret values too; audit the generated env files privately.
-   Secrets go only in the daemon-host file. Bind source must remain an absolute
-   file path with `create_host_path: false`, not a Coolify-created directory.
+   Secrets go only in the daemon-host file **after the Storages gate**. Bind
+   source must remain an absolute file path with `create_host_path: false`, not
+   a Coolify-created directory. Never add `content:` or directory flags.
 6. Assign a temporary test domain only to **ingress:8000**. Keep the healthcheck
    from `backend/Dockerfile` (`/ready`); Compose deployments use the image's
    healthcheck, not a standalone Coolify HTTP health setting. Leave predefined
    network attachment off unless needed by the installed routing configuration.
    Coolify attaches resource networks to services: extra netguard interfaces are
    expected and the firewall must still restrict INPUT 8000 to `172.30.87.0/24`
-   and loopback. Proxy and DB relay listen only on their internal addresses.
-   API must retain `restart: "no"`, container-mode networking, dropped capabilities, nonroot user,
+   and loopback; readiness port 8001 is loopback-only. Proxy and DB relay listen
+   only on their internal addresses. Ingress must keep static `172.30.87.5`:
+   a dynamic ingress IP can steal reserved .3/.4 during parallel daemon restore.
+   API must retain `restart: unless-stopped`, container-mode networking, the
+   namespace gate/watchdog entrypoint, dropped capabilities and nonroot user,
    read-only root and only its read-only runtime-file bind. Reject a generated
    definition that gives API its own networks, privileges or published ports.
 7. Inspect the generated Compose and build logs privately. Coolify invokes
@@ -557,7 +548,8 @@ Docker daemon restarts. Budget this outage and announce it before operating.
    **Preserve Repository** only if an approved operational check needs one, or
    copy the approved non-secret preflight script **and**
    `backend/api_egress_entrypoint.py` into a temporary admin directory preserving
-   their `scripts/` and `backend/` layout. With public host variables exported, run the offline check:
+   their `scripts/` and `backend/` layout. With public host variables exported,
+   run the offline check **only after** the Storages gate and file creation below:
 
    ```bash
    sudo --preserve-env=EGRESS_SUPABASE_HOST,EGRESS_DB_HOST python3 scripts/check-api-egress-config.py /data/coolify/api-egress-secrets/runtime.env
@@ -570,6 +562,65 @@ Docker daemon restarts. Budget this outage and announce it before operating.
    env files into logs. Watch paths: `backend/**`, `deploy/api-egress/**`,
    `.dockerignore`. Post-deploy command targeting **api** becomes
    `python -m api_egress_entrypoint python -m dice_maintenance --rebuild`.
+
+### Storages gate, before creating the secret file
+
+Inspect the **installed Coolify v4 source/version** and the candidate's
+**Storages tab** after loading/reloading Compose with an absent, fresh bind source.
+Do this before supplying any secret. The absence of the path is intentional.
+
+- Coolify [v4.3.23 parser](https://github.com/coollabsio/coolify/blob/v4.3.23/bootstrap/helpers/parsers.php#L827)
+  unconditionally registers this bind as a `LocalFileVolume`. It can also convert
+  long bind syntax to a string, losing `create_host_path: false`.
+- Its [storage model](https://github.com/coollabsio/coolify/blob/v4.3.23/app/Models/LocalFileVolume.php#L106)
+  can read the host file into `content`, stored encrypted in Coolify's DB and
+  visible through the Storages UI. Save jobs can create directories/files or
+  replace contents independently of Docker's create-host-path option. A directory
+  mismatch can itself load the real file's contents. Root ownership/mode 0400
+  does not prevent Coolify's privileged remote commands from reading it.
+- The [newer parser snapshot](https://github.com/coollabsio/coolify/blob/1e71d0d7a42e0a45971d61391d39a0f07b8984b2/bootstrap/helpers/parsers.php#L175)
+  uses `composeBindKeepsMissingHostPath`: long binds with `create_host_path: false`
+  and no `content` skip storage registration. It attempts to forget older managed
+  rows; rows with backup schedules and host-file rows can remain. This behavior
+  is version-dependent, not a claim about the installed VM.
+
+For the checked-in external-file design, require **no managed file storage** for
+`/run/secrets/api-runtime` or its source, and verify the generated absolute bind,
+read-only flag and `create_host_path: false` survive. Check for stale records and
+storage backups too. If the mount appears as a managed file/directory, stop
+**before creating the file**. Do not solve it by pasting credentials into the
+Storages content field. An independently verified host-file (`is_host_file`)
+configuration can bypass model read/write paths, but its presence alone is not
+proof: confirm that the installed parser and all load/save jobs preserve that
+flag before using it. Otherwise the installed version is a rollout blocker until
+an approved upgrade or separately verified secret-delivery method is available.
+
+After that gate, prepare the runtime file on the VM:
+
+```bash
+sudo install -d -m 0700 /data/coolify/api-egress-secrets
+sudo install -m 0600 /dev/null /data/coolify/api-egress-secrets/runtime.env
+sudoedit /data/coolify/api-egress-secrets/runtime.env
+```
+
+Copy all existing runtime settings through the approved secret channel: credential
+keys, Supabase service key, CORS/site, OAuth, notifications, analytics and scheduler
+settings. Use raw `NAME=value`, no quotes/exports/interpolation, duplicate keys or
+multiline values. Literal `$` and `=` are preserved. From the exact built API
+image determine `API_UID` and `API_GID` (`id -u app` and `id -g app`), then:
+
+```bash
+sudo chown "$API_UID:$API_GID" /data/coolify/api-egress-secrets/runtime.env
+sudo chmod 0400 /data/coolify/api-egress-secrets/runtime.env
+```
+
+The root-only parent restricts other VM users; the API UID reads the bind. Never
+make API root to fix permissions. Run the offline preflight from step 7 now,
+then deploy. Recheck the Storages gate on every Compose parse/reload, version
+upgrade and storage edit. Do not click Load from server for this secret. If a
+previous attempt already imported it into Coolify content/backups, treat it as
+copied to the control plane, rotate the exposed credentials and follow the
+approved backup-retention/cleanup procedure. Do not silently delete stored data.
 
 ### Transfer traffic and tasks while still in audit
 
@@ -636,20 +687,28 @@ task resume sequence. A mode toggle also causes this outage.
 
 ### Restart recovery, rollback and security updates
 
-A netguard-only restart can leave a running API in an orphan network namespace.
-A Docker daemon/VM reboot can restart sidecars in an unsuitable order or leave
-container-mode namespace references stale. **API uses `restart: "no"`**, so it
-remains stopped after a daemon/VM reboot and cannot run before the firewall is
-restored. API process crashes also require operator recovery. Sidecars use
-`unless-stopped`; that is not a dependency supervisor. The local tests reproduce both netguard restart and a disposable
-nested Docker daemon reboot, then verify full-stack recovery and confinement.
-They never reboot the shared local daemon or production VM.
+After a netguard restart, the old API namespace loses its proof listener.
+The PID 1 watchdog checks every five seconds, terminates the child process group
+and exits nonzero. Docker then restarts API in netguard's current namespace. At
+initial start and after a daemon/VM reboot, the entrypoint polls
+`127.0.0.1:8001` for up to 30 seconds and checks that raw `1.1.1.1:443` is blocked
+before starting release. The listener is bound only after every firewall command
+succeeds, and is reachable only over loopback. No shared marker or API NET_ADMIN
+is used. Every scheduled command also runs through this supervisor.
 
-After either event, pause candidate tasks, stop the **entire** stack in Coolify,
-then deploy it afresh to recreate API and netguard together. Verify `/ready`,
-internal ingress, direct/DNS denial and task executions before resuming tasks.
-Do not fix an orphan with `docker restart api`, individual-service deployment or
-network attachment. Treat the outage as an availability limitation of this design.
+API and sidecars use `unless-stopped`. Ingress's private address is fixed at
+172.30.87.5, so parallel restore cannot dynamically allocate reserved .2/.3/.4.
+The nested-daemon test requires every service to return automatically, application
+start timestamps after the namespace proof, live ingress/database/proxy checks,
+and direct/DNS confinement across three reboots. No manual `up` or recovery is
+performed between those reboots. A reboot still interrupts in-flight requests
+and tasks; verify readiness and task executions when the host returns.
+
+If automatic recovery fails (proof timeout, child restart loop or sidecar bind
+failure), pause tasks and inspect logs/readiness without weakening rules. Full
+stack stop/redeploy remains the fallback, followed by `/ready`, foreground flows,
+DNS/direct-denial checks and task verification. Do not attach an extra network or
+allow direct egress to fix a readiness failure.
 
 For a missing hostname, revert to audit only through that same full stop-start
 procedure and task pause/resume. Record that unlisted public HTTPS is allowed

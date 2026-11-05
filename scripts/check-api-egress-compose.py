@@ -19,7 +19,8 @@ def check(config: dict, root: Path) -> None:
                 assert mount['read_only'], 'runtime secret must be read-only'
     api = services['api']
     assert api['network_mode'] == 'service:netguard'
-    assert api['restart'] == 'no', 'API must not boot before firewall health ordering'
+    assert api['restart'] == 'unless-stopped'
+    assert services['ingress']['networks']['private']['ipv4_address'] == '172.30.87.5'
     assert 'networks' not in api
     mounts = api.get('volumes', [])
     assert len(mounts) == 1 and mounts[0]['target'] == '/run/secrets/api-runtime'

@@ -57,23 +57,57 @@ inner() {
   docker exec -e API_RUNTIME_FILE -e API_EGRESS_ROOT -e EGRESS_MODE -e EGRESS_SUPABASE_HOST -e EGRESS_DB_HOST "$daemon" \
     docker compose "${files[@]}" -f "$work/reboot.yaml" "$@"
 }
-recover() {
-  inner down
-  inner up -d --no-build --wait --wait-timeout 120
+inner up -d --no-build --wait --wait-timeout 120
+api=$(inner ps -a -q api)
+netguard=$(inner ps -a -q netguard)
+proxy=$(inner ps -a -q proxy)
+database=$(inner ps -a -q database)
+ingress=$(inner ps -a -q ingress)
+origin=$(inner ps -a -q database-origin)
+# Reboot only the nested daemon. Do not invoke up/start/restart/recover on any
+# inner service afterward: Docker restart policies and the namespace gate own it.
+for round in 1 2 3; do
+  docker exec "$daemon" docker logs "$api" > "$work/api-before-$round.log" 2>&1
+  docker restart "$daemon" >/dev/null
+  ready
+  restored=false
+  for attempt in $(seq 1 120); do
+    docker exec "$daemon" docker inspect "$api" "$netguard" "$proxy" "$database" "$ingress" "$origin" > "$work/state-$round.json"
+    if python3 - "$work/state-$round.json" <<'PYCODE'
+import json,sys
+states = json.load(open(sys.argv[1]))
+ready = len(states) == 6 and all(c['State']['Running'] and not c['State']['Restarting'] for c in states)
+ready = ready and all(c['State'].get('Health', {}).get('Status', 'healthy') == 'healthy' for c in states)
+sys.exit(0 if ready else 1)
+PYCODE
+    then restored=true; break; fi
+    sleep 1
+  done
+  [ "$restored" = true ]
+  docker exec "$daemon" docker logs "$api" > "$work/api-$round.log" 2>&1
+  docker exec "$daemon" docker logs "$netguard" > "$work/netguard-$round.log" 2>&1
+  python3 - "$work" "$round" <<'PYCODE'
+import json,sys
+from pathlib import Path
+root, number = Path(sys.argv[1]), int(sys.argv[2])
+def events(role, event):
+    result = []
+    for line in (root / f'{role}-{number}.log').read_text().splitlines():
+        if line.startswith('{'):
+            item = json.loads(line)
+            if item.get('event') == event:
+                result.append(item['time_ns'])
+    return result
+proofs = events('netguard', 'egress_firewall_ready')
+starts = events('api', 'egress_app_start')
+assert len(proofs) >= number + 1 and len(starts) >= number + 1
+before = events('api-before', 'egress_app_start')
+new_starts = starts[len(before):]
+assert new_starts and all(start >= proofs[-1] for start in new_starts), 'API application started before namespace proof'
+print(f'PASS reboot {number}: app started {(starts[-1] - proofs[-1])/1e6:.1f} ms after namespace proof')
+PYCODE
   inner exec -T ingress wget -qO- http://127.0.0.1:8000/ready | grep synthetic-egress-api
   inner exec -T api python -m api_egress_entrypoint python /egress-probe.py
-}
-recover
-# Equivalent to a clean host reboot from the inner Docker daemon's perspective:
-# all inner processes/namespaces go away, then restart policies run without Compose.
-docker restart "$daemon" >/dev/null
-ready
-# API deliberately has no daemon restart policy: it cannot run in the brief
-# interval before netguard restores the firewall. Sidecars restart automatically.
-api=$(inner ps -a -q api)
-state=$(docker exec "$daemon" docker inspect --format '{{.State.Running}}' "$api")
-[ "$state" = false ]
-echo 'PASS API remains stopped after daemon reboot; no pre-firewall startup race'
-inner ps -a
-recover
-echo "PASS isolated Docker daemon reboot and full-stack recovery; evidence: $work"
+  echo "PASS reboot $round: every service restored automatically, no manual recovery"
+done
+echo "PASS three isolated daemon reboots; evidence: $work"
