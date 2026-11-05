@@ -678,7 +678,7 @@ def connect_partiful(client, phone='818 555 1234', code='123456', headers=SAM, s
             normalized = None
         if normalized:
             user = {SAM['Authorization']: 'u-sam', KIM['Authorization']: 'u-kim'}[headers['Authorization']]
-            routes._PARTIFUL_CHALLENGES[user] = (normalized, routes.time.time() + 600)
+            routes.store_partiful_challenge(user, normalized)
     return client.post('/account/linked-accounts/partiful', headers=headers, json={'phone': phone, 'code': code})
 
 
@@ -776,6 +776,8 @@ def test_a_partiful_code_needs_this_users_unexpired_challenge_for_that_phone(par
     monkeypatch.setattr(routes.time, 'time', lambda: now + routes._PARTIFUL_CHALLENGE_S + 1)
     assert 'within 10 minutes' in connect_partiful(client, send=False).json()['detail']
     monkeypatch.setattr(routes.time, 'time', lambda: now)
+    assert 'u-sam' not in routes._PARTIFUL_CHALLENGES  # the expired challenge was pruned
+    assert send_code(client).status_code == 200
     assert connect_partiful(client, code='000000', send=False).status_code == 400  # a wrong code keeps the challenge
     assert connect_partiful(client, send=False).json()['status'] == 'linked'
     assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # consumed on success
@@ -833,3 +835,36 @@ def test_partiful_422s_never_echo_the_code(partiful_app):
         {'phone': SECRET + '\u00e9', 'code': SECRET},
     ])
     assert db.sms_sent == [] and db.partiful_accounts == []
+
+
+def test_a_verify_never_consumes_a_challenge_sent_while_it_ran(partiful_app, monkeypatch):
+    client, db = partiful_app
+    verify = PartifulClient.verify_auth_code
+
+    def verify_while_a_new_code_is_sent(phone, code):
+        assert routes.reserve_partiful_challenge('u-sam', PHONE) is None  # already reserved by this verify
+        routes.store_partiful_challenge('u-sam', '+12125550000')  # Sam asks for a code to another number
+        return verify(phone, code)
+    monkeypatch.setattr(PartifulClient, 'verify_auth_code', staticmethod(verify_while_a_new_code_is_sent))
+    assert connect_partiful(client).json()['status'] == 'linked'
+    pending = routes._PARTIFUL_CHALLENGES['u-sam']
+    assert pending['phone'] == '+12125550000' and pending['reserved'] is False  # the newer challenge survives
+
+
+def test_a_failed_verify_releases_its_challenge_for_another_try(partiful_app):
+    client, db = partiful_app
+    db.partiful_failure = PartifulError('Partiful getLoginToken -> 503', status=503)
+    assert connect_partiful(client).status_code == 502
+    db.partiful_failure = None
+    assert connect_partiful(client, code='000000', send=False).status_code == 400
+    assert routes._PARTIFUL_CHALLENGES['u-sam']['reserved'] is False
+    assert connect_partiful(client, send=False).json()['status'] == 'linked'
+    assert 'u-sam' not in routes._PARTIFUL_CHALLENGES
+
+
+def test_expired_partiful_challenges_are_pruned_on_store(partiful_app, monkeypatch):
+    now = routes.time.time()
+    routes.store_partiful_challenge('u-kim', '+12125550000')
+    monkeypatch.setattr(routes.time, 'time', lambda: now + routes._PARTIFUL_CHALLENGE_S + 1)
+    routes.store_partiful_challenge('u-sam', PHONE)
+    assert set(routes._PARTIFUL_CHALLENGES) == {'u-sam'}

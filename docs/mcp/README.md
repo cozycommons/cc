@@ -455,8 +455,11 @@ refusing another owner's account, and the session is stored only after, on the
 caller's row. Step 1 records a pending challenge bound to the Commons user and
 the normalized phone, valid for 10 minutes (one per user; a new send replaces
 it, and like the attempt counters it lives in the single worker's memory). Step
-2 refuses a phone with no such challenge and consumes it once Partiful accepts
-the code. Codes are 4 to 10 ASCII digits, checked in the route so a 422 never
+2 refuses a phone with no such challenge; it reserves the challenge by id under
+a short lock (never held across the call to Partiful), then consumes it once
+Partiful accepts the code or releases it otherwise, so a verify can never
+consume a challenge a later send replaced. Expired challenges are pruned on
+every store operation. Codes are 4 to 10 ASCII digits, checked in the route so a 422 never
 echoes one. Both requests count toward 10 per hour per Commons user and
 per phone number, which also limits texts to any one phone.
 `GET /account/linked-accounts` adds `partiful`.
