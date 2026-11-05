@@ -37,3 +37,20 @@ def test_uncertain_write_stays_uncertain_when_scrubbed(monkeypatch):
         client._post("https://example.test", {})
     assert "secret" not in failure_reason(caught.value)
     assert "Bearer" not in failure_reason(caught.value)
+
+
+def test_post_keeps_late_lock_marker_for_lineup_retry(monkeypatch):
+    client = EspnClient("dummy", "{DUMMY}", 1, 2027)
+    monkeypatch.setattr(client, "_pace", lambda: None)
+    marker = "Synthetic Player is locked"
+    body = ("message " * 21 + marker + " Cookie: short secret").encode()
+
+    def fail(*args, **kwargs):
+        raise urllib.error.HTTPError("https://example.test", 409, "conflict", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+    with pytest.raises(EspnError) as caught:
+        client._post("https://example.test", {})
+    assert caught.value.status == 409
+    assert marker in str(caught.value)
+    assert "short secret" not in str(caught.value)
