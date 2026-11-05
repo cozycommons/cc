@@ -67,7 +67,7 @@ jobs:
           cache-dependency-path: |
             backend/requirements-compute.txt
             backend/compute/tests/requirements.txt
-      - run: pip install --require-hashes --only-binary=:all: -r backend/requirements-compute.txt -r backend/compute/tests/requirements.txt
+      - run: 'pip install --require-hashes --only-binary=:all: -r backend/requirements-compute.txt -r backend/compute/tests/requirements.txt'
       - run: python -m pytest backend/compute/tests -q
         env:
           PYTHONPATH: backend
@@ -105,7 +105,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: npm ci
       - run: python -m venv backend/.venv
-      - run: backend/.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r backend/requirements.txt
+      - run: 'backend/.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r backend/requirements.txt'
       - name: Start isolated Supabase Auth and Trips database
         run: backend/.venv/bin/python scripts/trips-dev.py setup
       - name: Require real Supabase Trips integration tests
@@ -281,7 +281,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: python -m venv backend/.venv
-      - run: backend/.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r backend/requirements.txt
+      - run: 'backend/.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r backend/requirements.txt'
       - name: Bootstrap isolated database
         run: bash scripts/bootstrap-dice-test-db.sh
       - name: Start real PostgREST
