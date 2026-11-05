@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
+import Explore from './Explore.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './bikes.css';
 
@@ -72,6 +73,7 @@ export default function BikesApp() {
           </ol>
         </details>
         <p className="cc-caption bk-source">Usual waits come from a year of public Citi Bike trips; docks are live.</p>
+        <Explore />
       </main>
     </div>
   );

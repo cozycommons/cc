@@ -15,6 +15,11 @@ Two sources feed the same aggregates:
 
 Both keep only departures per station, day and hour plus a histogram of ride
 speeds, so the S3 build's memory stays small; its disk holds one archive at a time.
+
+Both also write frontend/public/bikes/explore.json for the /bikes explorer: station
+names, places and hourly profiles from the same window, plus trips per month. The
+last year is what the wait model and map need; trips per month covers every
+ingested year, so only the Parquet build writes it and the S3 build keeps it.
 """
 import argparse
 import datetime as dt
@@ -24,6 +29,7 @@ from pathlib import Path
 import tempfile
 
 MODEL_PATH = Path(__file__).with_name('wait_model.json')
+EXPLORE_PATH = Path(__file__).resolve().parents[2] / 'frontend/public/bikes/explore.json'
 
 HAVERSINE_M = """2 * 6371000 * asin(sqrt(
     pow(sin(radians(end_lat - start_lat) / 2), 2)
@@ -50,6 +56,9 @@ def start_aggregates(con):
     con.execute('CREATE OR REPLACE TEMP TABLE hourly (station VARCHAR, day DATE, hour TINYINT, n INTEGER)')
     # Ride speeds in 0.01 m/s bins: an exact-enough median that sums across files.
     con.execute('CREATE OR REPLACE TEMP TABLE speeds (mps DOUBLE, n INTEGER)')
+    # Latest name and mean departure coordinates, summed so files combine.
+    con.execute('''CREATE OR REPLACE TEMP TABLE places (station VARCHAR, name VARCHAR, seen TIMESTAMP,
+                   lat DOUBLE, lng DOUBLE, n INTEGER)''')
 
 
 def aggregate(con, trips_sql, window):
@@ -65,6 +74,9 @@ def aggregate(con, trips_sql, window):
                     WHERE end_station_id IS NOT NULL AND end_station_id <> start_station_id AND end_lat IS NOT NULL
                       AND epoch(ended_at - started_at) BETWEEN 120 AND 3600
                     GROUP BY ALL""")
+    con.execute(f"""INSERT INTO places SELECT start_station_id, arg_max(start_station_name, started_at),
+                    max(started_at), sum(start_lat), sum(start_lng), count(start_lat)
+                    FROM ({recent}) GROUP BY ALL""")
 
 
 def finalize(con, window):
@@ -102,11 +114,40 @@ def finalize(con, window):
              running AS (SELECT mps, sum(n) OVER (ORDER BY mps) AS below, sum(n) OVER () AS total FROM bins)
         SELECT min(mps) FROM running WHERE below * 2 >= total
     ''').fetchone()[0]
+    places = {station: (name, round(lat / n, 5), round(lng / n, 5)) for station, name, lat, lng, n in con.execute('''
+        SELECT station, arg_max(name, seen), sum(lat), sum(lng), sum(n) FROM places GROUP BY station HAVING sum(n) > 0
+    ''').fetchall()}
     return {
         'window': [f'{window[0] // 100}-{window[0] % 100:02d}', f'{window[-1] // 100}-{window[-1] % 100:02d}'],
         'ride_mps': round(ride_mps, 2),
         'month_factor': month_factor,
         'stations': dict(sorted(stations.items())),
+    }, places
+
+
+def history(con):
+    """Trips per month and system over every ingested year."""
+    rows = con.execute('SELECT year, month, system, count(*) FROM trips GROUP BY ALL ORDER BY ALL').fetchall()
+    months = sorted({f'{y}-{m:02d}' for y, m, _, _ in rows})
+    series = {'month': months, 'nyc': [0] * len(months), 'jc': [0] * len(months)}
+    for y, m, system, n in rows:
+        series[system][months.index(f'{y}-{m:02d}')] = n
+    return series
+
+
+def explore(model, places, monthly):
+    """Columnar payload for the /bikes explorer; stations without a place are left out."""
+    ids = [s for s in model['stations'] if s in places]
+    return {
+        'window': model['window'],
+        'stations': {
+            'id': ids,
+            'name': [places[s][0] for s in ids],
+            'lat': [places[s][1] for s in ids],
+            'lng': [places[s][2] for s in ids],
+            'rates': [model['stations'][s] for s in ids],
+        },
+        'history': monthly,
     }
 
 
@@ -118,7 +159,7 @@ def build(con, months=12):
     window = month_window(last, months)
     start_aggregates(con)
     aggregate(con, f"SELECT * FROM trips WHERE year * 100 + month IN ({', '.join(map(str, window))})", window)
-    return finalize(con, window)
+    return (*finalize(con, window), history(con))
 
 
 def build_from_source(months=12, memory_limit='1GB', threads=2, workdir=None, log=print):
@@ -160,17 +201,25 @@ def main(argv=None):
     parser.add_argument('--threads', type=int, default=2)
     parser.add_argument('--workdir', type=Path, help='scratch for one archive at a time (s3 source)')
     parser.add_argument('--out', type=Path, default=MODEL_PATH)
+    parser.add_argument('--explore-out', type=Path, default=EXPLORE_PATH)
     args = parser.parse_args(argv)
     if args.source == 's3':
-        model = build_from_source(args.months, args.memory_limit, args.threads, args.workdir)
+        model, places = build_from_source(args.months, args.memory_limit, args.threads, args.workdir)
+        monthly = json.loads(args.explore_out.read_text())['history'] if args.explore_out.exists() else None
     else:
         with duckdb.connect(str(Path(args.data_dir) / 'bikes.duckdb'), read_only=True) as con:
-            model = build(con, args.months)
-    partial = args.out.with_suffix('.json.part')
-    partial.write_text(json.dumps(model, separators=(',', ':')) + '\n')
-    partial.replace(args.out)
+            model, places, monthly = build(con, args.months)
+    write_json(args.out, model)
+    write_json(args.explore_out, explore(model, places, monthly))
     print(f"{len(model['stations'])} stations, {model['window'][0]} to {model['window'][1]}, "
           f"ride {model['ride_mps']} m/s crow-flies -> {args.out}")
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_suffix('.json.part')
+    partial.write_text(json.dumps(value, separators=(',', ':')) + '\n')
+    partial.replace(path)
 
 
 if __name__ == '__main__':

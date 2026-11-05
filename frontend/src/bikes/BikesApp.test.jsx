@@ -17,7 +17,7 @@ describe('wait or ride', () => {
 
   it('asks the API with the current location and shows its answer', async () => {
     locate({ latitude: 40.750212, longitude: -73.991612 });
-    const fetch = vi.fn(async () => ({ status: 200, ok: true, json: async () => ({
+    const fetch = vi.fn(async (url) => (url === '/bikes/explore.json' ? { status: 404, ok: false } : { status: 200, ok: true, json: async () => ({
       decision: 'ride', station: 'W 33 St & 7 Ave', open_docks: 0, wait_min: 31.4,
       message: 'Ride to W 37 St & Broadway: 4 open, a 3-minute ride and a 10-minute walk back.',
       alternative: { station: 'W 37 St & Broadway', open_docks: 4, ride_min: 3.2, walk_min: 9.8 },
@@ -32,6 +32,7 @@ describe('wait or ride', () => {
   });
 
   it('explains a blocked location and an out-of-area position', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 404, ok: false })));
     locate(null);
     view();
     fireEvent.click(screen.getByRole('button', { name: 'Check docks near me' }));
