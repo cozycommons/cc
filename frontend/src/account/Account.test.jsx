@@ -173,7 +173,7 @@ it('connects ESPN from cookies and clears espn_s2 after a refusal', async () => 
   mocked.request.mockImplementation(async (path) => {
     if (path === '/connections') return [];
     if (path === '/linked-accounts') return { beli: null, resy: null, espn: null };
-    throw new Error('This ESPN team was set up earlier with different cookies. Sign in with your ESPN email and password to connect it.');
+    throw new Error('This ESPN team is already set up on Cozy Commons. If it is yours, sign in with your ESPN email and password to connect it.');
   });
   openAt('/account#espn');
   const row = (await screen.findByText('ESPN')).closest('li');
@@ -184,7 +184,7 @@ it('connects ESPN from cookies and clears espn_s2 after a refusal', async () => 
   fireEvent.change(within(row).getByLabelText('espn_s2 cookie'), { target: { value: ' synthetic-s2 ' } });
   fireEvent.change(within(row).getByLabelText('SWID cookie'), { target: { value: '{SYNTHETIC}' } });
   fireEvent.click(within(row).getByRole('button', { name: 'Connect ESPN' }));
-  expect(await within(row).findByRole('alert')).toHaveTextContent('different cookies');
+  expect(await within(row).findByRole('alert')).toHaveTextContent('already set up');
   expect(mocked.request).toHaveBeenCalledWith('/linked-accounts/espn/cookies', { method: 'POST', body: {
     league_id: 999, season: 2027, espn_s2: 'synthetic-s2', swid: '{SYNTHETIC}', enable_automation: true } });
   expect(within(row).getByLabelText('espn_s2 cookie')).toHaveValue('');
