@@ -126,3 +126,31 @@ def test_quoted_comma_after_the_sniffer_sample(tmp_path):
                          {'201704-citibike-tripdata.csv': '\n'.join([header] + [row] * 30000 + [late]) + '\n'})
     assert rows == 30001
     assert query(store, "SELECT count(*) FROM trips WHERE end_station_name LIKE 'Industry City,%'") == [(1,)]
+
+
+def test_year_archive_with_whole_and_split_months_reads_each_trip_once(tmp_path):
+    header, first, second = LEGACY.splitlines()
+    members = {
+        '2014-citibike-tripdata/201412-citibike-tripdata.csv': LEGACY,
+        '2014-citibike-tripdata/201412-citibike-tripdata_1.csv': f'{header}\n{first}\n',
+        '2014-citibike-tripdata/12_December/201412-citibike-tripdata_1.csv': f'{header}\n{first}\n',
+        '2014-citibike-tripdata/12_December/201412-citibike-tripdata_2.csv': f'{header}\n{second}\n',
+    }
+    store, rows = ingest(tmp_path, '2014-citibike-tripdata.zip', members)
+    assert rows == 2
+    assert query(store, 'SELECT count(*), count(DISTINCT started_at) FROM trips') == [(2, 2)]
+
+    members['2014-citibike-tripdata/12_December/201412-citibike-tripdata_2.csv'] = f'{header}\n'
+    members['2014-citibike-tripdata/201412-citibike-tripdata_2.csv'] = f'{header}\n'
+    with pytest.raises(ValueError, match='201412 parts hold 1 trips, the whole-month file 2'):
+        ingest(tmp_path, '2014-citibike-tripdata.zip', members, etag='e2')
+
+
+def test_prune_removes_files_an_interrupted_run_left(tmp_path):
+    store, _ = ingest(tmp_path, '202602-citibike-tripdata.zip', {'202602-citibike-tripdata_1.csv': MODERN})
+    orphan = store.root / 'trips/system=nyc/year=2026/month=03/202603-citibike-tripdata.parquet'
+    orphan.parent.mkdir(parents=True)
+    orphan.write_bytes(b'')
+    store.prune()
+    assert not orphan.exists()
+    assert query(store, 'SELECT count(*) FROM trips') == [(2,)]

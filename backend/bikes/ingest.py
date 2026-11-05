@@ -119,15 +119,48 @@ def download(archive, path):
     partial.replace(path)
 
 
-def extract_csvs(zip_path, workdir):
-    """Yield each trip CSV in a zip, extracted one at a time and removed after use."""
-    with zipfile.ZipFile(zip_path) as archive:
-        for info in archive.infolist():
-            name = Path(info.filename).name
-            if info.is_dir() or info.filename.startswith('__MACOSX/') or name.startswith('.'):
+PART = re.compile(r'_\d+\.csv$', re.IGNORECASE)
+
+
+def name_month(name):
+    match = re.search(r'(20\d{2})-?(\d{2})', name)
+    return match.group(1) + match.group(2) if match else None
+
+
+def plan_members(zip_path, archive):
+    """(info, read) for each trip member: read=False marks a duplicate to count only.
+
+    The 2013 and 2018 year archives hold each month twice: the original
+    YYYYMM-citibike-tripdata.csv and a 2024 re-export split into _1, _2 parts,
+    some of them in two folders. Read each part once by name; the original
+    is only counted, so the caller can check it holds the same trips.
+    """
+    members, parts = [], {}
+    for info in archive.infolist():
+        name = Path(info.filename).name
+        if info.is_dir() or info.filename.startswith('__MACOSX/') or name.startswith('.'):
+            continue
+        if not name.lower().endswith(('.csv', '.zip')):
+            raise ValueError(f'{zip_path.name}: unexpected member {info.filename}')
+        if PART.search(name):
+            first = parts.setdefault(name, info)
+            if first is not info:
+                if (first.file_size, first.CRC) != (info.file_size, info.CRC):
+                    raise ValueError(f'{zip_path.name}: two different {name}')
                 continue
-            if not name.lower().endswith(('.csv', '.zip')):
-                raise ValueError(f'{zip_path.name}: unexpected member {info.filename}')
+        members.append(info)
+    split_months = {name_month(name) for name in parts}
+    return [(info, not (Path(info.filename).name.lower().endswith('.csv')
+                        and not PART.search(info.filename)
+                        and name_month(Path(info.filename).name) in split_months))
+            for info in members]
+
+
+def extract_csvs(zip_path, workdir):
+    """Yield (csv_path, read) for each trip CSV in a zip, extracted one at a time and removed after use."""
+    with zipfile.ZipFile(zip_path) as archive:
+        for info, read in plan_members(zip_path, archive):
+            name = Path(info.filename).name
             target = workdir / name
             with archive.open(info) as source, open(target, 'wb') as out:
                 shutil.copyfileobj(source, out, 1 << 20)
@@ -135,9 +168,14 @@ def extract_csvs(zip_path, workdir):
                 if name.lower().endswith('.zip'):
                     yield from extract_csvs(target, workdir)
                 else:
-                    yield target
+                    yield target, read
             finally:
                 target.unlink(missing_ok=True)
+
+
+def count_rows(con, csv_path):
+    _, _, source = trip_select(con, csv_path)
+    return con.execute(f'SELECT count(*) FROM {source}').fetchone()[0]
 
 
 def csv_month(archive, csv_path):
@@ -241,19 +279,36 @@ class Store:
             self.save()
         owned = {f: key for key, entry in self.manifest.items() for f in entry['files']}
         files, rows = [], 0
+        read_rows, duplicate_rows = {}, {}
         with tempfile.TemporaryDirectory(dir=self.root) as workdir:
-            for csv_path in extract_csvs(zip_path, Path(workdir)):
+            for csv_path, read in extract_csvs(zip_path, Path(workdir)):
                 year, month = csv_month(archive, csv_path)
+                if not read:
+                    duplicate_rows[year + month] = duplicate_rows.get(year + month, 0) + count_rows(self.con, csv_path)
+                    continue
                 relative = f'trips/system={archive.system}/year={year}/month={month}/{csv_path.stem}.parquet'
                 if relative in owned or relative in files:
                     raise ValueError(f'{archive.key}: {relative} already written by {owned.get(relative, archive.key)}')
-                rows += convert(self.con, csv_path, self.root / relative)
+                written = convert(self.con, csv_path, self.root / relative)
+                read_rows[year + month] = read_rows.get(year + month, 0) + written
+                rows += written
                 files.append(relative)
         if not files:
             raise ValueError(f'{archive.key}: no trip CSVs')
+        for month, count in duplicate_rows.items():
+            if read_rows.get(month) != count:
+                raise ValueError(f'{archive.key}: {month} parts hold {read_rows.get(month)} trips, '
+                                 f'the whole-month file {count}')
         self.manifest[archive.key] = {'etag': archive.etag, 'size': archive.size, 'rows': rows, 'files': files}
         self.save()
         return rows
+
+    def prune(self):
+        """Delete Parquet an interrupted run wrote but the manifest does not list."""
+        owned = {f for entry in self.manifest.values() for f in entry['files']}
+        for path in (self.root / 'trips').rglob('*.parquet*'):
+            if str(path.relative_to(self.root)) not in owned:
+                path.unlink()
 
     def save(self):
         partial = self.manifest_path.with_suffix('.json.part')
@@ -304,6 +359,7 @@ def main(argv=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             sys.exit(f'Another ingest holds {store.root / ".lock"}')
+        store.prune()
         pending = [a for a in select_archives(list_archives(), systems, args.first, args.last)
                    if not store.current(a)]
         print(f'{len(pending)} archives to ingest, {sum(a.size for a in pending) / 1e9:.1f} GB to download')

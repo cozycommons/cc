@@ -184,8 +184,9 @@ def build_from_source(months=12, memory_limit='1GB', threads=2, workdir=None, lo
             log(f'streaming {archive.key}')
             zip_path = tmp / archive.key
             download(archive, zip_path)
-            for csv_path in extract_csvs(zip_path, tmp):
-                aggregate(con, normalized(con, csv_path), window)
+            for csv_path, read in extract_csvs(zip_path, tmp):
+                if read:
+                    aggregate(con, normalized(con, csv_path), window)
             zip_path.unlink()
     return finalize(con, window)
 
