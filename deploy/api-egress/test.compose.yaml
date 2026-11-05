@@ -1,0 +1,21 @@
+# Synthetic smoke only. No real credentials or shared Supabase modifications.
+services:
+  api:
+    command: [python, /egress-probe.py, serve]
+    volumes: [./probe.py:/egress-probe.py:ro, ./hosts.txt:/egress-hosts.txt:ro]
+  database:
+    depends_on:
+      database-origin: {condition: service_healthy}
+  database-origin:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: synthetic-egress-only
+    tmpfs: [/var/lib/postgresql/data]
+    networks:
+      internet:
+        aliases: [synthetic.pooler.supabase.com]
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres]
+      interval: 2s
+      timeout: 1s
+      retries: 20

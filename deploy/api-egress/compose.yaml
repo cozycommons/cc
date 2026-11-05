@@ -1,0 +1,92 @@
+# Run from repository root: docker compose -f deploy/api-egress/compose.yaml ...
+x-sidecar: &sidecar
+  build:
+    context: ../..
+    dockerfile: deploy/api-egress/Dockerfile
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: '3'}
+services:
+  netguard:
+    <<: *sidecar
+    command: [netguard]
+    extra_hosts:
+      - "${EGRESS_DB_HOST:?Set the exact Supabase session pooler hostname}=172.30.87.4"
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    networks:
+      private: {ipv4_address: 172.30.87.2}
+    healthcheck:
+      test: [CMD, test, -f, /tmp/firewall-ready]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+  api:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    network_mode: service:netguard
+    depends_on:
+      netguard: {condition: service_healthy, restart: true}
+      proxy: {condition: service_started}
+      database: {condition: service_started}
+    env_file:
+      - path: "${API_ENV_FILE:?Set API_ENV_FILE to an absolute runtime-only env file}"
+        format: raw
+    environment:
+      HTTPS_PROXY: http://172.30.87.3:3128
+      https_proxy: http://172.30.87.3:3128
+      HTTP_PROXY: http://172.30.87.3:3128
+      http_proxy: http://172.30.87.3:3128
+      ALL_PROXY: ''
+      all_proxy: ''
+      NO_PROXY: localhost,127.0.0.1,::1
+      no_proxy: localhost,127.0.0.1,::1
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+  proxy:
+    <<: *sidecar
+    command: [proxy]
+    user: "13:13"
+    environment:
+      EGRESS_MODE: ${EGRESS_MODE:-audit}
+      EGRESS_SUPABASE_HOST: ${EGRESS_SUPABASE_HOST:?Set exact project-ref.supabase.co}
+    networks:
+      private: {ipv4_address: 172.30.87.3}
+      internet: {}
+  database:
+    <<: *sidecar
+    command: [database]
+    user: "65534:65534"
+    environment:
+      EGRESS_DB_HOST: ${EGRESS_DB_HOST:?Set exact Supabase session pooler hostname}
+    networks:
+      private: {ipv4_address: 172.30.87.4}
+      internet: {}
+  ingress:
+    image: nginx:stable-alpine
+    user: "101:101"
+    restart: unless-stopped
+    volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on: [api]
+    networks: [private, internet]
+    expose: ['8000']
+networks:
+  private:
+    internal: true
+    enable_ipv6: false
+    ipam:
+      config: [{subnet: 172.30.87.0/24}]
+  internet: {}
