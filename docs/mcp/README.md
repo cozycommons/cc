@@ -531,8 +531,15 @@ existing links, all made with a `cce_` token, start unproven):
   email and password.
 - A MyDisney login links an unowned account, or takes over one whose owner is
   unproven (`espn_claim_account_proven`, status `taken_over`), expiring the
-  roster edits and trade offers pending on it and applying the form's
-  automation choice. A proven owner is never displaced (409).
+  roster edits, trade offers and lineup previews pending on it and applying the
+  form's automation choice. A proven owner is never displaced (409). It also
+  detaches every other row for the same SWID, league and season held without
+  proof (unowned, unproven, token retired, automation off, proposals expired).
+  Since migration `0092_beli_espn_atomic_takeover.sql` the claim takes the
+  encrypted cookies, the replacement token and the automation choice and commits
+  all of it with the ownership change in one transaction, so a failure leaves
+  the previous holder's row exactly as it was and a retry still takes over.
+- A row a link moves away from drops to unproven.
 - Writing new cookies into an existing row also replaces its `cce_` token with
   one nobody sees, so fresh cookies reach only the linked Commons user, and
   clears the legacy read cache. A stored `espn_s2` is decrypted only on the
