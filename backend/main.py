@@ -33,6 +33,7 @@ from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
 from trips.routes import router as trips_router
 from supabase_cache import CachedSupabaseClient, SupabaseTTLCacheStore
+import request_validation
 
 RUNTIME_POLICY = initialize_runtime_policy(
     os.environ,
@@ -70,6 +71,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Cozy Commons Dice API", lifespan=lifespan)
+# Never echo submitted values (passwords, cookies, SMS codes) in 422 bodies.
+request_validation.install(app)
 app.state.runtime_policy = RUNTIME_POLICY
 app.add_middleware(PublicPredictionsCompression)
 app.add_middleware(
