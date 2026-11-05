@@ -1,0 +1,18 @@
+@import "../../../design/cozy-wabi/spacing.css";
+
+body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
+.bk-page{min-height:100vh;box-sizing:border-box;padding:var(--cc-safe-top) var(--cc-safe-right) calc(48px + var(--cc-safe-bottom)) var(--cc-safe-left)}
+.bk-main{width:min(560px,100%);box-sizing:border-box;margin:0 auto;padding:24px 16px;display:grid;gap:16px;justify-items:start}
+.bk-main h1{margin:0}
+.bk-lede{margin:0}
+.bk-answer{width:100%;box-sizing:border-box}
+.bk-answer h2{margin:0 0 6px}
+.bk-answer--wait h2{color:var(--moss-dark,#4d5a3a)}
+.bk-answer--ride h2{color:var(--clay,#a5552f)}
+.bk-facts{display:grid;gap:6px;margin:12px 0 0;font-size:14px}
+.bk-facts div{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px}
+.bk-facts dt{color:var(--ink-soft,#75695b)}
+.bk-facts dd{margin:0;font-variant-numeric:tabular-nums}
+.bk-siri{width:100%}
+.bk-siri code{word-break:break-all;font-size:12px}
+.bk-source{margin:0}

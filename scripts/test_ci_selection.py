@@ -38,11 +38,16 @@ class SelectionTests(unittest.TestCase):
                 plan = ci.select([path], TEST_FILES)
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["compute"])
 
-    def test_bikes_runs_only_its_own_suite(self):
+    def test_bikes_offline_and_api_suites(self):
         for path in ["backend/bikes/ingest.py", "backend/bikes/tests/test_ingest.py", "backend/requirements-bikes.txt"]:
             with self.subTest(path=path):
                 plan = ci.select([path], TEST_FILES)
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["bikes"])
+        for path, jobs in [("backend/bikes/wait.py", ["backend-tests"]), ("backend/bikes/model.py", ["backend-tests", "bikes"])]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], jobs)
+                self.assertEqual(plan["backend_projects"], ["bikes"])
 
     def test_docs_only_skips_every_expensive_job(self):
         plan = ci.select(["README.md", "AGENTS.md", "docs/deployment.md", "backend/dice/TECH.md"], TEST_FILES)

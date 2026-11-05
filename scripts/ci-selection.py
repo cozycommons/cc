@@ -9,8 +9,8 @@ import re
 import subprocess
 
 
-FRONTEND_PROJECTS = ("crowdset", "dice", "design", "trips", "floor-planner")
-BACKEND_PROJECTS = ("beli", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips")
+FRONTEND_PROJECTS = ("bikes", "crowdset", "dice", "design", "trips", "floor-planner")
+BACKEND_PROJECTS = ("beli", "bikes", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips")
 INTEGRATIONS = {"beli", "espn", "partiful", "resy"}
 JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute", "bikes")
 SHARED_BACKEND_INPUTS = {
@@ -40,9 +40,13 @@ def select(paths, test_files):
             compute = True
             if not path.startswith("backend/compute/tests/"):
                 crowdset = True
-        elif path.startswith("backend/bikes/") or path in {"backend/requirements-bikes.in", "backend/requirements-bikes.txt"}:
-            # An offline ingest with its own lockfile; the API does not import it.
+        elif path.startswith(("backend/bikes/tests/", "backend/bikes/ingest.py")) or path in {"backend/requirements-bikes.in", "backend/requirements-bikes.txt"}:
+            # The offline ingest has its own DuckDB lockfile; main:app does not import it.
             bikes = True
+        elif path == "backend/bikes/model.py":
+            # Builds the model offline; the API reads its output path.
+            bikes = True
+            backend.add("bikes")
         elif path in {".github/images/crowdset-tests.Dockerfile", "scripts/test_crowdset_ci_image.py"} or path.startswith("backend/crowdset/") or path in {"backend/requirements-crowdset.in", "backend/requirements-crowdset.txt"} or path.startswith(("scripts/crowdset-", "scripts/systemd/crowdset-")):
             crowdset = True
         elif path.startswith("frontend/"):

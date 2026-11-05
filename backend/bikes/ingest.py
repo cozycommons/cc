@@ -260,7 +260,7 @@ class Store:
         pattern = sql_literal(str(self.root / 'trips' / '**' / '*.parquet'))
         with duckdb.connect(str(partial)) as con:
             con.execute(f"CREATE VIEW trips AS SELECT * FROM read_parquet({pattern}, hive_partitioning=true, "
-                        "hive_types={'system': VARCHAR, 'year': SMALLINT, 'month': TINYINT})")
+                        "hive_types={'system': VARCHAR, 'year': INTEGER, 'month': INTEGER})")
         partial.replace(path)
 
 
