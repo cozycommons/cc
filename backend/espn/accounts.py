@@ -348,18 +348,21 @@ def connect_account_for_owner(
         if outcome not in ("linked", "taken_over", "already_linked", "other_owner"):
             raise AccountError("could not link the ESPN account")
         return outcome, summary
-    outcome = supabase.rpc(
-        "espn_link_account", {"p_account_id": account["id"], "p_user_id": str(user_id)}
-    ).execute().data
-    if outcome not in ("linked", "already_linked", "other_owner"):
-        raise AccountError("could not link the ESPN account")
-    # Typed cookies reach an existing row only when it was already the caller's (already_linked),
-    # so this write never changes who holds the row; it is filtered on that ownership regardless.
-    if row is not None and outcome == "already_linked" and not unchanged:
-        supabase.table("espn_accounts").update({
-            "espn_s2_enc": cookies, "token_hash": hash_token(token), "token_prefix": token[:12],
-        }).eq("id", row["id"]).eq("owner_user_id", str(user_id)).execute()
-    return outcome, summary
+    if row is None:  # a row this request just created: link it like any new account
+        outcome = supabase.rpc(
+            "espn_link_account", {"p_account_id": account["id"], "p_user_id": str(user_id)}
+        ).execute().data
+        if outcome not in ("linked", "already_linked", "other_owner"):
+            raise AccountError("could not link the ESPN account")
+        return outcome, summary
+    # Typed cookies refresh an existing row only while it is still the caller's: one UPDATE filtered
+    # on their ownership, never a link, so a row a proven claim detached meanwhile cannot be
+    # re-acquired. With unchanged cookies the update rewrites only the owner, to confirm it.
+    write = ({"owner_user_id": str(user_id)} if unchanged else
+             {"espn_s2_enc": cookies, "token_hash": hash_token(token), "token_prefix": token[:12]})
+    kept = supabase.table("espn_accounts").update(write).eq(
+        "id", row["id"]).eq("owner_user_id", str(user_id)).execute().data
+    return ("already_linked" if kept else "unproven"), summary
 
 
 def _stored_espn_s2(supabase, account_id, user_id) -> str:
