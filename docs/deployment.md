@@ -692,7 +692,9 @@ The PID 1 watchdog checks every five seconds, terminates the child process group
 and exits nonzero. Docker then restarts API in netguard's current namespace. At
 initial start and after a daemon/VM reboot, the entrypoint polls
 `127.0.0.1:8001` for up to 30 seconds and checks that raw `1.1.1.1:443` is blocked
-before starting release. The listener is bound only after every firewall command
+before starting release. The listener is the real gate; the 1.1.1.1 probe only
+catches an extra routable network attached by mistake, since the private network
+has no route out with or without rules. The listener is bound only after every firewall command
 succeeds, and is reachable only over loopback. No shared marker or API NET_ADMIN
 is used. Every scheduled command also runs through this supervisor.
 
@@ -703,6 +705,17 @@ start timestamps after the namespace proof, live ingress/database/proxy checks,
 and direct/DNS confinement across three reboots. No manual `up` or recovery is
 performed between those reboots. A reboot still interrupts in-flight requests
 and tasks; verify readiness and task executions when the host returns.
+
+If netguard stays down longer than Docker's restart attempt (it crash-loops or an
+operator stops it), the API restart fails with "cannot join network namespace of
+a non running container" and Docker does not retry it once netguard returns. Run
+`docker start` on the API container, or bring the stack back up, after netguard
+is healthy again.
+
+Monitor `/ready` through ingress, not only container health: an API whose
+namespace lost its veth (or whose proof listener was taken over by code inside
+it) can keep passing its own loopback healthcheck while ingress gets connection
+refused.
 
 If automatic recovery fails (proof timeout, child restart loop or sidecar bind
 failure), pause tasks and inspect logs/readiness without weakening rules. Full

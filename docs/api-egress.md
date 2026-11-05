@@ -147,7 +147,8 @@ ingress, audit logging, helper-invisible secret loading, scheduled-command
 loading, extra Coolify networks and netguard restart/recovery. It cleans up only its own project. It does not start
 `release` or run application migrations, and never touches the shared Supabase.
 The API entrypoint polls a namespace-local `127.0.0.1:8001` listener for at most
-30 seconds, then requires a failed raw connection to 1.1.1.1:443 before loading
+30 seconds, then requires a failed raw connection to 1.1.1.1:443 (a guard against an
+extra routable network; the listener is the real gate) before loading
 runtime settings or starting application code. `firewall.sh` execs that listener
 only after applying all rules; loopback-only rules cover the proof port. PID 1
 forks the child in a new process group, checks proof every five seconds, and
