@@ -121,6 +121,9 @@ export default defineConfig(({ mode }) => {
       exclude: ['e2e/**', 'node_modules/**'],
     },
     build: {
+      // Vite 6's 'modules' default (Safari 14, iOS 14/15). Vite 7 removed the alias
+      // and defaults to Safari 16, which would drop those browsers.
+      target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'],
       manifest: true,
       rollupOptions: {
         output: {
