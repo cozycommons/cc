@@ -32,8 +32,8 @@ class FakeHTTPResponse:
         else:
             self._raw = json.dumps(payload).encode("utf-8")
 
-    def read(self):
-        return self._raw
+    def read(self, size=-1):
+        return self._raw if size < 0 else self._raw[:size]
 
     def __enter__(self):
         return self
@@ -243,7 +243,6 @@ def test_get_players_for_period_filters_stats_to_the_period(monkeypatch):
     assert fantasy_filter == {
         "players": {
             "filterStatsForScoringPeriodIds": {"value": [6]},
-            "limit": 1000,
             "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
         }
     }
@@ -330,7 +329,6 @@ def test_get_league_players_extracts_players_and_sends_filter(monkeypatch):
     fantasy_filter = json.loads(h["x-fantasy-filter"])
     assert fantasy_filter == {
         "players": {
-            "limit": 1000,
             "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
         }
     }
@@ -340,7 +338,7 @@ def test_get_league_players_custom_limit(monkeypatch):
     t = StubTransport(monkeypatch).on(LEAGUE_URL, ok({"players": []}))
     assert _client().get_league_players(limit=2000) == []
     fantasy_filter = json.loads(headers_of(t.requests[0])["x-fantasy-filter"])
-    assert fantasy_filter["players"]["limit"] == 2000
+    assert "limit" not in fantasy_filter["players"]
 
 
 def test_get_league_players_non_dict_body_raises(monkeypatch):
@@ -384,7 +382,6 @@ def test_get_league_players_for_period_filters_stats(monkeypatch):
     assert fantasy_filter == {
         "players": {
             "filterStatsForScoringPeriodIds": {"value": [9]},
-            "limit": 1000,
             "sortPercOwned": {"sortPriority": 1, "sortAsc": False},
         }
     }
