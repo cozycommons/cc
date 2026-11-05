@@ -94,6 +94,12 @@ Windows-path syntax to repository scripts or documented developer commands.
 See `docs/dice-sandbox.md`, `docs/dice-data-model-testing.md`, and
 `docs/deployment.md` for the authoritative workflows.
 
+## Security
+
+Before changing credentials, account linking, auth or OAuth, SQL functions,
+grants or migrations, dependencies or lockfiles, CI workflows, the frontend CSP
+or outbound network calls, read `docs/security.md` and follow its review rules.
+
 ## UI design
 
 Follow Jason's design preferences in `docs/crowdset/DESIGN.md`. That document also

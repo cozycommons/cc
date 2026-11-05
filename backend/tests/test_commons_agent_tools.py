@@ -454,7 +454,7 @@ def test_connector_instructions_lead_with_discovery():
 async def test_sdk_streamable_http_all_tools_with_proxy_token_and_synthetic_storage():
     """Protocol substitute when Docker is unavailable: no DCR/browser OAuth claim."""
     import httpx
-    from fastmcp.server.auth.oauth_proxy import JTIMapping, UpstreamTokenSet
+    from fastmcp.server.auth.oauth_proxy.models import JTIMapping, UpstreamTokenSet
     from mcp.client.session import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
     from tests.test_cc_mcp import FixedTokenVerifier, OAUTH_CLIENT_ID

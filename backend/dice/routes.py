@@ -122,7 +122,8 @@ from dice.schemas import (
     VirtualPickRequest,
 )
 
-_security = HTTPBearer()
+# Keep the existing 403 contract when FastAPI changes its default bearer errors.
+_security = HTTPBearer(auto_error=False)
 _live_security = HTTPBearer(auto_error=False)
 _optional_security = HTTPBearer(auto_error=False)
 
@@ -142,8 +143,12 @@ class AuthedUser:
 
 
 def require_authenticated_user(
-    request: Request, credentials: HTTPAuthorizationCredentials = Depends(_security)
+    request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(_security)
 ) -> AuthedUser:
+    if credentials is None:
+        scheme, _, value = request.headers.get("Authorization", "").partition(" ")
+        detail = "Invalid authentication credentials" if scheme and value else "Not authenticated"
+        raise HTTPException(status_code=403, detail=detail)
     try:
         user = request.app.state.supabase.auth.get_user(credentials.credentials).user
         return AuthedUser(user.id, user.email or "", user.user_metadata, user_role(request.app.state.supabase, user.id),

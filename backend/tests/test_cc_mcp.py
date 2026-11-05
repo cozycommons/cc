@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from fastmcp.server.auth import AccessToken, JWTVerifier, OAuthProxy, TokenVerifier
-from fastmcp.server.auth.oauth_proxy import (
+from fastmcp.server.auth.oauth_proxy.models import (
     JTIMapping,
     RefreshTokenMetadata,
     UpstreamTokenSet,
@@ -113,6 +113,10 @@ def test_mounted_oauth_metadata_uses_the_mcp_resource_and_local_scopes():
             "/.well-known/oauth-authorization-server"
         )
         protected = client.get("/.well-known/oauth-protected-resource/mcp")
+        challenge = client.get("/mcp")
+
+    assert challenge.status_code == 401
+    assert 'resource_metadata=' in challenge.headers['www-authenticate']
 
     assert authorization.status_code == 200
     metadata = authorization.json()
@@ -120,6 +124,8 @@ def test_mounted_oauth_metadata_uses_the_mcp_resource_and_local_scopes():
     assert metadata["token_endpoint"] == "http://127.0.0.1:8000/token"
     assert metadata["revocation_endpoint"] == "http://127.0.0.1:8000/revoke"
     assert set(metadata["scopes_supported"]) == {READ_SCOPE, EDIT_SCOPE}
+    # CIMD is off: URL client_ids would make this server fetch caller-chosen URLs.
+    assert "client_id_metadata_document_supported" not in metadata
     assert protected.status_code == 200
     assert protected.json()["resource"] == "http://127.0.0.1:8000/mcp"
 
@@ -228,10 +234,10 @@ async def test_supabase_jwt_verifier_checks_signature_issuer_audience_client_and
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scopes", [[READ_SCOPE, EDIT_SCOPE], ["example:read", "example:edit"]])
+@pytest.mark.parametrize("scopes", [[READ_SCOPE], [READ_SCOPE, EDIT_SCOPE], ["example:read", "example:edit"]])
 async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tokens(monkeypatch, scopes):
     """Legacy refresh tokens keep refreshing until their fixed window ends."""
-    import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
+    import fastmcp.server.auth.oauth_proxy.proxy as oauth_proxy_module
 
     app = make_agent_app()
     oauth: ResourceBoundOAuthProxy = app.state.cc_mcp_oauth
@@ -281,6 +287,9 @@ async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tok
     calls = []
 
     class RecordingOAuthClient:
+        async def aclose(self):
+            pass
+
         def __init__(self, **kwargs):
             calls.append({"auth_method": kwargs["token_endpoint_auth_method"]})
 
@@ -291,6 +300,7 @@ async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tok
                 "refresh_token": "rotated-upstream-refresh",
                 "refresh_expires_in": 3600,
                 "expires_in": 1200,
+                "scope": "openid email",
             }
 
     monkeypatch.setattr(oauth_proxy_module, "AsyncOAuth2Client", RecordingOAuthClient)
@@ -311,9 +321,9 @@ async def test_refresh_keeps_agent_scopes_local_and_revocation_removes_proxy_tok
 
     new_access_claims = oauth.jwt_issuer.verify_token(rotated.access_token)
     assert "token_use" not in new_access_claims
-    assert oauth.jwt_issuer.verify_token(rotated.refresh_token)["token_use"] == "refresh"
+    assert oauth.jwt_issuer.verify_token(rotated.refresh_token, expected_token_use="refresh")["token_use"] == "refresh"
     refreshed = await oauth.load_access_token(rotated.access_token)
-    assert refreshed.scopes == [READ_SCOPE, EDIT_SCOPE]
+    assert refreshed.scopes == ([READ_SCOPE] if scopes == [READ_SCOPE] else [READ_SCOPE, EDIT_SCOPE])
     assert ("_legacy_grants" in refreshed.claims) == (scopes[0] != READ_SCOPE)
     assert await oauth.load_access_token(rotated.refresh_token) is None
 
@@ -523,18 +533,21 @@ class FakeUpstream:
 
     refreshes = 0
 
+    async def aclose(self):
+        pass
+
     def __init__(self, **_kwargs):
         pass
 
     async def fetch_token(self, **kwargs):
         assert kwargs["code"] == "upstream-code"
         return {"access_token": "upstream-a", "refresh_token": "upstream-refresh-a",
-                "expires_in": 3600, "token_type": "Bearer"}
+                "expires_in": 3600, "token_type": "Bearer", "scope": "openid email"}
 
     async def refresh_token(self, **kwargs):
         FakeUpstream.refreshes += 1
         return {"access_token": "upstream-a-refreshed", "refresh_token": "upstream-refresh-a2",
-                "expires_in": 3600, "refresh_expires_in": 7200}
+                "expires_in": 3600, "refresh_expires_in": 7200, "scope": "openid email"}
 
 
 async def approve(browser, client_name="Claude", redirect_uri=CLAUDE_CALLBACK):
@@ -595,7 +608,7 @@ async def call_ping(browser, access_token):
 @pytest.mark.asyncio
 async def test_real_oauth_flow_lists_the_connection_and_disconnect_revokes_access_and_refresh(monkeypatch):
     import httpx
-    import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
+    import fastmcp.server.auth.oauth_proxy.proxy as oauth_proxy_module
 
     index = MemoryIndex().install(monkeypatch)
     monkeypatch.setattr(oauth_proxy_module, "AsyncOAuth2Client", FakeUpstream)
@@ -637,7 +650,7 @@ async def test_real_oauth_flow_lists_the_connection_and_disconnect_revokes_acces
             assert (await call_ping(browser, tokens["access_token"])).status_code == 401
             refresh_after = await browser.post("/token", data={
                 "grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": client_id})
-            assert refresh_after.status_code == 400 and refresh_after.json()["error"] == "invalid_grant"
+            assert refresh_after.status_code == 401 and refresh_after.json()["error"] == "invalid_grant"
             assert (await browser.get("/account/connections", headers=signed_in)).json() == []
             again = await browser.delete(f"/account/connections/{connection_id}", headers=signed_in)
             assert again.status_code == 204
@@ -646,7 +659,7 @@ async def test_real_oauth_flow_lists_the_connection_and_disconnect_revokes_acces
 @pytest.mark.asyncio
 async def test_disconnect_revokes_only_that_connection(monkeypatch):
     import httpx
-    import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
+    import fastmcp.server.auth.oauth_proxy.proxy as oauth_proxy_module
 
     index = MemoryIndex().install(monkeypatch)
     monkeypatch.setattr(oauth_proxy_module, "AsyncOAuth2Client", FakeUpstream)
@@ -668,10 +681,11 @@ async def test_disconnect_revokes_only_that_connection(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_refresh_paused_across_a_disconnect_cannot_resurrect_the_connection(monkeypatch):
+@pytest.mark.parametrize("transparent", [False, True])
+async def test_a_refresh_paused_across_a_disconnect_cannot_resurrect_the_connection(monkeypatch, transparent):
     import httpx
     from types import SimpleNamespace
-    import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
+    import fastmcp.server.auth.oauth_proxy.proxy as oauth_proxy_module
 
     index = MemoryIndex().install(monkeypatch)
     entered, release = asyncio.Event(), asyncio.Event()
@@ -696,24 +710,33 @@ async def test_a_refresh_paused_across_a_disconnect_cannot_resurrect_the_connect
             refresh = {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": client_id}
 
             # FastMCP has read the token set and is waiting on Supabase when the user disconnects.
-            refreshing = asyncio.create_task(browser.post("/token", data=refresh))
+            if transparent:
+                stored = await oauth._upstream_token_store.get(key=index.only()["upstream_token_id"])
+                stored.expires_at = 1
+                await oauth._upstream_token_store.put(key=stored.upstream_token_id, value=stored, ttl=3600)
+                monkeypatch.setattr(SessionVerifier, "USERS", {"upstream-a-refreshed": USER_A})
+                refreshing = asyncio.create_task(call_ping(browser, tokens["access_token"]))
+            else:
+                refreshing = asyncio.create_task(browser.post("/token", data=refresh))
             await asyncio.wait_for(entered.wait(), 5)
             assert (await browser.delete(f"/account/connections/{connection_id}", headers=signed_in)).status_code == 204
             release.set()
             refreshed = await refreshing
 
-            assert refreshed.status_code == 400 and refreshed.json()["error"] == "invalid_grant", refreshed.text
+            assert refreshed.status_code == 401, refreshed.text
+            if not transparent:
+                assert refreshed.json()["error"] == "invalid_grant", refreshed.text
             assert await oauth._upstream_token_store.get(key=index.only()["upstream_token_id"]) is None
             assert (await call_ping(browser, tokens["access_token"])).status_code == 401
             assert signed_out == [("upstream-a-refreshed", "local")]  # the new upstream session ends too
             retried = await browser.post("/token", data=refresh)
-            assert retried.status_code == 400 and retried.json()["error"] == "invalid_grant"
+            assert retried.status_code == 401 and retried.json()["error"] == "invalid_grant"
 
 
 @pytest.mark.asyncio
 async def test_repeating_a_disconnect_deletes_tokens_that_outlived_the_first(monkeypatch):
     import httpx
-    import fastmcp.server.auth.oauth_proxy as oauth_proxy_module
+    import fastmcp.server.auth.oauth_proxy.proxy as oauth_proxy_module
 
     index = MemoryIndex().install(monkeypatch)
     monkeypatch.setattr(oauth_proxy_module, "AsyncOAuth2Client", FakeUpstream)
@@ -854,3 +877,41 @@ async def test_index_failures_never_fail_auth_and_client_revoke_marks_the_row(mo
                                           expires_at=4_000_000_000))
     assert index.only()["revoked_at"]
     assert await oauth.load_access_token(access) is None
+
+
+@pytest.mark.asyncio
+async def test_url_client_ids_are_never_fetched(monkeypatch):
+    from fastmcp.server.auth.cimd import CIMDFetcher
+
+    async def no_fetch(*_args, **_kwargs):
+        raise AssertionError("CIMD must stay disabled: unauthenticated callers would choose the URL")
+
+    monkeypatch.setattr(CIMDFetcher, "fetch", no_fetch)
+    agent = make_agent_app()
+    assert await agent.state.cc_mcp_oauth.get_client("https://example.test/client.json") is None
+
+
+def test_get_on_the_stateless_mcp_route_challenges_or_refuses_without_streaming():
+    agent = make_agent_app()
+
+    async def verify_token(token):
+        if token == "proxy-access-token":
+            return AccessToken(token=token, client_id="client", scopes=[READ_SCOPE, EDIT_SCOPE])
+        return None
+
+    agent.state.cc_mcp_oauth.verify_token = verify_token
+    application = FastAPI()
+    mount_agent_app(application, agent)
+    with TestClient(application) as client:
+        anonymous = client.get("/mcp", headers={"Accept": "text/event-stream"})
+        anonymous_head = client.head("/mcp")
+        authenticated = client.get("/mcp", headers={"Accept": "text/event-stream",
+                                                    "Authorization": "Bearer proxy-access-token"})
+        authenticated_head = client.head("/mcp", headers={"Authorization": "Bearer proxy-access-token"})
+    for challenged in (anonymous, anonymous_head):
+        assert challenged.status_code == 401
+        assert 'resource_metadata=' in challenged.headers['www-authenticate']
+    for refused in (authenticated, authenticated_head):
+        assert refused.status_code == 405
+        assert refused.headers['allow'] == 'POST, DELETE'
+        assert 'text/event-stream' not in refused.headers.get('content-type', '')
