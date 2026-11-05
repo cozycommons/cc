@@ -60,6 +60,10 @@ describe('enforced CSP', () => {
       expect(policy).not.toMatch(/script-src[^;]*unsafe-inline/);
     }
   });
+  it('allows both Google font artifact paths only on general pages', () => {
+    expect(policies.general).toContain("font-src 'self' https://fonts.gstatic.com/s/ https://fonts.gstatic.com/l/font;");
+    expect(policies.credentials).toContain("font-src 'self';");
+  });
   it('excludes public images, gist, REST, realtime and upload origins from credentials', () => {
     expect(policies.credentials).not.toMatch(/https: |gist|rest\/v1|realtime|r2\.cloudflarestorage/);
     expect(policies.credentials).toContain('connect-src https://api.example.test/account https://api.example.test/account/ https://auth.example.test/auth/v1/ https://auth.example.test/storage/v1/');
