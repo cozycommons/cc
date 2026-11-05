@@ -124,6 +124,8 @@ def test_mounted_oauth_metadata_uses_the_mcp_resource_and_local_scopes():
     assert metadata["token_endpoint"] == "http://127.0.0.1:8000/token"
     assert metadata["revocation_endpoint"] == "http://127.0.0.1:8000/revoke"
     assert set(metadata["scopes_supported"]) == {READ_SCOPE, EDIT_SCOPE}
+    # CIMD is off: URL client_ids would make this server fetch caller-chosen URLs.
+    assert "client_id_metadata_document_supported" not in metadata
     assert protected.status_code == 200
     assert protected.json()["resource"] == "http://127.0.0.1:8000/mcp"
 
@@ -887,9 +889,6 @@ async def test_url_client_ids_are_never_fetched(monkeypatch):
     monkeypatch.setattr(CIMDFetcher, "fetch", no_fetch)
     agent = make_agent_app()
     assert await agent.state.cc_mcp_oauth.get_client("https://example.test/client.json") is None
-    with TestClient(agent) as client:
-        metadata = client.get("/.well-known/oauth-authorization-server").json()
-    assert not metadata.get("client_id_metadata_document_supported")
 
 
 def test_get_on_the_stateless_mcp_route_challenges_or_refuses_without_streaming():
