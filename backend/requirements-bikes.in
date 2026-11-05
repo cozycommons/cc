@@ -1,0 +1,10 @@
+# Direct dependencies of the offline Cozy Bikes ingest (python -m bikes.ingest). The API image
+# does not install this file. Regenerate the hash-locked .txt with:
+# scripts/lock-backend-requirements.sh backend/requirements-bikes.in backend/requirements-bikes.txt
+# Cooldown: cutoff must be >=7 days before HEAD; security exceptions: docs/supply-chain.md.
+# uv-version: 0.13.7
+# uv-exclude-newer: 2026-10-28T00:00:00Z
+# requires-python: >=3.12
+# environments: python_version >= '3.12' and python_version < '3.14'
+# 1.1 added try_strptime with a list of formats; stay on the 1.x file format.
+duckdb>=1.1,<2

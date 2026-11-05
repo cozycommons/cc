@@ -41,6 +41,10 @@ imports it. Its dependency implementation uses `www.instagram.com` and
 **not allowed** in the API. Instagram media CDN destinations therefore also do
 not belong here. Moving the fetch box into the API requires a new policy review.
 
+The Cozy Bikes ingest (`backend/bikes/ingest.py`) downloads from
+`s3.amazonaws.com` as an offline command, not from the API, and is outside this
+boundary.
+
 Crowdset and compute have separate entrypoints, not mounted by `main:app`.
 Their configurable R2, Supabase, compute/worker transfer URLs and YouTube media
 traffic (`backend/crowdset/r2.py:118`, `backend/crowdset/hosting.py:39`,

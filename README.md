@@ -13,6 +13,7 @@ A monorepo for community projects amongst our friends.
 - **[Partiful](docs/partiful.md)** — access to friends’ hosted, RSVP’d, and invited events.
 - **[Resy](backend/resy/)** — restaurant search, availability, and reservations.
 - **[ESPN Fantasy](backend/espn/)** — league stats, rosters, and opt-in lineup automation.
+- **[Cozy Bikes](docs/cozy-bikes.md)** — Citi Bike trip history as local Parquet for DuckDB analytics.
 
 ## Layout
 
