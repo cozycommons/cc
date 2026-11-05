@@ -249,18 +249,19 @@ def swid_key(swid: str) -> str:
     return value.upper() if value.isascii() else value
 
 
-def _account_for_team(supabase, swid: str, league_id: int, season: int) -> dict | None:
+def _accounts_for_team(supabase, swid: str, league_id: int, season: int) -> list[dict]:
     # swid is Fernet-encrypted with a random IV, so rows are matched by
-    # decrypting the few that share the league and season. A row that will not
-    # decrypt (a key mismatch) is skipped; at worst it leads to a duplicate row.
+    # decrypting the SWIDs of the few that share the league and season; no
+    # espn_s2 is decrypted here. A row that will not decrypt (a key mismatch)
+    # is skipped; at worst it leads to a duplicate row.
     rows = (
         supabase.table("espn_accounts")
-        .select("id,label,league_id,season,swid_enc,espn_s2_enc,owner_user_id")
+        .select("id,label,swid_enc,owner_user_id,owner_proven")
         .eq("league_id", league_id)
         .eq("season", season)
         .execute()
     ).data or []
-    wanted = swid_key(swid)
+    wanted, matches = swid_key(swid), []
     for row in rows:
         try:
             stored = decrypt_secret(row["swid_enc"])
@@ -268,8 +269,8 @@ def _account_for_team(supabase, swid: str, league_id: int, season: int) -> dict 
             logger.warning("Skipping ESPN account %s: its SWID does not decrypt", row["id"])
             continue
         if swid_key(stored) == wanted:
-            return row
-    return None
+            matches.append(row)
+    return matches
 
 
 def connect_account_for_owner(
@@ -279,20 +280,21 @@ def connect_account_for_owner(
     """Link one ESPN league team to a Commons user from working session cookies.
 
     This is the web replacement for presenting a cce_ token. The cookies are
-    probed against the league first. An existing account for the same SWID,
-    league and season is reused, so a legacy user keeps snapshots, lineup runs
-    and automation; otherwise a new account is created with a token nobody
-    sees.
+    probed against the league first, which proves only that they can read it:
+    the league's mTeam view lists every member's SWID. swid_proven says the SWID
+    came from a MyDisney login, the only proof that the caller owns it.
 
-    swid_proven says the SWID came from a MyDisney login rather than from the
-    user. Legacy /espn/onboard never checked that a SWID belongs to the cookies,
-    so a legacy row, and whoever holds its cce_ token, may not be the SWID's
-    owner. Hence: typed cookies reuse an unowned row only when they are the
-    row's own espn_s2, and new cookies written into an existing row always
-    retire its cce_ token, so they reach no one but the linked Commons user.
+    - A proven claim links an unowned row for the SWID, league and season, or
+      takes over a row whose owner is unproven (espn_claim_account_proven); a
+      proven owner is never displaced.
+    - An unproven claim (typed cookies) creates a new row, or refreshes the
+      caller's own row; it never claims a row that already exists.
+    - New cookies written into an existing row retire its cce_ token, so they
+      reach no one but the linked Commons user. espn_s2 is read only once the
+      row is the caller's.
 
-    Returns (outcome, summary); outcome is linked | already_linked |
-    other_owner | unproven. Raises AccountError for invalid fields and
+    Returns (outcome, summary); outcome is linked | taken_over | already_linked
+    | other_owner | unproven. Raises AccountError for invalid fields and
     EspnAuthError / EspnError when ESPN refuses or does not answer.
     """
     league_id = _coerce_int(league_id, "league_id")
@@ -304,13 +306,14 @@ def connect_account_for_owner(
         raise AccountError("espn_s2 and SWID are required")
     EspnClient.probe(espn_s2, swid, league_id, season)
 
-    row = _account_for_team(supabase, swid, league_id, season)
-    if row and row.get("owner_user_id") not in (None, str(user_id)):
-        return "other_owner", {"id": row["id"], "label": row.get("label")}
-    same_cookies = bool(row) and hmac.compare_digest(
-        decrypt_secret(row["espn_s2_enc"]).encode(), espn_s2.encode())
-    if row and row.get("owner_user_id") is None and not swid_proven and not same_cookies:
-        return "unproven", {"id": row["id"], "label": row.get("label")}
+    matches = _accounts_for_team(supabase, swid, league_id, season)
+    row = next((r for r in matches if r.get("owner_user_id") == str(user_id)), None)
+    if row is None and matches:
+        if any(r.get("owner_user_id") and r.get("owner_proven") for r in matches):
+            return "other_owner", {"id": matches[0]["id"], "label": matches[0].get("label")}
+        if not swid_proven:
+            return "unproven", {"id": matches[0]["id"], "label": matches[0].get("label")}
+        row = next((r for r in matches if not r.get("owner_user_id")), matches[0])
     if row:
         account = {"id": row["id"], "label": row.get("label")}
     else:
@@ -328,21 +331,38 @@ def connect_account_for_owner(
         if not created.get("id"):
             raise AccountError("could not create the ESPN account")
         account = {"id": created["id"], "label": "espn"}
+    claim = "espn_claim_account_proven" if swid_proven else "espn_link_account"
     outcome = supabase.rpc(
-        "espn_link_account", {"p_account_id": account["id"], "p_user_id": str(user_id)}
+        claim, {"p_account_id": account["id"], "p_user_id": str(user_id)}
     ).execute().data
-    if outcome not in ("linked", "already_linked", "other_owner"):
+    if outcome not in ("linked", "taken_over", "already_linked", "other_owner"):
         raise AccountError("could not link the ESPN account")
-    # Write cookies only once the row is the caller's, so a lost race or a wrong
-    # match can never rewrite someone else's credentials.
-    if row and outcome != "other_owner" and not same_cookies:
+    summary = {**account, "league_id": league_id, "season": season}
+    if row is None or outcome == "other_owner":
+        return outcome, summary
+    # The row is the caller's now. A row that just became theirs always gets the
+    # new cookies; their own row only when the cookies changed, which is the
+    # only time a stored espn_s2 is read. Writes are filtered on the caller's
+    # ownership, so a lost race can never rewrite someone else's credentials.
+    if outcome == "already_linked":
+        stored = (
+            supabase.table("espn_accounts").select("espn_s2_enc")
+            .eq("id", row["id"]).eq("owner_user_id", str(user_id)).execute()
+        ).data or []
+        if not stored:
+            raise AccountError("the ESPN account changed owner while connecting")
+        unchanged = hmac.compare_digest(decrypt_secret(stored[0]["espn_s2_enc"]).encode(), espn_s2.encode())
+    else:
+        unchanged = False
+    if not unchanged:
         token = mint_token()
-        supabase.table("espn_accounts").update({
-            "espn_s2_enc": encrypt_secret(espn_s2),
-            "token_hash": hash_token(token),
-            "token_prefix": token[:12],
-        }).eq("id", row["id"]).eq("owner_user_id", str(user_id)).execute()
-    return outcome, {**account, "league_id": league_id, "season": season}
+        update = {"espn_s2_enc": encrypt_secret(espn_s2), "token_hash": hash_token(token),
+                  "token_prefix": token[:12]}
+        if outcome == "taken_over":  # the automation choice was the previous owner's
+            update["lineup_automation_enabled"] = bool(enable_automation)
+        supabase.table("espn_accounts").update(update).eq(
+            "id", row["id"]).eq("owner_user_id", str(user_id)).execute()
+    return outcome, summary
 
 
 def make_client_for_account(account: dict, *, cooldown: RequestCooldown | None = None) -> EspnClient:

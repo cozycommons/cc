@@ -239,8 +239,8 @@ def espn_connect(request, user, *, swid_proven, **team):
         raise HTTPException(409, 'This ESPN team is connected to another Cozy Commons user. '
                                  'Sign in as that user to manage it.')
     if outcome == 'unproven':
-        raise HTTPException(409, 'This ESPN team was set up earlier with different cookies. '
-                                 'Sign in with your ESPN email and password to connect it.')
+        raise HTTPException(409, 'This ESPN team is already set up on Cozy Commons. If it is yours, '
+                                 'sign in with your ESPN email and password to connect it.')
     # Legacy /espn reads accounts through the API's TTL cache (one per process; production runs
     # one worker). Drop it so a cce_ token retired just now stops working at once.
     cached = getattr(request.app.state, 'supabase', None)
@@ -268,12 +268,17 @@ def connect_espn(body: EspnLogin, request: Request, user=Depends(current_user)):
                                  'then try again, or connect with cookies instead.')
     except (disney_login.DisneyLoginError, urllib.error.URLError, TimeoutError):
         raise HTTPException(502, ESPN_DOWN)
+    # Always look up the account's own leagues: a chosen league_id must be one of them, so a
+    # MyDisney claim is only ever made for a team this login actually holds.
+    try:
+        leagues = disney_login.discover_basketball_leagues(cookies['espn_s2'], cookies['swid'], season)
+    except (disney_login.DisneyLoginError, urllib.error.URLError, TimeoutError):
+        raise HTTPException(502, ESPN_DOWN)
     league_id = body.league_id
-    if league_id is None:
-        try:
-            leagues = disney_login.discover_basketball_leagues(cookies['espn_s2'], cookies['swid'], season)
-        except (disney_login.DisneyLoginError, urllib.error.URLError, TimeoutError):
-            raise HTTPException(502, ESPN_DOWN)
+    if league_id is not None:
+        if league_id not in {entry['league_id'] for entry in leagues}:
+            raise HTTPException(400, f'That league is not one of your ESPN basketball leagues for the {season} season.')
+    else:
         if not leagues:
             raise HTTPException(400, f'No ESPN fantasy basketball league found for the {season} season.')
         if len(leagues) > 1:
