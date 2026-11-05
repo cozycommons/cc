@@ -17,15 +17,13 @@ from tests import resy_fakes
 from tests.resy_fakes import VENUE_ID, day, slot_token
 from tests.test_commons_agent_tools import Database, connect
 
-TOOLS = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation',
-         'link_resy_account'}
+TOOLS = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation'}
 
 
 @pytest_asyncio.fixture
 async def resy(monkeypatch):
     db = Database()
     resy_fakes.install(db, monkeypatch)
-    monkeypatch.setattr(agent_tools, '_LINK_ATTEMPTS', {})
     token = AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE])
     monkeypatch.setattr('cc_mcp.server.get_access_token', lambda: token)
     call, listed = connect(build_server(db, PROVIDERS))
@@ -36,14 +34,10 @@ def enable(db):
     db.settings[(db.user.id, 'resy')] = {'user_id': db.user.id, 'project_id': 'resy', 'enabled': True}
 
 
-def owner(db, row):
-    return next(r for r in db.resy_accounts if r['id'] == row['id'])['owner_user_id']
-
 
 async def linked_user(db, call):
     enable(db)
-    row, token = resy_fakes.add_account(db)
-    await call('link_resy_account', api_token=token)
+    row, _token = resy_fakes.add_account(db, owner=db.user.id)  # as the account page links it
     return row
 
 
@@ -78,7 +72,7 @@ async def test_new_user_sees_resy_off_then_the_link_step(resy):
     assert project['on_connector'] and project['enabled'] is False and project['linked'] is False
     assert {t['name']: t['access'] for t in project['tools']} == {
         'find_resy_tables': 'read', 'list_resy_reservations': 'read', 'book_resy_table': 'edit',
-        'cancel_resy_reservation': 'edit', 'link_resy_account': 'edit'}
+        'cancel_resy_reservation': 'edit'}
     assert not TOOLS & await listed()
     enabled = await call('enable_project', project_id='resy')
     assert enabled['linked'] is False and enabled['next_step'] == LINK_STEP
@@ -102,49 +96,18 @@ async def test_unlinked_user_gets_the_link_step(resy, tool, arguments):
 
 
 @pytest.mark.asyncio
-async def test_link_never_echoes_the_token_and_enables_by_default(resy):
+async def test_a_page_linked_account_turns_resy_on_and_no_token_tool_exists(resy):
     db, call, listed = resy
-    enable(db)
-    row, token = resy_fakes.add_account(db, label='synthetic-sam')
-    linked = await call('link_resy_account', api_token=token)
-    assert linked['status'] == 'linked' and linked['account'] == {'id': row['id'], 'label': 'synthetic-sam'}
-    assert token not in repr(linked) and row['token_hash'] not in repr(linked)
-    assert owner(db, row) == db.user.id
-    assert (await call('link_resy_account', api_token=token))['status'] == 'already_linked'
-    del db.settings[(db.user.id, 'resy')]
+    row, token = resy_fakes.add_account(db, owner=db.user.id)  # as /account/linked-accounts links it
     project = {p['id']: p for p in (await call('list_projects'))['projects']}['resy']
-    assert project['enabled'] and project['linked'] and project['enabled_reason'] == 'default: you already use it'
-    assert TOOLS <= await listed()
-
-
-@pytest.mark.asyncio
-async def test_link_refuses_wrong_tokens_and_other_owners_and_replaces_your_own(resy):
-    db, call, _ = resy
-    first = await linked_user(db, call)
-    with pytest.raises(ToolError, match='No Resy account matches that token'):
-        await call('link_resy_account', api_token='ccr_' + 'x' * 43)
-    with pytest.raises(ToolError, match='No Resy account matches that token'):
-        await call('link_resy_account', api_token='ccb_' + 'x' * 43)  # a Beli token is not a Resy token
-    other = str(uuid4())
-    theirs, their_token = resy_fakes.add_account(db, owner=other)
-    with pytest.raises(ToolError, match='linked to another Commons user') as error:
-        await call('link_resy_account', api_token=their_token)
-    assert their_token not in str(error.value) and owner(db, theirs) == other
-    second, token = resy_fakes.add_account(db, label='second')
-    assert (await call('link_resy_account', api_token=token))['replaced_account']['id'] == first['id']
-    assert owner(db, first) is None and owner(db, second) == db.user.id
-
-
-@pytest.mark.asyncio
-async def test_link_attempts_are_rate_limited(resy):
-    db, call, _ = resy
-    enable(db)
-    for _ in range(10):
-        with pytest.raises(ToolError, match='No Resy account matches'):
-            await call('link_resy_account', api_token='ccr_' + 'y' * 43)
-    _row, token = resy_fakes.add_account(db)
-    with pytest.raises(ToolError, match='Too many link attempts'):
+    assert project['enabled'] and project['linked'] and project['status']['in_use']
+    assert project['enabled_reason'] == 'default: you already use it'
+    assert 'link_resy_account' not in await listed()
+    with pytest.raises(ToolError, match='Unknown tool'):
         await call('link_resy_account', api_token=token)
+
+
+
 
 
 # Reads

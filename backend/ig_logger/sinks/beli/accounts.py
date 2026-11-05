@@ -58,7 +58,6 @@ __all__ = [
     "get_account_by_token",
     "get_account_by_owner",
     "linked_account_summary",
-    "link_account_to_owner",
     "connect_account_for_owner",
     "make_client_for_account",
 ]
@@ -182,23 +181,6 @@ def get_account_by_owner(supabase, user_id: str) -> dict:
         "watcher_opt_in": bool(row.get("watcher_opt_in")),
     }
 
-
-def link_account_to_owner(supabase, token: str, user_id: str) -> tuple[str, dict]:
-    """Link the account a personal token names to a Commons user, once.
-
-    The token is only hashed and compared (constant time); it is never stored.
-    Returns (outcome, account summary); outcome is linked | already_linked |
-    other_owner. Watcher subscriptions are not touched.
-    Raises AccountError when the token is unknown.
-    """
-    row = get_account_row_by_token(supabase, token)
-    outcome = supabase.rpc(
-        "beli_link_account", {"p_account_id": row["id"], "p_user_id": str(user_id)}
-    ).execute().data
-    if outcome == "missing":
-        raise AccountError("unknown token")
-    return outcome, {"id": row["id"], "label": row.get("label"),
-                     "watcher_opt_in": row["watcher_opt_in"]}
 
 
 def login_key(beli_id: str) -> str:

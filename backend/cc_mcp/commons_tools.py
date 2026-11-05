@@ -38,7 +38,8 @@ CATALOG = (
 def next_step(provider, state):
     status = state['status'] or {}
     if not state['enabled']:
-        return f"Call enable_project('{provider.name}') to add its {len(provider.tools)} tools."
+        count = len(provider.tools)
+        return f"Call enable_project('{provider.name}') to add its {count} tool{'' if count == 1 else 's'}."
     if state['linked'] is False:
         return provider.link.instructions
     return status.get('next_step') or f'Use the {provider.display_name} tools.'

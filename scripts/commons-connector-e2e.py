@@ -677,7 +677,7 @@ async def exercise(args):
                 await call('get_trip_overview', evidence='Trips usable again after enable_project')
 
                 # Beli: off for a new user, then enable, link once, and use without a token.
-                beli = {'get_restaurant_recs', 'save_restaurant', 'link_beli_account'}
+                beli = {'get_restaurant_recs', 'save_restaurant'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['beli']['enabled'] is False and projects['beli']['linked'] is False
                 enabled = await call('enable_project', project_id='beli', evidence='enable_project beli')
@@ -701,10 +701,6 @@ async def exercise(args):
                 other_account = get_account_row_by_token(service, other_token)['id']
                 assert service.rpc('beli_link_account', {'p_account_id': other_account,
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_beli_account', {'api_token': other_token}, 'linked to another Commons user',
-                              "link_beli_account refused for another user's account")
-                await refused(session, 'link_beli_account', {'api_token': 'ccb_' + secrets.token_urlsafe(32)},
-                              'No Beli account matches', 'link_beli_account refused for a wrong token')
                 # The account page links with the Beli login itself: no ccb_ token reaches the agent.
                 page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
                 mine = {'Authorization': 'Bearer ' + user_token}
@@ -754,8 +750,7 @@ async def exercise(args):
                 print('PASS every Beli tool over real OAuth: link, recs, preview, commit, replay; one Beli write')
 
                 # Resy: off for a new user, then enable, link once, preview with fees, book and cancel.
-                resy = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation',
-                        'link_resy_account'}
+                resy = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation'}
                 when = (date.today() + timedelta(days=7)).isoformat()
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['resy']['enabled'] is False and projects['resy']['linked'] is False
@@ -775,10 +770,6 @@ async def exercise(args):
                 from resy.accounts import get_account_row_by_token as resy_account_row
                 assert service.rpc('resy_link_account', {'p_account_id': resy_account_row(service, other_resy)['id'],
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_resy_account', {'api_token': other_resy}, 'linked to another Commons user',
-                              "link_resy_account refused for another user's account")
-                await refused(session, 'link_resy_account', {'api_token': 'ccr_' + secrets.token_urlsafe(32)},
-                              'No Resy account matches', 'link_resy_account refused for a wrong token')
                 # The account page links with the Resy email itself: no ccr_ token reaches the agent.
                 resy_page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
                 async with httpx.AsyncClient(timeout=30) as http:
@@ -848,7 +839,7 @@ async def exercise(args):
                       'one booking and one cancellation sent')
 
                 # Partiful: read-only. Off for a new user, then enable, link once, list and read events.
-                partiful = {'get_partiful_events', 'link_partiful_account'}
+                partiful = {'get_partiful_events'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['partiful']['enabled'] is False and projects['partiful']['linked'] is False
                 enabled = await call('enable_project', project_id='partiful', evidence='enable_project partiful')
@@ -866,10 +857,6 @@ async def exercise(args):
                 assert service.rpc('partiful_link_account', {
                     'p_account_id': partiful_account_row(service, other_partiful)['id'],
                     'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_partiful_account', {'api_token': other_partiful},
-                              'linked to another Commons user', "link_partiful_account refused for another user's account")
-                await refused(session, 'link_partiful_account', {'api_token': 'ccp_' + secrets.token_urlsafe(32)},
-                              'No Partiful account matches', 'link_partiful_account refused for a wrong token')
                 stored = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
                     .eq('id', mine_row).single().execute().data
                 # The account page links with a texted code: no ccp_ token or code reaches the agent.
@@ -936,13 +923,16 @@ async def exercise(args):
 
                 # ESPN: off for a new user, then enable, link once, read, and propose -> approve each kind.
                 espn = {'get_fantasy_league', 'get_fantasy_trends', 'get_fantasy_activity', 'propose_fantasy_change',
-                        'approve_fantasy_change', 'link_espn_account'}
+                        'approve_fantasy_change'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['espn']['enabled'] is False and projects['espn']['linked'] is False
                 enabled = await call('enable_project', project_id='espn', evidence='enable_project espn')
                 assert enabled['linked'] is False and 'cozycommons.dev/account#espn' in enabled['next_step']
                 assert 'cce_ token in chat' in enabled['next_step']
                 assert espn <= await listed(session)
+                every_tool = await listed(session)
+                assert not {name for name in every_tool if name.startswith('link_')}, every_tool
+                print('PASS no token link tool is listed with Beli, Resy, Partiful and ESPN all on')
                 print('PASS list_projects/enable_project show ESPN unlinked with the link step')
                 await refused(session, 'get_fantasy_league', {}, 'Link your ESPN account first',
                               'unlinked get_fantasy_league refused with the link step')
@@ -954,17 +944,13 @@ async def exercise(args):
                 other_espn_id = espn_account_row(service, other_espn)['id']
                 assert service.rpc('espn_link_account', {'p_account_id': other_espn_id,
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_espn_account', {'api_token': other_espn}, 'linked to another Commons user',
-                              "link_espn_account refused for another user's account")
-                await refused(session, 'link_espn_account', {'api_token': 'cce_' + secrets.token_urlsafe(32)},
-                              'No ESPN account matches', 'link_espn_account refused for a wrong token')
                 stored_espn = service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash') \
                     .eq('id', mine_espn).single().execute().data
                 # The account page links with a MyDisney login, the only proof that a SWID is the caller's:
                 # typed cookies prove only that they can read the league. No cce_ token reaches the agent.
                 espn_page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
                 page_auth = {'Authorization': 'Bearer ' + user_token}
-                team = {'league_id': 999, 'season': 2027}
+                team = team_ids = {'league_id': 999, 'season': 2027}
                 espn_email, espn_password = f'espn-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(12)
                 espn_state['disney'][espn_email] = (espn_password, mine_swid)
                 async with httpx.AsyncClient(timeout=30) as http:
@@ -982,21 +968,26 @@ async def exercise(args):
                     elsewhere = await http.post(espn_page + '/espn', headers=page_auth, json={
                         'login': espn_email, 'password': espn_password, 'season': 2027, 'league_id': 4242})
                     assert elsewhere.status_code == 400 and 'not one of your' in elsewhere.text, elsewhere.text
-                    linked = await http.post(espn_page + '/espn', headers=page_auth,
-                                             json={'login': espn_email.upper(), 'password': espn_password, 'season': 2027})
+                    # The way back when MyDisney is challenged: claim the legacy team with its cce_ token, here only.
+                    unknown = await http.post(espn_page + '/espn/token', headers=page_auth,
+                                              json={'token': 'cce_' + secrets.token_urlsafe(32)})
+                    assert unknown.status_code == 400 and 'No ESPN account matches' in unknown.text
+                    theirs_token = await http.post(espn_page + '/espn/token', headers=page_auth, json={'token': other_espn})
+                    assert theirs_token.status_code == 409 and other_espn not in theirs_token.text
+                    linked = await http.post(espn_page + '/espn/token', headers=page_auth, json={'token': espn_token})
                     assert linked.status_code == 200 and linked.json() == {'status': 'linked', 'account': {
                         'id': mine_espn, 'label': 'e2e-mine', 'league_id': 999, 'season': 2027}}, linked.text
-                    assert espn_password not in linked.text and espn_token not in linked.text
+                    assert espn_token not in linked.text
                     summary = (await http.get(espn_page, headers=page_auth)).json()['espn']
-                    retired = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
-                                             headers={'Authorization': 'Bearer ' + espn_token})
+                    legacy_me = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                               headers={'Authorization': 'Bearer ' + espn_token})
                 assert summary == {'id': mine_espn, 'label': 'e2e-mine', 'league_id': 999, 'season': 2027}
-                assert retired.status_code == 401, f'retired cce_ token: HTTP {retired.status_code}'
-                refreshed = service.table('espn_accounts').select('espn_s2_enc,owner_proven') \
+                assert legacy_me.status_code == 200 and legacy_me.json()['label'] == 'e2e-mine'
+                claimed = service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash,owner_proven') \
                     .eq('id', mine_espn).single().execute().data
-                assert refreshed['espn_s2_enc'] != stored_espn['espn_s2_enc'] and refreshed['owner_proven'] is True
-                print('PASS account page MyDisney sign-in claims the legacy team, stores fresh cookies and retires '
-                      'its cce_ token (fake loopback Disney login)')
+                assert claimed['owner_proven'] is False and {k: claimed[k] for k in stored_espn} == stored_espn
+                print('PASS account page claims the legacy team with its cce_ token, unproven, credentials untouched; '
+                      'the token still works on /espn')
                 overview = await call('get_fantasy_league', evidence='get_fantasy_league view=league')
                 assert overview['your_team_id'] == 7 and len(overview['teams']) == 2
                 team = await call('get_fantasy_league', view='team', evidence='get_fantasy_league view=team (yours)')
@@ -1059,10 +1050,33 @@ async def exercise(args):
                 await refused(session, 'approve_fantasy_change', {'kind': 'roster_edit', 'proposal_id': theirs,
                               'idempotency_key': f'x-{uuid4()}', 'dry_run': False}, 'in your ESPN account',
                               "approve_fantasy_change refused for another user's edit")
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_edits = await http.get(endpoint[:-len('/mcp')] + '/espn/roster/edits',
+                                                  headers={'Authorization': 'Bearer ' + espn_token})
+                assert legacy_edits.status_code == 200 and legacy_edits.json()['count'] == 1
+                print('PASS legacy /espn/roster/edits sees the connector edit through the same gate')
                 assert espn_sends() == [(mine_swid, 'lineup'), (mine_swid, 'roster_edit'), (mine_swid, 'trade')]
                 assert other_swid not in {swid for swid, _kind in espn_sends()}
                 print('PASS every ESPN tool over real OAuth: link, league, trends, activity, propose and approve; '
                       'one lineup, one roster edit and one trade sent')
+                # Fresh cookies on the claimed team retire its token; a MyDisney sign-in then proves the claim.
+                async with httpx.AsyncClient(timeout=30) as http:
+                    renewed = await http.post(espn_page + '/espn/cookies', headers=page_auth, json={
+                        **team_ids, 'espn_s2': 'synthetic-s2-' + secrets.token_urlsafe(16), 'swid': mine_swid})
+                    assert renewed.status_code == 200 and renewed.json()['status'] == 'already_linked', renewed.text
+                    retired = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                             headers={'Authorization': 'Bearer ' + espn_token})
+                    assert retired.status_code == 401, f'retired cce_ token: HTTP {retired.status_code}'
+                    proving = await http.post(espn_page + '/espn', headers=page_auth,
+                                              json={'login': espn_email.upper(), 'password': espn_password, 'season': 2027})
+                    assert proving.status_code == 200 and proving.json()['status'] == 'already_linked', proving.text
+                    assert espn_password not in proving.text
+                assert service.table('espn_accounts').select('owner_proven').eq('id', mine_espn).single().execute() \
+                    .data['owner_proven'] is True
+                assert (await call('get_fantasy_league', evidence='get_fantasy_league after the cookie refresh')
+                        )['your_team_id'] == 7
+                print('PASS fresh cookies on the claimed team retire its cce_ token; a MyDisney sign-in then proves '
+                      'the claim (fake loopback Disney login)')
                 # The other user's link was made without proof (as a league-mate's typed cookies would be), so
                 # a MyDisney sign-in for that SWID takes the team over and expires the proposal left on it.
                 takeover_email, takeover_password = f'espn-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(12)
@@ -1115,11 +1129,9 @@ async def exercise(args):
                 assert not (await session.call_tool('find_resy_tables', {'date': when, 'venue_id': 7001})).isError
                 assert len(resy_state['sends']) == 2
                 print('PASS read-only token finds Resy tables; bookings and cancellations refused; nothing sent')
-                await refused(session, 'link_partiful_account', {'api_token': partiful_token}, 'commons:edit',
-                              'read-only token denied on link_partiful_account')
                 readonly_events = await session.call_tool('get_partiful_events', {})
                 assert not readonly_events.isError and readonly_events.structuredContent['count'] == 2
-                print('PASS read-only token reads Partiful events; linking refused')
+                print('PASS read-only token reads Partiful events')
                 await refused(session, 'propose_fantasy_change', {'kind': 'lineup'}, 'commons:edit',
                               'read-only token denied on propose_fantasy_change')
                 await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'commons:edit',

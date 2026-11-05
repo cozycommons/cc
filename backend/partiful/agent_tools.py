@@ -1,22 +1,21 @@
 """Partiful tools on the shared OAuth connector (/mcp).
 
 The Partiful account is resolved from the signed-in Commons user, never from a
-pasted token: the user connects it on the account page (link_partiful_account
-remains for people who already hold a ccp_ token). The legacy token-per-call server at /partiful/mcp and the /partiful routes are unchanged.
+pasted token: the user connects it on the account page. The legacy
+token-per-call server at /partiful/mcp and the /partiful routes are unchanged.
 
 Read-only: the one project tool merges the legacy list_events and get_event and
 returns exactly what they return (no guest lists).
 """
 from datetime import date as Date
 import logging
-import time
 from typing import Annotated, Literal
 
 from fastmcp.exceptions import ToolError
 from pydantic import StringConstraints
 from starlette.concurrency import run_in_threadpool
 
-from cc_mcp.server import EDIT_SCOPE, READ_SCOPE, AccountLink, ToolProvider
+from cc_mcp.server import READ_SCOPE, AccountLink, ToolProvider
 from . import accounts
 from .accounts import AccountError
 from .logic import get_event, list_events
@@ -32,10 +31,6 @@ LINK_STEP = (f'Ask the user to connect Partiful at {ACCOUNT_URL} with their phon
 RELINK_STEP = (f'Partiful rejected the stored session. Ask the user to sign in to Partiful again at {ACCOUNT_URL}, '
                'then retry. Do not ask for the texted code in chat.')
 
-# Same limit as /partiful/onboard: 10 attempts per hour (here per Commons user).
-_LINK_ATTEMPTS: dict[str, list[float]] = {}
-_LINK_LIMIT = 10
-_LINK_WINDOW_S = 3600
 
 EventId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100,
                                            pattern=r'^[A-Za-z0-9_-]+$')]
@@ -89,35 +84,6 @@ def events(client, user, event_id, scope, start, end):
     return partiful_call(list_events, partiful, scope or 'all', start and start.isoformat(), end and end.isoformat())
 
 
-def rate_check(user_id):
-    now = time.time()
-    attempts = [t for t in _LINK_ATTEMPTS.get(user_id, []) if now - t < _LINK_WINDOW_S]
-    if len(attempts) >= _LINK_LIMIT:
-        raise ToolError('Too many link attempts. Try again in an hour.')
-    attempts.append(now)
-    _LINK_ATTEMPTS[user_id] = attempts
-
-
-def link(client, user, api_token):
-    rate_check(str(user.id))
-    previous = linked(client, user)
-    try:
-        outcome, account = accounts.link_account_to_owner(client, api_token, user.id)
-    except AccountError as error:
-        raise ToolError('No Partiful account matches that token. Use the ccp_ token from your Partiful onboarding '
-                        f'exactly as shown, or ask the user to connect Partiful at {ACCOUNT_URL}.') from error
-    if outcome == 'other_owner':
-        raise ToolError('This Partiful account is linked to another Commons user. Sign in as that user, '
-                        f'or connect their own Partiful account at {ACCOUNT_URL}.')
-    if outcome not in {'linked', 'already_linked'}:
-        raise ToolError('Could not link the account. Retry in a moment; nothing changed.')
-    result = {'linked': True, 'status': outcome, 'account': {'id': account['id'], 'label': account['label']},
-              'next_step': 'Call get_partiful_events() to list your events.'}
-    if outcome == 'linked' and previous and previous['id'] != account['id']:
-        result['replaced_account'] = {'id': previous['id'], 'label': previous['label']}
-    return result
-
-
 def register_tools(mcp, context):
     async def invoke(scope, operation, *args):
         access = context.need_scope(scope)
@@ -144,22 +110,10 @@ def register_tools(mcp, context):
         """
         return await invoke(READ_SCOPE, events, event_id, scope, start, end)
 
-    @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'idempotentHint': True,
-                           'openWorldHint': False})
-    async def link_partiful_account(api_token: str) -> dict:
-        """Link a Partiful account with a ccp_ token the user already offered. Never ask for one.
-
-        New users connect Partiful at https://cozycommons.dev/account#partiful instead. The token proves ownership; it is checked against its stored hash and never
-        stored or returned. Afterwards the Partiful tools need no token. Linking a
-        different account of yours replaces the earlier link; an account linked to
-        another Commons user is refused.
-        """
-        return await invoke(EDIT_SCOPE, link, api_token)
-
 
 provider = ToolProvider(
     'partiful', register_tools,
-    {'get_partiful_events': 'read', 'link_partiful_account': 'edit'},
+    {'get_partiful_events': 'read'},
     title='Partiful', description='Your Partiful events: hosted, RSVP’d and invited.',
     url=DOCS_URL, status=status,
-    link=AccountLink(LINK_STEP, linked=linked, tool='link_partiful_account', url=ACCOUNT_URL))
+    link=AccountLink(LINK_STEP, linked=linked, url=ACCOUNT_URL))

@@ -37,8 +37,8 @@ account and only ever touches that account's league.
   `get_trades`.
 - **Shared connector** — the same reads and the same propose → approve
   gates are also on the Cozy Commons connector at `/mcp` as five tools,
-  signed in with Google instead of a pasted token: link the account once
-  with `link_espn_account(cce_...)`. See
+  signed in with Google instead of a pasted token: connect the ESPN team
+  once at https://cozycommons.dev/account#espn. See
   [docs/mcp/README.md#espn](mcp/README.md#espn). `/espn/mcp` and its tokens
   are unchanged.
 - **Deliberate v1 limit** — no matchup summaries; there is no
@@ -130,7 +130,10 @@ The alternative front door — no cookies to extract:
 3. If you're in more than one basketball league, pick yours from the list.
 
 No `cce_` token is shown: the account is tied to your Cozy Commons
-sign-in, and agents reach it through the `/mcp` connector.
+sign-in, and agents reach it through the `/mcp` connector. If you set up
+ESPN earlier and hold a `cce_` token, the same row also takes it ("Use a
+cce_ token from earlier setup") when the email sign-in is challenged;
+then paste fresh cookies there. Never give the token to an agent.
 
 Your password travels once, over HTTPS, straight to the backend, which
 uses it for a single MyDisney login and then discards it. It is never

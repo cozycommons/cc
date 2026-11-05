@@ -272,13 +272,13 @@ async def test_whoami_and_extensible_registry_without_feature_scopes(tools):
         'get_trip_overview': 'read', 'add_expense': 'edit', 'record_repayment': 'edit'}
     assert all(p['next_step'] for p in projects.values())
     assert projects['beli']['on_connector'] is True and projects['beli']['linked'] is False
-    assert projects['beli']['next_step'] == "Call enable_project('beli') to add its 3 tools."
+    assert projects['beli']['next_step'] == "Call enable_project('beli') to add its 2 tools."
     assert projects['resy']['on_connector'] is True and projects['resy']['linked'] is False
-    assert projects['resy']['next_step'] == "Call enable_project('resy') to add its 5 tools."
+    assert projects['resy']['next_step'] == "Call enable_project('resy') to add its 4 tools."
     assert projects['partiful']['on_connector'] is True and projects['partiful']['linked'] is False
-    assert projects['partiful']['next_step'] == "Call enable_project('partiful') to add its 2 tools."
+    assert projects['partiful']['next_step'] == "Call enable_project('partiful') to add its 1 tool."
     assert projects['espn']['on_connector'] is True and projects['espn']['linked'] is False
-    assert projects['espn']['next_step'] == "Call enable_project('espn') to add its 6 tools."
+    assert projects['espn']['next_step'] == "Call enable_project('espn') to add its 5 tools."
     # Every project with a separate MCP endpoint is now on the connector.
     assert not [p for p in projects.values() if not p['on_connector'] and 'api_token' in p['next_step']]
 

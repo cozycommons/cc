@@ -1,13 +1,11 @@
 """Beli tools on the shared OAuth connector (/mcp).
 
 The Beli account is resolved from the signed-in Commons user, never from a
-pasted token: the user connects it on the account page (link_beli_account
-remains for people who already hold a ccb_ token). The legacy
+pasted token: the user connects it on the account page. The legacy
 token-per-call server at /beli/mcp is unchanged.
 """
 from datetime import date as Date
 import logging
-import time
 from typing import Annotated, Literal
 
 from fastmcp.exceptions import ToolError
@@ -40,10 +38,6 @@ UNSETTLED = ('A save with this idempotency_key has not finished: Beli does not s
              'with the same idempotency_key in a minute; it records the save once Beli shows the place and '
              'never writes twice. If it never appears, add it in the Beli app.')
 
-# Same limit as /beli/onboard: 10 attempts per Commons user per hour.
-_LINK_ATTEMPTS: dict[str, list[float]] = {}
-_LINK_LIMIT = 10
-_LINK_WINDOW_S = 3600
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Key = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -179,35 +173,6 @@ def save(client, user, name, city, key, dry_run):
     return result
 
 
-def rate_check(user_id):
-    now = time.time()
-    attempts = [t for t in _LINK_ATTEMPTS.get(user_id, []) if now - t < _LINK_WINDOW_S]
-    if len(attempts) >= _LINK_LIMIT:
-        raise ToolError('Too many link attempts. Try again in an hour.')
-    attempts.append(now)
-    _LINK_ATTEMPTS[user_id] = attempts
-
-
-def link(client, user, api_token):
-    rate_check(str(user.id))
-    previous = linked(client, user)
-    try:
-        outcome, account = accounts.link_account_to_owner(client, api_token, user.id)
-    except AccountError as error:
-        raise ToolError('No Beli account matches that token. Use the ccb_ token from your Beli onboarding '
-                        f'exactly as shown, or ask the user to connect Beli at {ACCOUNT_URL}.') from error
-    if outcome == 'other_owner':
-        raise ToolError('This Beli account is linked to another Commons user. Sign in as that user, '
-                        f'or connect their own Beli login at {ACCOUNT_URL}.')
-    if outcome not in {'linked', 'already_linked'}:
-        raise ToolError('Could not link the account. Retry in a moment; nothing changed.')
-    result = {'linked': True, 'status': outcome, 'account': {'id': account['id'], 'label': account['label']},
-              'next_step': 'Call get_restaurant_recs(neighborhood) or save_restaurant(name, idempotency_key).'}
-    if outcome == 'linked' and previous and previous['id'] != account['id']:
-        result['replaced_account'] = {'id': previous['id'], 'label': previous['label']}
-    return result
-
-
 def register_tools(mcp, context):
     async def invoke(scope, operation, *args):
         access = context.need_scope(scope)
@@ -249,22 +214,10 @@ def register_tools(mcp, context):
         """
         return await invoke(EDIT_SCOPE, save, name, city, idempotency_key, dry_run)
 
-    @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'idempotentHint': True,
-                           'openWorldHint': False})
-    async def link_beli_account(api_token: str) -> dict:
-        """Link a Beli account with a ccb_ token the user already offered. Never ask for one.
-
-        New users connect Beli at https://cozycommons.dev/account#beli instead. The token proves ownership; it is checked against its stored hash and never
-        stored or returned. Afterwards the Beli tools need no token. Linking a different
-        account of yours replaces the earlier link; an account linked to another Commons
-        user is refused.
-        """
-        return await invoke(EDIT_SCOPE, link, api_token)
-
 
 provider = ToolProvider(
     'beli', register_tools,
-    {'get_restaurant_recs': 'read', 'save_restaurant': 'edit', 'link_beli_account': 'edit'},
+    {'get_restaurant_recs': 'read', 'save_restaurant': 'edit'},
     title='Beli', description='Restaurant recommendations and your Beli Want to Try list.',
     url=DOCS_URL, status=status,
-    link=AccountLink(LINK_STEP, linked=linked, tool='link_beli_account', url=ACCOUNT_URL))
+    link=AccountLink(LINK_STEP, linked=linked, url=ACCOUNT_URL))

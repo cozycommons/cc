@@ -232,3 +232,24 @@ it('lets the user change the Partiful number after a code was sent', async () =>
   expect(within(row).getByLabelText('Partiful phone number')).toHaveValue('8185551234');
   expect(within(row).queryByLabelText('Code from Partiful')).not.toBeInTheDocument();
 });
+
+it('claims a legacy ESPN team with its cce_ token, without an automation choice, and forgets the token', async () => {
+  mocked.request.mockImplementation(async (path) => {
+    if (path === '/connections') return [];
+    if (path === '/linked-accounts') return { beli: null, resy: null, espn: null, partiful: null };
+    return { status: 'linked', account: { id: 'e1', label: 'legacy', league_id: 999, season: 2027 } };
+  });
+  openAt('/account#espn');
+  const row = (await screen.findByText('ESPN')).closest('li');
+  fireEvent.click(within(row).getByRole('button', { name: 'Use a cce_ token from earlier setup' }));
+  expect(within(row).queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(within(row).getByLabelText('cce_ token')).toHaveAttribute('type', 'password');
+  fireEvent.change(within(row).getByLabelText('cce_ token'), { target: { value: ' cce_synthetic-token-value-0123 ' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Connect ESPN' }));
+  expect(await within(row).findByText('Connected · League 999, 2027 season')).toBeInTheDocument();
+  expect(mocked.request).toHaveBeenLastCalledWith('/linked-accounts/espn/token',
+    { method: 'POST', body: { token: 'cce_synthetic-token-value-0123' } });
+  fireEvent.click(within(row).getByRole('button', { name: 'Update sign-in' }));
+  fireEvent.click(within(row).getByRole('button', { name: 'Use a cce_ token from earlier setup' }));
+  expect(within(row).getByLabelText('cce_ token')).toHaveValue('');
+});

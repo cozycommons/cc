@@ -805,6 +805,53 @@ def test_a_partiful_code_needs_this_users_unexpired_challenge_for_that_phone(par
     assert db.partiful_accounts[0]['owner_user_id'] == 'u-sam' and len(db.partiful_accounts) == 1
 
 
+# The way back for a legacy ESPN user whose cookies expired and whose MyDisney login is challenged.
+
+def claim_token(client, token, headers=SAM):
+    return client.post('/account/linked-accounts/espn/token', headers=headers, json={'token': token})
+
+
+def test_a_legacy_cce_token_claims_its_row_on_the_page_then_cookies_refresh_it(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db, espn_s2='expired-s2')
+    db.espn_challenge = True
+    assert connect_espn(client, season=2027).status_code == 400  # MyDisney asks for verification
+    assert connect_cookies(client, espn_s2='renewed-s2').status_code == 409  # typed cookies never claim a row
+    before = {k: row[k] for k in ('espn_s2_enc', 'swid_enc', 'token_hash', 'lineup_automation_enabled')}
+    db.espn_probes.clear()
+    response = claim_token(client, '  ' + token + ' ')
+    assert response.status_code == 200 and response.json() == {'status': 'linked', 'account': {
+        'id': row['id'], 'label': 'legacy', 'league_id': 999, 'season': 2027}}
+    assert token not in response.text and not db.espn_probes  # nothing reached ESPN
+    assert row['owner_user_id'] == 'u-sam' and row['owner_proven'] is False
+    assert {k: row[k] for k in before} == before  # stored credentials untouched; the token still works
+    assert claim_token(client, token).json()['status'] == 'already_linked'
+    refreshed = connect_cookies(client, espn_s2='renewed-s2')
+    assert refreshed.status_code == 200 and refreshed.json()['status'] == 'already_linked'
+    assert stored_s2(row) == 'renewed-s2' and row['token_hash'] != before['token_hash']  # now retired
+    assert row['owner_proven'] is False  # still takeover-able by a MyDisney login
+
+
+def test_a_cce_token_claim_is_refused_for_a_wrong_token_or_another_owner(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db, owner='u-kim')
+    assert claim_token(client, espn_accounts.mint_token()).json()['detail'] == 'No ESPN account matches that token.'
+    for bad in ('ccb_' + 'x' * 43, 'cce_short', 'cce_' + 'x' * 120, 'cce_\u00e9' + 'x' * 40):
+        response = claim_token(client, bad)
+        assert response.status_code == 400 and bad not in response.text
+    response = claim_token(client, token)
+    assert response.status_code == 409 and token not in response.text and row['owner_user_id'] == 'u-kim'
+    assert claim_token(client, token, headers={}).status_code == 401
+
+
+def test_cce_token_claims_are_rate_limited_per_user(espn_app):
+    client, db = espn_app
+    for _ in range(10):
+        assert claim_token(client, espn_accounts.mint_token()).status_code == 400
+    _row, token = legacy_espn(db)
+    assert claim_token(client, token).status_code == 429
+
+
 SECRET = 'SYNTHETIC-SECRET-VALUE'
 
 
@@ -856,6 +903,15 @@ def test_partiful_422s_never_echo_the_code(partiful_app):
         {'phone': SECRET + '\u00e9', 'code': SECRET},
     ])
     assert db.sms_sent == [] and db.partiful_accounts == []
+
+
+def test_cce_token_422s_never_echo_the_token(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db)
+    for body in ({'api_token': token}, {'token': [token]}, {'token': token, 'note': token}):
+        response = client.post('/account/linked-accounts/espn/token', headers=SAM, json=body)
+        assert response.status_code == 422 and token not in response.text, (body, response.text)
+    assert row['owner_user_id'] is None
 
 
 def test_a_verify_never_consumes_a_challenge_sent_while_it_ran(partiful_app, monkeypatch):

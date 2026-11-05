@@ -226,22 +226,6 @@ def get_account_by_owner(supabase, user_id: str) -> dict:
     }
 
 
-def link_account_to_owner(supabase, token: str, user_id: str) -> tuple[str, dict]:
-    """Link the account a personal token names to a Commons user, once.
-
-    The token is only hashed and compared; it is never stored. Only
-    owner_user_id changes: cookies, automation and team claims are untouched.
-    Returns (outcome, {"id", "label"}); outcome is linked | already_linked |
-    other_owner. Raises AccountError when the token is unknown.
-    """
-    row = get_account_row_by_token(supabase, token)
-    outcome = supabase.rpc(
-        "espn_link_account", {"p_account_id": row["id"], "p_user_id": str(user_id)}
-    ).execute().data
-    if outcome == "missing":
-        raise AccountError("unknown token")
-    return outcome, row
-
 
 def swid_key(swid: str) -> str:
     """One SWID's canonical form: upper-case ASCII without braces."""
@@ -363,6 +347,27 @@ def connect_account_for_owner(
     kept = supabase.table("espn_accounts").update(write).eq(
         "id", row["id"]).eq("owner_user_id", str(user_id)).execute().data
     return ("already_linked" if kept else "unproven"), summary
+
+
+def link_account_by_token(supabase, token: str, user_id: str) -> tuple[str, dict | None]:
+    """Link the legacy account a cce_ token names to a Commons user, on the account page only.
+
+    For a legacy user whose cookies expired and whose MyDisney login is
+    challenged. The token proves possession of the row, not ownership of its
+    SWID, so the claim is unproven (espn_link_account) and a MyDisney login can
+    still take it over. Stored cookies, the token and automation are untouched.
+    Returns (outcome, summary); outcome is linked | already_linked | other_owner.
+    Raises AccountError when the token is unknown.
+    """
+    row = get_account_row_by_token(supabase, token)
+    outcome = supabase.rpc(
+        "espn_link_account", {"p_account_id": row["id"], "p_user_id": str(user_id)}
+    ).execute().data
+    if outcome == "missing":
+        raise AccountError("unknown token")
+    if outcome not in ("linked", "already_linked", "other_owner"):
+        raise AccountError("could not link the ESPN account")
+    return outcome, (linked_account_summary(supabase, user_id) if outcome != "other_owner" else None)
 
 
 def _stored_espn_s2(supabase, account_id, user_id) -> str:
