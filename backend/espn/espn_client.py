@@ -289,6 +289,14 @@ def reset_shared_state() -> None:
     _PROCESS_COOLDOWN = RequestCooldown()
 
 
+REQUIRED_SETTINGS = ('acquisitionSettings', 'rosterSettings', 'scoringSettings')
+
+
+def complete_settings(data):
+    settings = data.get('settings') if isinstance(data, dict) else None
+    return isinstance(settings, dict) and all(isinstance(settings.get(k), dict) for k in REQUIRED_SETTINGS)
+
+
 class EspnClient:
     """Authenticated ESPN Fantasy access for a single league.
 
@@ -490,6 +498,11 @@ class EspnClient:
         data = self._get(url, what="ESPN league", max_age=max_age)
         if not isinstance(data, dict):
             raise EspnError("ESPN league: unexpected response (expected object)")
+        if 'mSettings' in views and 'mRoster' in views and not complete_settings(data):
+            # Roster views can truncate settings; refresh rules without roster views.
+            alone = self._get(self.league_url()+'?view=mSettings', what="ESPN league settings", max_age=max_age)
+            if isinstance(alone, dict) and isinstance(alone.get('settings'), dict):
+                data = {**data, 'settings': {**(data.get('settings') or {}), **alone['settings']}}
         return data
 
     def _fetch_players(self, players_filter: dict, max_age: float = 0) -> list:
