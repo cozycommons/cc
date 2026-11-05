@@ -18,7 +18,7 @@ RUN apt-get update \
 # into the image), keeping the image size the same while making rebuilds fast.
 COPY backend/requirements.txt ./
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --requirement requirements.txt
+    pip install --require-hashes --only-binary=:all: --requirement requirements.txt
 
 # Application source comes last: changes here invalidate only this layer.
 COPY --chown=app:app backend/ /app/

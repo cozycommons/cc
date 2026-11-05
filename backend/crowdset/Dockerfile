@@ -21,7 +21,7 @@ ENV PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     CROWDSET_DATA_DIR=/data CROWDSET_STATIC_DIR=/static
 WORKDIR /app
 COPY backend/requirements-crowdset.txt ./requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt \
+RUN --mount=type=cache,target=/root/.cache/pip pip install --require-hashes --only-binary=:all: -r requirements.txt \
     && groupadd --system app && useradd --system --gid app --home-dir /app app \
     && mkdir /data && chown app:app /data
 COPY --chown=app:app backend/crowdset/ /app/crowdset/
