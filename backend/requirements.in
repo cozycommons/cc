@@ -5,7 +5,8 @@
 # uv-exclude-newer: 2026-10-28T00:00:00Z
 cachetools==5.5.0
 cryptography==50.0.1
-fastapi==0.115.6
+fastapi>=0.162.0,<0.163
+starlette>=1.3.1,<2
 fastmcp==2.14.7
 instaloader==4.15.3
 mcp==1.30.0
