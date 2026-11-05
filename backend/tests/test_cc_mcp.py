@@ -875,3 +875,44 @@ async def test_index_failures_never_fail_auth_and_client_revoke_marks_the_row(mo
                                           expires_at=4_000_000_000))
     assert index.only()["revoked_at"]
     assert await oauth.load_access_token(access) is None
+
+
+@pytest.mark.asyncio
+async def test_url_client_ids_are_never_fetched(monkeypatch):
+    from fastmcp.server.auth.cimd import CIMDFetcher
+
+    async def no_fetch(*_args, **_kwargs):
+        raise AssertionError("CIMD must stay disabled: unauthenticated callers would choose the URL")
+
+    monkeypatch.setattr(CIMDFetcher, "fetch", no_fetch)
+    agent = make_agent_app()
+    assert await agent.state.cc_mcp_oauth.get_client("https://example.test/client.json") is None
+    with TestClient(agent) as client:
+        metadata = client.get("/.well-known/oauth-authorization-server").json()
+    assert not metadata.get("client_id_metadata_document_supported")
+
+
+def test_get_on_the_stateless_mcp_route_challenges_or_refuses_without_streaming():
+    agent = make_agent_app()
+
+    async def verify_token(token):
+        if token == "proxy-access-token":
+            return AccessToken(token=token, client_id="client", scopes=[READ_SCOPE, EDIT_SCOPE])
+        return None
+
+    agent.state.cc_mcp_oauth.verify_token = verify_token
+    application = FastAPI()
+    mount_agent_app(application, agent)
+    with TestClient(application) as client:
+        anonymous = client.get("/mcp", headers={"Accept": "text/event-stream"})
+        anonymous_head = client.head("/mcp")
+        authenticated = client.get("/mcp", headers={"Accept": "text/event-stream",
+                                                    "Authorization": "Bearer proxy-access-token"})
+        authenticated_head = client.head("/mcp", headers={"Authorization": "Bearer proxy-access-token"})
+    for challenged in (anonymous, anonymous_head):
+        assert challenged.status_code == 401
+        assert 'resource_metadata=' in challenged.headers['www-authenticate']
+    for refused in (authenticated, authenticated_head):
+        assert refused.status_code == 405
+        assert refused.headers['allow'] == 'POST, DELETE'
+        assert 'text/event-stream' not in refused.headers.get('content-type', '')

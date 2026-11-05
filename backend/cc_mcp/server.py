@@ -17,6 +17,7 @@ import jwt
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken, JWTVerifier, OAuthProxy, TokenVerifier
+from fastmcp.server.auth.middleware import RequireAuthMiddleware
 from fastmcp.server.auth.oauth_proxy.models import UpstreamTokenSet
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import Middleware
@@ -31,10 +32,12 @@ from starlette.datastructures import FormData
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route, request_response
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
+
+from mcp_validation import ToolArgumentErrors
 
 from . import connections, oauth_storage, projects
 from .oauth_storage import SupabaseOAuthStore
@@ -645,6 +648,10 @@ async def _unavailable(_request: Request) -> JSONResponse:
     )
 
 
+async def _get_not_allowed(scope, receive, send) -> None:
+    await Response(status_code=405, headers={"Allow": "POST, DELETE"})(scope, receive, send)
+
+
 def unavailable_agent_app() -> Starlette:
     paths = (MCP_PATH, "/authorize", "/token", "/register", "/revoke", "/consent",
              CALLBACK_PATH, "/.well-known/oauth-authorization-server",
@@ -699,15 +706,24 @@ def create_agent_app(
         client_storage=storage,
         jwt_signing_key=settings.jwt_signing_key,
         require_authorization_consent=True,
+        # FastMCP 3 defaults CIMD on: a URL client_id makes this server fetch
+        # that URL before any authentication. Clients register through DCR.
+        enable_cimd=False,
         service_client=service_client,
     )
     mcp = build_server(service_client, providers, auth=oauth)
     app = mcp.http_app(path=MCP_PATH, transport="streamable-http", stateless_http=True)
-    # Keep GET discovery behind authentication even though FastMCP 3 omits
-    # GET on stateless transports. Clients use its 401 metadata challenge.
-    for route in app.routes:
-        if isinstance(route, Route) and route.path == MCP_PATH:
-            route.methods.update({"GET", "HEAD"})
+    # FastMCP 3 omits GET on stateless transports: there is no session to
+    # stream. Unauthenticated GET still gets the 401 metadata challenge clients
+    # use for discovery; authenticated GET gets 405 instead of an open stream.
+    transport = next(route for route in app.routes if isinstance(route, Route) and route.path == MCP_PATH)
+    app.router.routes.append(Route(
+        MCP_PATH,
+        endpoint=RequireAuthMiddleware(
+            _get_not_allowed, transport.endpoint.required_scopes, transport.endpoint.resource_metadata_url,
+        ),
+        methods=["GET"],
+    ))
     app.state.cc_mcp_oauth = oauth
     app.state.cc_mcp = mcp
     return app
@@ -759,4 +775,5 @@ def build_server(service_client, providers: tuple[ToolProvider, ...], *, auth=No
     if mcp.providers != [mcp.local_provider]:
         raise AgentConfigError("Providers must register tools directly; mounted servers bypass validation.")
     mcp.add_middleware(ProjectAccessMiddleware(context, registry))
+    mcp.add_middleware(ToolArgumentErrors())
     return mcp
