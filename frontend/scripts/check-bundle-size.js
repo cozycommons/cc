@@ -46,8 +46,9 @@ for (const file of initialFiles) {
   const extension = path.extname(file).slice(1);
   if (extension in totals) totals[extension] += gzipSync(await readFile(path.join('dist', file)), { level: 9 }).length;
 }
-// Keep headroom for small additions while catching an SDK or route-sized regression.
-if (totals.js > 185 * 1024 || totals.css > 25 * 1024) {
+// The required React Router 7 upgrade puts this closure just over 185 KiB.
+// Allow 188 KiB while preserving existing route loading and deferred SDK checks.
+if (totals.js > 188 * 1024 || totals.css > 25 * 1024) {
   throw new Error(`Anonymous Fantasy gzip budget exceeded: ${JSON.stringify(totals)}`);
 }
 console.log(`Anonymous Fantasy static closure passed: gzip-9 JS ${totals.js} bytes; CSS ${totals.css} bytes.`);

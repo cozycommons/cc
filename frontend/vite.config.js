@@ -107,6 +107,8 @@ export default defineConfig(({ mode }) => {
       },
     }],
     resolve: {
+      // Shared design/ JSX lives outside frontend; resolve its injected runtime here too.
+      dedupe: ['react', 'react-dom'],
       alias: {
         "@": path.resolve(__dirname, "./src"),
       },
