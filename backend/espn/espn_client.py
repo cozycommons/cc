@@ -545,10 +545,7 @@ class EspnClient:
         league object (in practice just a ``players`` key) whose
         ``players`` array holds the nested entries.
         """
-        # League-kona rejects the season-route limit filter. Limit the returned
-        # sorted entries locally; keep the wire response independently bounded.
-        players_filter = {**players_filter, "players": dict(players_filter.get("players") or {})}
-        limit = players_filter["players"].pop("limit", None)
+        limit = (players_filter.get("players") or {}).get("limit")
         url = self.league_url() + "?view=kona_player_info"
         data = self._get(
             url,

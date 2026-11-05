@@ -5,7 +5,7 @@ from espn import espn_client, logic
 from espn.espn_client import EspnClient, EspnError
 
 
-def test_league_kona_omits_unsupported_limit_but_limits_result(monkeypatch):
+def test_league_kona_preserves_limit_and_bounds_result(monkeypatch):
     client = EspnClient("synthetic", "{SYNTHETIC}", 1, 2027)
     calls = []
     def get(url, **kwargs):
@@ -14,7 +14,7 @@ def test_league_kona_omits_unsupported_limit_but_limits_result(monkeypatch):
     monkeypatch.setattr(client, "_get", get)
     assert client.get_league_players(2) == [{"id": 1}, {"id": 2}]
     assert "/leagues/1?" in calls[0][0]
-    assert "limit" not in json.loads(calls[0][1]["headers"]["X-Fantasy-Filter"])["players"]
+    assert json.loads(calls[0][1]["headers"]["X-Fantasy-Filter"])["players"]["limit"] == 2
 
 
 def test_read_caps_body_before_decoding(monkeypatch):
