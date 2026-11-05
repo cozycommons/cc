@@ -196,7 +196,7 @@ const currentSeason = () => { const now = new Date(); return now.getUTCFullYear(
 function EspnAccount({ account, openOnLoad, onConnected }) {
   const [open, setOpen] = useState(openOnLoad && !account);
   const [mode, setMode] = useState('login');
-  const [fields, setFields] = useState({ login: '', password: '', league_id: '', season: String(currentSeason()), espn_s2: '', swid: '' });
+  const [fields, setFields] = useState({ login: '', password: '', league_id: '', season: String(currentSeason()), espn_s2: '', swid: '', token: '' });
   const [automation, setAutomation] = useState(true);
   const [leagues, setLeagues] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -205,13 +205,14 @@ function EspnAccount({ account, openOnLoad, onConnected }) {
   useEffect(() => { if (openOnLoad) row.current?.scrollIntoView?.(); }, [openOnLoad]);
   const set = (name) => (event) => setFields((current) => ({ ...current, [name]: event.target.value }));
   // Secrets leave state as soon as a request ends; the password stays only while a league is being chosen.
-  const forget = (keepPassword) => setFields((current) => ({ ...current, password: keepPassword ? current.password : '', espn_s2: '' }));
-  const close = () => { setOpen(false); setLeagues(null); setError(''); forget(false); };
+  const forget = (keepPassword) => setFields((current) => ({ ...current, password: keepPassword ? current.password : '', espn_s2: '', token: '' }));
+  const close = () => { setOpen(false); setMode('login'); setLeagues(null); setError(''); forget(false); };
   const send = async (path, body) => {
     setBusy(true); setError('');
     let choosing = false;
     try {
-      const result = await accountRequest(path, { method: 'POST', body: { ...body, enable_automation: automation } });
+      // A token claim changes only the owner, so it carries no automation choice.
+      const result = await accountRequest(path, { method: 'POST', body: mode === 'token' ? body : { ...body, enable_automation: automation } });
       if (result.status === 'league_selection_required') {
         choosing = true;
         setLeagues(result.leagues); setFields((current) => ({ ...current, league_id: String(result.leagues[0].league_id), season: String(result.season) }));
@@ -224,7 +225,9 @@ function EspnAccount({ account, openOnLoad, onConnected }) {
   };
   const submit = (event) => {
     event.preventDefault();
-    if (mode === 'cookies') {
+    if (mode === 'token') {
+      send('/linked-accounts/espn/token', { token: fields.token.trim() });
+    } else if (mode === 'cookies') {
       send('/linked-accounts/espn/cookies', { league_id: Number(fields.league_id), season: Number(fields.season),
         espn_s2: fields.espn_s2.trim(), swid: fields.swid.trim() });
     } else {
@@ -232,10 +235,11 @@ function EspnAccount({ account, openOnLoad, onConnected }) {
         ...(leagues ? { league_id: Number(fields.league_id), season: Number(fields.season) } : {}) });
     }
   };
-  const ready = mode === 'cookies'
-    ? fields.league_id && fields.season && fields.espn_s2.trim() && fields.swid.trim()
-    : fields.login.trim() && fields.password;
-  const switchMode = () => { setMode(mode === 'login' ? 'cookies' : 'login'); setLeagues(null); setError(''); forget(false); };
+  const ready = mode === 'token' ? fields.token.trim()
+    : mode === 'cookies' ? fields.league_id && fields.season && fields.espn_s2.trim() && fields.swid.trim()
+      : fields.login.trim() && fields.password;
+  const switchMode = (next) => { setMode(next); setLeagues(null); setError(''); forget(false); };
+  const MODES = { login: 'Sign in with email instead', cookies: 'Use cookies instead', token: 'Use a cce_ token from earlier setup' };
   return <li className="cc-account-connection" id="espn" ref={row}>
     <div>
       <strong>ESPN</strong>
@@ -251,6 +255,9 @@ function EspnAccount({ account, openOnLoad, onConnected }) {
               {leagues.map((league) => <option key={league.league_id} value={league.league_id}>
                 {league.name || `League ${league.league_id}`}{league.team_name ? ` · ${league.team_name}` : ''}</option>)}
             </select></label>}
+        </> : mode === 'token' ? <>
+          <input className="cc-input" type="password" aria-label="cce_ token" placeholder="cce_ token" autoComplete="off"
+            required maxLength={100} value={fields.token} onChange={set('token')} />
         </> : <>
           <input className="cc-input" inputMode="numeric" pattern="[0-9]+" aria-label="League ID" placeholder="League ID"
             required value={fields.league_id} onChange={set('league_id')} />
@@ -261,8 +268,8 @@ function EspnAccount({ account, openOnLoad, onConnected }) {
           <input className="cc-input" aria-label="SWID cookie" placeholder="SWID cookie" autoComplete="off" spellCheck={false}
             required maxLength={64} value={fields.swid} onChange={set('swid')} />
         </>}
-        <label className="cc-account-check"><input type="checkbox" checked={automation} onChange={(event) => setAutomation(event.target.checked)} />
-          Set my lineup automatically each day</label>
+        {mode !== 'token' && <label className="cc-account-check"><input type="checkbox" checked={automation} onChange={(event) => setAutomation(event.target.checked)} />
+          Set my lineup automatically each day</label>}
         <div className="cc-account-confirm">
           <button type="submit" className="cc-button cc-button--primary" disabled={busy || !ready}>
             {busy ? 'Checking with ESPN…' : leagues ? 'Connect this league' : account ? 'Save' : 'Connect ESPN'}</button>
@@ -270,9 +277,11 @@ function EspnAccount({ account, openOnLoad, onConnected }) {
         </div>
         <p className="cc-account-muted">{mode === 'login'
           ? 'Your password is used once to sign in and is not stored. The session cookies are stored encrypted.'
-          : 'Copy espn_s2 and SWID from espn.com in a signed-in browser. Stored encrypted.'}{' '}
-          <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={switchMode}>
-            {mode === 'login' ? 'Use cookies instead' : 'Sign in with email instead'}</button></p>
+          : mode === 'token'
+            ? 'For a team set up before this page: claim it once with its cce_ token, then refresh its cookies here. Never paste the token into an agent chat.'
+            : 'Copy espn_s2 and SWID from espn.com in a signed-in browser. Stored encrypted.'}</p>
+        <div className="cc-account-confirm">{Object.entries(MODES).filter(([key]) => key !== mode).map(([key, label]) =>
+          <button key={key} type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={() => switchMode(key)}>{label}</button>)}</div>
       </form>}
       {error && <p className="cc-notice cc-notice--error" role="alert">{error}</p>}
     </div>

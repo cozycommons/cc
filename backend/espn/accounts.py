@@ -349,6 +349,27 @@ def connect_account_for_owner(
     return outcome, summary
 
 
+def link_account_by_token(supabase, token: str, user_id: str) -> tuple[str, dict | None]:
+    """Link the legacy account a cce_ token names to a Commons user, on the account page only.
+
+    For a legacy user whose cookies expired and whose MyDisney login is
+    challenged. The token proves possession of the row, not ownership of its
+    SWID, so the claim is unproven (espn_link_account) and a MyDisney login can
+    still take it over. Stored cookies, the token and automation are untouched.
+    Returns (outcome, summary); outcome is linked | already_linked | other_owner.
+    Raises AccountError when the token is unknown.
+    """
+    row = get_account_row_by_token(supabase, token)
+    outcome = supabase.rpc(
+        "espn_link_account", {"p_account_id": row["id"], "p_user_id": str(user_id)}
+    ).execute().data
+    if outcome == "missing":
+        raise AccountError("unknown token")
+    if outcome not in ("linked", "already_linked", "other_owner"):
+        raise AccountError("could not link the ESPN account")
+    return outcome, (linked_account_summary(supabase, user_id) if outcome != "other_owner" else None)
+
+
 def make_client_for_account(account: dict, *, cooldown: RequestCooldown | None = None) -> EspnClient:
     """Build the per-user client from a resolved account dict."""
     return EspnClient(

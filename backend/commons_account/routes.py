@@ -239,8 +239,8 @@ def espn_connect(request, user, *, swid_proven, **team):
         raise HTTPException(409, 'This ESPN team is connected to another Cozy Commons user. '
                                  'Sign in as that user to manage it.')
     if outcome == 'unproven':
-        raise HTTPException(409, 'This ESPN team is already set up on Cozy Commons. If it is yours, '
-                                 'sign in with your ESPN email and password to connect it.')
+        raise HTTPException(409, 'This ESPN team is already set up on Cozy Commons. If it is yours, sign in with '
+                                 'your ESPN email and password, or enter the cce_ token from your earlier setup.')
     # Legacy /espn reads accounts through the API's TTL cache (one per process; production runs
     # one worker). Drop it so a cce_ token retired just now stops working at once.
     cached = getattr(request.app.state, 'supabase', None)
@@ -265,7 +265,7 @@ def connect_espn(body: EspnLogin, request: Request, user=Depends(current_user)):
         raise HTTPException(400, 'ESPN did not accept that email and password.')
     except disney_login.ChallengeRequiredError:
         raise HTTPException(400, 'ESPN asked for a verification step. Sign in at espn.com once, '
-                                 'then try again, or connect with cookies instead.')
+                                 'then try again, or connect with cookies or the cce_ token from your earlier setup.')
     except (disney_login.DisneyLoginError, urllib.error.URLError, TimeoutError):
         raise HTTPException(502, ESPN_DOWN)
     # Always look up the account's own leagues: a chosen league_id must be one of them, so a
@@ -370,5 +370,33 @@ def connect_partiful(body: PartifulCode, request: Request, user=Depends(current_
     _PARTIFUL_CHALLENGES.pop(str(user.id), None)  # Partiful accepted the code: it signs in only once here
     if outcome == 'other_owner':
         raise HTTPException(409, 'This Partiful account is connected to another Cozy Commons user. '
+                                 'Sign in as that user to manage it.')
+    return {'status': outcome, 'account': account}
+
+
+class EspnToken(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    # No constraints here: FastAPI's 422 body echoes the rejected input, so the route checks the token.
+    token: str
+
+
+@router.post('/linked-accounts/espn/token')
+def claim_espn_token(body: EspnToken, request: Request, user=Depends(current_user)):
+    """Link a legacy ESPN account with its cce_ token. Only this page takes one; no agent tool does.
+
+    The way back for a legacy user whose cookies expired and whose MyDisney login is challenged:
+    claim the row here, then refresh its cookies with /espn/cookies. The claim is unproven.
+    """
+    token = body.token.strip()
+    if not (token.startswith('cce_') and 20 <= len(token) <= 100 and token.isascii() and token.isprintable()):
+        raise HTTPException(400, 'Paste the cce_ token from your earlier ESPN setup.')
+    connect_rate_check('espn-user:' + str(user.id))
+    try:
+        outcome, account = espn_accounts.link_account_by_token(client(request), token, str(user.id))
+    except espn_accounts.AccountError:
+        raise HTTPException(400, 'No ESPN account matches that token.')
+    if outcome == 'other_owner':
+        raise HTTPException(409, 'This ESPN team is connected to another Cozy Commons user. '
                                  'Sign in as that user to manage it.')
     return {'status': outcome, 'account': account}

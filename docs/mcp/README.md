@@ -540,6 +540,14 @@ existing links, all made with a `cce_` token, start unproven):
   clears the legacy read cache. A stored `espn_s2` is decrypted only on the
   caller's own row, to skip a write when nothing changed.
 
+- `POST /account/linked-accounts/espn/token` `{token}`: the way back for a legacy
+  user whose cookies expired and whose MyDisney login is challenged. Only this
+  page takes a `cce_` token; no agent tool does. It links the token's account
+  through `espn_link_account` (unproven, so a MyDisney login can still take it
+  over) without touching its cookies, token or automation; the user then
+  refreshes the cookies on their now-owned row with `/espn/cookies`. 10 per hour
+  per Commons user.
+
 A new account takes `enable_automation` (default true) for lineup automation.
 The RPC links first, and cookies are written only after, on the caller's row.
 `GET /account/linked-accounts` adds `espn: {id, label, league_id, season} |
@@ -663,16 +671,20 @@ ESPN. The fake serves the connector tests' synthetic league
 The test checks that ESPN starts off and unlinked, onboards two synthetic
 accounts through the real `POST /espn/onboard`, and on the account page refuses
 the other user's team and even the legacy team's own typed cookies. A MyDisney
-sign-in against a fake Disney login then refuses a league that is not the
-login's, links the legacy team and retires its `cce_` token on
-`/espn/me`. It reads the league, your
+sign-in against a fake Disney login refuses a league that is not the login's.
+The page then refuses an unknown and another user's `cce_` token, claims the
+legacy team with its own (credentials untouched, the token still working on
+`/espn/me`). It reads the league, your
 team, standings and both trends, then proposes, previews, approves and replays a
 lineup. It proposes a roster edit and approves it while the fake records the
 write, answers 504 and hides it from reads: the call reports an unconfirmed
 approval, a same-key retry stays open, and once the fake shows the write the
 same-key retry settles it from ESPN with exactly one roster request sent. It
 refuses the key for another proposal, approves a trade offer, reads activity,
-is refused another user's edit on both read and approve. Finally a MyDisney
+is refused another user's edit on both read and approve, and checks that the
+legacy `/espn/roster/edits` lists the connector's edit. Fresh typed cookies on
+the claimed team then retire its token, a MyDisney sign-in proves the claim, and
+finally a MyDisney
 sign-in for the other user's SWID takes over that unproven link, retires its
 token and expires the edit pending on it. The read-only grant reads
 the league and is refused on proposals and approvals.

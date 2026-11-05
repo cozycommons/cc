@@ -130,7 +130,10 @@ The alternative front door — no cookies to extract:
 3. If you're in more than one basketball league, pick yours from the list.
 
 No `cce_` token is shown: the account is tied to your Cozy Commons
-sign-in, and agents reach it through the `/mcp` connector.
+sign-in, and agents reach it through the `/mcp` connector. If you set up
+ESPN earlier and hold a `cce_` token, the same row also takes it ("Use a
+cce_ token from earlier setup") when the email sign-in is challenged;
+then paste fresh cookies there. Never give the token to an agent.
 
 Your password travels once, over HTTPS, straight to the backend, which
 uses it for a single MyDisney login and then discards it. It is never
