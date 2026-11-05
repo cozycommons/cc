@@ -17,6 +17,13 @@ import requests
 from supabase import create_client
 
 
+
+def tls_context():
+    """Verified TLS client context; TLS 1.2 is the floor, stated explicitly."""
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
 def blocked(call):
     try:
         call()
@@ -91,7 +98,7 @@ def probe():
             conn.sendall(f'CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n'.encode())
             status = conn.recv(4096).split(b'\r\n')[0]
             if b'200' in status:
-                blocked(lambda: ssl.create_default_context().wrap_socket(conn, server_hostname=authority.split(':')[0]))
+                blocked(lambda: tls_context().wrap_socket(conn, server_hostname=authority.split(':')[0]))
             else:
                 assert b'403' in status, authority
     # A permitted CONNECT name must not tunnel TLS to an unlisted SNI host.
@@ -100,7 +107,7 @@ def probe():
         conn.sendall(b'CONNECT api.resy.com:443 HTTP/1.1\r\nHost: api.resy.com:443\r\n\r\n')
         assert b'200' in conn.recv(4096).split(b'\r\n')[0]
         try:
-            ssl.create_default_context().wrap_socket(conn, server_hostname='example.com')
+            tls_context().wrap_socket(conn, server_hostname='example.com')
         finally:
             conn.close()
     blocked(wrong_sni)
