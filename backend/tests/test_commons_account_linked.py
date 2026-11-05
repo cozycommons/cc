@@ -68,40 +68,58 @@ class Database:
         self.tables = {'beli_accounts': [], 'resy_accounts': [], 'espn_accounts': [], 'ig_logger_sources': []}
         self.beli_accounts, self.resy_accounts = self.tables['beli_accounts'], self.tables['resy_accounts']
         self.espn_accounts = self.tables['espn_accounts']
+        self.espn_claims, self.claim_failure = [], None
 
     def table(self, name):
         return Rows(self, 'ig_logger_sources' if name not in self.tables else name)
 
     def rpc(self, name, args):
         if name == 'espn_claim_account_proven':
-            return SimpleNamespace(execute=lambda: SimpleNamespace(data=claim_proven(self.espn_accounts, **args)))
+            def claim():
+                self.espn_claims.append(dict(args))
+                if self.claim_failure:  # the transaction failed: nothing it would write is applied
+                    raise self.claim_failure
+                return SimpleNamespace(data=claim_proven(self.espn_accounts, **args))
+            return SimpleNamespace(execute=claim)
         rows = {'beli_link_account': self.beli_accounts, 'resy_link_account': self.resy_accounts,
                 'espn_link_account': self.espn_accounts}[name]
 
         def execute():
+            before = {r['id']: r['owner_user_id'] for r in rows}
             outcome = link_account(rows, **args)
-            if name == 'espn_link_account' and outcome == 'linked':  # 0091: an unproven link starts unproven
-                next(r for r in rows if r['id'] == args['p_account_id'])['owner_proven'] = False
+            if name == 'espn_link_account' and outcome == 'linked':  # 0091/0092: moved links are unproven
+                for r in rows:
+                    if r['owner_user_id'] != before[r['id']]:
+                        r['owner_proven'] = False
             return SimpleNamespace(data=outcome)
         return SimpleNamespace(execute=execute)
 
 
-def claim_proven(rows, p_account_id, p_user_id):
-    # Mirrors public.espn_claim_account_proven (0091); the real one also expires pending proposals.
+def claim_proven(rows, p_account_id, p_user_id, p_espn_s2_enc, p_token_hash, p_token_prefix, p_automation,
+                 p_refresh_own, p_duplicate_ids):
+    # Mirrors public.espn_claim_account_proven (0092); the real one also expires proposals.
     account = next((row for row in rows if row['id'] == p_account_id), None)
     if account is None:
         return 'missing'
-    if account['owner_user_id'] == p_user_id:
-        account['owner_proven'] = True
-        return 'already_linked'
-    if account['owner_user_id'] is not None and account.get('owner_proven'):
+    owner = account['owner_user_id']
+    if owner not in (None, p_user_id) and account.get('owner_proven'):
         return 'other_owner'
-    previous = account['owner_user_id']
+    for row in rows:
+        if (row['id'] in p_duplicate_ids and row['id'] != p_account_id and row['owner_user_id'] not in (None, p_user_id)
+                and not row.get('owner_proven')):
+            row.update(owner_user_id=None, owner_proven=False, lineup_automation_enabled=False,
+                       token_hash='retired:' + str(uuid4()), token_prefix='retired')
+    credentials = {'espn_s2_enc': p_espn_s2_enc, 'token_hash': p_token_hash, 'token_prefix': p_token_prefix}
+    if owner == p_user_id:
+        account.update(owner_proven=True, **(credentials if p_refresh_own else {}))
+        return 'already_linked'
     for row in rows:
         if row['owner_user_id'] == p_user_id:
-            row['owner_user_id'] = None
-    account.update(owner_user_id=p_user_id, owner_proven=True)
-    return 'linked' if previous is None else 'taken_over'
+            row.update(owner_user_id=None, owner_proven=False)
+    account.update(owner_user_id=p_user_id, owner_proven=True, **credentials)
+    if owner is not None:
+        account['lineup_automation_enabled'] = p_automation
+    return 'linked' if owner is None else 'taken_over'
 
 
 SAM = {'Authorization': 'Bearer session-sam'}
@@ -522,6 +540,44 @@ def test_a_league_mate_cannot_squat_a_team_the_real_owner_proves(espn_app):
     assert row['lineup_automation_enabled'] is False  # the squatter's choice does not carry over
     assert connect_cookies(client, espn_s2='kims-s2', headers=KIM).status_code == 409
     assert connect_espn(client, season=2027, headers=KIM).status_code == 409  # proven beats a second login
+
+
+def test_a_failed_takeover_changes_nothing_and_a_retry_still_takes_over(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db, owner='u-kim')  # claimed without proof, automation on
+    before = dict(row)
+    db.claim_failure = RuntimeError('injected: the claim transaction failed')
+    with pytest.raises(RuntimeError, match='injected'):
+        connect_espn(client, season=2027, enable_automation=False)
+    # The claim is the only write on this path: ownership, the squatter's token, cookies and automation all stand.
+    assert row == before and row['token_hash'] == espn_accounts.hash_token(token)
+    claim, = db.espn_claims
+    assert claim['p_automation'] is False and claim['p_refresh_own'] is True and claim['p_token_hash'] != before['token_hash']
+    db.claim_failure = None
+    retried = connect_espn(client, season=2027, enable_automation=False)
+    assert retried.json()['status'] == 'taken_over'  # not already_linked: the failed attempt left nothing behind
+    assert row['owner_user_id'] == 'u-sam' and row['owner_proven'] is True and row['lineup_automation_enabled'] is False
+    assert row['token_hash'] == db.espn_claims[-1]['p_token_hash'] != before['token_hash']
+    assert stored_s2(row) == 'fresh-s2-1'
+
+
+def test_a_proven_claim_detaches_unproven_duplicates_of_the_team(espn_app):
+    client, db = espn_app
+    squatted, squat_token = legacy_espn(db, owner='u-kim')  # a duplicate a racing claimant kept
+    unowned, _ = legacy_espn(db)
+    claimed = connect_espn(client, season=2027)
+    assert claimed.json()['status'] == 'linked' and claimed.json()['account']['id'] == unowned['id']
+    assert unowned['owner_user_id'] == 'u-sam' and unowned['owner_proven'] is True
+    assert squatted['owner_user_id'] is None and squatted['owner_proven'] is False
+    assert squatted['lineup_automation_enabled'] is False and squatted['token_hash'].startswith('retired:')
+    assert squatted['token_hash'] != espn_accounts.hash_token(squat_token)
+
+
+def test_a_previous_link_drops_to_unproven_when_you_claim_another_team(espn_app):
+    client, db = espn_app
+    other_team, _ = legacy_espn(db, owner='u-sam', proven=True, swid='{OTHER-TEAM-SWID}')
+    assert connect_espn(client, season=2027).json()['status'] == 'linked'
+    assert other_team['owner_user_id'] is None and other_team['owner_proven'] is False
 
 
 def test_a_chosen_league_must_be_one_of_the_logins_own_leagues(espn_app):
