@@ -1,8 +1,9 @@
 # Direct dependencies. backend/requirements.txt is the hash-locked install set generated from this
 # file; regenerate it with scripts/lock-backend-requirements.sh after any change here. CI fails if
 # the lockfile does not match. Bump uv-exclude-newer to take newer transitive releases.
+# Cooldown: cutoff must be >=7 days before HEAD; security exceptions: docs/supply-chain.md.
 # uv-version: 0.13.7
-# uv-exclude-newer: 2026-11-04T18:00:00Z
+# uv-exclude-newer: 2026-10-28T00:00:00Z
 cachetools==5.5.0
 cryptography==50.0.1
 fastapi==0.115.6

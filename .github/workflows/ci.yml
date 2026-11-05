@@ -29,9 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Verify project selection and required-check gates
         run: |
+          python3 -m unittest discover -s scripts -p test_dependency_age.py -v
           python3 -m unittest discover -s scripts -p test_ci_selection.py -v
           python3 -m unittest discover -s scripts -p test_crowdset_ci_image.py -v
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -49,6 +51,28 @@ jobs:
             scripts/lock-backend-requirements.sh "$input" "$output"
             git diff --exit-code -- "$output"
           done
+      - name: Enforce npm release cooldown
+        timeout-minutes: 2
+        run: python3 scripts/check-dependency-age.py
+      - name: Scan every Python and npm lock for advisories
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        run: |
+          curl --fail --silent --show-error --location --max-time 30 \
+            https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64 \
+            --output /tmp/osv-scanner
+          echo '160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b  /tmp/osv-scanner' | sha256sum --check
+          chmod +x /tmp/osv-scanner
+          OSV_SCANNER=/tmp/osv-scanner scripts/scan-dependencies.sh
+      - name: Audit workflow security
+        if: ${{ !cancelled() }}
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          inputs: .github/workflows
+          version: v1.31.1
+          min-severity: medium
+          advanced-security: false
+          online-audits: false
       - id: select
         name: Select affected project suites
         run: python3 scripts/ci-selection.py plan
@@ -60,6 +84,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -93,6 +119,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -127,6 +155,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Authenticate to the CI image registry
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
@@ -144,6 +174,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Build Crowdset container
         run: >-
           docker build --tag crowdset-ci -f backend/crowdset/Dockerfile
@@ -177,6 +209,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -274,6 +308,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -392,6 +427,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Require selected frontend checks
         run: python3 scripts/ci-selection.py gate frontend
         env:
@@ -404,6 +441,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Require selected backend and Crowdset checks
         run: python3 scripts/ci-selection.py gate backend
         env:

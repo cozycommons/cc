@@ -1,0 +1,3 @@
+# No accepted advisories. Add [[IgnoredVulns]] only after security review.
+# Each entry requires id, reason (reviewer + YYYY-MM-DD + reachability rationale),
+# and ignoreUntil (YYYY-MM-DD, at most 30 days after review). See docs/supply-chain.md.

@@ -15,6 +15,7 @@ in_path="${1:-backend/requirements.in}"
 out_path="${2:-backend/requirements.txt}"
 in_file="$in_path"
 out_file="$out_path"
+python3 scripts/check-dependency-age.py "$in_file"
 setting() { sed -n "s/^# $1: *//p" "$in_file"; }
 want_uv="$(setting uv-version)"
 have_uv="$(uv --version | cut -d' ' -f2)"
