@@ -16,10 +16,15 @@ compose() {
     docker-compose "$@"
   fi
 }
-export API_ENV_FILE=/dev/null EGRESS_MODE=enforce
+mkdir -p "$HOME/.cache"
+runtime_dir=$(mktemp -d "$HOME/.cache/cc-egress-runtime.XXXXXX")
+export API_RUNTIME_FILE="$runtime_dir/runtime.env" API_EGRESS_ROOT="$ROOT" EGRESS_MODE=enforce
+printf '%s\n' 'EGRESS_SECRET_SENTINEL=synthetic-$literal-only' > "$API_RUNTIME_FILE"
+chmod 755 "$runtime_dir"
+chmod 644 "$API_RUNTIME_FILE" # Synthetic only; production file is owned by API UID, mode 0400.
 export EGRESS_SUPABASE_HOST=synthetic.supabase.co EGRESS_DB_HOST=synthetic.pooler.supabase.com
 project="cc-egress-smoke-$$"
-files=(-p "$project" -f deploy/api-egress/compose.yaml -f deploy/api-egress/test.compose.yaml)
+files=(--project-directory "$ROOT" -p "$project" -f "$ROOT/deploy/api-egress/compose.yaml" -f "$ROOT/deploy/api-egress/test.compose.yaml")
 logs=$(mktemp -d "${TMPDIR:-/tmp}/cc-egress-smoke.XXXXXX")
 capture="$project-capture"
 cleanup() {
@@ -31,8 +36,12 @@ cleanup() {
   fi
   docker rm -f "$capture" >/dev/null 2>&1 || true
   compose "${files[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$runtime_dir"
 }
 trap cleanup EXIT
+# This helper cannot read API_RUNTIME_FILE; Docker's daemon must bind it.
+compose --project-directory "$ROOT" -f "$ROOT/deploy/api-egress/compose.yaml" config --format json |
+  python3 scripts/check-api-egress-compose.py "$ROOT"
 compose "${files[@]}" config --quiet
 compose "${files[@]}" up -d --build --wait --wait-timeout 120
 proxy=$(compose "${files[@]}" ps -q proxy)
@@ -51,7 +60,7 @@ docker exec "$proxy" python3 -c '
 import socket
 packet = bytes.fromhex("abcd01000001000000000000") + b"\x14egress-capture-proof\x07example\x04test\x00\x00\x01\x00\x01"
 socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(packet, ("1.1.1.1", 53))'
-compose "${files[@]}" exec -T api python /egress-probe.py | tee "$logs/probe.log"
+compose "${files[@]}" exec -T api python -m api_egress_entrypoint python /egress-probe.py | tee "$logs/probe.log"
 # Verify ingress from the internet-facing network; API may only reply to it.
 compose "${files[@]}" exec -T ingress wget -qO- http://127.0.0.1:8000/ready | grep synthetic-egress-api
 compose "${files[@]}" logs --no-color proxy > "$logs/proxy.log"
@@ -75,7 +84,44 @@ echo 'PASS packet capture: positive control seen, rejected DNS names absent'
 # Audit mode still uses the same API network/firewall. Unknown public TLS is
 # allowed and logged so operators can find missing destinations before enforcing.
 export EGRESS_MODE=audit
-compose "${files[@]}" up -d --no-deps proxy
+compose "${files[@]}" down
+compose "${files[@]}" up -d --wait --wait-timeout 120
 compose "${files[@]}" exec -T api python -c 'import httpx; r=httpx.get("https://example.com", timeout=20); assert r.status_code == 200'
 compose "${files[@]}" logs --no-color proxy | grep 'policy=unlisted.*example.com:443.*TCP_TUNNEL'
+# docker exec starts with Docker's public environment, not PID 1's loaded secrets.
+compose "${files[@]}" exec -T api python -c 'import os; assert "EGRESS_SECRET_SENTINEL" not in os.environ'
+for role in netguard proxy database ingress; do
+  cid=$(compose "${files[@]}" ps -q "$role")
+  docker inspect "$cid" | python3 -c 'import json,sys; c=json.load(sys.stdin)[0]; assert not any("EGRESS_SECRET_SENTINEL=" in x for x in c["Config"]["Env"]); assert not any(m["Destination"] == "/run/secrets/api-runtime" for m in c["Mounts"])'
+done
+# Coolify can attach every resource network to netguard. The INPUT rules must
+# still reject an internet-network peer even though it now has a direct route.
+netguard=$(compose "${files[@]}" ps -q netguard)
+docker network connect "${project}_internet" "$netguard"
+external_api=$(docker inspect --format "{{(index .NetworkSettings.Networks \"${project}_internet\").IPAddress}}" "$netguard")
+external_proxy=$(docker inspect --format "{{(index .NetworkSettings.Networks \"${project}_internet\").IPAddress}}" "$(compose "${files[@]}" ps -q proxy)")
+external_db=$(docker inspect --format "{{(index .NetworkSettings.Networks \"${project}_internet\").IPAddress}}" "$(compose "${files[@]}" ps -q database)")
+docker run --rm --network "${project}_internet" --cap-drop ALL --entrypoint python3 "$image" -c '
+import socket,sys
+for host, port in zip(sys.argv[1:], [8000,3128,5432]):
+    try: socket.create_connection((host,port),timeout=.5)
+    except OSError: pass
+    else: raise AssertionError("external listener reachable")' "$external_api" "$external_proxy" "$external_db"
+compose "${files[@]}" exec -T api python -c 'import socket
+try: socket.create_connection(("1.1.1.1",443),timeout=.5)
+except OSError: pass
+else: raise AssertionError("extra network bypassed firewall")'
+echo 'PASS extra Coolify network: API ingress filtered, sidecars listen privately'
+# Reproduce netguard-only restart: Docker does not reattach an already-running API.
+netguard=$(compose "${files[@]}" ps -q netguard)
+docker restart "$netguard" >/dev/null
+compose "${files[@]}" exec -T api python -c 'import socket; s=socket.socket(); s.settimeout(.5)
+try: s.connect(("1.1.1.1",443))
+except OSError: pass
+else: raise AssertionError("orphan namespace gained egress")'
+# Recover by removing the entire stack, not restarting API in its stale config.
+compose "${files[@]}" down
+compose "${files[@]}" up -d --wait --wait-timeout 120
+compose "${files[@]}" exec -T ingress wget -qO- http://127.0.0.1:8000/ready | grep synthetic-egress-api
+echo 'PASS secret loader isolation and netguard restart containment/recovery'
 echo "PASS audit mode allows and logs unlisted host; evidence: $logs"

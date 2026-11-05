@@ -465,37 +465,40 @@ repayment command, and Undo removes that repayment. Opening links never settles.
 
 ## API outbound confinement (proposed Compose migration)
 
-The current backend resource above uses the Dockerfile build pack. It cannot
-express the required sidecars and isolated network namespace. The optional
-`deploy/api-egress/compose.yaml` deployment uses the **Docker Compose build
-pack**, retaining `backend/Dockerfile` and `python -m release` for the API.
-Do not apply these steps until Matthew explicitly approves the rollout. This
-change has not touched Coolify, the OVH VM or production.
+The current backend uses the Dockerfile build pack. The optional
+`deploy/api-egress/compose.yaml` needs the **Docker Compose build pack** for the
+API, netguard, Squid, fixed PostgreSQL relay and ingress. Matthew must approve
+rollout separately. No Coolify, OVH VM or production operation was performed for
+this change. Read [Boundary and residual risk](api-egress.md#boundary-and-residual-risk)
+before treating hostname confinement as protection for credentials.
 
-The [destination inventory and threat boundary](api-egress.md) explain what is
-allowed and what remains possible for a hostile Python package. This is a reason
-to separate trusted networking components, not to split feature APIs into new
-runtimes. The operational cost is four small trusted containers beside the API:
-netguard, HTTPS proxy, database relay and ingress. The frontend stays unchanged.
-All sidecars use public configuration only; API credentials belong solely to
-`api`. The DB relay is necessary for startup migrations and analytics.
+**Every deployment, rollback, image update and audit/enforce toggle requires a
+full stop-start outage.** Stop the complete stack and deploy it afresh; do not use
+rolling replacement, `--no-deps`, or individual-service restart as recovery.
+`network_mode: service:netguard` references a particular network namespace.
+Docker restart policies do not coordinate API reattachment after netguard or the
+Docker daemon restarts. Budget this outage and announce it before operating.
 
 ### Prepare the approved rollout
 
-1. Keep the existing backend resource and last healthy image for rollback. Save
-   its domain, environment, health settings, deployment SHA/image digest,
-   pre/post-deploy commands and webhook/watch configuration in the existing
-   private operations record. Disable deploy-on-push for the candidate. Before
-   cutover, disable the old resource's webhook too so two releases cannot migrate
-   or receive traffic unexpectedly. Do not delete the old resource or its image.
-2. On the OVH Docker host, require Compose **2.30 or newer** (`docker compose
-   version`), IPv4/IPv6 iptables support and an unused `172.30.87.0/24` subnet.
-   Inspect `docker network ls` and `docker network inspect` for every existing
-   network. If that subnet overlaps any Docker, VM or tailnet route, stop and
-   choose another subnet in Compose, firewall.sh, start.py and nginx.conf
-   together, then repeat the Docker smoke. No API ports, Docker socket or proxy
-   ports may be published on the VM. Do not change host firewall policy.
-3. Create a root-owned runtime-only env file on the VM, outside the Git checkout:
+1. Save the old resource's domain, healthy image digest, runtime settings,
+   pre/post-deploy commands, watch paths, and **every Scheduled Task's exact
+   command, frequency, timeout, enabled state and container target** in the
+   private operations record. Include Dice maintenance, ESPN and Beli scan.
+   Retain the old resource/image for rollback; disable candidate auto-deploy.
+2. Check Compose **inside the exact Coolify helper image used by deployment**,
+   not the VM's CLI. From the helper image reference recorded in deployment
+   logs, run `docker run --rm --entrypoint docker "$HELPER_IMAGE" compose version`
+   on the VM. Require Compose 2.24.4 or newer (long bind syntax and the test
+   override's reset tag); local CI/smoke also parse the production definition.
+   Check IPv4/IPv6 iptables support and ensure `172.30.87.0/24` overlaps no Docker,
+   VM or tailnet route. A subnet change requires updating all hardcoded internal
+   addresses together and rerunning the smoke. No host firewall policy changes.
+3. Store the API's runtime settings in a **daemon-host file**, outside Git and
+   outside Coolify resource environment variables. Compose passes only an
+   absolute bind source to Docker; the helper does not need to see/read the file.
+   The API reads `/run/secrets/api-runtime` through `api_egress_entrypoint`.
+   Sidecars never mount it. On the VM, prepare the private directory and edit:
 
    ```bash
    sudo install -d -m 0700 /data/coolify/api-egress-secrets
@@ -503,133 +506,161 @@ All sidecars use public configuration only; API credentials belong solely to
    sudoedit /data/coolify/api-egress-secrets/runtime.env
    ```
 
-   Copy the existing API runtime settings through the approved secret channel.
-   Use raw `NAME=value` lines, without shell exports or quoting; Compose's
-   `format: raw` preserves dollar signs and other literal secret characters.
-   Include every current credential key, Supabase service key, CORS/site setting,
-   OAuth setting, scheduler setting and optional notification/analytics setting.
-   Do not make these build arguments or add secrets to sidecar environments.
-   Restrict and back up this file as a credential. It is not an API bind mount.
-4. Set `SUPABASE_URL` to the exact existing HTTPS project origin and preserve
-   `EXPECTED_SUPABASE_PROJECT`. Use the **same session pooler hostname and port
-   5432** for `SUPABASE_DB_URL` and, when configured, `ANALYTICS_DATABASE_URL`.
-   Keep their original dedicated usernames/passwords and database names. Require
-   `sslmode=require` or stronger. Do not use `host`/`hostaddr` query overrides.
-   Use a session pooler URL directly, rather than depending on startup's direct
-   URL rewrite. No change to the database, roles or credential grants is needed.
-   If analytics genuinely needs a different database host, stop: this manifest
-   intentionally has only one DB relay. Do not open arbitrary TCP egress.
-5. Create a candidate Coolify application from the same repository and approved
-   commit, Docker Compose build pack, base directory `/`, Compose location
-   `/deploy/api-egress/compose.yaml`. Keep automatic deployments off. Add only
-   these non-secret Compose interpolation variables in the resource settings:
+   Copy all existing runtime values through the approved secret channel: keys,
+   Supabase service key, CORS/site, OAuth, notifications, analytics and scheduler
+   settings. Format is raw `NAME=value`, without quotes, exports or interpolation;
+   literal `$` and `=` are preserved. No duplicate keys or multiline values.
+   After building the API image, determine `id -u app` / `id -g app` in that exact
+   image and use `sudo chown "$API_UID:$API_GID" .../runtime.env` and
+   `sudo chmod 0400 .../runtime.env` with the full path above. The root-only parent
+   prevents other VM users reading it, while the API UID can read its bind mount.
+   Never make the API root to work around a permission error.
+4. Require exact HTTPS `SUPABASE_URL` matching `EXPECTED_SUPABASE_PROJECT`. Both
+   `SUPABASE_DB_URL` and optional `ANALYTICS_DATABASE_URL` must explicitly set
+   `sslmode=require`, `verify-ca` or `verify-full`, and use the **same exact
+   session pooler hostname, port 5432**. Keep their dedicated usernames/passwords.
+   No direct `db.<ref>.supabase.co` URLs, hostname rewrites or `host`/`hostaddr`
+   overrides. A different analytics host needs a separately reviewed relay.
+   The shared session pooler permits other Supabase projects inside TLS; this
+   residual channel is not closed by these settings.
+5. Create the candidate from the approved commit, base directory `/`, Compose
+   location `/deploy/api-egress/compose.yaml`. Add **only public interpolation
+   values** to Coolify's Environment Variables:
 
    ```dotenv
-   API_ENV_FILE=/data/coolify/api-egress-secrets/runtime.env
+   API_RUNTIME_FILE=/data/coolify/api-egress-secrets/runtime.env
    EGRESS_MODE=audit
    EGRESS_SUPABASE_HOST=your-project-ref.supabase.co
    EGRESS_DB_HOST=your-session-pooler.supabase.com
    ```
 
-   Set the health endpoint to `/ready`, port 8000, and assign a temporary test
-   domain to **ingress only**. Leave **Connect to predefined network off**:
-   Coolify's reverse proxy should join the resource's `internet` network for
-   ingress. Do not add domains, ports or extra networks to `api` or `netguard`.
-   Keep the API image command unchanged and preserve the existing post-deploy
-   maintenance command, targeted specifically at the API service. Update watch
-   paths to `backend/**`, `deploy/api-egress/**`, `.dockerignore`.
-6. In the candidate checkout on the VM, run the offline checks as the user who
-   can read the runtime file. Export the four interpolation variables first,
-   using actual public hostnames instead of the examples above:
+   Coolify appends its generated env file to **every service**. Therefore do not
+   copy old API secrets into this resource's Environment Variables. Remove any
+   inherited/shared secret values too; audit the generated env files privately.
+   Secrets go only in the daemon-host file. Bind source must remain an absolute
+   file path with `create_host_path: false`, not a Coolify-created directory.
+6. Assign a temporary test domain only to **ingress:8000**. Keep the healthcheck
+   from `backend/Dockerfile` (`/ready`); Compose deployments use the image's
+   healthcheck, not a standalone Coolify HTTP health setting. Leave predefined
+   network attachment off unless needed by the installed routing configuration.
+   Coolify attaches resource networks to services: extra netguard interfaces are
+   expected and the firewall must still restrict INPUT 8000 to `172.30.87.0/24`
+   and loopback. Proxy and DB relay listen only on their internal addresses.
+   API must retain `restart: "no"`, container-mode networking, dropped capabilities, nonroot user,
+   read-only root and only its read-only runtime-file bind. Reject a generated
+   definition that gives API its own networks, privileges or published ports.
+7. Inspect the generated Compose and build logs privately. Coolify invokes
+   `docker compose --project-directory <repository-root> -f
+   <repository-root>/deploy/api-egress/compose.yaml`; builds must resolve to the
+   repository root. nginx config is baked into its image, with no source bind.
+   No checkout is assumed on the VM: the helper normally removes it. Use
+   **Preserve Repository** only if an approved operational check needs one, or
+   copy the approved non-secret preflight script **and**
+   `backend/api_egress_entrypoint.py` into a temporary admin directory preserving
+   their `scripts/` and `backend/` layout. With public host variables exported, run the offline check:
 
    ```bash
-   python3 scripts/check-api-egress-config.py "$API_ENV_FILE"
-   docker compose -f deploy/api-egress/compose.yaml config --quiet
+   sudo --preserve-env=EGRESS_SUPABASE_HOST,EGRESS_DB_HOST python3 scripts/check-api-egress-config.py /data/coolify/api-egress-secrets/runtime.env
    ```
 
-   The preflight makes no network calls and prints no secret values. Do not run
-   plain `docker compose config` or save its expanded output, which includes API
-   secrets. Inspect Coolify's generated Compose definition privately: it must
-   preserve `network_mode: service:netguard`, API `cap_drop: ALL`, API nonroot
-   image user, read-only filesystems, namespace health dependency, and no API
-   `networks`, `ports`, privileged flag or host mounts. Netguard must have only
-   the internal network and `NET_ADMIN`; proxy/database must have no API secrets.
-   If Coolify rewrites these boundaries, stop the migration instead of weakening
-   them. Generated Compose behavior on the deployed Coolify version remains a
-   rollout prerequisite, not something local Docker testing proves.
+   The path `scripts/...` applies only to that preserved/copied checkout. The
+   check never connects or prints values. The repository CI runs
+   `compose --project-directory . config --format json` and asserts build roots,
+   daemon bind isolation and no relative bind mounts. Do not dump real generated
+   env files into logs. Watch paths: `backend/**`, `deploy/api-egress/**`,
+   `.dockerignore`. Post-deploy command targeting **api** becomes
+   `python -m api_egress_entrypoint python -m dice_maintenance --rebuild`.
 
-### Audit, then enforce
+### Transfer traffic and tasks while still in audit
 
-Deploy the candidate manually in **audit** mode. Release runs the existing
-migration runner through the fixed DB relay; failure must prevent HTTP startup.
-Verify `/ready` through the candidate HTTPS domain and smoke the actual connector
-operations, Dice SMS if enabled, Venmo images, predictions fallback, account login,
-MCP and analytics. Review proxy logs over a representative scheduler cycle, not
-just a readiness request. Investigate every `policy=unlisted` entry before adding
-an exact hostname with code evidence. Audit permits unlisted public HTTPS and
-associated proxy DNS; it does not protect against exfiltration.
+Deploy the candidate manually in **audit**. Migrations still run before HTTP;
+validate candidate `/ready`, connector login, MCP, analytics and image traffic.
+Pre-create replacement Scheduled Tasks **disabled**, all targeting **api**:
 
-On the VM, identify the candidate service container IDs from Coolify's deployment
-view or `docker ps`, and set `API`, `NETGUARD`, `PROXY`, `DATABASE`, and `INGRESS` to
-those exact IDs. Run:
+| Task | Frequency | Command / preservation requirement |
+| --- | --- | --- |
+| Dice maintenance | `* * * * *` | `python -m api_egress_entrypoint flock -n /tmp/dice-maintenance.lock python -m dice_maintenance`. Preserve the old lock filename and timeout if different. |
+| ESPN lineup | `0 * * * *` | `python -m api_egress_entrypoint python -m espn.scheduler`. Preserve the existing timeout. Due slots are 09:00 and 18:00 America/New_York. |
+| Beli scan enqueue | Exact saved schedule | Preserve the exact saved command, scope/key usage and timeout. Invoke it via `python -m api_egress_entrypoint sh -c 'saved command'`, and use the loopback API origin for its local POST. Do not invent a new frequency or move Instagram fetching into this container. |
+
+Every task needs the loader: `docker exec` and Coolify tasks inherit Docker's
+public environment, not the secrets loaded into PID 1. Check `flock` exists in
+the built image before enabling Dice maintenance. Never paste secret values
+into a task command; loaded variables are expanded only inside the inner shell.
+The separate Instagram fetch box continues polling the existing public domain.
+
+At one coordinated cutover, disable **all old tasks and the old webhook**, move
+the existing API domain to candidate **ingress:8000**, enable the new tasks and
+verify their executions. Keep the candidate in **audit** so real foreground and
+scheduled traffic are observed. Do not leave either a duplicate task owner or a
+window where a due job is silently lost. The old resource can then stop while its
+image/config remain available. Record the cutover time and the task executions.
+
+Soak production traffic for **at least one full day**, covering both the 09:00
+and 18:00 ET ESPN slots, a successful maintenance run, Beli enqueue/completion,
+SMS if enabled, and normal account/connector operations. Inspect both proxy
+`policy=unlisted` records **and `iptables -nvL OUTPUT` policy/rule DROP counters**.
+Audit is hostname-only: direct sockets, DNS and non-443 traffic are already
+blocked and do not necessarily appear in Squid logs. Capture before/after
+counters for attempted operations; investigate increases, not just log silence.
+
+Identify exact candidate `API`, `NETGUARD`, `PROXY`, `DATABASE`, `INGRESS` container
+IDs from the deployment view, then inspect without dumping environments:
 
 ```bash
-docker inspect --format '{{.HostConfig.NetworkMode}} {{.Config.User}} {{json .HostConfig.CapDrop}} {{.HostConfig.ReadonlyRootfs}}' "$API"
+docker inspect --format '{{.HostConfig.NetworkMode}} {{.Config.User}} {{json .HostConfig.CapDrop}} {{.HostConfig.ReadonlyRootfs}} {{.HostConfig.RestartPolicy.Name}}' "$API"
 docker inspect --format '{{json .NetworkSettings.Networks}}' "$NETGUARD"
-docker exec "$NETGUARD" iptables -S OUTPUT
-docker exec "$NETGUARD" ip6tables -S OUTPUT
-docker exec "$NETGUARD" iptables -t raw -S OUTPUT
+docker exec "$NETGUARD" iptables -S INPUT
+docker exec "$NETGUARD" iptables -nvL OUTPUT
+docker exec "$NETGUARD" ip6tables -nvL OUTPUT
+docker exec "$NETGUARD" iptables -t raw -nvL OUTPUT
 docker exec "$API" python -c 'import socket; socket.create_connection(("1.1.1.1",443),timeout=2)'
 docker exec "$API" python -c 'import socket; socket.getaddrinfo("egress-rollout.example.test",443)'
 docker logs --since 1h "$PROXY"
 ```
 
-The API network mode must reference netguard's container, user must be nonroot,
-capabilities must be dropped and root filesystem must be read-only. Netguard
-must be attached only to the internal network. Both direct socket commands must
-fail; DNS must be dropped and not forwarded. Do not dump container environments
-or HTTP payloads into deployment logs. Confirm the proxy/database/ingress do not
-publish ports with `docker port` on each exact container ID. Firewall rules must
-match the checked-in file even if Coolify attaches additional resource networks.
+Both socket probes must fail. INPUT 8000 must accept only the internal ingress
+subnet and loopback, including when extra Coolify networks are present. Verify
+proxy/relay bind only `172.30.87.3:3128` / `172.30.87.4:5432`, and use `docker port`
+on every service to confirm no published ports. DNS packet capture must show
+rejected names absent, as in the synthetic local smoke. Do not run that smoke on
+the production host: its fixed subnet is reserved for the deployed stack.
 
-After audit coverage passes, set `EGRESS_MODE=enforce` in Coolify and redeploy
-the whole candidate stack. Recheck `/ready`, connector operations and the direct
-socket probes, then verify an unlisted request fails:
+Only after the full audit soak and approval of its evidence, stop all new tasks,
+stop the whole stack, set `EGRESS_MODE=enforce`, deploy the full stack and enable
+its tasks again. Verify `/ready`, real foreground flows and task executions.
+An unlisted HTTPS request must now fail and log `TCP_DENIED`, without DNS lookup.
+Keep only the candidate webhook enabled after validating required-check gating.
+Every future deploy follows the same task pause, full stop-start, validation and
+task resume sequence. A mode toggle also causes this outage.
 
-```bash
-docker exec "$API" python -c 'import urllib.request; urllib.request.urlopen("https://example.com",timeout=5)'
-docker logs --since 5m "$PROXY"
-```
+### Restart recovery, rollback and security updates
 
-Expect a proxy HTTP denial or TLS error and `policy=unlisted`/`TCP_DENIED`, with
-no DNS lookup for example.com from the proxy. Verify arbitrary DNS with packet
-capture on the VM as in the local smoke, not solely with `getaddrinfo` failure.
-The repository smoke uses synthetic databases and should be run on a separate
-local Docker host, not alongside the production stack using its fixed subnet.
+A netguard-only restart can leave a running API in an orphan network namespace.
+A Docker daemon/VM reboot can restart sidecars in an unsuitable order or leave
+container-mode namespace references stale. **API uses `restart: "no"`**, so it
+remains stopped after a daemon/VM reboot and cannot run before the firewall is
+restored. API process crashes also require operator recovery. Sidecars use
+`unless-stopped`; that is not a dependency supervisor. The local tests reproduce both netguard restart and a disposable
+nested Docker daemon reboot, then verify full-stack recovery and confinement.
+They never reboot the shared local daemon or production VM.
 
-Only after approval of the audit/enforce evidence, move the existing API domain
-from the old resource to candidate **ingress:8000**. Verify the real frontend's
-API calls and `/ready`. Keep the old resource stopped with auto-deploy disabled
-and its image retained. Enable the candidate webhook only after its generated
-configuration and required-check gating are confirmed. Never manually attach the
-API to another network to fix a broken connector.
+After either event, pause candidate tasks, stop the **entire** stack in Coolify,
+then deploy it afresh to recreate API and netguard together. Verify `/ready`,
+internal ingress, direct/DNS denial and task executions before resuming tasks.
+Do not fix an orphan with `docker restart api`, individual-service deployment or
+network attachment. Treat the outage as an availability limitation of this design.
 
-### Rollback
+For a missing hostname, revert to audit only through that same full stop-start
+procedure and task pause/resume. Record that unlisted public HTTPS is allowed
+again. For topology/startup failure, disable candidate tasks/webhook, stop its
+stack, restore the old resource/image/domain and re-enable **the old tasks** at
+that same ownership transfer. Verify readiness, foreground flows and each task;
+record that the old topology restores unrestricted egress. This PR adds no
+schema migration; never reset Supabase or undo migration history for rollback.
 
-For a missing HTTPS hostname, set `EGRESS_MODE=audit` and redeploy the **whole
-stack** through Coolify. API firewall/DNS rules remain active but public HTTPS is
-unrestricted again. Record that containment is suspended. This does not fix an
-incorrect DB hostname, env file, ingress route or migration failure.
-
-For a topology/startup failure, stop the candidate through Coolify, restore the
-previous backend image/resource and its saved domain/port/commands, then start
-that resource and verify `/ready` and frontend/API smoke. Restore only one
-webhook after deciding which resource owns the domain. The old Dockerfile-only
-topology has unrestricted egress; explicitly record that security rollback.
-These changes add no migrations, so do not roll back schema history or reset
-Supabase. Preserve the secret file until rollback is confirmed, then remove it
-only through a separately approved credential-cleanup action.
-
-Never independently recreate netguard while leaving the API in its old network
-namespace. Stop/recreate API and netguard together through a full stack deploy;
-namespace changes and firewall changes require repeating the socket/DNS probes.
+Track Debian security advisories for **squid/squid-openssl** and rebuild the
+sidecar image with fresh base/packages (`--pull --no-cache`) when an advisory
+applies, even if Git source is unchanged. Keep known-good image digests, rerun
+local containment/restart tests, and deploy the rebuilt image via the approved
+full-outage procedure. A proxy restart alone does not update its installed Squid.

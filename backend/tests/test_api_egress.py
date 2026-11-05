@@ -91,6 +91,8 @@ def test_offline_rollout_preflight():
         {'SUPABASE_URL': 'https://other.supabase.co'},
         {'ANALYTICS_DATABASE_URL': 'postgresql://reader:synthetic@other.pooler.supabase.com:5432/postgres'},
         {'SUPABASE_DB_URL': values['SUPABASE_DB_URL'].replace('sslmode=require', 'sslmode=disable')},
+        {'SUPABASE_DB_URL': values['SUPABASE_DB_URL'].split('?')[0]},
+        {'SUPABASE_DB_URL': values['SUPABASE_DB_URL'].replace('synthetic.pooler.supabase.com', 'db.synthetic.supabase.co')},
         {'SUPABASE_DB_URL': values['SUPABASE_DB_URL'] + '&hostaddr=1.1.1.1'},
     ]:
         with pytest.raises(ValueError):

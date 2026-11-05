@@ -127,6 +127,7 @@ def probe():
 
 if __name__ == '__main__':
     if sys.argv[1:] == ['serve']:
+        assert os.environ['EGRESS_SECRET_SENTINEL'] == 'synthetic-$literal-only'
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(200)

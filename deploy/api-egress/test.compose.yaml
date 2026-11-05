@@ -2,7 +2,7 @@
 services:
   api:
     command: [python, /egress-probe.py, serve]
-    volumes: [./probe.py:/egress-probe.py:ro, ./hosts.txt:/egress-hosts.txt:ro]
+    volumes: ["${API_EGRESS_ROOT}/deploy/api-egress/probe.py:/egress-probe.py:ro", "${API_EGRESS_ROOT}/deploy/api-egress/hosts.txt:/egress-hosts.txt:ro"]
   database:
     depends_on:
       database-origin: {condition: service_healthy}

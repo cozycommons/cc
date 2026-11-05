@@ -16,7 +16,7 @@ fixed-target TCP 5432 relay because libpq/psql do not use HTTP proxies.
 | Destination | Runtime caller and evidence |
 | --- | --- |
 | Exact `SUPABASE_URL` hostname, configured as `EGRESS_SUPABASE_HOST` | `backend/main.py:43`, `backend/main.py:89` create the supabase-py clients for PostgREST, Auth, Storage and Functions on the same project origin. HTTP clients inherit proxy settings. No API caller subscribes to Realtime. |
-| Exact session pooler or direct DB hostname, configured as `EGRESS_DB_HOST` | `backend/release.py:15`, `backend/migration_runner.py:163` start psql migrations; `backend/admin/query.py:94` and `backend/admin/query.py:122` use `ANALYTICS_DATABASE_URL` through psycopg; `backend/admin/routes.py:78` tests that connection. Both DB URLs must target this same host and port 5432. |
+| Exact shared session pooler hostname, configured as `EGRESS_DB_HOST` | `backend/release.py:15`, `backend/migration_runner.py:163` start psql migrations; `backend/admin/query.py:94` and `backend/admin/query.py:122` use `ANALYTICS_DATABASE_URL` through psycopg; `backend/admin/routes.py:78` tests that connection. Both DB URLs must target this same host and port 5432. |
 | `backoffice-service-t57o3dxfca-nn.a.run.app` | `backend/ig_logger/sinks/beli/beli_client.py:32`, `backend/ig_logger/sinks/beli/beli_client.py:155` use urllib for Beli operations. |
 | `backoffice-service-onboarding-t57o3dxfca-nn.a.run.app` | `backend/ig_logger/sinks/beli/beli_client.py:33`, same urllib transport. |
 | `api.resy.com` | `backend/resy/resy_client.py:39`, `backend/resy/resy_client.py:146`. `resy.com` is only an Origin/Referer header, not a destination. |
@@ -54,11 +54,16 @@ before credentials exist and is outside the runtime network policy.
 ## Boundary and residual risk
 
 The API shares only the network namespace of a trusted `netguard` container.
-The namespace has an internal Docker network and default-deny IPv4/IPv6 OUTPUT,
-INPUT and FORWARD rules. Only new outbound TCP connections to Squid:3128,
+The namespace has an internal Docker network (plus any resource networks
+Coolify adds) and default-deny IPv4/IPv6 OUTPUT,
+INPUT and FORWARD rules. INPUT 8000 accepts only the internal ingress subnet
+172.30.87.0/24 and loopback, not other Coolify network sources. Only new outbound TCP connections to Squid:3128,
 DB-relay:5432 and the loopback API health endpoint:8000 are allowed. Existing
 connections can carry replies. No capability, Docker socket, host namespace,
-sidecar filesystem or API credential is shared with a sidecar. API processes
+sidecar filesystem or API credential is shared with a sidecar. The daemon binds
+the raw runtime file only into API; a small nonroot entrypoint loads it before
+release or a scheduled command. Coolify/helper environments contain public
+interpolation values only. API processes
 cannot change the firewall, including after changing proxy environment variables.
 DNS UDP/TCP 53 is dropped before Docker's resolver DNAT; all other new sockets,
 including attempts to use the resolver's translated port, are denied by default.
@@ -73,7 +78,8 @@ ClientHello and rejects unlisted SNI before splicing. It never decrypts permitte
 traffic or installs a CA in the API. Squid's access-denied responses may present
 an ephemeral self-signed TLS error certificate, so rejection can surface as a
 certificate error instead of HTTP 403. Do not trust that certificate. No suffix
-grants allow `secret.api.resy.com` or arbitrary Supabase/Firebase projects.
+grants allow `secret.api.resy.com` or another Supabase HTTPS project hostname.
+The hostname rule does not restrict Firebase tenant/account operations in TLS.
 Logs record CONNECT authorities and SNI, never HTTPS paths, bodies or auth headers.
 Restrict log access: an attacker can encode secrets in a rejected hostname.
 
@@ -88,9 +94,29 @@ credential isolation and narrowly scoped operations outside the compromised
 process, or provider/path/account-aware mediation with TLS termination. The API
 and its privileged Supabase key remain one trust boundary in this change.
 
+The allowed shared `*.pooler.supabase.com` endpoint is a **cross-project drop
+channel**: a rogue package can connect with its own credentials and write to
+**any Supabase project served by that pooler**, because the tenant is selected
+by the PostgreSQL username inside opaque TLS. Restricting the pooler hostname
+or preserving the application's username in its URL does not prevent this.
+Closing this database channel requires a project-dedicated database host, such
+as a paid dedicated pooler or IPv4 add-on, with a separately reviewed relay
+policy. This implementation accepts only shared session pooler hostnames and
+explicitly rejects `db.<ref>.supabase.co`; it does not claim tenant isolation.
+
+`identitytoolkit.googleapis.com` (including Firebase `signUp`) and
+`api.twilio.com` are also open drop channels. A rogue process can use its own
+project/account and put secrets in accepted request data or messages. These
+requests are permitted even in enforce mode. **Same-zone domain fronting on
+supabase.co is unverified**. The proxy inspects CONNECT/SNI, not encrypted HTTP
+Host headers, paths, bodies or database usernames. None of these channels is
+closed by the passing direct-egress and DNS tests.
+
 Audit mode deliberately allows unlisted public HTTPS names and their DNS
 lookups, while logging `policy=unlisted`. It is **not** a containment guarantee.
-The API firewall and raw DNS denial are active in both modes. Enforce mode denies
+Audit is hostname-only: the API firewall and raw DNS denial are active in both
+modes. Watch `iptables -nvL OUTPUT` DROP policy/rule counters as well as proxy
+logs to detect blocked direct, DNS and non-443 client traffic. Enforce mode denies
 unlisted CONNECT names before any destination DNS resolution. The fixed DB relay
 is identical in both modes. The Docker host, trusted sidecars, image build,
 Coolify administrators and kernel are trusted; host/container escape is outside
@@ -106,18 +132,34 @@ prove dynamic string construction or future dependency behavior; runtime denial
 is the security boundary. Review changed HTTP clients and dependencies too.
 
 Run `bash scripts/test-api-egress.sh` with a local Unix-socket Docker context and
-Compose v2. It builds the actual API Dockerfile and sidecars, uses an isolated
+Compose v2 with `--project-directory` set to the repository root, exactly like
+Coolify. nginx configuration is baked into its image; build contexts are rooted
+at the repository. A daemon-only absolute secret bind needs no helper-visible
+file and cannot be silently created as a directory. It builds the actual API Dockerfile and sidecars, uses an isolated
 synthetic PostgreSQL container, tests proxy inheritance, valid TLS to public
 credential-free endpoints, direct IPv4/IPv6 and proxy bypass denial, unlisted
 CONNECT/SNI/subdomain/port denial, DNS drops and host-side packet capture, DB relay,
-ingress, and audit logging. It cleans up only its own project. It does not start
+ingress, audit logging, helper-invisible secret loading, scheduled-command
+loading, extra Coolify networks and netguard restart/recovery. It cleans up only its own project. It does not start
 `release` or run application migrations, and never touches the shared Supabase.
+For an actual daemon restart test, run `bash scripts/test-api-egress-reboot.sh`.
+It starts a **disposable privileged Docker-in-Docker container** with only the
+source and synthetic runtime file mounted, loads the locally built images,
+restarts that nested daemon and verifies full-stack recovery. It does not
+restart the shared Docker host/Colima VM. API has `restart: "no"`, and the test
+requires it to remain stopped after reboot so it cannot race firewall startup.
+Process crashes therefore also require explicit recovery. Both scripts clean up
+their containers.
+A netguard or daemon restart can orphan API's namespace; a complete stop-start
+is required recovery. Every deploy and mode change is a full-stop outage, not a
+rolling deployment. See the rollout runbook for task ownership and audit soak.
+
 On Colima, keep the checkout under `$HOME` for bind mounts. If Compose is missing
 from the host CLI, `API_EGRESS_COMPOSE` can name an executable wrapper around
 Compose running in a CLI container with `/var/run/docker.sock` and `$HOME` mounted.
 Do not expose a daemon TCP port. The script prints the evidence directory.
 
-Local verification on 2026-11-04 used the existing Colima arm64 Docker daemon
+The original verification on 2026-11-04 used the existing Colima arm64 Docker daemon
 and `$HOME` mounts. All 15 public allowlisted hosts completed certificate-validated
 TLS (root-path responses included 3xx, 4xx and Venmo image-host 502; these prove
 transport, not authenticated feature behavior). All denial, DNS packet-capture,
@@ -126,6 +168,17 @@ also imported `main:app` and served `/health` with synthetic configuration and n
 network. Backend: 2,049 passed, 317 skipped; frontend: 813 passed; placeholder
 production frontend build passed. No real Supabase project query, release
 migration, third-party credential flow or Coolify/OVH deployment was exercised.
+
+The review follow-up reran the full checks: backend 2,053 passed / 317 skipped,
+frontend 813 passed (one initial five-second UI timeout passed on the full rerun),
+and placeholder frontend build passed. Coolify-style config validation and the
+helper-invisible runtime bind passed. The stable Docker smoke passed original
+TLS/CONNECT/DNS checks, extra-network ingress/listener checks, task-loader secret
+isolation and netguard restart/recovery. A disposable nested Docker daemon reboot
+left API stopped as required and full-stack recreation restored service with
+confinement intact. CI selection's 20 tests and shell/workflow syntax checks also
+passed. This does not verify the installed Coolify helper/parser, live task
+commands, production credentials, hosted migrations or the required audit soak.
 
 Mechanism references: [Docker DNS/network namespaces](https://docs.docker.com/engine/network/),
 [Squid ACL name sources](https://www.squid-cache.org/Doc/config/acl/),

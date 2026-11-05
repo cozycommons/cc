@@ -6,6 +6,9 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+from api_egress_entrypoint import load_runtime
+
 
 def check(values: dict[str, str], supabase_host: str, db_host: str) -> None:
     if not re.fullmatch(r'[a-z0-9]+\.supabase\.co', supabase_host):
@@ -24,7 +27,7 @@ def check(values: dict[str, str], supabase_host: str, db_host: str) -> None:
         parsed = urlsplit(value or '')
         if parsed.scheme not in {'postgres', 'postgresql'} or parsed.hostname != db_host or parsed.port != 5432:
             raise ValueError(f'{key} must use EGRESS_DB_HOST:5432 directly (session pooler)')
-        if parse_qs(parsed.query).get('sslmode', ['require'])[-1] not in {'require', 'verify-ca', 'verify-full'}:
+        if parse_qs(parsed.query).get('sslmode', [''])[-1] not in {'require', 'verify-ca', 'verify-full'}:
             raise ValueError(f'{key} must require TLS')
         if parse_qs(parsed.query).get('host') or parse_qs(parsed.query).get('hostaddr'):
             raise ValueError(f'{key} must not override its relay hostname')
@@ -33,14 +36,7 @@ def check(values: dict[str, str], supabase_host: str, db_host: str) -> None:
 
 
 def main() -> None:
-    # Compose env_file format:raw preserves each value, including dollar signs.
-    values = {}
-    for line in Path(sys.argv[1]).read_text().splitlines():
-        if line.strip() and not line.lstrip().startswith('#'):
-            key, separator, value = line.partition('=')
-            if not separator or not re.fullmatch(r'[A-Z][A-Z0-9_]*', key):
-                raise ValueError('expected raw NAME=value lines without shell syntax')
-            values[key] = value
+    values = load_runtime(Path(sys.argv[1]))
     check(values, os.environ['EGRESS_SUPABASE_HOST'], os.environ['EGRESS_DB_HOST'])
     print('PASS egress runtime configuration (offline; no values printed)')
 
@@ -48,6 +44,6 @@ def main() -> None:
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, KeyError, IndexError):
+    except (OSError, ValueError, KeyError, IndexError):
         # URL parser exceptions can contain submitted passwords. Never echo them.
         raise SystemExit('Invalid egress runtime configuration; check deployment.md requirements') from None

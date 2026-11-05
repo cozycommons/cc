@@ -27,7 +27,7 @@ def squid_config(mode: str, supabase_host: str) -> str:
     enforcement = 'http_access deny !approved' if mode == 'enforce' else ''
     reject = 'ssl_bump terminate !approved' if mode == 'enforce' else ''
     splice = 'ssl_bump splice tls_approved' if mode == 'enforce' else 'ssl_bump splice all'
-    return f"""http_port 3128 ssl-bump cert=/tmp/proxy.pem generate-host-certificates=off
+    return f"""http_port 172.30.87.3:3128 ssl-bump cert=/tmp/proxy.pem generate-host-certificates=off
 visible_hostname api-egress
 pinger_enable off
 pid_filename /tmp/squid.pid
@@ -81,9 +81,9 @@ def main() -> None:
         os.execvp('squid', ['squid', '-N', '-f', '/tmp/squid.conf'])
     if role == 'database':
         host = hostname(os.environ['EGRESS_DB_HOST'])
-        # Session pooler/direct DB only. No client-selected target or DNS input.
-        if not (host.endswith('.pooler.supabase.com') or re.fullmatch(r'db\.[a-z0-9]+\.supabase\.co', host)):
-            raise ValueError('EGRESS_DB_HOST must be a Supabase DB or session pooler hostname')
+        # Shared session pooler only. No client-selected target or DNS input.
+        if not re.fullmatch(r'[a-z0-9.-]+\.pooler\.supabase\.com', host):
+            raise ValueError('EGRESS_DB_HOST must be a Supabase session pooler hostname')
         Path('/tmp/haproxy.cfg').write_text(f'''global
     log stdout format raw local0
     maxconn 100
@@ -96,7 +96,7 @@ resolvers docker
     nameserver dns 127.0.0.11:53
     hold valid 30s
 frontend postgres
-    bind :5432
+    bind 172.30.87.4:5432
     acl api src 172.30.87.2
     tcp-request connection reject if !api
     default_backend database
