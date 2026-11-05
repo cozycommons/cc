@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import request_validation
 from commons_account import routes
 from ig_logger.accounts import hash_token
 from ig_logger.sinks.beli import accounts
@@ -91,6 +92,7 @@ def account_app(monkeypatch):
         return {'uuid': 'beli-' + beli_id}
     monkeypatch.setattr(BeliClient, 'probe_credentials', staticmethod(probe))
     root = FastAPI()
+    request_validation.install(root)  # as main.py does: 422 bodies never echo submitted values
     root.state.mcp_supabase = db
     root.include_router(routes.router, prefix='/account')
     return TestClient(root), db
@@ -340,3 +342,23 @@ def test_resy_and_beli_links_are_independent(resy_app):
     assert connect_resy(client, 'same@example.test').status_code == 200
     linked = client.get('/account/linked-accounts', headers=SAM).json()
     assert linked['beli']['id'] == db.beli_accounts[0]['id'] and linked['resy']['id'] == db.resy_accounts[0]['id']
+
+
+SECRET = 'SYNTHETIC-SECRET-VALUE'
+
+
+def assert_422_hides(client, path, bodies):
+    """Missing field, wrong type and extra field: each a 422 that never contains the submitted secret."""
+    for body in bodies:
+        response = client.post(path, headers=SAM, json=body)
+        assert response.status_code == 422 and SECRET not in response.text, (body, response.text)
+
+
+def test_resy_422s_never_echo_the_password(resy_app):
+    client, db = resy_app
+    assert_422_hides(client, '/account/linked-accounts/resy', [
+        {'password': SECRET},
+        {'login': 'sam@example.test', 'password': [SECRET]},
+        {'login': 'sam@example.test', 'password': 'x', 'note': SECRET},
+    ])
+    assert db.resy_logins == []
