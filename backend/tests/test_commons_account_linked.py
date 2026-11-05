@@ -8,6 +8,7 @@ from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import request_validation
 from commons_account import routes
 from espn import accounts as espn_accounts, disney_login
 from espn.espn_client import EspnAuthError, EspnClient, EspnError
@@ -125,6 +126,7 @@ def account_app(monkeypatch):
         return {'uuid': 'beli-' + beli_id}
     monkeypatch.setattr(BeliClient, 'probe_credentials', staticmethod(probe))
     root = FastAPI()
+    request_validation.install(root)  # as main.py does: 422 bodies never echo submitted values
     root.state.mcp_supabase = db
     root.include_router(routes.router, prefix='/account')
     return TestClient(root), db
@@ -156,12 +158,25 @@ def test_a_legacy_account_is_claimed_by_its_login_and_keeps_its_token(account_ap
     assert connect(client, row['login']).json()['status'] == 'already_linked'
 
 
-def test_reconnecting_refreshes_the_stored_password(account_app):
+def test_reconnecting_refreshes_the_stored_password(account_app, monkeypatch):
     client, db = account_app
     row, _ = beli_fakes.add_account(db, owner='u-sam')
     row['password_enc'] = accounts.encrypt_secret('old-password')
+    monkeypatch.setattr(accounts, '_clients', {})
+    cached = BeliClient(row['login'], 'old-password')
+    accounts._clients[row['id']] = (0, cached)
     assert connect(client, row['login']).json()['status'] == 'already_linked'
     assert accounts.decrypt_secret(row['password_enc']) == PASSWORD
+    assert row['id'] not in accounts._clients
+
+
+def test_linking_a_different_login_drops_the_old_accounts_cached_session(account_app, monkeypatch):
+    client, db = account_app
+    monkeypatch.setattr(accounts, '_clients', {})
+    old_row, _ = beli_fakes.add_account(db, owner='u-sam')
+    accounts._clients[old_row['id']] = (0, BeliClient(old_row['login'], 'synthetic-password'))
+    assert connect(client, 'new-login@example.test').json()['status'] == 'linked'
+    assert old_row['owner_user_id'] is None and old_row['id'] not in accounts._clients
 
 
 def test_another_users_beli_account_is_refused_and_untouched(account_app):
@@ -756,3 +771,65 @@ def test_cce_token_claims_are_rate_limited_per_user(espn_app):
         assert claim_token(client, espn_accounts.mint_token()).status_code == 400
     _row, token = legacy_espn(db)
     assert claim_token(client, token).status_code == 429
+
+
+SECRET = 'SYNTHETIC-SECRET-VALUE'
+
+
+def assert_422_hides(client, path, bodies):
+    """Missing field, wrong type and extra field: each a 422 that never contains the submitted secret."""
+    for body in bodies:
+        response = client.post(path, headers=SAM, json=body)
+        assert response.status_code == 422 and SECRET not in response.text, (body, response.text)
+
+
+def test_resy_422s_never_echo_the_password(resy_app):
+    client, db = resy_app
+    assert_422_hides(client, '/account/linked-accounts/resy', [
+        {'password': SECRET},
+        {'login': 'sam@example.test', 'password': [SECRET]},
+        {'login': 'sam@example.test', 'password': 'x', 'note': SECRET},
+    ])
+    assert db.resy_logins == []
+
+
+def test_espn_422s_never_echo_the_password_or_cookies(espn_app):
+    client, db = espn_app
+    assert_422_hides(client, '/account/linked-accounts/espn', [
+        {'password': SECRET},
+        {'login': 'sam@example.test', 'password': [SECRET]},
+        {'login': 'sam@example.test', 'password': SECRET, 'league_id': 'one'},
+        {'login': 'sam@example.test', 'password': 'x', 'note': SECRET},
+    ])
+    assert_422_hides(client, '/account/linked-accounts/espn/cookies', [
+        {'league_id': 999, 'season': 2027, 'espn_s2': SECRET},
+        {'league_id': 999, 'season': 2027, 'espn_s2': [SECRET], 'swid': '{A}'},
+        {'league_id': 999, 'season': 1999, 'espn_s2': SECRET, 'swid': SECRET},
+        {'league_id': 999, 'season': 2027, 'espn_s2': 'x', 'swid': '{A}', 'note': SECRET},
+    ])
+    assert db.espn_logins == [] and db.espn_probes == []
+
+
+def test_partiful_422s_never_echo_the_code(partiful_app):
+    client, db = partiful_app
+    assert_422_hides(client, '/account/linked-accounts/partiful/code', [
+        {'number': SECRET},
+        {'phone': [SECRET]},
+        {'phone': '8185551234', 'note': SECRET},
+    ])
+    assert_422_hides(client, '/account/linked-accounts/partiful', [
+        {'phone': '8185551234'} | {'otp': SECRET},
+        {'code': SECRET},
+        {'phone': '8185551234', 'code': [SECRET]},
+        {'phone': SECRET + '\u00e9', 'code': SECRET},
+    ])
+    assert db.sms_sent == [] and db.partiful_accounts == []
+
+
+def test_cce_token_422s_never_echo_the_token(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db)
+    for body in ({'api_token': token}, {'token': [token]}, {'token': token, 'note': token}):
+        response = client.post('/account/linked-accounts/espn/token', headers=SAM, json=body)
+        assert response.status_code == 422 and token not in response.text, (body, response.text)
+    assert row['owner_user_id'] is None

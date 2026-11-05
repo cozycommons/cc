@@ -41,7 +41,7 @@ BISTRO = {'id': 501, 'name': 'Synthetic Bistro', 'neighborhood': 'West Village',
 
 def fake_beli():
     """Minimal synthetic Beli API: logins, trending, search and bookmarks. Records every save."""
-    state = {'sessions': {}, 'saved': []}
+    state = {'sessions': {}, 'saved': [], 'logins': []}
 
     class Beli(BaseHTTPRequestHandler):
         def answer(self, payload):
@@ -58,6 +58,7 @@ def fake_beli():
             body = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
             if self.path == '/api/token/':
                 access = secrets.token_urlsafe(16)
+                state['logins'].append(body.get('email'))
                 state['sessions'][access] = body.get('email')
                 return self.answer({'access': access, 'refresh': secrets.token_urlsafe(16)})
             if self.login() is None:
@@ -724,9 +725,18 @@ async def exercise(args):
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['beli']['linked'] is True and 'get_restaurant_recs' in projects['beli']['next_step']
                 print('PASS list_projects shows Beli linked with the next step')
+                logins_before = len(beli_state['logins'])
                 recs = await call('get_restaurant_recs', neighborhood='West Village', day='saturday', time='19:00',
                                   evidence='get_restaurant_recs')
                 assert [r['id'] for r in recs['recs']] == [501]
+                assert (await call('get_restaurant_recs', neighborhood='West Village'))['recs']
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_recs = await http.get(endpoint[:-len('/mcp')] + '/beli/recs',
+                        params={'neighborhood': 'West Village'},
+                        headers={'Authorization': 'Bearer ' + beli_token})
+                assert legacy_recs.status_code == 200 and legacy_recs.json()['recs']
+                assert len(beli_state['logins']) - logins_before == 1, beli_state['logins']
+                print('PASS repeated recs across /mcp and /beli share one Beli password login')
                 save = dict(name='Synthetic Bistro', idempotency_key=f'save-{uuid4()}')
                 preview = await call('save_restaurant', **save, evidence='save_restaurant dry_run')
                 assert preview['dry_run'] and preview['status'] == 'would_bookmark' and not beli_state['saved']
