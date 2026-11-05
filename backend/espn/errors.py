@@ -8,12 +8,12 @@ _SCRUB = ((re.compile(r'(?i)\b(espn_s2|swid|cookie|set-cookie|authorization|x-fa
           (re.compile(r'[A-Za-z0-9%+/=_-]{40,}'), '<redacted>'))
 
 
-def scrub(text):
+def scrub(text, *, limit=160):
     """One short line with URLs, cookies, headers and long tokens removed."""
     text = ' '.join(str(text).split())
     for pattern, replacement in _SCRUB:
         text = pattern.sub(replacement, text)
-    return text[:160]
+    return text[:limit]
 
 
 def failure_reason(exc):

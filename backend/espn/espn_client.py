@@ -439,7 +439,8 @@ class EspnClient:
                     f"{what} -> {e.code}: {AUTH_EXPIRED_MESSAGE}", status=e.code
                 ) from e
             try:
-                detail = scrub(e.read(4096).decode("utf-8", errors="replace"))
+                # Keep the existing excerpt length for lineup lock detection.
+                detail = scrub(e.read(4096).decode("utf-8", errors="replace"), limit=200)
             except Exception:
                 detail = ""
             error_type = EspnWriteUncertain if e.code >= 500 or e.code == 408 else EspnError
