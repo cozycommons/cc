@@ -487,8 +487,9 @@ an offer the other manager sees, and a lineup moves players between slots.
   scoring period. A lineup preview is approvable for 30 minutes, like edits and
   trades. Merges `approve_roster_edit`, `approve_trade` and the live
   `run_lineup`.
-- `link_espn_account(api_token)` (`edit`): the one-time link step with the
-  existing `cce_` token.
+- `link_espn_account(api_token)` (`edit`): links with a `cce_` token the user
+  already holds. The link step no longer asks for one: it sends the user to
+  `https://cozycommons.dev/account#espn`.
 
 Linking mirrors the other projects: migration
 `0089_beli_espn_account_owner.sql` adds `espn_accounts.owner_user_id` (partial
@@ -500,8 +501,64 @@ team those cookies own (the SWID member), as on `/espn`. Linking changes only
 `owner_user_id`: cookies, lineup automation and `espn_team_claims` are untouched,
 and the connector does not read or change team claims. `/espn/*`, `/espn/mcp`
 and `cce_` tokens are unchanged; existing accounts stay unlinked. ESPN is on by
-default once linked; linking happens only through the tool. A legacy
-`DELETE /espn/account` still deletes a linked account and its proposals.
+default once linked. A legacy `DELETE /espn/account` still deletes a linked
+account and its proposals.
+
+Linking on the account page, with the Commons session, two ways:
+
+- `POST /account/linked-accounts/espn` `{login, password, league_id?, season?,
+  enable_automation?}`: runs the MyDisney login once (as `/espn/onboard/login`
+  does; the password is never stored). Without `league_id` it looks up the
+  account's basketball leagues for the season (default: the current one, rolling
+  over July 1). With several it stores nothing and returns
+  `{status: "league_selection_required", season, leagues}`, and the page signs in
+  again with the chosen `league_id`. A wrong password and an unknown email get
+  the same message.
+- `POST /account/linked-accounts/espn/cookies` `{league_id, season, espn_s2,
+  swid, enable_automation?}`: cookies copied from a signed-in browser.
+
+Both probe the cookies against the league, then look for accounts with the same
+SWID (case and braces ignored), league and season. A probe proves only that the
+cookies can read the league, and the league's mTeam view lists every member's
+SWID, so typed cookies could name a league-mate's SWID. Only a MyDisney login
+proves a SWID, and the login path also requires a chosen `league_id` to be one of
+the login's own leagues. Migration `0091_beli_espn_proven_owner.sql` records
+which kind of claim the current owner made (`espn_accounts.owner_proven`;
+existing links, all made with a `cce_` token, start unproven):
+
+- Typed cookies create a new account (unproven) or refresh the caller's own
+  row. They never claim an account that already exists: 409, sign in with
+  email and password.
+- A MyDisney login links an unowned account, or takes over one whose owner is
+  unproven (`espn_claim_account_proven`, status `taken_over`), expiring the
+  roster edits, trade offers and lineup previews pending on it and applying the
+  form's automation choice. A proven owner is never displaced (409). It also
+  detaches every other row for the same SWID, league and season held without
+  proof (unowned, unproven, token retired, automation off, proposals expired).
+  Since migration `0092_beli_espn_atomic_takeover.sql` the claim takes the
+  encrypted cookies, the replacement token and the automation choice and commits
+  all of it with the ownership change in one transaction, so a failure leaves
+  the previous holder's row exactly as it was and a retry still takes over.
+- A row a link moves away from drops to unproven.
+- Since `0093_beli_espn_claim_locking.sql` the claim locks the target and the
+  duplicates in one statement, in id order, before branching (no deadlock
+  between opposite claims), detaches only rows for the same league and season,
+  refuses a missing user or empty cookies/token, and `service_role`'s
+  `UPDATE (status)` on `espn_lineup_runs` is explicit and checked by the
+  schema contract.
+- Typed cookies refresh an existing row with one `UPDATE` filtered on the
+  caller still owning it, never through a link: a request already in flight
+  cannot re-acquire a row a proven claim just detached (it gets the 409).
+- Writing new cookies into an existing row also replaces its `cce_` token with
+  one nobody sees, so fresh cookies reach only the linked Commons user, and
+  clears the legacy read cache. A stored `espn_s2` is decrypted only on the
+  caller's own row, to skip a write when nothing changed.
+
+A new account takes `enable_automation` (default true) for lineup automation.
+The RPC links first, and cookies are written only after, on the caller's row.
+`GET /account/linked-accounts` adds `espn: {id, label, league_id, season} |
+null`. Attempts are limited to 10 per hour per Commons user, per ESPN email and
+per SWID.
 
 Approvals. The proposal row is ESPN's own guard: an approval claims it
 atomically (pending -> executing) before anything is sent, and an unresolved
@@ -620,16 +677,20 @@ ESPN. The fake serves the connector tests' synthetic league
 (`backend/tests/espn_fakes.py`), one per SWID cookie, and records every write.
 The test checks that ESPN starts off and unlinked, onboards two synthetic
 accounts through the real `POST /espn/onboard`, refuses linking the one linked to
-the second user and a wrong token, links its own without changing the stored
-cookies, and checks the `cce_` token on `/espn/me`. It reads the league, your
+the second user and a wrong token through `link_espn_account`, and on the
+account page refuses the other user's team and even the legacy team's own typed
+cookies. A MyDisney sign-in against a fake Disney login then refuses a league
+that is not the login's, links the legacy team and retires its `cce_` token on
+`/espn/me`. It reads the league, your
 team, standings and both trends, then proposes, previews, approves and replays a
 lineup. It proposes a roster edit and approves it while the fake records the
 write, answers 504 and hides it from reads: the call reports an unconfirmed
 approval, a same-key retry stays open, and once the fake shows the write the
 same-key retry settles it from ESPN with exactly one roster request sent. It
 refuses the key for another proposal, approves a trade offer, reads activity,
-is refused another user's edit on both read and approve, and checks that the
-legacy `/espn/roster/edits` lists the connector's edit. The read-only grant reads
+is refused another user's edit on both read and approve. Finally a MyDisney
+sign-in for the other user's SWID takes over that unproven link, retires its
+token and expires the edit pending on it. The read-only grant reads
 the league and is refused on proposals and approvals.
 Synthetic users, trips and Beli, Resy, Partiful and ESPN accounts remain in the
 loopback sandbox for inspection. Tokens and keys are never printed or committed. For interactive mode, also run the normal local frontend

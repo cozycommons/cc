@@ -1,7 +1,8 @@
 """ESPN Fantasy tools on the shared OAuth connector (/mcp).
 
 The ESPN account is resolved from the signed-in Commons user, never from a
-pasted token: the user links it once with link_espn_account. The legacy
+pasted token: the user connects it on the account page (link_espn_account
+remains for people who already hold a cce_ token). The legacy
 token-per-call server at /espn/mcp, the /espn routes and espn_team_claims are
 unchanged.
 
@@ -33,13 +34,13 @@ from .scoreboard import ScoreboardClient
 
 logger = logging.getLogger(__name__)
 
-ONBOARD_URL = 'https://api.cozycommons.dev/espn/onboard'
+ACCOUNT_URL = 'https://cozycommons.dev/account#espn'
 DOCS_URL = 'https://github.com/cozycommons/cc/blob/main/docs/mcp/README.md#espn'
-LINK_STEP = (f'Call link_espn_account(api_token) once with your existing cce_ ESPN token. No token yet? '
-             f'Onboard at POST {ONBOARD_URL} with your league_id, season and espn_s2/SWID cookies, or at POST '
-             f'{ONBOARD_URL}/login with your ESPN login (see {DOCS_URL}), then link the token it returns.')
-RELINK_STEP = (f'ESPN rejected the stored cookies. Onboard again at POST {ONBOARD_URL} with fresh espn_s2/SWID '
-               'cookies, then call link_espn_account with the new token.')
+# Agents never collect an ESPN password, cookies or a cce_ token: the user connects ESPN on the account page.
+LINK_STEP = (f'Ask the user to connect ESPN at {ACCOUNT_URL} by signing in to ESPN there, then call this tool '
+             'again. Do not ask for their ESPN password, espn_s2/SWID cookies or a cce_ token in chat.')
+RELINK_STEP = (f'ESPN rejected the stored cookies. Ask the user to sign in to ESPN again at {ACCOUNT_URL}, then '
+               'retry. Do not ask for their ESPN password or cookies in chat.')
 RECEIPTS = 'espn_agent_receipts'
 LINEUP_APPROVALS = 'espn_lineup_approvals'
 RUN_COLUMNS = 'id,league_id,season,scoring_period_id,mode,status,plan,moves,conflicts,error,created_at'
@@ -491,10 +492,10 @@ def link(client, user, api_token):
         result, account = accounts.link_account_to_owner(client, api_token, user.id)
     except AccountError as error:
         raise ToolError('No ESPN account matches that token. Use the cce_ token from your ESPN onboarding '
-                        f'exactly as shown, or onboard again at POST {ONBOARD_URL}.') from error
+                        f'exactly as shown, or ask the user to connect ESPN at {ACCOUNT_URL}.') from error
     if result == 'other_owner':
         raise ToolError('This ESPN account is linked to another Commons user. Sign in as that user, '
-                        f'or onboard your own ESPN cookies at POST {ONBOARD_URL}.')
+                        f'or connect their own ESPN team at {ACCOUNT_URL}.')
     if result not in {'linked', 'already_linked'}:
         raise ToolError('Could not link the account. Retry in a moment; nothing changed.')
     linked_result = {'linked': True, 'status': result, 'account': {'id': account['id'], 'label': account['label']},
@@ -581,9 +582,9 @@ def register_tools(mcp, context):
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'idempotentHint': True,
                            'openWorldHint': False})
     async def link_espn_account(api_token: str) -> dict:
-        """Link your ESPN account to your Commons sign-in once, using its existing cce_ token.
+        """Link an ESPN account with a cce_ token the user already offered. Never ask for one.
 
-        The token proves ownership; it is checked against its stored hash and never
+        New users connect ESPN at https://cozycommons.dev/account#espn instead. The token proves ownership; it is checked against its stored hash and never
         stored or returned. Afterwards the ESPN tools need no token. Linking a different
         account of yours replaces the earlier link; an account linked to another Commons
         user is refused.
@@ -598,4 +599,4 @@ provider = ToolProvider(
     title='ESPN', description='Read your ESPN fantasy basketball league; propose and approve lineups, '
                               'roster edits and trades.',
     url=DOCS_URL, status=status,
-    link=AccountLink(LINK_STEP, linked=linked, tool='link_espn_account', url=ONBOARD_URL))
+    link=AccountLink(LINK_STEP, linked=linked, tool='link_espn_account', url=ACCOUNT_URL))

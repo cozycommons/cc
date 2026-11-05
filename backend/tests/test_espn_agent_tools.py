@@ -56,8 +56,9 @@ async def test_new_user_sees_espn_off_and_every_tool_needs_the_link(espn):
         'get_fantasy_league': 'read', 'get_fantasy_trends': 'read', 'get_fantasy_activity': 'read',
         'propose_fantasy_change': 'edit', 'approve_fantasy_change': 'edit', 'link_espn_account': 'edit'}
     enabled = await call('enable_project', project_id='espn')
-    assert enabled['next_step'] == LINK_STEP
-    with pytest.raises(ToolError, match='link_espn_account'):
+    assert enabled['next_step'] == LINK_STEP and 'cozycommons.dev/account#espn' in LINK_STEP
+    assert 'Do not ask for their ESPN password, espn_s2/SWID cookies or a cce_ token' in LINK_STEP
+    with pytest.raises(ToolError, match='Link your ESPN account first: Ask the user to connect ESPN at'):
         await call('get_fantasy_league')
 
 

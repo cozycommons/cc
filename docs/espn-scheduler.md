@@ -98,7 +98,6 @@ scheduler keeps filling exactly as before.
 
 ## Follow-up (outside this change)
 
-The hosted connect page copy (cozycommons.dev/fantasy/connect)
-should disclose that onboarding turns on automatic lineup setting —
-the flow no longer asks, it informs. Frontend copy lives outside
-this backend change.
+ESPN sign-in on the web is now on cozycommons.dev/account#espn
+(`/fantasy/connect` links there), whose "Set my lineup automatically
+each day" checkbox sets the choice when the account is created.

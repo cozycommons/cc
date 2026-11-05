@@ -1,14 +1,17 @@
-"""/account/linked-accounts: connect Beli and Resy on the account page instead of pasting a token into an agent."""
+"""/account/linked-accounts: connect Beli, Resy and ESPN on the account page instead of pasting a token into an agent."""
 import urllib.error
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import request_validation
 from commons_account import routes
+from espn import accounts as espn_accounts, disney_login
+from espn.espn_client import EspnAuthError, EspnClient, EspnError
 from ig_logger.accounts import hash_token
 from ig_logger.sinks.beli import accounts
 from ig_logger.sinks.beli.beli_client import BeliClient, BeliError, BeliUnauthorized
@@ -62,15 +65,61 @@ class Database:
         self.users = {'session-sam': SimpleNamespace(id='u-sam', email='sam@example.test'),
                       'session-kim': SimpleNamespace(id='u-kim', email='kim@example.test')}
         self.auth = SimpleNamespace(get_user=lambda token: SimpleNamespace(user=self.users.get(token)))
-        self.tables = {'beli_accounts': [], 'resy_accounts': [], 'ig_logger_sources': []}
+        self.tables = {'beli_accounts': [], 'resy_accounts': [], 'espn_accounts': [], 'ig_logger_sources': []}
         self.beli_accounts, self.resy_accounts = self.tables['beli_accounts'], self.tables['resy_accounts']
+        self.espn_accounts = self.tables['espn_accounts']
+        self.espn_claims, self.claim_failure = [], None
 
     def table(self, name):
         return Rows(self, 'ig_logger_sources' if name not in self.tables else name)
 
     def rpc(self, name, args):
-        rows = {'beli_link_account': self.beli_accounts, 'resy_link_account': self.resy_accounts}[name]
-        return SimpleNamespace(execute=lambda: SimpleNamespace(data=link_account(rows, **args)))
+        if name == 'espn_claim_account_proven':
+            def claim():
+                self.espn_claims.append(dict(args))
+                if self.claim_failure:  # the transaction failed: nothing it would write is applied
+                    raise self.claim_failure
+                return SimpleNamespace(data=claim_proven(self.espn_accounts, **args))
+            return SimpleNamespace(execute=claim)
+        rows = {'beli_link_account': self.beli_accounts, 'resy_link_account': self.resy_accounts,
+                'espn_link_account': self.espn_accounts}[name]
+
+        def execute():
+            before = {r['id']: r['owner_user_id'] for r in rows}
+            outcome = link_account(rows, **args)
+            if name == 'espn_link_account' and outcome == 'linked':  # 0091/0092: moved links are unproven
+                for r in rows:
+                    if r['owner_user_id'] != before[r['id']]:
+                        r['owner_proven'] = False
+            return SimpleNamespace(data=outcome)
+        return SimpleNamespace(execute=execute)
+
+
+def claim_proven(rows, p_account_id, p_user_id, p_espn_s2_enc, p_token_hash, p_token_prefix, p_automation,
+                 p_refresh_own, p_duplicate_ids):
+    # Mirrors public.espn_claim_account_proven (0092); the real one also expires proposals.
+    account = next((row for row in rows if row['id'] == p_account_id), None)
+    if account is None:
+        return 'missing'
+    owner = account['owner_user_id']
+    if owner not in (None, p_user_id) and account.get('owner_proven'):
+        return 'other_owner'
+    for row in rows:
+        if (row['id'] in p_duplicate_ids and row['id'] != p_account_id and row['owner_user_id'] not in (None, p_user_id)
+                and not row.get('owner_proven')):
+            row.update(owner_user_id=None, owner_proven=False, lineup_automation_enabled=False,
+                       token_hash='retired:' + str(uuid4()), token_prefix='retired')
+    credentials = {'espn_s2_enc': p_espn_s2_enc, 'token_hash': p_token_hash, 'token_prefix': p_token_prefix}
+    if owner == p_user_id:
+        account.update(owner_proven=True, **(credentials if p_refresh_own else {}))
+        return 'already_linked'
+    for row in rows:
+        if row['owner_user_id'] == p_user_id:
+            row.update(owner_user_id=None, owner_proven=False)
+    account.update(owner_user_id=p_user_id, owner_proven=True, **credentials)
+    if owner is not None:
+        account['lineup_automation_enabled'] = p_automation
+    return 'linked' if owner is None else 'taken_over'
 
 
 SAM = {'Authorization': 'Bearer session-sam'}
@@ -104,7 +153,7 @@ def connect(client, login, headers=SAM, password=PASSWORD):
 
 def test_a_new_beli_login_creates_and_links_an_account_whose_token_nobody_sees(account_app):
     client, db = account_app
-    assert client.get('/account/linked-accounts', headers=SAM).json() == {'beli': None, 'resy': None}
+    assert client.get('/account/linked-accounts', headers=SAM).json() == {'beli': None, 'resy': None, 'espn': None}
     response = connect(client, 'new@example.test')
     assert response.status_code == 200 and response.json()['status'] == 'linked'
     assert 'token' not in response.text and PASSWORD not in response.text
@@ -344,6 +393,267 @@ def test_resy_and_beli_links_are_independent(resy_app):
     assert linked['beli']['id'] == db.beli_accounts[0]['id'] and linked['resy']['id'] == db.resy_accounts[0]['id']
 
 
+# ESPN: a MyDisney login proves the SWID; typed cookies prove only themselves.
+
+SWID = '{0E1D2C3B-SYNTHETIC-SWID}'
+LEAGUE = {'league_id': 999, 'name': 'Synthetic League', 'team_name': 'Synthetic Squad', 'team_id': 7}
+
+
+@pytest.fixture
+def espn_app(account_app, monkeypatch):
+    client, db = account_app
+    monkeypatch.setenv('ESPN_CREDENTIALS_KEY', Fernet.generate_key().decode())
+    db.espn_logins, db.espn_probes, db.espn_failure, db.espn_challenge = [], [], None, False
+    db.espn_leagues = [LEAGUE]
+    db.espn_s2_issued = iter(f'fresh-s2-{n}' for n in range(100))
+
+    def login(email, password):
+        db.espn_logins.append(email)
+        if db.espn_failure:
+            raise db.espn_failure
+        if db.espn_challenge:
+            raise disney_login.ChallengeRequiredError('verify')
+        if email == 'nobody@example.test':
+            raise disney_login.AccountNotFoundError('no account')
+        if password != PASSWORD:
+            raise disney_login.InvalidCredentialsError('bad password')
+        return {'espn_s2': next(db.espn_s2_issued), 'swid': SWID}
+
+    def probe(espn_s2, swid, league_id, season):
+        db.espn_probes.append((espn_s2, swid, league_id, season))
+        if espn_s2 == 'expired-s2':
+            raise EspnAuthError('ESPN league: cookies expired', status=401)
+        if league_id == 404:
+            raise EspnError('ESPN league -> 404', status=404)
+        return {'settings': {'name': 'Synthetic League'}}
+    monkeypatch.setattr(disney_login, 'login', login)
+    monkeypatch.setattr(disney_login, 'discover_basketball_leagues', lambda s2, swid, season: list(db.espn_leagues))
+    monkeypatch.setattr(EspnClient, 'probe', staticmethod(probe))
+    return client, db
+
+
+def connect_espn(client, login='sam@example.test', headers=SAM, password=PASSWORD, **extra):
+    return client.post('/account/linked-accounts/espn', headers=headers,
+                       json={'login': login, 'password': password, **extra})
+
+
+def connect_cookies(client, espn_s2='typed-s2', swid=SWID, headers=SAM, **extra):
+    return client.post('/account/linked-accounts/espn/cookies', headers=headers,
+                       json={'league_id': 999, 'season': 2027, 'espn_s2': espn_s2, 'swid': swid, **extra})
+
+
+def legacy_espn(db, owner=None, espn_s2='legacy-s2', swid=SWID, proven=False):
+    token = espn_accounts.mint_token()
+    row = {'id': str(uuid4()), 'label': 'legacy', 'league_id': 999, 'season': 2027,
+           'espn_s2_enc': espn_accounts.encrypt_secret(espn_s2), 'swid_enc': espn_accounts.encrypt_secret(swid),
+           'token_hash': espn_accounts.hash_token(token), 'token_prefix': token[:12],
+           'lineup_automation_enabled': True, 'owner_user_id': owner, 'owner_proven': proven}
+    db.espn_accounts.append(row)
+    return row, token
+
+
+def stored_s2(row):
+    return espn_accounts.decrypt_secret(row['espn_s2_enc'])
+
+
+def test_an_espn_login_creates_and_links_a_new_account_without_storing_the_password(espn_app):
+    client, db = espn_app
+    response = connect_espn(client, season=2027, enable_automation=False)
+    assert response.status_code == 200, response.text
+    assert response.json() == {'status': 'linked', 'account': {'id': db.espn_accounts[0]['id'], 'label': 'espn',
+                                                               'league_id': 999, 'season': 2027}}
+    for secret in (PASSWORD, 'fresh-s2', 'SYNTHETIC-SWID', 'cce_'):
+        assert secret not in response.text
+    row, = db.espn_accounts
+    assert row['owner_user_id'] == 'u-sam' and row['lineup_automation_enabled'] is False
+    assert stored_s2(row) == 'fresh-s2-0' and espn_accounts.decrypt_secret(row['swid_enc']) == SWID
+    assert PASSWORD not in repr(row)
+    summary = client.get('/account/linked-accounts', headers=SAM).json()['espn']
+    assert summary == {'id': row['id'], 'label': 'espn', 'league_id': 999, 'season': 2027}
+
+
+def test_several_leagues_ask_which_one_and_store_nothing_until_chosen(espn_app):
+    client, db = espn_app
+    db.espn_leagues = [LEAGUE, {**LEAGUE, 'league_id': 1001, 'name': 'Other League'}]
+    response = connect_espn(client, season=2027)
+    assert response.json() == {'status': 'league_selection_required', 'season': 2027, 'leagues': [
+        {'league_id': 999, 'name': 'Synthetic League', 'team_name': 'Synthetic Squad'},
+        {'league_id': 1001, 'name': 'Other League', 'team_name': 'Synthetic Squad'}]}
+    assert db.espn_accounts == [] and db.espn_probes == []
+    chosen = connect_espn(client, season=2027, league_id=1001)
+    assert chosen.json()['account']['league_id'] == 1001 and db.espn_accounts[0]['league_id'] == 1001
+
+
+def test_an_espn_login_claims_a_legacy_team_and_retires_its_token(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db, swid=SWID.lower().strip('{}'))  # SWID case and braces do not matter
+    response = connect_espn(client, season=2027)
+    assert response.json()['status'] == 'linked' and response.json()['account']['id'] == row['id']
+    assert len(db.espn_accounts) == 1 and row['owner_user_id'] == 'u-sam' and stored_s2(row) == 'fresh-s2-0'
+    # The legacy token's holder never proved this SWID, so fresh cookies must not reach them.
+    assert row['token_hash'] != espn_accounts.hash_token(token) and row['lineup_automation_enabled'] is True
+
+
+def test_typed_cookies_never_claim_a_team_that_already_exists(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db)
+    for espn_s2 in ('typed-s2', 'legacy-s2'):  # not even with the row's own cookies: cookies prove nothing
+        response = connect_cookies(client, espn_s2=espn_s2)
+        assert response.status_code == 409 and 'ESPN email and password' in response.json()['detail']
+    assert row['owner_user_id'] is None and stored_s2(row) == 'legacy-s2' and len(db.espn_accounts) == 1
+    assert row['token_hash'] == espn_accounts.hash_token(token)
+
+
+def test_refreshing_your_own_team_writes_the_cookies_and_retires_the_token(espn_app):
+    client, db = espn_app
+    client.app.state.supabase = legacy_cache = SimpleNamespace(cleared=0)
+    legacy_cache.clear_cache = lambda: setattr(legacy_cache, 'cleared', legacy_cache.cleared + 1)
+    row, token = legacy_espn(db, owner='u-sam')
+    assert connect_cookies(client, espn_s2='renewed-s2').json()['status'] == 'already_linked'
+    assert stored_s2(row) == 'renewed-s2' and row['token_hash'] != espn_accounts.hash_token(token)
+    assert legacy_cache.cleared == 1  # legacy /espn token lookups stop hitting the cached row
+
+
+def test_a_proven_owner_is_never_displaced(espn_app):
+    client, db = espn_app
+    row, _ = legacy_espn(db, owner='u-kim', proven=True)
+    row['espn_s2_enc'] = 'not-a-fernet-token'  # another user's espn_s2 is never decrypted
+    before = dict(row)
+    for response in (connect_espn(client, season=2027), connect_cookies(client)):
+        assert response.status_code == 409 and 'another Cozy Commons user' in response.json()['detail']
+    assert row == before and len(db.espn_accounts) == 1
+
+
+def test_a_league_mate_cannot_squat_a_team_the_real_owner_proves(espn_app):
+    client, db = espn_app
+    # Kim can read the league, so Kim's own cookies probe fine with Sam's SWID (mTeam lists it).
+    squat = connect_cookies(client, espn_s2='kims-s2', headers=KIM, enable_automation=True)
+    assert squat.status_code == 200 and squat.json()['status'] == 'linked'
+    row, = db.espn_accounts
+    assert row['owner_user_id'] == 'u-kim' and row['owner_proven'] is False
+    old_token_hash = row['token_hash']
+    assert connect_cookies(client, espn_s2='sams-s2').status_code == 409  # cookies cannot take it back
+    taken = connect_espn(client, season=2027, enable_automation=False)
+    assert taken.status_code == 200 and taken.json()['status'] == 'taken_over'
+    assert row['owner_user_id'] == 'u-sam' and row['owner_proven'] is True
+    assert stored_s2(row) == 'fresh-s2-0' and row['token_hash'] != old_token_hash
+    assert row['lineup_automation_enabled'] is False  # the squatter's choice does not carry over
+    assert connect_cookies(client, espn_s2='kims-s2', headers=KIM).status_code == 409
+    assert connect_espn(client, season=2027, headers=KIM).status_code == 409  # proven beats a second login
+
+
+def test_a_failed_takeover_changes_nothing_and_a_retry_still_takes_over(espn_app):
+    client, db = espn_app
+    row, token = legacy_espn(db, owner='u-kim')  # claimed without proof, automation on
+    before = dict(row)
+    db.claim_failure = RuntimeError('injected: the claim transaction failed')
+    with pytest.raises(RuntimeError, match='injected'):
+        connect_espn(client, season=2027, enable_automation=False)
+    # The claim is the only write on this path: ownership, the squatter's token, cookies and automation all stand.
+    assert row == before and row['token_hash'] == espn_accounts.hash_token(token)
+    claim, = db.espn_claims
+    assert claim['p_automation'] is False and claim['p_refresh_own'] is True and claim['p_token_hash'] != before['token_hash']
+    db.claim_failure = None
+    retried = connect_espn(client, season=2027, enable_automation=False)
+    assert retried.json()['status'] == 'taken_over'  # not already_linked: the failed attempt left nothing behind
+    assert row['owner_user_id'] == 'u-sam' and row['owner_proven'] is True and row['lineup_automation_enabled'] is False
+    assert row['token_hash'] == db.espn_claims[-1]['p_token_hash'] != before['token_hash']
+    assert stored_s2(row) == 'fresh-s2-1'
+
+
+def test_a_proven_claim_detaches_unproven_duplicates_of_the_team(espn_app):
+    client, db = espn_app
+    squatted, squat_token = legacy_espn(db, owner='u-kim')  # a duplicate a racing claimant kept
+    unowned, _ = legacy_espn(db)
+    claimed = connect_espn(client, season=2027)
+    assert claimed.json()['status'] == 'linked' and claimed.json()['account']['id'] == unowned['id']
+    assert unowned['owner_user_id'] == 'u-sam' and unowned['owner_proven'] is True
+    assert squatted['owner_user_id'] is None and squatted['owner_proven'] is False
+    assert squatted['lineup_automation_enabled'] is False and squatted['token_hash'].startswith('retired:')
+    assert squatted['token_hash'] != espn_accounts.hash_token(squat_token)
+
+
+def test_an_in_flight_cookie_refresh_never_reacquires_a_row_a_proven_claim_detached(espn_app, monkeypatch):
+    client, db = espn_app
+    squatted, _ = legacy_espn(db, owner='u-kim')  # Kim holds a duplicate of Sam's team without proof
+    unowned, _ = legacy_espn(db)
+    find = espn_accounts._accounts_for_team
+
+    def proven_claim_lands_between_read_and_write(*args):
+        matches = find(*args)  # Kim's cookie request has read its own row...
+        monkeypatch.setattr(espn_accounts, '_accounts_for_team', find)
+        outcome, _ = espn_accounts.connect_account_for_owner(  # ...then Sam's MyDisney claim commits
+            db, 'u-sam', league_id=999, season=2027, espn_s2='sams-s2', swid=SWID, swid_proven=True)
+        assert outcome == 'linked' and squatted['owner_user_id'] is None  # detached
+        return matches
+    monkeypatch.setattr(espn_accounts, '_accounts_for_team', proven_claim_lands_between_read_and_write)
+    response = connect_cookies(client, espn_s2='kims-new-s2', headers=KIM)
+    assert response.status_code == 409 and 'already set up' in response.json()['detail']
+    assert squatted['owner_user_id'] is None and squatted['owner_proven'] is False  # not re-acquired
+    assert squatted['token_hash'].startswith('retired:') and stored_s2(squatted) == 'legacy-s2'
+    assert unowned['owner_user_id'] == 'u-sam'
+
+
+def test_a_previous_link_drops_to_unproven_when_you_claim_another_team(espn_app):
+    client, db = espn_app
+    other_team, _ = legacy_espn(db, owner='u-sam', proven=True, swid='{OTHER-TEAM-SWID}')
+    assert connect_espn(client, season=2027).json()['status'] == 'linked'
+    assert other_team['owner_user_id'] is None and other_team['owner_proven'] is False
+
+
+def test_a_chosen_league_must_be_one_of_the_logins_own_leagues(espn_app):
+    client, db = espn_app
+    response = connect_espn(client, season=2027, league_id=4242)
+    assert response.status_code == 400 and 'not one of your ESPN basketball leagues' in response.json()['detail']
+    assert db.espn_accounts == [] and db.espn_probes == []
+
+
+def test_espn_refusals_and_outages_store_nothing(espn_app):
+    client, db = espn_app
+    assert connect_espn(client, password='wrong').json()['detail'] == 'ESPN did not accept that email and password.'
+    assert connect_espn(client, 'nobody@example.test').json()['detail'] == 'ESPN did not accept that email and password.'
+    db.espn_challenge = True
+    assert 'verification step' in connect_espn(client).json()['detail']
+    db.espn_challenge, db.espn_failure = False, disney_login.DisneyLoginError('Disney 503')
+    assert connect_espn(client).status_code == 502
+    db.espn_failure = None
+    db.espn_leagues = []
+    assert 'No ESPN fantasy basketball league' in connect_espn(client, season=2027).json()['detail']
+    assert connect_cookies(client, espn_s2='expired-s2').json()['detail'].startswith('ESPN did not accept those cookies')
+    response = connect_cookies(client, league_id=404)
+    assert response.status_code == 400 and 'no basketball league' in response.json()['detail']
+    assert db.espn_accounts == []
+
+
+def test_espn_secrets_are_never_echoed(espn_app):
+    client, db = espn_app
+    secret = 'p' * 201
+    response = connect_espn(client, password=secret)
+    assert response.status_code == 400 and secret not in response.text
+    cookie = 's2-' + 'x' * 2000
+    response = connect_cookies(client, espn_s2=cookie)
+    assert response.status_code == 400 and cookie not in response.text
+    for path, body in (('/account/linked-accounts/espn', '{"login": 5, "password": "hunter2-secret"}'),
+                       ('/account/linked-accounts/espn/cookies',
+                        '{"league_id": "x", "season": 2027, "espn_s2": "hunter2-secret", "swid": "{A}"}')):
+        response = client.post(path, headers={**SAM, 'Content-Type': 'application/json'}, content=body)
+        assert response.status_code == 422 and 'hunter2-secret' not in response.text, response.text
+    assert db.espn_logins == [] and db.espn_probes == []
+
+
+def test_espn_attempts_are_limited_per_user_per_email_and_per_swid(espn_app):
+    client, db = espn_app
+    assert client.post('/account/linked-accounts/espn/cookies', json={}).status_code == 401
+    for _ in range(10):
+        assert connect_espn(client, 'victim@example.test', password='wrong').status_code == 400
+    assert connect_cookies(client).status_code == 429  # per Commons user
+    assert connect_espn(client, 'VICTIM@example.test', headers=KIM, password='wrong').status_code == 429  # per email
+    routes._CONNECT_ATTEMPTS.clear()
+    for _ in range(10):
+        assert connect_cookies(client, espn_s2='expired-s2').status_code == 400
+    assert connect_cookies(client, swid=SWID.lower(), headers=KIM).status_code == 429  # per SWID
+
+
 SECRET = 'SYNTHETIC-SECRET-VALUE'
 
 
@@ -362,3 +672,20 @@ def test_resy_422s_never_echo_the_password(resy_app):
         {'login': 'sam@example.test', 'password': 'x', 'note': SECRET},
     ])
     assert db.resy_logins == []
+
+
+def test_espn_422s_never_echo_the_password_or_cookies(espn_app):
+    client, db = espn_app
+    assert_422_hides(client, '/account/linked-accounts/espn', [
+        {'password': SECRET},
+        {'login': 'sam@example.test', 'password': [SECRET]},
+        {'login': 'sam@example.test', 'password': SECRET, 'league_id': 'one'},
+        {'login': 'sam@example.test', 'password': 'x', 'note': SECRET},
+    ])
+    assert_422_hides(client, '/account/linked-accounts/espn/cookies', [
+        {'league_id': 999, 'season': 2027, 'espn_s2': SECRET},
+        {'league_id': 999, 'season': 2027, 'espn_s2': [SECRET], 'swid': '{A}'},
+        {'league_id': 999, 'season': 1999, 'espn_s2': SECRET, 'swid': SECRET},
+        {'league_id': 999, 'season': 2027, 'espn_s2': 'x', 'swid': '{A}', 'note': SECRET},
+    ])
+    assert db.espn_logins == [] and db.espn_probes == []

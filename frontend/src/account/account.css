@@ -29,6 +29,8 @@ body.cc-account-body { margin: 0; background: var(--paper); color: var(--ink); f
 .cc-account-confirm { display: flex; flex-wrap: wrap; gap: 8px; }
 .cc-account-login { display: flex; flex-direction: column; gap: 8px; max-width: 360px; margin-top: 12px; }
 .cc-account-login .cc-account-muted { margin: 0; }
+.cc-account-field { display: flex; flex-direction: column; gap: 4px; }
+.cc-account-check { display: flex; align-items: center; gap: 8px; }
 
 @media (max-width: 640px) {
   .cc-account-page main { margin-top: 28px; }
