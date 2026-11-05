@@ -142,40 +142,46 @@ function Agents() {
   </section>;
 }
 
-function BeliAccount({ account, openOnLoad, onConnected }) {
+// Services the user signs in to on this page. The password goes only to our API, never to an agent.
+const PASSWORD_SERVICES = [
+  { id: 'beli', name: 'Beli', login: 'Beli email or phone' },
+  { id: 'resy', name: 'Resy', login: 'Resy email', type: 'email' },
+];
+
+function PasswordAccount({ service, account, openOnLoad, onConnected }) {
   const [open, setOpen] = useState(openOnLoad && !account);
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const row = useRef(null);
-  // The page's own hash scroll runs before this row exists, so the agent's #beli link lands here.
+  // The page's own hash scroll runs before this row exists, so an agent's #<service> link lands here.
   useEffect(() => { if (openOnLoad) row.current?.scrollIntoView?.(); }, [openOnLoad]);
   const close = () => { setOpen(false); setPassword(''); setError(''); };
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true); setError('');
     try {
-      const result = await accountRequest('/linked-accounts/beli', { method: 'POST', body: { login: login.trim(), password } });
+      const result = await accountRequest(`/linked-accounts/${service.id}`, { method: 'POST', body: { login: login.trim(), password } });
       onConnected(result.account);
       setLogin(''); close();
     } catch (err) { setError(err.message); } finally { setBusy(false); setPassword(''); }
   };
-  return <li className="cc-account-connection" id="beli" ref={row}>
+  return <li className="cc-account-connection" id={service.id} ref={row}>
     <div>
-      <strong>Beli</strong>
+      <strong>{service.name}</strong>
       <p className="cc-account-muted">{account ? 'Connected' : 'Not connected'}</p>
       {open && <form className="cc-account-login" onSubmit={submit}>
-        <input className="cc-input" aria-label="Beli email or phone" placeholder="Beli email or phone" autoComplete="username"
+        <input className="cc-input" type={service.type || 'text'} aria-label={service.login} placeholder={service.login} autoComplete="username"
           required maxLength={200} value={login} onChange={(event) => setLogin(event.target.value)} />
-        <input className="cc-input" type="password" aria-label="Beli password" placeholder="Beli password" autoComplete="current-password"
+        <input className="cc-input" type="password" aria-label={`${service.name} password`} placeholder={`${service.name} password`} autoComplete="current-password"
           required maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} />
         <div className="cc-account-confirm">
           <button type="submit" className="cc-button cc-button--primary" disabled={busy || !login.trim() || !password}>
-            {busy ? 'Checking with Beli…' : account ? 'Save password' : 'Connect Beli'}</button>
+            {busy ? `Checking with ${service.name}…` : account ? 'Save password' : `Connect ${service.name}`}</button>
           <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={close}>Cancel</button>
         </div>
-        <p className="cc-account-muted">Stored encrypted and used only for your Beli requests.</p>
+        <p className="cc-account-muted">Stored encrypted and used only for your {service.name} requests.</p>
       </form>}
       {error && <p className="cc-notice cc-notice--error" role="alert">{error}</p>}
     </div>
@@ -199,8 +205,9 @@ function LinkedAccounts({ hash }) {
     {error && <p className="cc-notice cc-notice--error" role="alert">{error} <button type="button" className="cc-button cc-button--ghost" onClick={load}>Retry</button></p>}
     {linked === null ? !error && <p role="status" className="cc-account-muted">Loading linked accounts…</p>
       : <ul className="cc-account-connections">
-        <BeliAccount account={linked.beli} openOnLoad={hash === '#beli'}
-          onConnected={(account) => setLinked((current) => ({ ...current, beli: account }))} />
+        {PASSWORD_SERVICES.map((service) => <PasswordAccount key={service.id} service={service} account={linked[service.id]}
+          openOnLoad={hash === `#${service.id}`}
+          onConnected={(account) => setLinked((current) => ({ ...current, [service.id]: account }))} />)}
       </ul>}
   </section>;
 }
