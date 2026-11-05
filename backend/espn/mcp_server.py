@@ -28,7 +28,7 @@ import json
 import os
 from datetime import datetime, timezone
 
-from mcp.server.fastmcp import FastMCP
+from mcp_validation import FastMCP
 from supabase import create_client
 
 from . import accounts

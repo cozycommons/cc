@@ -117,7 +117,7 @@ def register_tools(mcp, context):
         provider = project(project_id)
         await run_in_threadpool(projects.set_enabled, context.service_client, signed_in.id, provider.name, True)
         state = (await run_in_threadpool(projects.project_states, context.service_client, signed_in, [provider]))[provider.name]
-        tools = await mcp.get_tools()
+        tools = {tool.name: tool for tool in await mcp.local_provider.list_tools()}
         await notify_tools_changed()
         return {'project_id': provider.name, 'enabled': True, 'linked': state['linked'],
                 'tools': [{'name': name, 'access': level, 'description': tools[name].description}

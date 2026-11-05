@@ -1199,7 +1199,7 @@ async def exercise(args):
             refreshed = await http.post(origin + '/token', data={
                 'grant_type': 'refresh_token', 'refresh_token': main_tokens.refresh_token,
                 'client_id': auth.context.client_info.client_id})
-            assert refreshed.status_code == 400 and refreshed.json()['error'] == 'invalid_grant', refreshed.text
+            assert refreshed.status_code == 401 and refreshed.json()['error'] == 'invalid_grant', refreshed.text
             assert (await http.delete(f'{origin}/account/connections/{target}', headers=mine)).status_code == 204
             remaining = (await http.get(origin + '/account/connections', headers=mine)).json()
             assert [tuple(agent['scopes']) for agent in remaining] == [('commons:read',)]
