@@ -36,6 +36,8 @@ from starlette.routing import Route, request_response
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 
+from mcp_validation import ToolArgumentErrors
+
 from . import connections, oauth_storage, projects
 from .oauth_storage import SupabaseOAuthStore
 
@@ -759,4 +761,5 @@ def build_server(service_client, providers: tuple[ToolProvider, ...], *, auth=No
     if mcp.providers != [mcp.local_provider]:
         raise AgentConfigError("Providers must register tools directly; mounted servers bypass validation.")
     mcp.add_middleware(ProjectAccessMiddleware(context, registry))
+    mcp.add_middleware(ToolArgumentErrors())
     return mcp

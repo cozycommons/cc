@@ -33,6 +33,7 @@ from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
 from trips.routes import router as trips_router
 from supabase_cache import CachedSupabaseClient, SupabaseTTLCacheStore
+import mcp_validation
 import request_validation
 
 RUNTIME_POLICY = initialize_runtime_policy(
@@ -73,6 +74,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Cozy Commons Dice API", lifespan=lifespan)
 # Never echo submitted values (passwords, cookies, SMS codes) in 422 bodies.
 request_validation.install(app)
+# Nor in MCP tool-argument errors or FastMCP's invalid-argument log (legacy api_tokens).
+mcp_validation.install_log_filter()
 app.state.runtime_policy = RUNTIME_POLICY
 app.add_middleware(PublicPredictionsCompression)
 app.add_middleware(
