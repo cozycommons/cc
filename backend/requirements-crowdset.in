@@ -1,5 +1,6 @@
 # Direct dependencies. Regenerate the hash-locked .txt with:
 # scripts/lock-backend-requirements.sh backend/requirements-crowdset.in backend/requirements-crowdset.txt
+# Cooldown: cutoff must be >=7 days before HEAD; security exceptions: docs/supply-chain.md.
 # uv-version: 0.13.7
 # uv-exclude-newer: 2026-10-28T00:00:00Z
 # requires-python: >=3.11
