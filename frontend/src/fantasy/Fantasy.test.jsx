@@ -116,12 +116,15 @@ describe('Fantasy pages', () => {
     expect(document.querySelector('.fx-hub .fx-espn-logo, .fx-hub .fx-espn-button')).toBeNull();
   });
 
-  it('connect page carries the ESPN login form, off the hub', async () => {
-    vi.stubGlobal('fetch', respond(200, structuredClone(SNAPSHOT_V2)));
+  it('connect page sends ESPN sign-in to the account page and collects nothing itself', async () => {
+    const fetch = respond(200, structuredClone(SNAPSHOT_V2));
+    vi.stubGlobal('fetch', fetch);
     view('/fantasy/connect');
     expect(await screen.findByText('Automatic lineups')).toBeTruthy();
-    expect(document.querySelector('input[type=password]')).toBeTruthy();
+    expect(document.querySelector('input, form')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Connect ESPN on your account' })).toHaveAttribute('href', '/account#espn');
     expect(screen.getByRole('link', { name: /All matchups/ })).toBeTruthy();
+    expect(fetch.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/espn/onboard'))).toEqual([]);
   });
 
   it('dates the page by when scores were captured', async () => {

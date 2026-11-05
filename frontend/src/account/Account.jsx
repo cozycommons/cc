@@ -190,6 +190,97 @@ function PasswordAccount({ service, account, openOnLoad, onConnected }) {
   </li>;
 }
 
+// The NBA season is named by its ending year and rolls over on July 1, as on the server.
+const currentSeason = () => { const now = new Date(); return now.getUTCFullYear() + (now.getUTCMonth() >= 6 ? 1 : 0); };
+
+function EspnAccount({ account, openOnLoad, onConnected }) {
+  const [open, setOpen] = useState(openOnLoad && !account);
+  const [mode, setMode] = useState('login');
+  const [fields, setFields] = useState({ login: '', password: '', league_id: '', season: String(currentSeason()), espn_s2: '', swid: '' });
+  const [automation, setAutomation] = useState(true);
+  const [leagues, setLeagues] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const row = useRef(null);
+  useEffect(() => { if (openOnLoad) row.current?.scrollIntoView?.(); }, [openOnLoad]);
+  const set = (name) => (event) => setFields((current) => ({ ...current, [name]: event.target.value }));
+  // Secrets leave state as soon as a request ends; the password stays only while a league is being chosen.
+  const forget = (keepPassword) => setFields((current) => ({ ...current, password: keepPassword ? current.password : '', espn_s2: '' }));
+  const close = () => { setOpen(false); setLeagues(null); setError(''); forget(false); };
+  const send = async (path, body) => {
+    setBusy(true); setError('');
+    let choosing = false;
+    try {
+      const result = await accountRequest(path, { method: 'POST', body: { ...body, enable_automation: automation } });
+      if (result.status === 'league_selection_required') {
+        choosing = true;
+        setLeagues(result.leagues); setFields((current) => ({ ...current, league_id: String(result.leagues[0].league_id), season: String(result.season) }));
+        return;
+      }
+      onConnected(result.account);
+      setFields((current) => ({ ...current, login: '', swid: '', league_id: '' }));
+      close();
+    } catch (err) { setError(err.message); setLeagues(null); } finally { setBusy(false); forget(choosing); }
+  };
+  const submit = (event) => {
+    event.preventDefault();
+    if (mode === 'cookies') {
+      send('/linked-accounts/espn/cookies', { league_id: Number(fields.league_id), season: Number(fields.season),
+        espn_s2: fields.espn_s2.trim(), swid: fields.swid.trim() });
+    } else {
+      send('/linked-accounts/espn', { login: fields.login.trim(), password: fields.password,
+        ...(leagues ? { league_id: Number(fields.league_id), season: Number(fields.season) } : {}) });
+    }
+  };
+  const ready = mode === 'cookies'
+    ? fields.league_id && fields.season && fields.espn_s2.trim() && fields.swid.trim()
+    : fields.login.trim() && fields.password;
+  const switchMode = () => { setMode(mode === 'login' ? 'cookies' : 'login'); setLeagues(null); setError(''); forget(false); };
+  return <li className="cc-account-connection" id="espn" ref={row}>
+    <div>
+      <strong>ESPN</strong>
+      <p className="cc-account-muted">{account ? `Connected · League ${account.league_id}, ${account.season} season` : 'Not connected'}</p>
+      {open && <form className="cc-account-login" onSubmit={submit}>
+        {mode === 'login' ? <>
+          <input className="cc-input" type="email" aria-label="ESPN email" placeholder="ESPN email" autoComplete="username"
+            required maxLength={200} disabled={!!leagues} value={fields.login} onChange={set('login')} />
+          <input className="cc-input" type="password" aria-label="ESPN password" placeholder="ESPN password" autoComplete="current-password"
+            required maxLength={200} disabled={!!leagues} value={fields.password} onChange={set('password')} />
+          {leagues && <label className="cc-account-field">Which league?
+            <select className="cc-input" value={fields.league_id} onChange={set('league_id')}>
+              {leagues.map((league) => <option key={league.league_id} value={league.league_id}>
+                {league.name || `League ${league.league_id}`}{league.team_name ? ` · ${league.team_name}` : ''}</option>)}
+            </select></label>}
+        </> : <>
+          <input className="cc-input" inputMode="numeric" pattern="[0-9]+" aria-label="League ID" placeholder="League ID"
+            required value={fields.league_id} onChange={set('league_id')} />
+          <input className="cc-input" inputMode="numeric" pattern="[0-9]{4}" aria-label="Season (ending year)" placeholder="Season (ending year)"
+            required value={fields.season} onChange={set('season')} />
+          <input className="cc-input" type="password" aria-label="espn_s2 cookie" placeholder="espn_s2 cookie" autoComplete="off"
+            required maxLength={2000} value={fields.espn_s2} onChange={set('espn_s2')} />
+          <input className="cc-input" aria-label="SWID cookie" placeholder="SWID cookie" autoComplete="off" spellCheck={false}
+            required maxLength={64} value={fields.swid} onChange={set('swid')} />
+        </>}
+        <label className="cc-account-check"><input type="checkbox" checked={automation} onChange={(event) => setAutomation(event.target.checked)} />
+          Set my lineup automatically each day</label>
+        <div className="cc-account-confirm">
+          <button type="submit" className="cc-button cc-button--primary" disabled={busy || !ready}>
+            {busy ? 'Checking with ESPN…' : leagues ? 'Connect this league' : account ? 'Save' : 'Connect ESPN'}</button>
+          <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={close}>Cancel</button>
+        </div>
+        <p className="cc-account-muted">{mode === 'login'
+          ? 'Your password is used once to sign in and is not stored. The session cookies are stored encrypted.'
+          : 'Copy espn_s2 and SWID from espn.com in a signed-in browser. Stored encrypted.'}{' '}
+          <button type="button" className="cc-button cc-button--ghost" disabled={busy} onClick={switchMode}>
+            {mode === 'login' ? 'Use cookies instead' : 'Sign in with email instead'}</button></p>
+      </form>}
+      {error && <p className="cc-notice cc-notice--error" role="alert">{error}</p>}
+    </div>
+    {!open && <button type="button" className="cc-button cc-button--secondary" onClick={() => setOpen(true)}>
+      {account ? 'Update sign-in' : 'Connect'}</button>}
+  </li>;
+}
+
 function LinkedAccounts({ hash }) {
   const [linked, setLinked] = useState(null);
   const [error, setError] = useState('');
@@ -208,6 +299,8 @@ function LinkedAccounts({ hash }) {
         {PASSWORD_SERVICES.map((service) => <PasswordAccount key={service.id} service={service} account={linked[service.id]}
           openOnLoad={hash === `#${service.id}`}
           onConnected={(account) => setLinked((current) => ({ ...current, [service.id]: account }))} />)}
+        <EspnAccount account={linked.espn} openOnLoad={hash === '#espn'}
+          onConnected={(account) => setLinked((current) => ({ ...current, espn: account }))} />
       </ul>}
   </section>;
 }

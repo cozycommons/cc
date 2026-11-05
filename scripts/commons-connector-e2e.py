@@ -298,13 +298,16 @@ def fake_espn():
     from espn.espn_client import EspnWriteUncertain
     from tests.espn_fakes import League
 
-    state = {'leagues': {}}
+    # disney: email -> (password, SWID) for the MyDisney login the account page runs.
+    state = {'leagues': {}, 'disney': {}}
 
     class Espn(BaseHTTPRequestHandler):
-        def answer(self, payload):
+        def answer(self, payload, status=200, headers=()):
             body = json.dumps(payload).encode()
-            self.send_response(200)
+            self.send_response(status)
             self.send_header('Content-Type', 'application/json')
+            for name, value in headers:
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
@@ -320,6 +323,13 @@ def fake_espn():
             path, query = urlsplit(self.path).path, parse_qs(urlsplit(self.path).query)
             if path == '/scoreboard':
                 return self.answer({'events': []})
+            if path.startswith('/fans/'):  # league discovery: one basketball league per SWID
+                if self.league() is None:
+                    return self.send_error(401)
+                entry = {'abbrev': 'FBA', 'seasonId': 2027, 'entryId': 7,
+                         'entryMetadata': {'teamName': 'Synthetic Squad'},
+                         'groups': [{'groupId': 999, 'groupName': 'Synthetic League'}]}
+                return self.answer({'preferences': [{'type': {'code': 'fantasy'}, 'metaData': {'entry': entry}}]})
             league = self.league()
             if league is None:
                 return self.send_error(401)
@@ -333,6 +343,16 @@ def fake_espn():
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
+            path = urlsplit(self.path).path
+            if path == '/disney/api-key':
+                return self.answer({}, headers=[('api-key', 'synthetic-disney-key')])
+            if path == '/disney/guest/login':
+                assert self.headers.get('Authorization') == 'APIKEY synthetic-disney-key'
+                password, swid = state['disney'].get(body['loginValue'].lower(), (None, None))
+                if password is None or body['password'] != password:
+                    return self.answer({'error': {'errors': [{'code': 'AUTHORIZATION_CREDENTIALS'}]}}, status=400)
+                return self.answer({}, headers=[('Set-Cookie', f'espn_s2=synthetic-s2-{secrets.token_urlsafe(16)}'),
+                                                ('Set-Cookie', f'SWID={swid}')])
             league = self.league()
             if league is None:
                 return self.send_error(401)
@@ -446,14 +466,14 @@ async def exercise(args):
     espn_serving = asyncio.create_task(asyncio.to_thread(espn_server.serve_forever, poll_interval=0.1))
 
     async def onboard_espn(label):
-        """The real /espn/onboard path, against the fake ESPN API. Returns (cce_ token, synthetic SWID)."""
-        swid = '{' + str(uuid4()).upper() + '}'
+        """The real /espn/onboard path, against the fake ESPN API. Returns (cce_ token, synthetic SWID, espn_s2)."""
+        swid, espn_s2 = '{' + str(uuid4()).upper() + '}', 'synthetic-s2-' + secrets.token_urlsafe(16)
         async with httpx.AsyncClient(timeout=30) as http:
             response = await http.post(endpoint[:-len('/mcp')] + '/espn/onboard', json={
                 'label': label, 'league_id': 999, 'season': 2027, 'enable_automation': False,
-                'espn_s2': 'synthetic-s2-' + secrets.token_urlsafe(16), 'swid': swid})
+                'espn_s2': espn_s2, 'swid': swid})
         assert response.status_code == 200, f'ESPN onboarding: HTTP {response.status_code}'
-        return response.json()['token'], swid
+        return response.json()['token'], swid, espn_s2
 
     def espn_sends():
         return [(swid, kind) for swid, league in espn_state['leagues'].items() for kind in league.sends]
@@ -889,13 +909,14 @@ async def exercise(args):
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['espn']['enabled'] is False and projects['espn']['linked'] is False
                 enabled = await call('enable_project', project_id='espn', evidence='enable_project espn')
-                assert enabled['linked'] is False and 'link_espn_account' in enabled['next_step']
+                assert enabled['linked'] is False and 'cozycommons.dev/account#espn' in enabled['next_step']
+                assert 'cce_ token in chat' in enabled['next_step']
                 assert espn <= await listed(session)
                 print('PASS list_projects/enable_project show ESPN unlinked with the link step')
                 await refused(session, 'get_fantasy_league', {}, 'Link your ESPN account first',
                               'unlinked get_fantasy_league refused with the link step')
-                espn_token, mine_swid = await onboard_espn('e2e-mine')
-                other_espn, other_swid = await onboard_espn('e2e-other')
+                espn_token, mine_swid, mine_s2 = await onboard_espn('e2e-mine')
+                other_espn, other_swid, other_s2 = await onboard_espn('e2e-other')
                 print('PASS synthetic ESPN onboarding through /espn/onboard (fake loopback ESPN API)')
                 from espn.accounts import get_account_row_by_token as espn_account_row
                 mine_espn = espn_account_row(service, espn_token)['id']
@@ -908,15 +929,43 @@ async def exercise(args):
                               'No ESPN account matches', 'link_espn_account refused for a wrong token')
                 stored_espn = service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash') \
                     .eq('id', mine_espn).single().execute().data
-                linked = await call('link_espn_account', api_token=espn_token, evidence='link_espn_account')
-                assert linked['status'] == 'linked' and espn_token not in json.dumps(linked)
-                assert service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash') \
-                    .eq('id', mine_espn).single().execute().data == stored_espn
+                # The account page links with a MyDisney login, the only proof that a SWID is the caller's:
+                # typed cookies prove only that they can read the league. No cce_ token reaches the agent.
+                espn_page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
+                page_auth = {'Authorization': 'Bearer ' + user_token}
+                team = {'league_id': 999, 'season': 2027}
+                espn_email, espn_password = f'espn-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(12)
+                espn_state['disney'][espn_email] = (espn_password, mine_swid)
                 async with httpx.AsyncClient(timeout=30) as http:
-                    legacy_me = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
-                                               headers={'Authorization': 'Bearer ' + espn_token})
-                assert legacy_me.status_code == 200 and legacy_me.json()['label'] == 'e2e-mine'
-                print('PASS linking changes only the owner; the legacy cce_ token still works on /espn')
+                    taken = await http.post(espn_page + '/espn/cookies', headers=page_auth,
+                                            json={**team, 'espn_s2': other_s2, 'swid': other_swid})
+                    assert taken.status_code == 409, f"Other user's ESPN team: HTTP {taken.status_code}"
+                    print("PASS account page refuses another user's ESPN team from typed cookies")
+                    typed = await http.post(espn_page + '/espn/cookies', headers=page_auth,
+                                            json={**team, 'espn_s2': mine_s2, 'swid': mine_swid.lower()})
+                    assert typed.status_code == 409 and 'email and password' in typed.text, typed.text
+                    print('PASS account page never claims an existing ESPN team from typed cookies, even its own')
+                    wrong = await http.post(espn_page + '/espn', headers=page_auth,
+                                            json={'login': espn_email, 'password': 'wrong', 'season': 2027})
+                    assert wrong.status_code == 400 and 'did not accept' in wrong.text and 'wrong' not in wrong.text
+                    elsewhere = await http.post(espn_page + '/espn', headers=page_auth, json={
+                        'login': espn_email, 'password': espn_password, 'season': 2027, 'league_id': 4242})
+                    assert elsewhere.status_code == 400 and 'not one of your' in elsewhere.text, elsewhere.text
+                    linked = await http.post(espn_page + '/espn', headers=page_auth,
+                                             json={'login': espn_email.upper(), 'password': espn_password, 'season': 2027})
+                    assert linked.status_code == 200 and linked.json() == {'status': 'linked', 'account': {
+                        'id': mine_espn, 'label': 'e2e-mine', 'league_id': 999, 'season': 2027}}, linked.text
+                    assert espn_password not in linked.text and espn_token not in linked.text
+                    summary = (await http.get(espn_page, headers=page_auth)).json()['espn']
+                    retired = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                             headers={'Authorization': 'Bearer ' + espn_token})
+                assert summary == {'id': mine_espn, 'label': 'e2e-mine', 'league_id': 999, 'season': 2027}
+                assert retired.status_code == 401, f'retired cce_ token: HTTP {retired.status_code}'
+                refreshed = service.table('espn_accounts').select('espn_s2_enc,owner_proven') \
+                    .eq('id', mine_espn).single().execute().data
+                assert refreshed['espn_s2_enc'] != stored_espn['espn_s2_enc'] and refreshed['owner_proven'] is True
+                print('PASS account page MyDisney sign-in claims the legacy team, stores fresh cookies and retires '
+                      'its cce_ token (fake loopback Disney login)')
                 overview = await call('get_fantasy_league', evidence='get_fantasy_league view=league')
                 assert overview['your_team_id'] == 7 and len(overview['teams']) == 2
                 team = await call('get_fantasy_league', view='team', evidence='get_fantasy_league view=team (yours)')
@@ -979,15 +1028,33 @@ async def exercise(args):
                 await refused(session, 'approve_fantasy_change', {'kind': 'roster_edit', 'proposal_id': theirs,
                               'idempotency_key': f'x-{uuid4()}', 'dry_run': False}, 'in your ESPN account',
                               "approve_fantasy_change refused for another user's edit")
-                async with httpx.AsyncClient(timeout=30) as http:
-                    legacy_edits = await http.get(endpoint[:-len('/mcp')] + '/espn/roster/edits',
-                                                  headers={'Authorization': 'Bearer ' + espn_token})
-                assert legacy_edits.status_code == 200 and legacy_edits.json()['count'] == 1
-                print('PASS legacy /espn/roster/edits sees the connector edit through the same gate')
                 assert espn_sends() == [(mine_swid, 'lineup'), (mine_swid, 'roster_edit'), (mine_swid, 'trade')]
                 assert other_swid not in {swid for swid, _kind in espn_sends()}
                 print('PASS every ESPN tool over real OAuth: link, league, trends, activity, propose and approve; '
                       'one lineup, one roster edit and one trade sent')
+                # The other user's link was made without proof (as a league-mate's typed cookies would be), so
+                # a MyDisney sign-in for that SWID takes the team over and expires the proposal left on it.
+                takeover_email, takeover_password = f'espn-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(12)
+                espn_state['disney'][takeover_email] = (takeover_password, other_swid)
+                async with httpx.AsyncClient(timeout=30) as http:
+                    signed = await http.post(espn_page + '/espn', headers=page_auth, json={
+                        'login': takeover_email, 'password': takeover_password, 'season': 2027,
+                        'enable_automation': False})
+                    assert signed.status_code == 200 and signed.json()['status'] == 'taken_over', signed.text
+                    assert signed.json()['account']['id'] == other_espn_id
+                    squatter = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                              headers={'Authorization': 'Bearer ' + other_espn})
+                assert squatter.status_code == 401, f"previous holder's cce_ token: HTTP {squatter.status_code}"
+                claimed = service.table('espn_accounts').select('owner_user_id,owner_proven,lineup_automation_enabled') \
+                    .eq('id', other_espn_id).single().execute().data
+                assert claimed['owner_proven'] is True and claimed['lineup_automation_enabled'] is False
+                assert claimed['owner_user_id'] != other.json()['id']
+                assert service.table('espn_roster_edits').select('status').eq('id', theirs).single().execute() \
+                    .data['status'] == 'expired'
+                assert (await call('get_fantasy_league', evidence='get_fantasy_league after the takeover')
+                        )['your_team_id'] == 7
+                print('PASS a MyDisney sign-in takes over a team linked without proof, retires its token and '
+                      'expires its pending proposal')
                 access_token = auth.context.current_tokens.access_token
         callback = loop.create_future()
         readonly = provider('commons:read')
