@@ -573,6 +573,27 @@ def test_a_proven_claim_detaches_unproven_duplicates_of_the_team(espn_app):
     assert squatted['token_hash'] != espn_accounts.hash_token(squat_token)
 
 
+def test_an_in_flight_cookie_refresh_never_reacquires_a_row_a_proven_claim_detached(espn_app, monkeypatch):
+    client, db = espn_app
+    squatted, _ = legacy_espn(db, owner='u-kim')  # Kim holds a duplicate of Sam's team without proof
+    unowned, _ = legacy_espn(db)
+    find = espn_accounts._accounts_for_team
+
+    def proven_claim_lands_between_read_and_write(*args):
+        matches = find(*args)  # Kim's cookie request has read its own row...
+        monkeypatch.setattr(espn_accounts, '_accounts_for_team', find)
+        outcome, _ = espn_accounts.connect_account_for_owner(  # ...then Sam's MyDisney claim commits
+            db, 'u-sam', league_id=999, season=2027, espn_s2='sams-s2', swid=SWID, swid_proven=True)
+        assert outcome == 'linked' and squatted['owner_user_id'] is None  # detached
+        return matches
+    monkeypatch.setattr(espn_accounts, '_accounts_for_team', proven_claim_lands_between_read_and_write)
+    response = connect_cookies(client, espn_s2='kims-new-s2', headers=KIM)
+    assert response.status_code == 409 and 'already set up' in response.json()['detail']
+    assert squatted['owner_user_id'] is None and squatted['owner_proven'] is False  # not re-acquired
+    assert squatted['token_hash'].startswith('retired:') and stored_s2(squatted) == 'legacy-s2'
+    assert unowned['owner_user_id'] == 'u-sam'
+
+
 def test_a_previous_link_drops_to_unproven_when_you_claim_another_team(espn_app):
     client, db = espn_app
     other_team, _ = legacy_espn(db, owner='u-sam', proven=True, swid='{OTHER-TEAM-SWID}')

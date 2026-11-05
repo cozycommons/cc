@@ -540,6 +540,15 @@ existing links, all made with a `cce_` token, start unproven):
   all of it with the ownership change in one transaction, so a failure leaves
   the previous holder's row exactly as it was and a retry still takes over.
 - A row a link moves away from drops to unproven.
+- Since `0093_beli_espn_claim_locking.sql` the claim locks the target and the
+  duplicates in one statement, in id order, before branching (no deadlock
+  between opposite claims), detaches only rows for the same league and season,
+  refuses a missing user or empty cookies/token, and `service_role`'s
+  `UPDATE (status)` on `espn_lineup_runs` is explicit and checked by the
+  schema contract.
+- Typed cookies refresh an existing row with one `UPDATE` filtered on the
+  caller still owning it, never through a link: a request already in flight
+  cannot re-acquire a row a proven claim just detached (it gets the 409).
 - Writing new cookies into an existing row also replaces its `cce_` token with
   one nobody sees, so fresh cookies reach only the linked Commons user, and
   clears the legacy read cache. A stored `espn_s2` is decrypted only on the
