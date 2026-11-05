@@ -15,7 +15,7 @@ from ig_logger.accounts import hash_token
 from ig_logger.sinks.beli import accounts
 from ig_logger.sinks.beli.beli_client import BeliClient, BeliError, BeliUnauthorized
 from partiful import accounts as partiful_accounts
-from partiful.partiful_client import PartifulClient, PartifulCodeRejected, PartifulError
+from partiful.partiful_client import PartifulClient, PartifulCodeRejected, PartifulError, normalize_phone
 from resy import accounts as resy_accounts
 from resy.resy_client import ResyAuthError, ResyClient, ResyError
 from tests import beli_fakes, resy_fakes
@@ -574,6 +574,7 @@ PHONE = '+18185551234'
 def partiful_app(account_app, monkeypatch):
     client, db = account_app
     monkeypatch.setenv('PARTIFUL_CREDENTIALS_KEY', Fernet.generate_key().decode())
+    monkeypatch.setattr(routes, '_PARTIFUL_CHALLENGES', {})
     db.sms_sent, db.partiful_failure, db.partiful_uids = [], None, {PHONE: 'uid-sam'}
     db.partiful_sessions = iter(f'refresh-{n}' for n in range(100))
 
@@ -597,7 +598,16 @@ def send_code(client, phone='(818) 555-1234', headers=SAM):
     return client.post('/account/linked-accounts/partiful/code', headers=headers, json={'phone': phone})
 
 
-def connect_partiful(client, phone='818 555 1234', code='123456', headers=SAM):
+def connect_partiful(client, phone='818 555 1234', code='123456', headers=SAM, send=True):
+    """send=True stands in for step 1: the caller holds a fresh challenge for this phone (no text is counted)."""
+    if send:
+        try:
+            normalized = normalize_phone(phone)
+        except PartifulError:
+            normalized = None
+        if normalized:
+            user = {SAM['Authorization']: 'u-sam', KIM['Authorization']: 'u-kim'}[headers['Authorization']]
+            routes._PARTIFUL_CHALLENGES[user] = (normalized, routes.time.time() + 600)
     return client.post('/account/linked-accounts/partiful', headers=headers, json={'phone': phone, 'code': code})
 
 
@@ -681,3 +691,21 @@ def test_partiful_codes_are_limited_per_user_and_per_phone(partiful_app):
     assert send_code(client, phone='2125550000').status_code == 429  # per Commons user
     assert send_code(client, phone='+1 818-555-1234', headers=KIM).status_code == 429  # per phone: no SMS flood
     assert connect_partiful(client, phone='2125550000', headers=KIM).status_code == 200
+
+
+def test_a_partiful_code_needs_this_users_unexpired_challenge_for_that_phone(partiful_app, monkeypatch):
+    client, db = partiful_app
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # no challenge yet
+    assert send_code(client, '2125550000').status_code == 200
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # challenged a different phone
+    assert send_code(client, headers=KIM).status_code == 200
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # Kim's challenge is not Sam's
+    assert send_code(client).status_code == 200
+    now = routes.time.time()
+    monkeypatch.setattr(routes.time, 'time', lambda: now + routes._PARTIFUL_CHALLENGE_S + 1)
+    assert 'within 10 minutes' in connect_partiful(client, send=False).json()['detail']
+    monkeypatch.setattr(routes.time, 'time', lambda: now)
+    assert connect_partiful(client, code='000000', send=False).status_code == 400  # a wrong code keeps the challenge
+    assert connect_partiful(client, send=False).json()['status'] == 'linked'
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # consumed on success
+    assert db.partiful_accounts[0]['owner_user_id'] == 'u-sam' and len(db.partiful_accounts) == 1

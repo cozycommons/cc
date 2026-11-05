@@ -452,8 +452,12 @@ Partiful, which yields the account's Firebase uid. An existing account with that
 uid is reused, keeps its `ccp_` token and gets the fresh session; otherwise a new
 account is created with a token nobody sees. `partiful_link_account` links first,
 refusing another owner's account, and the session is stored only after, on the
-caller's row. Codes are 4 to 10 ASCII digits, checked in the route so a 422
-never echoes one. Both requests count toward 10 per hour per Commons user and
+caller's row. Step 1 records a pending challenge bound to the Commons user and
+the normalized phone, valid for 10 minutes (one per user; a new send replaces
+it, and like the attempt counters it lives in the single worker's memory). Step
+2 refuses a phone with no such challenge and consumes it once Partiful accepts
+the code. Codes are 4 to 10 ASCII digits, checked in the route so a 422 never
+echoes one. Both requests count toward 10 per hour per Commons user and
 per phone number, which also limits texts to any one phone.
 `GET /account/linked-accounts` adds `partiful`.
 

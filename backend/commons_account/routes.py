@@ -324,6 +324,11 @@ def partiful_phone(raw):
 
 
 PARTIFUL_DOWN = 'Partiful did not answer. Try again in a minute.'
+# A texted code may be verified only by the Commons user who asked for it, for that phone, within
+# 10 minutes, and only until it signs in once. One pending challenge per user per worker (a new
+# send replaces it), kept in memory like the attempt counters; production runs one worker.
+_PARTIFUL_CHALLENGES: dict[str, tuple[str, float]] = {}
+_PARTIFUL_CHALLENGE_S = 600
 
 
 @router.post('/linked-accounts/partiful/code')
@@ -335,6 +340,7 @@ def send_partiful_code(body: PartifulPhone, request: Request, user=Depends(curre
         PartifulClient.send_auth_code(phone)
     except (PartifulError, urllib.error.URLError, TimeoutError):  # the client wraps URLError; a read timeout escapes it
         raise HTTPException(502, PARTIFUL_DOWN)
+    _PARTIFUL_CHALLENGES[str(user.id)] = (phone, time.time() + _PARTIFUL_CHALLENGE_S)
     return {'status': 'code_sent', 'phone': phone}
 
 
@@ -346,6 +352,9 @@ def connect_partiful(body: PartifulCode, request: Request, user=Depends(current_
     if not (4 <= len(code) <= 10 and code.isascii() and code.isdigit()):
         raise HTTPException(400, 'Enter the number Partiful texted you.')
     connect_rate_check('partiful-user:' + str(user.id), 'partiful:' + phone)
+    pending = _PARTIFUL_CHALLENGES.get(str(user.id))
+    if pending is None or pending[0] != phone or pending[1] < time.time():
+        raise HTTPException(400, 'Send a code to this number first, then enter it within 10 minutes.')
     try:
         outcome, account = partiful_accounts.connect_account_for_owner(client(request), str(user.id), phone, code)
     except PartifulCodeRejected:
@@ -358,6 +367,7 @@ def connect_partiful(body: PartifulCode, request: Request, user=Depends(current_
         raise HTTPException(502, PARTIFUL_DOWN)
     except partiful_accounts.AccountError:
         raise HTTPException(503, 'Could not save your Partiful sign-in. Try again later.')
+    _PARTIFUL_CHALLENGES.pop(str(user.id), None)  # Partiful accepted the code: it signs in only once here
     if outcome == 'other_owner':
         raise HTTPException(409, 'This Partiful account is connected to another Cozy Commons user. '
                                  'Sign in as that user to manage it.')

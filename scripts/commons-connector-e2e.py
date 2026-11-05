@@ -866,12 +866,19 @@ async def exercise(args):
                 partiful_page = endpoint[:-len('/mcp')] + '/account/linked-accounts/partiful'
                 page_auth = {'Authorization': 'Bearer ' + user_token}
                 async with httpx.AsyncClient(timeout=30) as http:
+                    unsent = await http.post(partiful_page, headers=page_auth, json={'phone': mine_phone, 'code': '123456'})
+                    assert unsent.status_code == 400 and 'Send a code' in unsent.text, unsent.text
+                    print('PASS account page refuses a Partiful code it did not send to this user')
                     for phone in (other_phone, mine_phone):
                         sent = await http.post(partiful_page + '/code', headers=page_auth, json={'phone': phone})
                         assert sent.json() == {'status': 'code_sent', 'phone': phone}, sent.text
-                    taken = await http.post(partiful_page, headers=page_auth, json={'phone': other_phone, 'code': '123456'})
-                    assert taken.status_code == 409, f"Other user's Partiful phone: HTTP {taken.status_code}"
-                    print("PASS account page refuses another user's Partiful account")
+                        if phone == other_phone:
+                            taken = await http.post(partiful_page, headers=page_auth,
+                                                    json={'phone': other_phone, 'code': '123456'})
+                            assert taken.status_code == 409, f"Other user's Partiful phone: HTTP {taken.status_code}"
+                            print("PASS account page refuses another user's Partiful account")
+                    stale = await http.post(partiful_page, headers=page_auth, json={'phone': other_phone, 'code': '123456'})
+                    assert stale.status_code == 400 and 'Send a code' in stale.text  # the challenge moved to mine_phone
                     wrong = await http.post(partiful_page, headers=page_auth, json={'phone': mine_phone, 'code': '000000'})
                     assert wrong.status_code == 400 and '000000' not in wrong.text
                     print('PASS account page refuses a wrong Partiful code')
@@ -880,6 +887,9 @@ async def exercise(args):
                     assert linked.status_code == 200 and linked.json() == {
                         'status': 'linked', 'account': {'id': mine_row, 'label': 'e2e-mine'}}, linked.text
                     assert partiful_token not in linked.text and mine_uid not in linked.text
+                    replayed = await http.post(partiful_page, headers=page_auth,
+                                               json={'phone': mine_phone, 'code': '123456'})
+                    assert replayed.status_code == 400 and 'Send a code' in replayed.text  # consumed on success
                     summary = (await http.get(partiful_page[:-len('/partiful')], headers=page_auth)).json()
                 assert summary['partiful'] == {'id': mine_row, 'label': 'e2e-mine'}
                 relinked = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
