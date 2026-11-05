@@ -144,6 +144,7 @@ def fake_resy():
             path = urlsplit(self.path).path
             if path == '/3/auth/password':
                 token = secrets.token_urlsafe(16)
+                form['email'] = form['email'].lower()  # Resy logins are case-insensitive
                 state['sessions'][token] = form['email']
                 state['cards'].setdefault(form['email'], [{'id': next_id(), 'brand': 'visa', 'last_four': '4242',
                                                            'is_default': True}])
@@ -458,13 +459,13 @@ async def exercise(args):
         return [(swid, kind) for swid, league in espn_state['leagues'].items() for kind in league.sends]
 
     async def onboard_resy(label):
-        """The real /resy/onboard path, against the fake Resy API. Returns (ccr_ token, synthetic email)."""
-        email = f'resy-e2e-{uuid4().hex}@example.test'
+        """The real /resy/onboard path, against the fake Resy API. Returns (ccr_ token, synthetic email, password)."""
+        email, password = f'resy-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(16)
         async with httpx.AsyncClient(timeout=30) as http:
             response = await http.post(endpoint[:-len('/mcp')] + '/resy/onboard', json={
-                'label': label, 'email': email, 'password': secrets.token_urlsafe(16)})
+                'label': label, 'email': email, 'password': password})
         assert response.status_code == 200, f'Resy onboarding: HTTP {response.status_code}'
-        return response.json()['token'], email
+        return response.json()['token'], email, password
 
     # Guard every browser-style hop before sending any request (including Location
     # and consent response URLs). Never follow redirects to a hosted service.
@@ -739,7 +740,8 @@ async def exercise(args):
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['resy']['enabled'] is False and projects['resy']['linked'] is False
                 enabled = await call('enable_project', project_id='resy', evidence='enable_project resy')
-                assert enabled['linked'] is False and 'link_resy_account' in enabled['next_step']
+                assert enabled['linked'] is False and 'cozycommons.dev/account#resy' in enabled['next_step']
+                assert 'ccr_ token in chat' in enabled['next_step']
                 assert resy <= await listed(session)
                 print('PASS list_projects/enable_project show Resy unlinked with the link step')
                 await refused(session, 'find_resy_tables', {'date': when, 'venue_id': 7001},
@@ -747,8 +749,8 @@ async def exercise(args):
                 await refused(session, 'book_resy_table', {'venue_id': 7001, 'date': when, 'desired_time': '19:00',
                               'idempotency_key': 'unlinked', 'terms_id': '0' * 16, 'dry_run': False},
                               'Link your Resy account first', 'unlinked book_resy_table refused with the link step')
-                resy_token, mine_email = await onboard_resy('e2e-mine')
-                other_resy, other_email = await onboard_resy('e2e-other')
+                resy_token, mine_email, mine_password = await onboard_resy('e2e-mine')
+                other_resy, other_email, _ = await onboard_resy('e2e-other')
                 print('PASS synthetic Resy onboarding through /resy/onboard (fake loopback Resy API)')
                 from resy.accounts import get_account_row_by_token as resy_account_row
                 assert service.rpc('resy_link_account', {'p_account_id': resy_account_row(service, other_resy)['id'],
@@ -757,8 +759,21 @@ async def exercise(args):
                               "link_resy_account refused for another user's account")
                 await refused(session, 'link_resy_account', {'api_token': 'ccr_' + secrets.token_urlsafe(32)},
                               'No Resy account matches', 'link_resy_account refused for a wrong token')
-                linked = await call('link_resy_account', api_token=resy_token, evidence='link_resy_account')
-                assert linked['status'] == 'linked' and resy_token not in json.dumps(linked)
+                # The account page links with the Resy email itself: no ccr_ token reaches the agent.
+                resy_page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
+                async with httpx.AsyncClient(timeout=30) as http:
+                    taken = await http.post(resy_page + '/resy', headers={'Authorization': 'Bearer ' + user_token},
+                                            json={'login': other_email, 'password': 'synthetic'})
+                    assert taken.status_code == 409, f"Other user's Resy login: HTTP {taken.status_code}"
+                    print("PASS account page refuses another user's Resy login")
+                    linked = await http.post(resy_page + '/resy', headers={'Authorization': 'Bearer ' + user_token},
+                                             json={'login': mine_email.upper(), 'password': mine_password})
+                    assert linked.status_code == 200 and linked.json()['status'] == 'linked', linked.text
+                    assert resy_token not in linked.text and mine_password not in linked.text
+                    assert linked.json()['account']['id'] == resy_account_row(service, resy_token)['id']
+                    summary = (await http.get(resy_page, headers={'Authorization': 'Bearer ' + user_token})).json()
+                assert summary['resy']['id'] == linked.json()['account']['id']
+                print('PASS account page links the existing Resy account from its email (fake loopback Resy API)')
                 async with httpx.AsyncClient(timeout=30) as http:
                     legacy_me = await http.get(endpoint[:-len('/mcp')] + '/resy/me',
                                                headers={'Authorization': 'Bearer ' + resy_token})
