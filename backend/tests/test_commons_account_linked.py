@@ -120,12 +120,25 @@ def test_a_legacy_account_is_claimed_by_its_login_and_keeps_its_token(account_ap
     assert connect(client, row['login']).json()['status'] == 'already_linked'
 
 
-def test_reconnecting_refreshes_the_stored_password(account_app):
+def test_reconnecting_refreshes_the_stored_password(account_app, monkeypatch):
     client, db = account_app
     row, _ = beli_fakes.add_account(db, owner='u-sam')
     row['password_enc'] = accounts.encrypt_secret('old-password')
+    monkeypatch.setattr(accounts, '_clients', {})
+    cached = BeliClient(row['login'], 'old-password')
+    accounts._clients[row['id']] = (0, cached)
     assert connect(client, row['login']).json()['status'] == 'already_linked'
     assert accounts.decrypt_secret(row['password_enc']) == PASSWORD
+    assert row['id'] not in accounts._clients
+
+
+def test_linking_a_different_login_drops_the_old_accounts_cached_session(account_app, monkeypatch):
+    client, db = account_app
+    monkeypatch.setattr(accounts, '_clients', {})
+    old_row, _ = beli_fakes.add_account(db, owner='u-sam')
+    accounts._clients[old_row['id']] = (0, BeliClient(old_row['login'], 'synthetic-password'))
+    assert connect(client, 'new-login@example.test').json()['status'] == 'linked'
+    assert old_row['owner_user_id'] is None and old_row['id'] not in accounts._clients
 
 
 def test_another_users_beli_account_is_refused_and_untouched(account_app):

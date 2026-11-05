@@ -11,13 +11,14 @@ from ig_logger.sinks.beli import beli_client
 from ig_logger.sinks.beli.beli_client import BeliClient, BeliError, BeliUnauthorized
 
 
-def _token():
-    return pyjwt.encode({"exp": 9999999999, "sub": "u1"}, "x", algorithm="HS256")
+def _token(subject="u1"):
+    return pyjwt.encode({"exp": 9999999999, "sub": subject}, "x", algorithm="HS256")
 
 
 class Handler(BaseHTTPRequestHandler):
     mode = "ok"
     seen = []
+    headers_seen = []
 
     def _json(self, code, obj):
         body = b"" if obj is None else json.dumps(obj).encode()
@@ -31,13 +32,24 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length) or b"{}")
         Handler.seen.append((self.path, body, self.headers.get("Origin")))
+        Handler.headers_seen.append(dict(self.headers))
         if self.path == "/api/token/":
             if Handler.mode == "bad-login":
                 self._json(400, {"detail": "bad"})
+            elif Handler.mode == "rejected-login":
+                self._json(401, {"detail": "No active account found with the given credentials"})
             else:
-                self._json(200, {"access": _token(), "refresh": "refresh-1"})
+                self._json(200, {"access": _token(body.get("email", body.get("phone_no"))), "refresh": "refresh-1"})
         elif self.path == "/api/token/refresh/":
-            self._json(200, {"access": _token()})
+            if Handler.mode == "bad-refresh":
+                self._json(401, {})
+            elif Handler.mode == "refresh-outage":
+                self._json(503, {})
+            elif Handler.mode == "rotate-refresh":
+                Handler.refreshes_used.append(body.get("refresh"))
+                self._json(200, {"access": _token(), "refresh": f"refresh-{len(Handler.refreshes_used) + 1}"})
+            else:
+                self._json(200, {"access": _token()})
         elif self.path == "/api/add-bookmark/":
             self._json(201, None)  # Beli answers writes with an EMPTY body
         else:
@@ -45,6 +57,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         Handler.seen.append((self.path, None, self.headers.get("Origin")))
+        Handler.headers_seen.append(dict(self.headers))
         if Handler.mode == "unauthorized-once" and not getattr(Handler, "flipped", False):
             Handler.flipped = True
             self._json(401, {})
@@ -60,8 +73,10 @@ class Handler(BaseHTTPRequestHandler):
 @pytest.fixture()
 def mock_beli(monkeypatch):
     Handler.seen = []
+    Handler.headers_seen = []
     Handler.mode = "ok"
     Handler.flipped = False
+    Handler.refreshes_used = []
     server = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_port}"
