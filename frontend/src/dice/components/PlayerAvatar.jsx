@@ -1,4 +1,5 @@
 import React from 'react';
+import { credentialImage } from '../../credentialImages.js';
 import { Link } from 'react-router-dom';
 import { profilePath } from '../anonymous.js';
 
@@ -26,9 +27,10 @@ const pipPositions = {
 
 export default function PlayerAvatar({ profile, size = 40, linkToProfile = true }) {
   const identity = avatarIdentity(profile);
-  const content = profile?.avatar_url ? (
+  const image = credentialImage(profile?.avatar_url);
+  const content = image ? (
     <img
-      src={profile.avatar_url}
+      src={image}
       alt=""
       width={size}
       height={size}
