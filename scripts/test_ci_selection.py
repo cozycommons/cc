@@ -254,6 +254,15 @@ class GateTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             ci.check_gate(needs, ["trips"])
 
+    def test_supply_chain_failure_is_separate_from_selection(self):
+        for result in ('failure', 'cancelled', 'skipped', None):
+            needs = {'changes': {'result': 'success', 'outputs': {}},
+                     'supply-chain': {'result': result}}
+            with self.subTest(result=result), self.assertRaisesRegex(ValueError, 'supply-chain: required'):
+                ci.check_gate(needs, [], required_jobs=('supply-chain',))
+        ci.check_gate({'changes': {'result': 'success', 'outputs': {}},
+                       'supply-chain': {'result': 'success'}}, [], required_jobs=('supply-chain',))
+
     def test_selection_failure_blocks_merge(self):
         with self.assertRaises(ValueError):
             ci.check_gate({"changes": {"result": "failure"}}, [])

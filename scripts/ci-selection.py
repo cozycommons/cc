@@ -143,7 +143,10 @@ def changed_paths(event_name, event):
     return [p for p in git_paths("diff", "--name-only", "--no-renames", "-z", base, head, "--") if p]
 
 
-def check_gate(needs, jobs):
+def check_gate(needs, jobs, required_jobs=()):
+    for job in required_jobs:
+        if needs.get(job, {}).get("result") != "success":
+            raise ValueError(f"{job}: required check did not succeed")
     if needs["changes"]["result"] != "success":
         raise ValueError("Project selection failed")
     outputs = needs["changes"]["outputs"]
@@ -192,7 +195,8 @@ def main():
         if not args.target:
             parser.error("gate requires a target")
         jobs = ("frontend-tests",) if args.target == "frontend" else JOBS[1:]
-        check_gate(json.loads(os.environ["CI_NEEDS"]), jobs)
+        check_gate(json.loads(os.environ["CI_NEEDS"]), jobs,
+                   required_jobs=("supply-chain",) if args.target == "backend" else ())
 
 
 if __name__ == "__main__":

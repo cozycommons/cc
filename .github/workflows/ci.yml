@@ -33,27 +33,42 @@ jobs:
           fetch-depth: 0
       - name: Verify project selection and required-check gates
         run: |
-          python3 -m unittest discover -s scripts -p test_dependency_age.py -v
           python3 -m unittest discover -s scripts -p test_ci_selection.py -v
           python3 -m unittest discover -s scripts -p test_crowdset_ci_image.py -v
+      - id: select
+        name: Select affected project suites
+        run: python3 scripts/ci-selection.py plan
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.7"
           checksum: c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
           enable-cache: false
+      - name: Test supply-chain policies
+        run: |
+          python3 -m unittest discover -s scripts -p test_dependency_age.py -v
+          python3 -m unittest discover -s scripts -p test_osv_policy.py -v
       - name: Require every Python lockfile to match its direct dependencies
         run: |
           set -euo pipefail
-          for input in backend/requirements.in backend/requirements-compute.in \
-            backend/requirements-crowdset.in backend/compute/tests/requirements.in \
-            backend/crowdset/tests/requirements.in; do
+          while IFS= read -r input; do
             output="${input%.in}.txt"
             scripts/lock-backend-requirements.sh "$input" "$output"
             git diff --exit-code -- "$output"
-          done
+          done < <(git ls-files '*requirements*.in')
       - name: Enforce npm release cooldown
         timeout-minutes: 2
-        run: python3 scripts/check-dependency-age.py
+        run: python3 scripts/check-dependency-age.py --if-changed "$DEPENDENCY_BASE"
+        env:
+          DEPENDENCY_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
       - name: Scan every Python and npm lock for advisories
         if: ${{ !cancelled() }}
         timeout-minutes: 2
@@ -73,9 +88,6 @@ jobs:
           min-severity: medium
           advanced-security: false
           online-audits: false
-      - id: select
-        name: Select affected project suites
-        run: python3 scripts/ci-selection.py plan
 
   compute:
     needs: changes
@@ -435,7 +447,7 @@ jobs:
           CI_NEEDS: ${{ toJSON(needs) }}
 
   backend:
-    needs: [changes, backend-tests, trips, crowdset, crowdset-container, compute]
+    needs: [changes, backend-tests, trips, crowdset, crowdset-container, compute, supply-chain]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

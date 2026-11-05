@@ -5,8 +5,11 @@ import datetime as dt
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -35,7 +38,11 @@ def exceptions(now):
         expires = dt.date.fromisoformat(entry['expires'])
         if not reviewed <= now.date() <= expires or expires - reviewed > dt.timedelta(days=30):
             raise ValueError(f'invalid or expired exception: {entry}')
-    return {(e['ecosystem'], e['name'], e['version']) for e in entries}
+        if entry['ecosystem'] not in ('npm', 'pypi'):
+            raise ValueError('unsupported exception ecosystem')
+        if entry['ecosystem'] == 'pypi':
+            timestamp(entry['cutoff'])
+    return entries
 
 
 def check_python(path):
@@ -46,29 +53,64 @@ def check_python(path):
     if len(values) != 1:
         raise ValueError(f'{path}: expected exactly one uv-exclude-newer timestamp')
     cutoff = timestamp(values[0])
-    if cutoff > now - DAY and ('pypi-lock', str(path.relative_to(ROOT)), values[0]) not in exceptions(now):
+    if cutoff > now - DAY:
         raise ValueError(f'{path}: cutoff {cutoff} must be at least 7 days before commit {now}')
+    dependencies = {}
+    for line in lines:
+        requirement = line.split('#', 1)[0].strip()
+        if not requirement:
+            continue
+        # Only index requirements can obey exclude-newer. Reject options, paths,
+        # direct references and VCS sources before passing any input to uv.
+        match = re.fullmatch(r'([A-Za-z0-9][A-Za-z0-9._-]*)(\[[A-Za-z0-9_,.-]+\])?\s*([<>=!~].*)?', requirement.split(';', 1)[0].strip())
+        if not match or '@' in requirement or '://' in requirement:
+            raise ValueError(f'{path}: only registry requirements are allowed: {requirement}')
+        dependencies[re.sub(r'[-_.]+', '-', match[1]).lower()] = (match[3] or '').strip()
+    overrides = {}
+    for entry in exceptions(now):
+        name = re.sub(r'[-_.]+', '-', entry['name']).lower()
+        if entry['ecosystem'] != 'pypi' or name not in dependencies:
+            continue
+        if dependencies[name] != '==' + entry['version']:
+            raise ValueError(f'{path}: Python exception requires an exact pin for {name}')
+        overrides[name] = entry['cutoff']
+    return overrides
 
 
-def registry_times(name):
-    # One abbreviated metadata request per unique package; cache successful metadata
+def registry_metadata(name):
+    # One full metadata request per unique package; cache successful metadata
     # for this commit so CI cache reuse cannot hide a changed lock or cutoff.
     cache = ROOT / '.cache/dependency-age' / subprocess.check_output(
         ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     cache.mkdir(parents=True, exist_ok=True)
-    target = cache / (hashlib.sha256(name.encode()).hexdigest() + '.json')
+    target = cache / (hashlib.sha256(('dist-v2:' + name).encode()).hexdigest() + '.json')
     if target.exists():
         return json.loads(target.read_text())
     url = 'https://registry.npmjs.org/' + urllib.parse.quote(name, safe='')
-    with urllib.request.urlopen(url, timeout=20) as response:
-        times = json.load(response)['time']
-    target.write_text(json.dumps(times))
-    return times
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=20) as response:
+                metadata = json.load(response)
+            target.write_text(json.dumps(metadata))
+            return metadata
+        except urllib.error.URLError as error:
+            if isinstance(error, urllib.error.HTTPError) and error.code != 429 and error.code < 500:
+                raise
+            if attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
+
+
+def npm_changed(base):
+    if not base or set(base) == {'0'}:
+        return True
+    paths = subprocess.check_output(['git', 'diff', '--name-only', base, 'HEAD', '--'], cwd=ROOT, text=True).splitlines()
+    return any(Path(path).name == 'package-lock.json' or path == 'dependency-age-exceptions.json' for path in paths)
 
 
 def check_npm():
     now = commit_time()
-    allowed = exceptions(now)
+    allowed = {(e['ecosystem'], e['name'], e['version']) for e in exceptions(now)}
     packages = {}
     locks = subprocess.check_output(['git', 'ls-files', '*package-lock.json', 'package-lock.json'], cwd=ROOT, text=True).splitlines()
     for lock in locks:
@@ -83,26 +125,35 @@ def check_npm():
             resolved = package.get('resolved', '')
             if resolved and not resolved.startswith('https://registry.npmjs.org/'):
                 raise ValueError(f'{lock}: {name}@{version} is not a registry release')
-            packages.setdefault(name, set()).add(version)
+            packages.setdefault(name, []).append((version, package.get('resolved'), package.get('integrity')))
     failures = []
     def check(item):
         name, versions = item
-        times = registry_times(name)
-        for version in versions:
-            published = timestamp(times[version])  # missing metadata fails closed
+        metadata = registry_metadata(name)
+        for version, resolved, integrity in versions:
+            dist = metadata['versions'][version]['dist']
+            if not resolved or not integrity or resolved != dist['tarball'] or integrity != dist['integrity']:
+                raise ValueError(f'{name}@{version}: resolved/integrity does not match registry artifact')
+            published = timestamp(metadata['time'][version])  # missing metadata fails closed
             if published > now - DAY and ('npm', name, version) not in allowed:
                 failures.append(f'{name}@{version}: published {published}, commit {now}')
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
         list(pool.map(check, packages.items()))
     if failures:
         raise ValueError('npm releases younger than 7 days:\n' + '\n'.join(sorted(failures)))
-    print(f'Cooldown passed: {sum(map(len, packages.values()))} npm versions across {len(locks)} locks')
+    count = sum(len({version for version, _, _ in entries}) for entries in packages.values())
+    print(f'Cooldown passed: {count} npm versions across {len(locks)} locks')
 
 
 if __name__ == '__main__':
     try:
-        if len(sys.argv) == 2:
-            check_python(Path(sys.argv[1]).resolve())
+        if len(sys.argv) == 3 and sys.argv[1] == '--if-changed':
+            if npm_changed(sys.argv[2]):
+                check_npm()
+            else:
+                print('npm cooldown skipped: lockfiles and exceptions unchanged')
+        elif len(sys.argv) == 2:
+            print(json.dumps(check_python(Path(sys.argv[1]).resolve())))
         else:
             check_npm()
     except (ValueError, KeyError, OSError) as error:
