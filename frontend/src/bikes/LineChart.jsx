@@ -6,7 +6,7 @@ const PAD = { top: 12, right: 12, bottom: 26, left: 48 };
 function niceMax(value) {
   if (value <= 0) return 1;
   const step = 10 ** Math.floor(Math.log10(value));
-  return [1, 2, 2.5, 5, 10].map((m) => m * step).find((m) => m >= value);
+  return [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((m) => m * step).find((m) => m >= value);
 }
 
 // Lines over a shared x axis with a snapping crosshair; one tooltip lists every series.

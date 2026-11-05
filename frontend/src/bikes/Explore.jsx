@@ -12,7 +12,10 @@ const MAP_W = 600;
 export const hourLabel = (h) => `${h % 12 || 12} ${h < 12 ? 'AM' : 'PM'}`;
 const perHour = (rates, weekend, hour) => rates[24 * weekend + hour] / 100;
 const bin = (rate) => BINS.filter((b) => rate >= b).length;
-const waitLabel = (rate) => (rate > 0 ? `${Math.max(1, Math.round(60 / rate))} min` : 'no departures');
+const waitLabel = (rate) => {
+  if (rate <= 0) return 'no departures';
+  return rate > 60 ? `${Math.round(3600 / rate)} s` : `${Math.round(60 / rate)} min`;
+};
 const compact = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(v % 1e6 ? 1 : 0)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : `${v}`);
 
 function project({ lat, lng }) {

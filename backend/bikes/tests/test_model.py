@@ -24,6 +24,9 @@ def test_rates_count_only_days_a_station_existed():
     rows += [('b', f'2026-07-{day:02d} 08:00:00') for day in (20, 21, 22, 23, 24, 27, 28, 29, 30, 31)]
     trips(con, [('r', start, None, station, station.upper(), 'end', 40.70, -74.0, 40.7162, -74.0, 'member', 'nyc',
                  2026, 7) for station, start in rows])
+    # A Lyft test station in Los Angeles appears in the NYC files.
+    con.execute("INSERT INTO trips SELECT 'r', TIMESTAMP '2026-07-01 12:00', TIMESTAMP '2026-07-01 12:10', 'LA Metro Demo 2', "
+                "'LA Metro Demo 2', 'end', 34.026, -118.25, 34.04, -118.25, 'member', 'nyc', 2026, 7")
     con.execute("UPDATE trips SET ended_at = started_at + INTERVAL 10 MINUTE")
 
     model, places, monthly = build(con, months=1)
@@ -33,7 +36,8 @@ def test_rates_count_only_days_a_station_existed():
     assert model['stations']['b'][8] == 100  # 10 / 10 weekdays since opening, not / 23
     assert model['ride_mps'] == 3.0
     assert model['month_factor'][6] == 1.0
-    assert monthly == {'month': ['2026-07'], 'nyc': [56], 'jc': [0]}
+    assert 'LA Metro Demo 2' not in model['stations']
+    assert monthly == {'month': ['2026-07'], 'nyc': [57], 'jc': [0]}
     stations = explore(model, places, monthly)['stations']
     assert (stations['id'], stations['name'], stations['lat']) == (['a', 'b'], ['A', 'B'], [40.7, 40.7])
 

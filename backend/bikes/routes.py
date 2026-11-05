@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
 from . import gbfs
+from .model import SERVICE_AREA
 from .wait import decide, load_model
 
 router = APIRouter()
@@ -17,9 +18,9 @@ NEW_YORK = ZoneInfo('America/New_York')
 
 @router.get('/wait-or-ride')
 def wait_or_ride(
-    # Roughly the Citi Bike service area, so a stray location cannot pick a dock 100 km away.
-    lat: float = Query(ge=40.45, le=40.95),
-    lng: float = Query(ge=-74.30, le=-73.70),
+    # The service area, so a stray location cannot pick a dock 100 km away.
+    lat: float = Query(ge=SERVICE_AREA[0], le=SERVICE_AREA[1]),
+    lng: float = Query(ge=SERVICE_AREA[2], le=SERVICE_AREA[3]),
     format: Literal['json', 'text'] = 'json',
 ):
     try:

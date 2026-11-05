@@ -31,7 +31,7 @@ describe('explore', () => {
 
     const table = await screen.findByRole('table', { name: 'Busiest docks at 5 PM' });
     const first = within(table).getAllByRole('row')[1];
-    expect(first.textContent).toBe('W 33 St & 7 Ave120.01 min');
+    expect(first.textContent).toBe('W 33 St & 7 Ave120.030 s');
 
     fireEvent.click(screen.getByRole('tab', { name: 'Weekend' }));
     expect(within(table).getAllByRole('row')[1].textContent).toBe('W 33 St & 7 Ave30.02 min');

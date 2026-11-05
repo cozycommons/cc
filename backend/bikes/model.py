@@ -29,6 +29,9 @@ from pathlib import Path
 import tempfile
 
 MODEL_PATH = Path(__file__).with_name('wait_model.json')
+# (south, north, west, east): New York and Jersey City. The trip files also carry
+# Lyft's test stations, such as "LA Metro Demo 2" in Los Angeles.
+SERVICE_AREA = (40.45, 40.95, -74.30, -73.70)
 EXPLORE_PATH = Path(__file__).resolve().parents[2] / 'frontend/public/bikes/explore.json'
 
 HAVERSINE_M = """2 * 6371000 * asin(sqrt(
@@ -114,9 +117,11 @@ def finalize(con, window):
              running AS (SELECT mps, sum(n) OVER (ORDER BY mps) AS below, sum(n) OVER () AS total FROM bins)
         SELECT min(mps) FROM running WHERE below * 2 >= total
     ''').fetchone()[0]
+    south, north, west, east = SERVICE_AREA
     places = {station: (name, round(lat / n, 5), round(lng / n, 5)) for station, name, lat, lng, n in con.execute('''
         SELECT station, arg_max(name, seen), sum(lat), sum(lng), sum(n) FROM places GROUP BY station HAVING sum(n) > 0
-    ''').fetchall()}
+    ''').fetchall() if south <= lat / n <= north and west <= lng / n <= east}
+    stations = {s: slots for s, slots in stations.items() if s in places}
     return {
         'window': [f'{window[0] // 100}-{window[0] % 100:02d}', f'{window[-1] // 100}-{window[-1] % 100:02d}'],
         'ride_mps': round(ride_mps, 2),

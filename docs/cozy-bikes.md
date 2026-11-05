@@ -112,6 +112,20 @@ Siri Shortcut: Get Current Location, then Get Contents of URL
 `https://<api>/bikes/wait-or-ride?format=text&lat=<Latitude>&lng=<Longitude>`, then
 Speak Text.
 
+## Explorer
+
+`/bikes` also loads `frontend/public/bikes/explore.json`, written by the same
+`bikes.model` run (559 KB, 203 KB gzipped by nginx): every station's name, mean
+departure location and 48-slot profile from the model window, plus trips per month
+for every ingested year. It draws each dock as a dot colored by departures per hour,
+with an hour scrubber, a weekday/weekend toggle, a station's 24-hour profile and a
+busiest-docks table, then trips per month since 2013. The last year feeds the map
+and waits; every year feeds only trips per month, which the S3 build carries over.
+
+Stations whose mean location falls outside `SERVICE_AREA` in `bikes/model.py` are
+dropped: the trip files include Lyft test stations in Los Angeles. The API
+validates caller locations against the same box.
+
 Known simplifications: departures are averaged, not live; other riders already
 waiting for the same dock and rebalancing vans are ignored; the full dock stands
 in for your destination.
