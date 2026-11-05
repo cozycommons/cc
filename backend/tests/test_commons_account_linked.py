@@ -15,7 +15,7 @@ from ig_logger.accounts import hash_token
 from ig_logger.sinks.beli import accounts
 from ig_logger.sinks.beli.beli_client import BeliClient, BeliError, BeliUnauthorized
 from partiful import accounts as partiful_accounts
-from partiful.partiful_client import PartifulClient, PartifulCodeRejected, PartifulError
+from partiful.partiful_client import PartifulClient, PartifulCodeRejected, PartifulError, normalize_phone
 from resy import accounts as resy_accounts
 from resy.resy_client import ResyAuthError, ResyClient, ResyError
 from tests import beli_fakes, resy_fakes
@@ -75,9 +75,35 @@ class Database:
         return Rows(self, 'ig_logger_sources' if name not in self.tables else name)
 
     def rpc(self, name, args):
+        if name == 'espn_claim_account_proven':
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=claim_proven(self.espn_accounts, **args)))
         rows = {'beli_link_account': self.beli_accounts, 'resy_link_account': self.resy_accounts,
                 'espn_link_account': self.espn_accounts, 'partiful_link_account': self.partiful_accounts}[name]
-        return SimpleNamespace(execute=lambda: SimpleNamespace(data=link_account(rows, **args)))
+
+        def execute():
+            outcome = link_account(rows, **args)
+            if name == 'espn_link_account' and outcome == 'linked':  # 0091: an unproven link starts unproven
+                next(r for r in rows if r['id'] == args['p_account_id'])['owner_proven'] = False
+            return SimpleNamespace(data=outcome)
+        return SimpleNamespace(execute=execute)
+
+
+def claim_proven(rows, p_account_id, p_user_id):
+    # Mirrors public.espn_claim_account_proven (0091); the real one also expires pending proposals.
+    account = next((row for row in rows if row['id'] == p_account_id), None)
+    if account is None:
+        return 'missing'
+    if account['owner_user_id'] == p_user_id:
+        account['owner_proven'] = True
+        return 'already_linked'
+    if account['owner_user_id'] is not None and account.get('owner_proven'):
+        return 'other_owner'
+    previous = account['owner_user_id']
+    for row in rows:
+        if row['owner_user_id'] == p_user_id:
+            row['owner_user_id'] = None
+    account.update(owner_user_id=p_user_id, owner_proven=True)
+    return 'linked' if previous is None else 'taken_over'
 
 
 SAM = {'Authorization': 'Bearer session-sam'}
@@ -386,12 +412,12 @@ def connect_cookies(client, espn_s2='typed-s2', swid=SWID, headers=SAM, **extra)
                        json={'league_id': 999, 'season': 2027, 'espn_s2': espn_s2, 'swid': swid, **extra})
 
 
-def legacy_espn(db, owner=None, espn_s2='legacy-s2', swid=SWID):
+def legacy_espn(db, owner=None, espn_s2='legacy-s2', swid=SWID, proven=False):
     token = espn_accounts.mint_token()
     row = {'id': str(uuid4()), 'label': 'legacy', 'league_id': 999, 'season': 2027,
            'espn_s2_enc': espn_accounts.encrypt_secret(espn_s2), 'swid_enc': espn_accounts.encrypt_secret(swid),
            'token_hash': espn_accounts.hash_token(token), 'token_prefix': token[:12],
-           'lineup_automation_enabled': True, 'owner_user_id': owner}
+           'lineup_automation_enabled': True, 'owner_user_id': owner, 'owner_proven': proven}
     db.espn_accounts.append(row)
     return row, token
 
@@ -438,15 +464,14 @@ def test_an_espn_login_claims_a_legacy_team_and_retires_its_token(espn_app):
     assert row['token_hash'] != espn_accounts.hash_token(token) and row['lineup_automation_enabled'] is True
 
 
-def test_typed_cookies_reuse_a_legacy_team_only_with_its_own_cookies(espn_app):
+def test_typed_cookies_never_claim_a_team_that_already_exists(espn_app):
     client, db = espn_app
     row, token = legacy_espn(db)
-    response = connect_cookies(client, espn_s2='typed-s2')
-    assert response.status_code == 409 and 'ESPN email and password' in response.json()['detail']
+    for espn_s2 in ('typed-s2', 'legacy-s2'):  # not even with the row's own cookies: cookies prove nothing
+        response = connect_cookies(client, espn_s2=espn_s2)
+        assert response.status_code == 409 and 'ESPN email and password' in response.json()['detail']
     assert row['owner_user_id'] is None and stored_s2(row) == 'legacy-s2' and len(db.espn_accounts) == 1
-    response = connect_cookies(client, espn_s2='legacy-s2', swid=SWID.lower())
-    assert response.json()['status'] == 'linked' and response.json()['account']['id'] == row['id']
-    assert row['owner_user_id'] == 'u-sam' and row['token_hash'] == espn_accounts.hash_token(token)
+    assert row['token_hash'] == espn_accounts.hash_token(token)
 
 
 def test_refreshing_your_own_team_writes_the_cookies_and_retires_the_token(espn_app):
@@ -459,13 +484,39 @@ def test_refreshing_your_own_team_writes_the_cookies_and_retires_the_token(espn_
     assert legacy_cache.cleared == 1  # legacy /espn token lookups stop hitting the cached row
 
 
-def test_another_users_espn_team_is_refused_and_untouched(espn_app):
+def test_a_proven_owner_is_never_displaced(espn_app):
     client, db = espn_app
-    row, token = legacy_espn(db, owner='u-kim')
+    row, _ = legacy_espn(db, owner='u-kim', proven=True)
+    row['espn_s2_enc'] = 'not-a-fernet-token'  # another user's espn_s2 is never decrypted
     before = dict(row)
-    for response in (connect_espn(client, season=2027), connect_cookies(client, espn_s2='legacy-s2')):
+    for response in (connect_espn(client, season=2027), connect_cookies(client)):
         assert response.status_code == 409 and 'another Cozy Commons user' in response.json()['detail']
     assert row == before and len(db.espn_accounts) == 1
+
+
+def test_a_league_mate_cannot_squat_a_team_the_real_owner_proves(espn_app):
+    client, db = espn_app
+    # Kim can read the league, so Kim's own cookies probe fine with Sam's SWID (mTeam lists it).
+    squat = connect_cookies(client, espn_s2='kims-s2', headers=KIM, enable_automation=True)
+    assert squat.status_code == 200 and squat.json()['status'] == 'linked'
+    row, = db.espn_accounts
+    assert row['owner_user_id'] == 'u-kim' and row['owner_proven'] is False
+    old_token_hash = row['token_hash']
+    assert connect_cookies(client, espn_s2='sams-s2').status_code == 409  # cookies cannot take it back
+    taken = connect_espn(client, season=2027, enable_automation=False)
+    assert taken.status_code == 200 and taken.json()['status'] == 'taken_over'
+    assert row['owner_user_id'] == 'u-sam' and row['owner_proven'] is True
+    assert stored_s2(row) == 'fresh-s2-0' and row['token_hash'] != old_token_hash
+    assert row['lineup_automation_enabled'] is False  # the squatter's choice does not carry over
+    assert connect_cookies(client, espn_s2='kims-s2', headers=KIM).status_code == 409
+    assert connect_espn(client, season=2027, headers=KIM).status_code == 409  # proven beats a second login
+
+
+def test_a_chosen_league_must_be_one_of_the_logins_own_leagues(espn_app):
+    client, db = espn_app
+    response = connect_espn(client, season=2027, league_id=4242)
+    assert response.status_code == 400 and 'not one of your ESPN basketball leagues' in response.json()['detail']
+    assert db.espn_accounts == [] and db.espn_probes == []
 
 
 def test_espn_refusals_and_outages_store_nothing(espn_app):
@@ -523,6 +574,7 @@ PHONE = '+18185551234'
 def partiful_app(account_app, monkeypatch):
     client, db = account_app
     monkeypatch.setenv('PARTIFUL_CREDENTIALS_KEY', Fernet.generate_key().decode())
+    monkeypatch.setattr(routes, '_PARTIFUL_CHALLENGES', {})
     db.sms_sent, db.partiful_failure, db.partiful_uids = [], None, {PHONE: 'uid-sam'}
     db.partiful_sessions = iter(f'refresh-{n}' for n in range(100))
 
@@ -546,7 +598,16 @@ def send_code(client, phone='(818) 555-1234', headers=SAM):
     return client.post('/account/linked-accounts/partiful/code', headers=headers, json={'phone': phone})
 
 
-def connect_partiful(client, phone='818 555 1234', code='123456', headers=SAM):
+def connect_partiful(client, phone='818 555 1234', code='123456', headers=SAM, send=True):
+    """send=True stands in for step 1: the caller holds a fresh challenge for this phone (no text is counted)."""
+    if send:
+        try:
+            normalized = normalize_phone(phone)
+        except PartifulError:
+            normalized = None
+        if normalized:
+            user = {SAM['Authorization']: 'u-sam', KIM['Authorization']: 'u-kim'}[headers['Authorization']]
+            routes._PARTIFUL_CHALLENGES[user] = (normalized, routes.time.time() + 600)
     return client.post('/account/linked-accounts/partiful', headers=headers, json={'phone': phone, 'code': code})
 
 
@@ -630,3 +691,21 @@ def test_partiful_codes_are_limited_per_user_and_per_phone(partiful_app):
     assert send_code(client, phone='2125550000').status_code == 429  # per Commons user
     assert send_code(client, phone='+1 818-555-1234', headers=KIM).status_code == 429  # per phone: no SMS flood
     assert connect_partiful(client, phone='2125550000', headers=KIM).status_code == 200
+
+
+def test_a_partiful_code_needs_this_users_unexpired_challenge_for_that_phone(partiful_app, monkeypatch):
+    client, db = partiful_app
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # no challenge yet
+    assert send_code(client, '2125550000').status_code == 200
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # challenged a different phone
+    assert send_code(client, headers=KIM).status_code == 200
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # Kim's challenge is not Sam's
+    assert send_code(client).status_code == 200
+    now = routes.time.time()
+    monkeypatch.setattr(routes.time, 'time', lambda: now + routes._PARTIFUL_CHALLENGE_S + 1)
+    assert 'within 10 minutes' in connect_partiful(client, send=False).json()['detail']
+    monkeypatch.setattr(routes.time, 'time', lambda: now)
+    assert connect_partiful(client, code='000000', send=False).status_code == 400  # a wrong code keeps the challenge
+    assert connect_partiful(client, send=False).json()['status'] == 'linked'
+    assert 'Send a code' in connect_partiful(client, send=False).json()['detail']  # consumed on success
+    assert db.partiful_accounts[0]['owner_user_id'] == 'u-sam' and len(db.partiful_accounts) == 1

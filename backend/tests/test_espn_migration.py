@@ -41,7 +41,7 @@ def test_public_predictions_append_only_privileges_and_contract():
     assert "from public, anon, authenticated" in migration
     assert "grant select, insert on public.espn_public_predictions to service_role" in migration
     assert "revoke update, delete, truncate" in migration
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "90"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "91"
     contract = (directory / "beli_schema_contract.sql").read_text()
     for column in ("id", "matchup_id", "generated_at", "received_at", "payload"):
         assert f"espn_public_predictions.{column}" in contract
@@ -80,7 +80,7 @@ def test_account_delete_grant_and_contract_version():
     # Dependents (espn_snapshots, espn_lineup_runs) cascade per 0007/0008.
     assert "grant delete on public.espn_accounts to service_role" in migration
     assert "Applying 0013_beli_espn_account_delete.sql" in migration_runner.render(["beli"])
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "90"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "91"
 
 
 def test_seeded_claims_are_guarded_and_never_override_links():
@@ -135,7 +135,7 @@ def test_roster_edits_schema_privileges_and_contract():
     ):
         assert definition in migration
     assert "Applying 0014_beli_espn_roster_edits.sql" in migration_runner.render(["beli"])
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "90"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "91"
     contract = (directory / "beli_schema_contract.sql").read_text()
     assert "'espn_roster_edits'" in contract
     for column in ("id", "account_id", "status", "expires_at", "created_at"):
@@ -171,7 +171,7 @@ def test_trade_proposals_schema_privileges_and_contract():
     ):
         assert definition in migration
     assert "Applying 0015_beli_espn_trade_proposals.sql" in migration_runner.render(["beli"])
-    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "90"
+    assert (directory / "BELI_SCHEMA_CONTRACT_VERSION").read_text().strip() == "91"
     contract = (directory / "beli_schema_contract.sql").read_text()
     assert "'espn_trade_proposals'" in contract
     for column in ("id", "account_id", "status", "expires_at", "created_at"):
