@@ -39,9 +39,10 @@ account is linked to another Commons user, the user must sign in as that user.
 ## Resy
 
 Resy books real tables and can charge a deposit and a cancellation fee to the
-user's card. Link once exactly like Beli, with the user's existing `ccr_` token
-and `link_resy_account(api_token)`; onboarding is `POST
-https://api.cozycommons.dev/resy/onboard`.
+user's card. Link once like Beli: send the user to
+https://cozycommons.dev/account#resy to sign in to Resy there, then retry. Never
+ask for a Resy password or a `ccr_` token in chat. `link_resy_account(api_token)`
+still accepts an existing `ccr_` token the user offers unprompted.
 
 - `find_resy_tables(date, query or venue_id, party_size, time?)`: open slots with
   their `slot_token` and listed fees in cents.

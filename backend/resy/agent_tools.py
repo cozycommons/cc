@@ -1,7 +1,8 @@
 """Resy tools on the shared OAuth connector (/mcp).
 
 The Resy account is resolved from the signed-in Commons user, never from a
-pasted token: the user links it once with link_resy_account. The legacy
+pasted token: the user connects it on the account page (link_resy_account
+remains for people who already hold a ccr_ token). The legacy
 token-per-call server at /resy/mcp and the /resy routes are unchanged.
 
 Bookings and cancellations are real and can charge deposits and cancellation
@@ -31,12 +32,13 @@ from .routes import _coords_for
 
 logger = logging.getLogger(__name__)
 
-ONBOARD_URL = 'https://api.cozycommons.dev/resy/onboard'
+ACCOUNT_URL = 'https://cozycommons.dev/account#resy'
 DOCS_URL = 'https://github.com/cozycommons/cc/blob/main/docs/mcp/README.md#resy'
-LINK_STEP = (f'Call link_resy_account(api_token) once with your existing ccr_ Resy token. No token yet? '
-             f'Onboard with your Resy login at POST {ONBOARD_URL} (see {DOCS_URL}), then link the token it returns.')
-RELINK_STEP = (f'Resy rejected the stored login. Onboard again at POST {ONBOARD_URL} with your current Resy '
-               'password, then call link_resy_account with the new token.')
+# Agents never collect a Resy password or ccr_ token: the user connects Resy on the account page.
+LINK_STEP = (f'Ask the user to connect Resy at {ACCOUNT_URL} by signing in to Resy there, then call this tool '
+             'again. Do not ask for their Resy password or a ccr_ token in chat.')
+RELINK_STEP = (f'Resy rejected the stored login. Ask the user to sign in to Resy again at {ACCOUNT_URL}, then '
+               'retry. Do not ask for their Resy password in chat.')
 RECEIPTS = 'resy_agent_receipts'
 MAX_VENUES = 10
 NEAR_MINUTES = 60
@@ -503,10 +505,10 @@ def link(client, user, api_token):
         outcome, account = accounts.link_account_to_owner(client, api_token, user.id)
     except AccountError as error:
         raise ToolError('No Resy account matches that token. Use the ccr_ token from your Resy onboarding '
-                        f'exactly as shown, or onboard again at POST {ONBOARD_URL}.') from error
+                        f'exactly as shown, or ask the user to connect Resy at {ACCOUNT_URL}.') from error
     if outcome == 'other_owner':
         raise ToolError('This Resy account is linked to another Commons user. Sign in as that user, '
-                        f'or onboard your own Resy login at POST {ONBOARD_URL}.')
+                        f'or connect their own Resy login at {ACCOUNT_URL}.')
     if outcome not in {'linked', 'already_linked'}:
         raise ToolError('Could not link the account. Retry in a moment; nothing changed.')
     result = {'linked': True, 'status': outcome, 'account': {'id': account['id'], 'label': account['label']},
@@ -579,9 +581,9 @@ def register_tools(mcp, context):
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': False, 'idempotentHint': True,
                            'openWorldHint': False})
     async def link_resy_account(api_token: str) -> dict:
-        """Link your Resy account to your Commons sign-in once, using its existing ccr_ token.
+        """Link a Resy account with a ccr_ token the user already offered. Never ask for one.
 
-        The token proves ownership; it is checked against its stored hash and never
+        New users connect Resy at https://cozycommons.dev/account#resy instead. The token proves ownership; it is checked against its stored hash and never
         stored or returned. Afterwards the Resy tools need no token. Linking a different
         account of yours replaces the earlier link; an account linked to another Commons
         user is refused.
@@ -595,4 +597,4 @@ provider = ToolProvider(
      'cancel_resy_reservation': 'edit', 'link_resy_account': 'edit'},
     title='Resy', description='Find, book and cancel Resy restaurant reservations.',
     url=DOCS_URL, status=status,
-    link=AccountLink(LINK_STEP, linked=linked, tool='link_resy_account', url=ONBOARD_URL))
+    link=AccountLink(LINK_STEP, linked=linked, tool='link_resy_account', url=ACCOUNT_URL))
