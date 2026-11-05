@@ -75,6 +75,7 @@ Cookies are never logged.
 from __future__ import annotations
 
 import http.client
+from .errors import scrub
 import json
 import math
 import threading
@@ -373,12 +374,12 @@ class EspnClient:
                     f"{what} -> {e.code}: {AUTH_EXPIRED_MESSAGE}", status=e.code
                 ) from e
             try:
-                detail = e.read().decode("utf-8", errors="replace")[:200]
+                detail = scrub(e.read(4096).decode("utf-8", errors="replace"))
             except Exception:
                 detail = ""
             raise EspnError(f"{what} -> {e.code} {detail}", status=e.code) from e
         except urllib.error.URLError as e:
-            raise EspnError(f"{what}: network error {e}") from e
+            raise EspnError(f"{what}: network error {scrub(e)}") from None
         return raw
 
     @staticmethod
@@ -438,13 +439,13 @@ class EspnClient:
                     f"{what} -> {e.code}: {AUTH_EXPIRED_MESSAGE}", status=e.code
                 ) from e
             try:
-                detail = e.read().decode("utf-8", errors="replace")[:200]
+                detail = scrub(e.read(4096).decode("utf-8", errors="replace"))
             except Exception:
                 detail = ""
             error_type = EspnWriteUncertain if e.code >= 500 or e.code == 408 else EspnError
             raise error_type(f"{what} -> {e.code} {detail}", status=e.code) from e
         except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
-            raise EspnWriteUncertain(f"{what}: network error {e}") from e
+            raise EspnWriteUncertain(f"{what}: network error {scrub(e)}") from None
         text = raw.strip()
         if not text:
             return {}
