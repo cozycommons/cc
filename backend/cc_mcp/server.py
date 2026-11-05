@@ -701,6 +701,9 @@ def create_agent_app(
         client_storage=storage,
         jwt_signing_key=settings.jwt_signing_key,
         require_authorization_consent=True,
+        # FastMCP 3 defaults CIMD on: a URL client_id makes this server fetch
+        # that URL before any authentication. Clients register through DCR.
+        enable_cimd=False,
         service_client=service_client,
     )
     mcp = build_server(service_client, providers, auth=oauth)

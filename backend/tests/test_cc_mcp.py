@@ -875,3 +875,19 @@ async def test_index_failures_never_fail_auth_and_client_revoke_marks_the_row(mo
                                           expires_at=4_000_000_000))
     assert index.only()["revoked_at"]
     assert await oauth.load_access_token(access) is None
+
+
+@pytest.mark.asyncio
+async def test_url_client_ids_are_never_fetched(monkeypatch):
+    from fastmcp.server.auth.cimd import CIMDFetcher
+
+    async def no_fetch(*_args, **_kwargs):
+        raise AssertionError("CIMD must stay disabled: unauthenticated callers would choose the URL")
+
+    monkeypatch.setattr(CIMDFetcher, "fetch", no_fetch)
+    agent = make_agent_app()
+    assert await agent.state.cc_mcp_oauth.get_client("https://example.test/client.json") is None
+    with TestClient(agent) as client:
+        metadata = client.get("/.well-known/oauth-authorization-server").json()
+    assert not metadata.get("client_id_metadata_document_supported")
+
