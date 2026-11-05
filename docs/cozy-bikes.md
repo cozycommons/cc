@@ -1,7 +1,8 @@
 # Cozy Bikes
 
 Citi Bike's public trip history (New York since June 2013, Jersey City since
-September 2015) as local Parquet you can query with DuckDB.
+September 2015) as local Parquet you can query with DuckDB, and a wait-or-ride
+answer for a full dock at `/bikes`.
 
 ## Source and license
 
@@ -81,3 +82,33 @@ GROUP BY ALL ORDER BY trips DESC LIMIT 10;
 
 The view stores the data directory's absolute path. After moving the directory,
 rerun the ingest to rewrite it.
+
+## Wait or ride
+
+At a full dock a slot opens when someone takes a bike out, so the expected wait
+is `60 / departures per hour` for that station, weekday or weekend, hour, and
+season. `python -m bikes.model` (bikes venv) builds `backend/bikes/wait_model.json`
+from the last 12 published months:
+
+- per GBFS `short_name`, mean departures per hour for 24 weekday and 24 weekend
+  hours, in hundredths, averaged over the days since the station's first
+  departure in the window;
+- a system-wide factor per calendar month for the season;
+- the median riding speed between stations, crow-flies, from real trips.
+
+Rebuild and commit it after a monthly ingest.
+
+`GET /bikes/wait-or-ride?lat=&lng=` reads live docks from
+`gbfs.lyft.com/gbfs/2.3/bkn/en/` (station status cached 60 s, locations 1 h).
+It answers for the station nearest the caller: dock now if it has room,
+otherwise the expected wait against the best open dock within 1.5 km, priced as
+the ride there plus a walk back at 1 m/s crow-flies. Add `format=text` for a
+sentence that Siri can speak.
+
+Siri Shortcut: Get Current Location, then Get Contents of URL
+`https://<api>/bikes/wait-or-ride?format=text&lat=<Latitude>&lng=<Longitude>`, then
+Speak Text.
+
+Known simplifications: departures are averaged, not live; other riders already
+waiting for the same dock and rebalancing vans are ignored; the full dock stands
+in for your destination.

@@ -9,7 +9,7 @@ define a separate repository or make a feature WSL-specific.
 - `frontend/`: Vite + React Cozy Commons home, Dice at `/dice`, and Cozy Trips at `/trips`.
 - `backend/`: FastAPI shared API with Dice routes under `/dice`, Trips under `/trips`, and other project integrations.
 - `backend/ig_logger/`: generic Instagram-source → sink platform; routes under `/ig-logger`. `backend/ig_logger/sinks/beli/`: multi-tenant Beli restaurant app (the first sink); routes under `/beli`, MCP server at `/beli/mcp`.
-- `backend/bikes/`: Cozy Bikes, an offline Citi Bike trip-history ingest to local Parquet (`docs/cozy-bikes.md`); own lockfile `backend/requirements-bikes.txt`, not part of the API.
+- `backend/bikes/`: Cozy Bikes (`docs/cozy-bikes.md`). `ingest.py` and `model.py` run offline on the DuckDB lockfile `backend/requirements-bikes.txt`; `routes.py` serves `/bikes/wait-or-ride` from the committed `wait_model.json` and live GBFS.
 - `supabase/`: isolated local Supabase configuration and project seed data.
 - `scripts/`: shared development plus project-specific migration and verification tooling.
 - `docs/`: product contracts and operational guidance.
