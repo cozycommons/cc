@@ -117,3 +117,12 @@ def test_listing_selects_archives_by_period():
         ('JC-202207-citbike-tripdata.csv.zip', 'jc', ('202207', '202207'), 'c')]
     assert [a.key for a in select_archives(archives, {'nyc'}, '202306', '202401')] == [
         '2023-citibike-tripdata.zip', '202401-citibike-tripdata.zip']
+
+
+def test_quoted_comma_after_the_sniffer_sample(tmp_path):
+    header, row = LEGACY_TITLED.splitlines()
+    late = row.replace('Franklin St', '"Industry City, Building 1 Basement"')
+    store, rows = ingest(tmp_path, '201704-citibike-tripdata.zip',
+                         {'201704-citibike-tripdata.csv': '\n'.join([header] + [row] * 30000 + [late]) + '\n'})
+    assert rows == 30001
+    assert query(store, "SELECT count(*) FROM trips WHERE end_station_name LIKE 'Industry City,%'") == [(1,)]

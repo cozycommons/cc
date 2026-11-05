@@ -154,7 +154,9 @@ def csv_month(archive, csv_path):
 
 def trip_select(con, csv_path):
     """SELECT normalizing one CSV to TRIP_COLUMNS, from its header."""
-    source = (f"read_csv({sql_literal(str(csv_path))}, header=true, all_varchar=true, "
+    # Quotes are explicit: the sniffer reads only the first rows, and a station
+    # name with a comma first appears on line 947,029 of April 2017.
+    source = (f"read_csv({sql_literal(str(csv_path))}, header=true, all_varchar=true, quote='\"', escape='\"', "
               "nullstr=['', 'NULL', '\\N'])")
     columns = {}
     for (name,) in con.execute(f'SELECT column_name FROM (DESCRIBE SELECT * FROM {source})').fetchall():
@@ -185,8 +187,8 @@ def trip_select(con, csv_path):
     return f"SELECT {', '.join(expressions)} FROM {source}", raw_times, source
 
 
-def convert(con, csv_path, out_path):
-    """Write one CSV as sorted zstd Parquet; return its row count."""
+def normalized(con, csv_path):
+    """trip_select for a CSV whose every start and end time parses."""
     select, (raw_start, raw_end), source = trip_select(con, csv_path)
     bad = con.execute(
         f'SELECT any_value({raw_start}), any_value({raw_end}), count(*) FROM {source} '
@@ -194,6 +196,12 @@ def convert(con, csv_path, out_path):
     ).fetchone()
     if bad[2]:
         raise ValueError(f'{csv_path.name}: {bad[2]} rows with unparseable times, e.g. {bad[0]!r} / {bad[1]!r}')
+    return select
+
+
+def convert(con, csv_path, out_path):
+    """Write one CSV as sorted zstd Parquet; return its row count."""
+    select = normalized(con, csv_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     partial = out_path.with_suffix('.parquet.part')
     rows = con.execute(

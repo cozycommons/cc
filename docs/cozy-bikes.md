@@ -96,7 +96,10 @@ from the last 12 published months:
 - a system-wide factor per calendar month for the season;
 - the median riding speed between stations, crow-flies, from real trips.
 
-Rebuild and commit it after a monthly ingest.
+Rebuild and commit it after a monthly ingest. `--source s3` builds the same
+model without the Parquet store: it streams the latest monthly archives through an
+in-memory DuckDB, one archive on disk at a time, keeping only departures per
+station, day and hour and a speed histogram.
 
 `GET /bikes/wait-or-ride?lat=&lng=` reads live docks from
 `gbfs.lyft.com/gbfs/2.3/bkn/en/` (station status cached 60 s, locations 1 h).
