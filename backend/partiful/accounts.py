@@ -203,7 +203,7 @@ def _account_for_uid(supabase, uid: str) -> dict | None:
     return None
 
 
-def connect_account_for_owner(supabase, user_id: str, phone: str, code: str) -> tuple[str, dict]:
+def connect_account_for_owner(supabase, user_id: str, phone: str, code: str, on_verified=None) -> tuple[str, dict]:
     """Link a Partiful account to a Commons user, proving ownership with an SMS code.
 
     This is the web replacement for presenting a ccp_ token. The code is
@@ -213,7 +213,8 @@ def connect_account_for_owner(supabase, user_id: str, phone: str, code: str) -> 
     a token nobody ever sees. Returns (outcome, {"id", "label"}) where outcome
     is linked | already_linked | other_owner.
     Raises AccountError for invalid fields and PartifulError when Partiful
-    refuses the code or does not answer.
+    refuses the code or does not answer. on_verified() runs as soon as Partiful
+    accepts the code, before anything is stored.
     """
     try:
         phone = normalize_phone(phone)
@@ -223,6 +224,8 @@ def connect_account_for_owner(supabase, user_id: str, phone: str, code: str) -> 
     if not code:
         raise AccountError("SMS code is required")
     creds = PartifulClient.verify_auth_code(phone, code)
+    if on_verified is not None:
+        on_verified()
 
     row = _account_for_uid(supabase, creds["uid"])
     if row and row.get("owner_user_id") not in (None, str(user_id)):

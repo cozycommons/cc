@@ -329,8 +329,10 @@ PARTIFUL_DOWN = 'Partiful did not answer. Try again in a minute.'
 # A texted code may be verified only by the Commons user who asked for it, for that phone, within
 # 10 minutes, and only until it signs in once. One pending challenge per user per worker (a new
 # send replaces it), kept in memory like the attempt counters; production runs one worker.
-# A verify reserves its challenge by id under the lock, calls Partiful without the lock, then
-# consumes or restores only that challenge, so it can never consume one a later send replaced.
+# A verify reserves its challenge by id under the lock and calls Partiful without the lock. It
+# consumes that challenge the moment Partiful accepts the code (before anything is stored, so a
+# failed save still needs a new text) and releases it only if verification did not succeed. It
+# never touches a challenge a later send replaced.
 _PARTIFUL_CHALLENGES: dict[str, dict] = {}
 _PARTIFUL_CHALLENGE_S = 600
 _PARTIFUL_LOCK = threading.Lock()
@@ -350,14 +352,17 @@ def store_partiful_challenge(user_id, phone):
 
 
 def reserve_partiful_challenge(user_id, phone):
-    """The id of the caller's unexpired, unreserved challenge for this phone, now reserved; else None."""
+    """(challenge id, None) with the caller's unexpired challenge for this phone now reserved,
+    or (None, 'missing' | 'in_progress')."""
     with _PARTIFUL_LOCK:
         _prune_partiful_challenges(time.time())
         pending = _PARTIFUL_CHALLENGES.get(user_id)
-        if pending is None or pending['phone'] != phone or pending['reserved']:
-            return None
+        if pending is None or pending['phone'] != phone:
+            return None, 'missing'
+        if pending['reserved']:
+            return None, 'in_progress'
         pending['reserved'] = True
-        return pending['id']
+        return pending['id'], None
 
 
 def settle_partiful_challenge(user_id, challenge_id, consumed):
@@ -393,13 +398,20 @@ def connect_partiful(body: PartifulCode, request: Request, user=Depends(current_
     if not (4 <= len(code) <= 10 and code.isascii() and code.isdigit()):
         raise HTTPException(400, 'Enter the number Partiful texted you.')
     connect_rate_check('partiful-user:' + str(user.id), 'partiful:' + phone)
-    challenge = reserve_partiful_challenge(str(user.id), phone)
+    challenge, refusal = reserve_partiful_challenge(str(user.id), phone)
+    if refusal == 'in_progress':
+        raise HTTPException(409, 'A code for this number is already being checked. Wait a moment, then try again.')
     if challenge is None:
         raise HTTPException(400, 'Send a code to this number first, then enter it within 10 minutes.')
-    consumed = False
+    verified = False
+
+    def consume():  # Partiful accepted the code: it signs in only once here, even if saving fails
+        nonlocal verified
+        verified = True
+        settle_partiful_challenge(str(user.id), challenge, consumed=True)
     try:
-        outcome, account = partiful_accounts.connect_account_for_owner(client(request), str(user.id), phone, code)
-        consumed = True  # Partiful accepted the code: it signs in only once here
+        outcome, account = partiful_accounts.connect_account_for_owner(
+            client(request), str(user.id), phone, code, on_verified=consume)
     except PartifulCodeRejected:
         raise HTTPException(400, 'Partiful did not accept that code. Check it or send a new one.')
     except PartifulError as error:
@@ -411,7 +423,8 @@ def connect_partiful(body: PartifulCode, request: Request, user=Depends(current_
     except partiful_accounts.AccountError:
         raise HTTPException(503, 'Could not save your Partiful sign-in. Try again later.')
     finally:
-        settle_partiful_challenge(str(user.id), challenge, consumed)
+        if not verified:
+            settle_partiful_challenge(str(user.id), challenge, consumed=False)
     if outcome == 'other_owner':
         raise HTTPException(409, 'This Partiful account is connected to another Cozy Commons user. '
                                  'Sign in as that user to manage it.')
