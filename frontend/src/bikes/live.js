@@ -35,13 +35,14 @@ export function useGeo() {
 }
 
 // Fetch with `params`, then again every minute while the page is visible.
+// `refresh()` fetches now. A failed fetch keeps the last data, marked status 'error'.
 export function usePolling(path, params, enabled = true) {
   const [state, setState] = useState({ status: 'idle' });
+  const [nonce, setNonce] = useState(0);
   const key = JSON.stringify(params);
   const latest = useRef(0);
   useEffect(() => {
     if (!enabled) return undefined;
-    let timer;
     const load = async () => {
       const call = ++latest.current;
       setState((s) => ({ ...s, status: s.data ? 'refreshing' : 'loading' }));
@@ -54,11 +55,22 @@ export function usePolling(path, params, enabled = true) {
     };
     const tick = () => { if (document.visibilityState !== 'hidden') load(); };
     load();
-    timer = setInterval(tick, REFRESH_MS);
+    const timer = setInterval(tick, REFRESH_MS);
     document.addEventListener('visibilitychange', tick);
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); };
-  }, [path, key, enabled]);
-  return state;
+  }, [path, key, enabled, nonce]);
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  return { ...state, refresh };
+}
+
+// The current time, re-read every `ms`, so "checked 20 s ago" keeps counting.
+export function useNow(ms = 5000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(timer);
+  }, [ms]);
+  return now;
 }
 
 export const percent = (p) => (p == null ? null : p >= 0.995 ? '>99%' : `${Math.round(p * 100)}%`);

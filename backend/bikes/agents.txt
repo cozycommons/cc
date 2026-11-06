@@ -4,8 +4,9 @@ Live Citi Bike (New York and Jersey City) stations, the chance a bike or dock is
 still there when you arrive, and trip plans. Public data, no auth, GET only.
 Base URL: https://api.cozycommons.dev/bikes   Schemas: https://api.cozycommons.dev/openapi.json
 
-Every endpoint reads Citi Bike's live feed, at most a minute or two old
-(`age_s` says how old). Times without an offset are New York time. Coordinates
+Every endpoint reads Citi Bike's live feed. Each JSON response carries
+`feed_updated_at` (Citi Bike's own time for the data, New York time) and `age_s`
+(seconds since this server fetched it); each station has `reported_s`. Times without an offset are New York time. Coordinates
 must be in the Citi Bike area (lat 40.45 to 40.95, lng -74.30 to -73.70). Add
 `format=text` to /wait and /plan for one sentence to relay to the user.
 

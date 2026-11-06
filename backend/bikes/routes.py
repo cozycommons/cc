@@ -55,6 +55,14 @@ def matches(name, words):
     return all(w in tokens if w.isdigit() else any(t.startswith(w) for t in tokens) for w in words)
 
 
+def freshness():
+    """Citi Bike's own time for the live data, and how long ago this server fetched it."""
+    updated = gbfs.feed_updated_at()
+    return {'feed_updated_at': None if updated is None
+            else datetime.fromtimestamp(updated, NEW_YORK).isoformat(timespec='seconds'),
+            'age_s': round(gbfs.status_age_s())}
+
+
 def live_counts(dock, now):
     age = dock.report_age_s(now)
     return {'station': dock.name, 'station_id': dock.short_name, 'lat': dock.lat, 'lng': dock.lng,
@@ -104,7 +112,7 @@ def stations(
     else:
         found.sort(key=lambda d: d.name)
     now = datetime.now(NEW_YORK)
-    return {'age_s': round(gbfs.status_age_s()), 'stations': [live_counts(d, now) for d in found[:limit]]}
+    return {**freshness(), 'stations': [live_counts(d, now) for d in found[:limit]]}
 
 
 @router.get('/stations/{station_id}')
@@ -114,7 +122,7 @@ def station(station_id: str):
     model, now = load_model(), datetime.now(NEW_YORK)
     odds = {need: {f'{m}_min': None if dock.stale(now) or (p := chance(model, dock, need, now, m)) is None
                    else round(p, 3) for m in (15, 30, 60)} for need in ('bike', 'ebike', 'dock')}
-    return {**live_counts(dock, now), 'age_s': round(gbfs.status_age_s()), 'chance': odds,
+    return {**live_counts(dock, now), **freshness(), 'chance': odds,
             'wait_if_empty_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'arrivals')),
             'wait_if_full_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'stations'))}
 
@@ -135,7 +143,7 @@ def live():
     """Every station in service now, columnar, for the live map."""
     docks, now = live_docks(), datetime.now(NEW_YORK)
     return {
-        'age_s': round(gbfs.status_age_s()),
+        **freshness(),
         'stations': {
             'id': [d.short_name for d in docks], 'name': [d.name for d in docks],
             'lat': [round(d.lat, 5) for d in docks], 'lng': [round(d.lng, 5) for d in docks],
@@ -169,7 +177,7 @@ def plan_trip(
     result = plan(load_model(), docks, origin, destination, now, leave, live, ebike)
     if format == 'text':
         return PlainTextResponse(result['message'])
-    return result
+    return {**result, **freshness()}
 
 
 @router.get('/wait')
@@ -190,7 +198,7 @@ def wait(
     result = nearby(load_model(), docks, lat, lng, when, need, live=at is None, limit=limit)
     if format == 'text':
         return PlainTextResponse(result['message'])
-    return {**result, 'model_window': load_model()['window']}
+    return {**result, **freshness(), 'model_window': load_model()['window']}
 
 
 @router.get('/wait-or-ride')
