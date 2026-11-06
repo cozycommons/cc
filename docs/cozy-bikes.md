@@ -102,6 +102,18 @@ Mobile first, in three tabs:
 
 `?tab=plan` or `?tab=explore` opens a tab.
 
+## For agents
+
+Everything is public and read only, so an agent needs no connector or sign-in:
+`GET /bikes/agents.txt` is a one-page guide (`backend/bikes/agents.txt`), and
+`/openapi.json` has the schemas. `/bikes/stations?q=` searches live stations by
+cross streets (street words folded: "west 31st street" finds "W 31 St"), and
+`/bikes/stations/{id}` gives live counts plus the chance a bike, e-bike or dock
+is still there in 15, 30 and 60 minutes. `/bikes/wait` takes `station=` and
+`/bikes/plan` takes `from_station=`/`to_station=` in place of coordinates.
+Landmarks and addresses are the agent's to geocode. A `/mcp` provider can wrap
+the same functions later if agents on the shared connector should see them.
+
 ## Live stations and trip plans
 
 `GET /bikes/live` returns every station in service, columnar (`id`, `name`,

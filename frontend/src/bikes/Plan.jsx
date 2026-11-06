@@ -3,13 +3,22 @@ import { mins, percent, usePolling } from './live.js';
 
 const LEAVE = [{ label: 'Now', minutes: 0 }, { label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }];
 
+// Same folding as the API's /bikes/stations search: "west 31st street" finds "W 31 St".
+const WORDS = { street: 'st', avenue: 'ave', av: 'ave', east: 'e', west: 'w', north: 'n', south: 's',
+  place: 'pl', boulevard: 'blvd', road: 'rd', square: 'sq', and: '&' };
+export const searchWords = (text) => (text.toLowerCase().match(/[a-z0-9&]+/g) || [])
+  .map((w) => WORDS[w] ?? w.replace(/^(\d+)(st|nd|rd|th)$/, '$1'));
+export function matches(name, words) {
+  const tokens = searchWords(name);
+  return words.every((w) => (/^\d+$/.test(w) ? tokens.includes(w) : tokens.some((t) => t.startsWith(w))));
+}
+
 function StationSearch({ id, label, stations, value, onPick, mine }) {
   const [text, setText] = useState('');
-  const matches = useMemo(() => {
-    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  const found = useMemo(() => {
+    const words = searchWords(text);
     if (!words.length || !stations) return [];
-    return stations.name.map((name, i) => [name, i])
-      .filter(([name]) => words.every((w) => name.toLowerCase().includes(w))).slice(0, 6);
+    return stations.name.map((name, i) => [name, i]).filter(([name]) => matches(name, words)).slice(0, 6);
   }, [text, stations]);
   return (
     <div className="bk-search">
@@ -25,7 +34,7 @@ function StationSearch({ id, label, stations, value, onPick, mine }) {
             value={text} onChange={(e) => setText(e.target.value)} />
           <ul className="bk-search__results">
             {mine && !text && <li><button type="button" onClick={() => onPick(mine)}>My location</button></li>}
-            {matches.map(([name, i]) => (
+            {found.map(([name, i]) => (
               <li key={stations.id[i]}>
                 <button type="button" onClick={() => onPick({ name, lat: stations.lat[i], lng: stations.lng[i] })}>{name}</button>
               </li>

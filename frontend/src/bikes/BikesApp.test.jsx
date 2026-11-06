@@ -95,3 +95,12 @@ describe('Cozy Bikes', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Allow location to find stations near you.');
   });
 });
+
+describe('station search', () => {
+  it('folds street words like the API', async () => {
+    const { matches, searchWords } = await import('./Plan.jsx');
+    expect(searchWords('West 31st Street & 7th Avenue')).toEqual(['w', '31', 'st', '&', '7', 'ave']);
+    expect(matches('W 31 St & 7 Ave', searchWords('west 31st 7th avenue'))).toBe(true);
+    expect(matches('Henry Hudson Pkwy E & W 231 St', searchWords('31'))).toBe(false);
+  });
+});

@@ -257,3 +257,44 @@ def test_plan_accepts_the_depart_format_the_page_sends(client):
     trip = {'from_lat': PENN.lat, 'from_lng': PENN.lng, 'to_lat': 40.7295, 'to_lng': -73.9965}
     assert http.get('/bikes/plan', params={**trip, 'depart': soon}).json()['live'] is True
     assert http.get('/bikes/plan', params={**trip, 'depart': later}).json()['live'] is False
+
+
+def test_agents_can_search_look_up_and_use_station_ids(client):
+    http, feeds = client
+    feeds['station_information'].append({'station_id': 'b', 'short_name': '5492.05', 'name': 'Washington Pl & Greene St',
+                                         'lat': 40.7295, 'lon': -73.9965})
+    feeds['station_status'].append({'station_id': 'b', 'is_installed': 1, 'is_renting': 1, 'is_returning': 1,
+                                    'num_bikes_available': 4, 'num_ebikes_available': 1, 'num_docks_available': 9})
+    gbfs.reset_cache()
+    found = http.get('/bikes/stations', params={'q': 'greene wash'}).json()['stations']
+    assert [(s['station_id'], s['classic_bikes'], s['open_docks']) for s in found] == [('5492.05', 3, 9)]
+    near = http.get('/bikes/stations', params={'lat': 40.73, 'lng': -73.997}).json()['stations']
+    assert [s['station_id'] for s in near] == ['5492.05', '6230.04']
+
+    one = http.get('/bikes/stations/5492.05').json()
+    assert one['bikes'] == 4 and set(one['chance']) == {'bike', 'ebike', 'dock'}
+    assert one['chance']['bike'] == {'15_min': 1.0, '30_min': 1.0, '60_min': 1.0}  # no history: nothing moves
+    assert http.get('/bikes/stations/9999.99').status_code == 404
+
+    waited = http.get('/bikes/wait', params={'station': '5492.05', 'limit': 1}).json()
+    assert waited['stations'][0]['station_id'] == '5492.05' and waited['stations'][0]['walk_min'] == 0.0
+    trip = http.get('/bikes/plan', params={'from_station': '6230.04', 'to_station': '5492.05'})
+    assert trip.status_code == 200
+    assert http.get('/bikes/plan', params={'from_station': '6230.04', 'from_lat': 40.75, 'to_station': '5492.05'}).status_code == 422
+    assert http.get('/bikes/wait').status_code == 422
+
+
+def test_agents_txt_lists_every_route():
+    from bikes.routes import AGENTS_TXT, router
+    for route in router.routes:
+        path = route.path
+        if path not in ('/agents.txt', '/wait-or-ride'):
+            assert f'GET {path}' in AGENTS_TXT, path
+
+
+def test_search_folds_street_words_and_matches_numbers_whole():
+    from bikes.routes import matches, search_words
+    assert search_words('West 31st Street & 7th Avenue') == ['w', '31', 'st', '&', '7', 'ave']
+    assert matches('W 31 St & 7 Ave', search_words('west 31st 7th avenue'))
+    assert not matches('Henry Hudson Pkwy E & W 231 St', search_words('31'))
+    assert matches('Broadway & E 14 St', search_words('broad e 14'))
