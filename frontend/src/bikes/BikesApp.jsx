@@ -11,6 +11,15 @@ import './bikes.css';
 
 const TABS = [{ key: 'near', label: 'Near me' }, { key: 'plan', label: 'Plan' }, { key: 'explore', label: 'Explore' }];
 
+// A shared map link: /bikes?lat=&lng=&radius=&station= opens the map on that view.
+function initialFocus() {
+  const query = new URLSearchParams(window.location.search);
+  const lat = Number(query.get('lat')), lng = Number(query.get('lng'));
+  if (!query.has('lat') || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const radius = Number(query.get('radius'));
+  return { lat, lng, radius: Number.isFinite(radius) && radius > 0 ? radius : undefined, station: query.get('station')?.split(',')[0] || null };
+}
+
 function initialTab() {
   const tab = new URLSearchParams(window.location.search).get('tab');
   return TABS.some((t) => t.key === tab) ? tab : 'near';
@@ -32,6 +41,9 @@ function Siri() {
 
 export default function BikesApp() {
   const [tab, setTab] = useState(initialTab);
+  const [focus] = useState(initialFocus);
+  const [planSeed, setPlanSeed] = useState(null);
+  const planFrom = (end, station) => { setPlanSeed({ [end]: station }); setTab('plan'); };
   const [need, setNeed] = useNeed();
   const [geo, locate] = useGeo();
   // One live feed for the map and station search; Explore does not need it.
@@ -47,7 +59,7 @@ export default function BikesApp() {
           ))}
         </nav>
         {tab === 'near' && (geo.status === 'ready' ? (
-          <NearMe geo={geo} locate={locate} need={need} setNeed={setNeed} live={live} />
+          <NearMe geo={geo} locate={locate} need={need} setNeed={setNeed} live={live} focus={focus} onPlan={planFrom} />
         ) : (
           <section className="bk-pane bk-start" aria-label="Near me">
             <h1 className="cc-h1">Citi Bike near you</h1>
@@ -56,7 +68,7 @@ export default function BikesApp() {
             {geo.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{geo.message}</p>}
           </section>
         ))}
-        {tab === 'plan' && <Plan geo={geo} locate={locate} live={live} />}
+        {tab === 'plan' && <Plan geo={geo} locate={locate} live={live} seed={planSeed} />}
         {tab === 'explore' && <Explore />}
         {tab !== 'explore' && <Siri />}
       </main>

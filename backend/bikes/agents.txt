@@ -53,6 +53,20 @@ GET /live
 -> columnar arrays: id, name, lat, lng, bikes, ebikes, docks, docks_disabled, reported_s,
    flags (1 renting, 2 returning, 4 stale)
 
+## Show the user a map
+
+/wait, /plan and /stations/{id} answers carry two links for the same view:
+- `map_url`: the interactive map on cozycommons.dev, centered on the answer with
+  its station open. Give it to the user as a link or button.
+- `map_image`: a 640 x 640 PNG of live stations over the street map, colored by
+  bikes, e-bikes or docks, with counts on the stations that matter. Show it inline
+  if you can display images.
+
+GET /map.png?lat=40.7497&lng=-73.9915&radius=600&need=dock&you=1
+GET /map.png?station=6331.01,5492.05&radius=1500          centers on the first station
+   radius: meters from the center to each edge (200 to 3000); station: up to two to mark;
+   you=1 draws a "you are here" dot at the center. Cached for a minute.
+
 ## Notes
 
 - Odds come from a year of trips (arrivals and departures by station, hour, day

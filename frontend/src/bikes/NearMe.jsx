@@ -1,5 +1,5 @@
 import React from 'react';
-import LocalMap from './LocalMap.jsx';
+import BikeMap from './BikeMap.jsx';
 import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
 import ModeSwitch from './Mode.jsx';
@@ -50,7 +50,7 @@ function StationCard({ station, best }) {
   );
 }
 
-export default function NearMe({ geo, locate, need, setNeed, live }) {
+export default function NearMe({ geo, locate, need, setNeed, live, focus, onPlan }) {
   const params = geo.status === 'ready' ? { lat: geo.lat, lng: geo.lng, need, limit: 5 } : null;
   const wait = usePolling('wait', params, Boolean(params));
   const result = wait.data;
@@ -67,7 +67,7 @@ export default function NearMe({ geo, locate, need, setNeed, live }) {
           <Freshness state={wait} />
           <p className="bk-answer-line" aria-live="polite">{result.message}</p>
           {live.data && (
-            <LocalMap stations={live.data.stations} center={geo} need={need}
+            <BikeMap stations={live.data.stations} home={geo} focus={focus} need={need} onPlan={onPlan}
               highlight={result.stations.map((s) => s.station_id)} />
           )}
           <ol className="bk-stations">

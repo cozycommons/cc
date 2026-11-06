@@ -16,14 +16,7 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-pane{display:grid;gap:12px;min-width:0}
 .bk-start{padding:16px 0}
 .bk-answer-line{margin:0;font-size:18px;font-weight:600;line-height:1.35;color:var(--ink,#3d2f29)}
-.bk-local{margin:0}
-.bk-local svg{display:block;width:100%;max-width:440px;margin:0 auto;aspect-ratio:1;background:#fffaf2;border:1px solid var(--line,#e4d6bd);border-radius:12px;touch-action:manipulation}
-.bk-local__ring{fill:none;stroke:var(--line-strong,#d6c5a7);stroke-dasharray:4 4}
 .bk-local__you{fill:#2a78d6;stroke:#fffaf2;stroke-width:3}
-.bk-local__station{cursor:pointer}
-.bk-local__station circle+circle{stroke:#fffaf2;stroke-width:2}
-.bk-local__station.is-marked circle+circle{stroke:var(--ink,#3d2f29)}
-.bk-local__station text{fill:#fff;font:700 11px var(--sans,system-ui,sans-serif);pointer-events:none}
 .bk-local__unknown{fill:#fffaf2;stroke:#9a8f82;stroke-width:2;stroke-dasharray:3 2}
 .bk-legend__unknown{width:10px!important;height:10px!important;border-radius:50%;border:2px dashed #9a8f82;box-sizing:border-box}
 .bk-legend__you{background:#2a78d6;width:10px!important;height:10px!important;border-radius:50%}
@@ -115,9 +108,10 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 /* Water areas: the sea arrives as tile-clipped rings, so even-odd keeps islands as holes. */
 .bk-street--sea,.bk-street--water{fill:#cfe2f5;fill-rule:evenodd;stroke:none}
 .bk-street--park{fill:#dfe6cf;stroke:#cfd9bb;stroke-width:.6}
-.bk-street--minor{stroke:#e8dcc6;stroke-width:1.6}
-.bk-street--major{stroke:#d8c3a0;stroke-width:3.2}
-.bk-street--bike{stroke:#69755a;stroke-width:1.2;stroke-dasharray:3 2}
+/* --w scales street widths with zoom (BikeMap sets it on the map group). */
+.bk-street--minor{stroke:#e8dcc6;stroke-width:calc(1.6 * var(--w, 1))}
+.bk-street--major{stroke:#d8c3a0;stroke-width:calc(3.2 * var(--w, 1))}
+.bk-street--bike{stroke:#69755a;stroke-width:calc(1.2 * var(--w, 1));stroke-dasharray:3 2}
 .bk-local__credit{margin:4px 0 0;font-size:11px;color:var(--ink-soft,#6f6256);text-align:right}
 
 /* Bike or dock is the first decision: two large keys, and an accent per mode
@@ -136,3 +130,28 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-mode__ebike{min-height:32px;font-size:13px;color:var(--ink-soft,#6f6256)}
 .bk-near-head{align-items:start}
 .bk-answer-line{padding-left:12px;border-left:4px solid var(--bk-accent)}
+
+/* Interactive map: search over the frame, controls in the corner, a popup per station. */
+.bk-map2{margin:0;display:grid;gap:8px}
+.bk-map2__search{position:relative;display:grid;gap:4px}
+.bk-map2__search .cc-input{width:100%;box-sizing:border-box}
+.bk-map2__frame{position:relative;overflow:hidden;border:1px solid var(--line,#e4d6bd);border-radius:12px;background:#fffaf2}
+.bk-map2__frame svg{display:block;width:100%;height:auto;aspect-ratio:360/420;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+.bk-map2__frame svg:active{cursor:grabbing}
+.bk-map2__frame svg:focus-visible{outline:var(--focus-ring,3px solid #b76845);outline-offset:-3px}
+.bk-dot text{fill:#fff;stroke:none;font:700 11px var(--sans,system-ui,sans-serif);pointer-events:none}
+.bk-dot circle{stroke:#fffaf2;stroke-width:2}
+.bk-dot.is-marked circle,.bk-dot.is-selected circle{stroke:var(--ink,#3d2f29);stroke-width:2.5}
+.bk-map2__controls{position:absolute;right:10px;bottom:10px;display:grid;gap:6px}
+.bk-map2__controls button{display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--line-strong,#d6c5a7);border-radius:12px;background:#fffaf2;color:var(--ink,#3d2f29);box-shadow:var(--key-shadow,0 2px 0 rgba(70,47,32,.18));cursor:pointer}
+.bk-pop{position:absolute;transform:translate(-50%,calc(-100% - 16px));width:min(260px,76%);display:grid;gap:6px;padding:10px 12px;background:#fffaf2;border:1px solid var(--line-strong,#d6c5a7);border-radius:12px;box-shadow:var(--paper-shadow,0 6px 18px rgba(106,69,47,.18));font-size:13px;color:var(--ink,#3d2f29);z-index:2}
+.bk-pop.is-below{transform:translate(-50%,16px)}
+.bk-pop p{margin:0}
+.bk-pop__head{display:flex;align-items:start;justify-content:space-between;gap:8px;font-size:14px}
+.bk-pop__close{display:grid;place-items:center;flex:none;width:32px;height:32px;margin:-6px -6px 0 0;border:0;background:none;color:var(--ink-soft,#6f6256);cursor:pointer}
+.bk-pop__counts{display:flex;flex-wrap:wrap;gap:2px 10px;color:var(--ink-soft,#6f6256)}
+.bk-pop__counts b,.bk-pop__odds b{color:var(--ink,#3d2f29);font-variant-numeric:tabular-nums}
+.bk-pop__odds{color:var(--ink-soft,#6f6256)}
+.bk-pop__odds.is-stale{color:#a3302f;font-weight:600}
+.bk-pop__actions{display:flex;flex-wrap:wrap;gap:6px}
+.bk-pop__actions .cc-button{flex:1;min-width:0;padding-left:8px;padding-right:8px}

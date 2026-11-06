@@ -6,15 +6,16 @@ plain-text guide, and /openapi.json has the schemas.
 """
 from datetime import datetime, timedelta
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 
-from . import gbfs
+from . import gbfs, render
 from .forecast import HORIZON_MIN, chance
 from .model import SERVICE_AREA
 from .plan import plan
@@ -36,6 +37,18 @@ def live_docks():
 LAT = dict(ge=SERVICE_AREA[0], le=SERVICE_AREA[1])
 LNG = dict(ge=SERVICE_AREA[2], le=SERVICE_AREA[3])
 AGENTS_TXT = (Path(__file__).with_name('agents.txt')).read_text()
+# Public origins for links in answers: the interactive page, and this API's map image.
+SITE_URL = os.environ.get('COMMONS_SITE_URL', 'https://cozycommons.dev').rstrip('/')
+API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.cozycommons.dev').rstrip('/')
+TILE_NAME = re.compile(r'^(index|\d{1,3}_\d{1,3})\.json$')
+
+
+def map_links(lat, lng, radius_m, need, marks=(), you=False):
+    """`map_url` opens the interactive page on this view; `map_image` is the same view as a PNG."""
+    view = f'lat={lat:.5f}&lng={lng:.5f}&need={need}&radius={round(radius_m)}'
+    mark = f"&station={','.join(marks)}" if marks else ''
+    return {'map_url': f'{SITE_URL}/bikes?{view}{mark}',
+            'map_image': f"{API_URL}/bikes/map.png?{view}{mark}{'&you=1' if you else ''}"}
 
 
 # Citi Bike names stations by cross streets ("W 31 St & 7 Ave"); fold how people
@@ -123,6 +136,7 @@ def station(station_id: str):
     odds = {need: {f'{m}_min': None if dock.stale(now) or (p := chance(model, dock, need, now, m)) is None
                    else round(p, 3) for m in (15, 30, 60)} for need in ('bike', 'ebike', 'dock')}
     return {**live_counts(dock, now), **freshness(), 'chance': odds,
+            **map_links(dock.lat, dock.lng, 500, 'bike', [dock.short_name]),
             'wait_if_empty_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'arrivals')),
             'wait_if_full_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'stations'))}
 
@@ -177,7 +191,14 @@ def plan_trip(
     result = plan(load_model(), docks, origin, destination, now, leave, live, ebike)
     if format == 'text':
         return PlainTextResponse(result['message'])
-    return {**result, **freshness()}
+    links = {}
+    if result['best']:
+        start, end = result['best']['start'], result['best']['end']
+        mid_lat, mid_lng = (start['lat'] + end['lat']) / 2, (start['lng'] + end['lng']) / 2
+        span = distance_m(start['lat'], start['lng'], end['lat'], end['lng'])
+        links = map_links(mid_lat, mid_lng, min(3000, max(600, span * 0.65)), 'ebike' if ebike else 'bike',
+                          [start['station_id'], end['station_id']])
+    return {**result, **freshness(), **links}
 
 
 @router.get('/wait')
@@ -198,7 +219,9 @@ def wait(
     result = nearby(load_model(), docks, lat, lng, when, need, live=at is None, limit=limit)
     if format == 'text':
         return PlainTextResponse(result['message'])
-    return {**result, **freshness(), 'model_window': load_model()['window']}
+    best = result['best']
+    links = map_links(lat, lng, 600, need, [best['station_id']] if best else [], you=station is None)
+    return {**result, **freshness(), **links, 'model_window': load_model()['window']}
 
 
 @router.get('/wait-or-ride')
@@ -215,3 +238,35 @@ def wait_or_ride(
         # Siri Shortcuts read this aloud.
         return PlainTextResponse(result['message'])
     return {**result, 'model_window': model['window']}
+
+
+@router.get('/map/{name}')
+def map_tile(name: str):
+    """A street basemap tile (see bikes.basemap); the page draws them, and so does /map.png."""
+    if not TILE_NAME.match(name) or not (render.MAP_DIR / name).is_file():
+        raise HTTPException(404, 'No such map tile.')
+    return FileResponse(render.MAP_DIR / name, media_type='application/json',
+                        headers={'Cache-Control': 'public, max-age=86400'})
+
+
+@router.get('/map.png', response_class=Response)
+def map_png(
+    lat: float | None = Query(None, **LAT), lng: float | None = Query(None, **LNG),
+    radius: int = Query(600, ge=200, le=3000, description='Meters from the center to each edge'),
+    need: Literal['bike', 'ebike', 'dock'] = 'bike',
+    station: str | None = Query(None, max_length=40, description='Up to two station ids to mark, comma-separated'),
+    you: bool = Query(False, description='Draw a "you are here" dot at the center'),
+):
+    """Live stations over the street map, as a PNG an agent can show. Centers on lat/lng, else the first station."""
+    docks, now = live_docks(), datetime.now(NEW_YORK)
+    marks = [s for s in (station or '').split(',') if s][:2]
+    if lat is None or lng is None:
+        if not marks:
+            raise HTTPException(422, 'Give lat and lng, or a station.')
+        first = find_station(docks, marks[0])
+        lat, lng = first.lat, first.lng
+    # Renders are shared for a minute per view, so the public route cannot be made to redraw on demand.
+    key = (round(lat, 4), round(lng, 4), radius, need, tuple(marks), you, gbfs.feed_updated_at())
+    stamp = f"Citi Bike {now:%-I:%M %p}"
+    png = render.cached_render(key, lambda: render.render(docks, now, lat, lng, radius, need, marks, you, stamp))
+    return Response(png, media_type='image/png', headers={'Cache-Control': 'public, max-age=60'})

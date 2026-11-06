@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { getUrl } from '../api.js';
 
-// Static street tiles built by `python -m bikes.basemap` (see that module for the
-// format). Same-origin files: the map never tells a third party where you are.
-const BASE = '/bikes/map';
+// Street tiles built by `python -m bikes.basemap` (see that module for the format),
+// served by our API, which also draws them into /bikes/map.png for agents. Our own
+// origins only: the map never tells a third party where you are.
+const base = () => `${getUrl()}/bikes/map`;
 const cache = new Map();
 
 function fetchJson(path) {
@@ -44,10 +46,10 @@ export function useBasemap(south, west, north, east) {
   useEffect(() => {
     let live = true;
     (async () => {
-      const index = await fetchJson(`${BASE}/index.json`);
+      const index = await fetchJson(`${base()}/index.json`);
       if (!index) return;
       const [s, w, n, e] = box.split(',').map(Number);
-      const tiles = await Promise.all(tilesFor(index, s, w, n, e).map(async ([x, y]) => [x, y, await fetchJson(`${BASE}/${x}_${y}.json`)]));
+      const tiles = await Promise.all(tilesFor(index, s, w, n, e).map(async ([x, y]) => [x, y, await fetchJson(`${base()}/${x}_${y}.json`)]));
       const out = { attribution: index.attribution };
       for (const [x, y, tile] of tiles) {
         if (!tile) continue;
