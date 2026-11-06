@@ -23,6 +23,7 @@ state.mkdir(parents=True, exist_ok=True)
 store = Store(state / "registry.sqlite3")
 users = json.loads(Path(os.environ.get("APPS_USERS", "/run/users.json")).read_text())
 config_path = Path(os.environ.get("APPS_PROXY_CONFIG", "/proxy/Caddyfile"))
+creators = set(os.environ.get("APPS_CREATORS", "owner").split(","))
 runtime = Runtime()
 app = FastAPI(title="Cozy Commons apps — local prototype")
 # A restarted manager cannot reliably continue monitoring an old Docker exec.
@@ -107,6 +108,7 @@ def ready(record):
 def public_record(record, who):
     return {
         "name": record["name"],
+        "repository": record.get("repository"),
         "status": runtime.status(record["name"])
         if record["status"] in {"running", "stopped"}
         else record["status"],
@@ -174,6 +176,8 @@ class Create(BaseModel):
 def create(body: Create, who=Depends(identity)):
     if who.startswith("app:"):
         raise HTTPException(403, "An app cannot create other apps")
+    if who not in creators:
+        raise HTTPException(403, "App creation is not enabled for this identity")
     name = slug(body.name)
     with store.lock:
         if store.get(name):
@@ -184,6 +188,11 @@ def create(body: Create, who=Depends(identity)):
             "members": {who: "owner"},
             "routes": {},
             "status": "creating",
+            "repository": {
+                "kind": "local",
+                "initial_path": "/workspace",
+                "default_branch": "main",
+            },
             "db_password": secrets.token_hex(24),
             "app_token_hash": digest(token),
         }

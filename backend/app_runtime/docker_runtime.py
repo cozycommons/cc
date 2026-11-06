@@ -64,6 +64,14 @@ class Runtime:
             PREFIX + name + "-workspace", labels={"cc.apps": name}
         )
         self.create_container(record, token)
+        initialized = self.container(name).exec_run(
+            ["python", "/opt/initialize_repo.py"]
+        )
+        if initialized.exit_code:
+            raise RuntimeError(
+                "Could not initialize app repository: "
+                + initialized.output.decode()[-1000:]
+            )
 
     def create_container(self, record, token):
         name = record["name"]

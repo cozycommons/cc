@@ -14,6 +14,24 @@ def list_apps() -> list:
 
 
 @mcp.tool()
+def create_app(name: str) -> dict:
+    """Create an app with persistent storage, database and local Git repo on main.
+
+    Requires platform creation permission, separate from contributing to an app.
+    Does not deploy any website; use the shell to build/start services and expose a port.
+    """
+    return call("POST", "/api/apps", {"name": name})
+
+
+@mcp.tool()
+def set_app_member(app: str, user: str, role: str) -> dict:
+    """As owner, grant a known local user viewer/contributor access, or revoke with none."""
+    return call(
+        "PUT", f"/api/apps/{segment(app)}/members/{segment(user)}", {"role": role}
+    )
+
+
+@mcp.tool()
 def exec_command(app: str, command: str, timeout: int = 120) -> dict:
     """Start a shell command in /workspace; poll its job ID for output. Maximum 300 seconds."""
     return call(

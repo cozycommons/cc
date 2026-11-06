@@ -15,6 +15,12 @@ shared FastAPI API and does not mount Docker access into that existing service.
   not app data. The manager alone receives Docker and Postgres admin access.
 - `infra/apps`: reproducible Docker Compose manager, Caddy and local Postgres,
   plus a Python/Node/Git/supervisor image for app environments.
+- Creating a new app initializes a local Git repository on main after starting
+  its container. Starter AGENTS.md and .gitignore are the first commit. This
+  initialization runs only during new app provisioning, not on restart or
+  recreation; existing app files and history are not reseeded.
+- MCP exposes create_app and set_app_member through the existing manager API.
+  APPS_CREATORS controls who can allocate new apps independently of app roles.
 - Each app gets a named workspace volume and its own Docker bridge network.
   Only its app container, shared proxy and Postgres join that network. The
   manager reaches Docker via its socket, never exposes it to an app, and only
@@ -82,3 +88,22 @@ connection or off-server recovery has been validated.
 References: [Docker exec](https://docs.docker.com/reference/cli/docker/container/exec/),
 [Caddy forward_auth](https://caddyserver.com/docs/caddyfile/directives/forward_auth),
 [Caddy reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+
+## Agent-owned operation
+
+App Git repositories live on persistent storage inside their app environments.
+A remote Git provider is optional. CC contains platform code and starter assets;
+app source does not need to be checked into CC. Agents choose deployment scripts,
+source layout, process configuration and restart commands. The starter recommends
+committed main as the live source, but no platform hook enforces it or deploys on
+commit. Backup includes .git because it archives the entire workspace.
+
+## Local Git iteration — 2026-11-04
+
+26 focused unit/API tests and 43 real-Docker acceptance checks passed. Additional
+coverage creates and shares an app through MCP, verifies a clean local main with
+an initial commit and no remote, commits app source before starting services,
+and checks that recreation and coordinated restoration preserve .git and the
+expected main commit. The setup launcher now tolerates transient empty HTTP
+responses while the manager starts. This is a local prototype; hosted agent
+authentication and deployment remain separate follow-up work.

@@ -10,10 +10,14 @@ release or a migration of existing projects.
 
 ## Behavior
 
-1. An owner creates an app with a unique lowercase slug. Platform names such as
-   admin, api, auth and www are reserved; `--` is reserved for named services.
+1. A person with platform creation permission creates an app with a unique
+   lowercase slug. Platform names such as admin, api, auth and www are reserved;
+   `--` is reserved for named services.
 2. Each app has persistent workspace files, developer tools and a separate
-   database. Contributors are trusted with all app files, processes and data.
+   database. New apps start with a local Git repository on main, a starter
+   AGENTS.md, a .gitignore and an initial commit. No remote Git service is needed.
+   The agent chooses its layout within persistent storage. Contributors are
+   trusted with all app files, processes and data.
    They cannot administer the platform or another app through platform tools.
 3. External agents can list authorized apps, execute shell commands, poll their
    results, and read/write UTF-8 files through generic MCP tools. Commands have
@@ -22,6 +26,8 @@ release or a migration of existing projects.
    may edit and publish; viewers may only list and use authorized apps. Owners
    manage membership, lifecycle and recovery. Credentials are local prototype
    credentials; hosted OAuth and browser session integration are later work.
+   App creation permission is separate from membership in an existing app and
+   is granted through platform configuration, not by app contributors.
 5. An agent publishes a port as default or with a service name. The default
    address is `<app>.localhost`; named addresses are `<app>--<service>.localhost`.
    All use the prototype proxy port. Hosted addresses will use cozycommons.dev.
@@ -37,11 +43,18 @@ release or a migration of existing projects.
    survive restart and recreation; ad-hoc OS installs require reconstruction.
 9. Owners can stop/start an app and take a consistent maintenance-window backup
    of workspace and database. Restore replaces both from a selected backup,
-   leaving membership and routing under platform control. Restore is explicitly
-   destructive to newer app data; backups are retained outside app access.
+   including the local repository and .git history, leaving membership and
+   routing under platform control. Restore is explicitly destructive to newer
+   app data; backups are retained outside app access.
 10. The local setup binds published host ports only to loopback, uses generated
     credentials and synthetic data, and does not read production dotenv files.
 11. App callers cannot grant themselves access, publish another app's hostname,
     inject proxy configuration, or select host paths/Docker options.
 12. Invoking an agent from the app, hosted OAuth/TLS, off-server backup retention,
     automated rollback, and simultaneous edit coordination are deferred.
+13. Starter guidance recommends operating the live service from committed main.
+    The agent owns deployment, builds, process management, checks and restarts.
+    Commits do not trigger platform deployments. There are no required dev/release
+    directories or automatic Git checkpoints. Remote Git can be added later.
+14. Existing CC projects stay in place. The prototype hosts newly created apps;
+    a consolidated shared app may hold several simpler projects when appropriate.

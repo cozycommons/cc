@@ -30,7 +30,15 @@ PY
     ;;
   start)
     docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml up -d manager proxy postgres
-    curl --noproxy '*' --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:8091/health
+    attempts=0
+    until curl --noproxy '*' --fail --silent http://127.0.0.1:8091/health >/dev/null 2>&1; do
+      attempts=$((attempts + 1))
+      if [ "$attempts" -ge 30 ]; then
+        echo 'Apps manager did not become ready within 30 seconds.' >&2
+        exit 1
+      fi
+      sleep 1
+    done
     ;;
   stop)
     # Stop only containers labelled as this prototype's apps.

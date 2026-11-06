@@ -1,9 +1,15 @@
 {
-  "app": "trip-aa270d03",
-  "other_app": "other-ae00d39b",
-  "url": "http://trip-aa270d03.localhost:8090",
+  "app": "trip-641c7c22",
+  "other_app": "other-a5d612a5",
+  "url": "http://trip-641c7c22.localhost:8090",
   "checks": [
+    "Agent creates an app through MCP",
+    "Creation returns local repository metadata",
+    "Owner grants contributor membership through MCP",
+    "Owner grants viewer membership through MCP",
     "Two isolated app environments and shared membership created",
+    "New app has a clean local main repository and initial commit, with no remote",
+    "Starter Git ignores credentials, logs and runtime data",
     "MCP handshake and generic shell tool discovery",
     "Second contributor writes app source through MCP",
     "MCP persists a context file",
@@ -11,6 +17,7 @@
     "Contributor publishes the default port through MCP",
     "MCP starts a shell command",
     "MCP polls command output",
+    "Contributor commits app source and service configuration to local main",
     "Agent starts two supervised web services in one container",
     "Default route is private",
     "Viewer can use private website",
@@ -33,8 +40,11 @@
     "Registered services and database survive container restart",
     "Workspace, services and database survive container replacement",
     "Container publication capability works after replacement",
+    "Local Git history survives container replacement",
+    "Agent can create a later local commit after a backup",
     "Restore recovers the database to its backup",
     "Restore recovers workspace files to the same backup",
+    "Workspace restore recovers .git history and the backed-up main commit",
     "Unpublishing removes public access"
   ]
 }

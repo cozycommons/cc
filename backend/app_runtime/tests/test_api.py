@@ -13,6 +13,9 @@ class FakeRuntime:
         self.fail_reload = False
         self.files = {}
 
+    def create(self, record, token):
+        self.created = record["name"]
+
     def status(self, name):
         return "running"
 
@@ -44,6 +47,7 @@ def client(tmp_path, monkeypatch):
         )
     )
     monkeypatch.setenv("APPS_USERS", str(users))
+    monkeypatch.setenv("APPS_CREATORS", "owner")
     monkeypatch.setenv("APPS_STATE", str(tmp_path))
     monkeypatch.setenv("APPS_PROXY_CONFIG", str(tmp_path / "Caddyfile"))
     sys.modules.pop("app_runtime.api", None)
@@ -228,3 +232,29 @@ def test_unicode_output_is_bounded_in_bytes(client):
     assert saved["truncated"]
     assert len(saved["output"].encode()) <= 65536
     assert saved["exit_code"] == 0
+
+
+def test_creation_requires_platform_permission(client):
+    c, _, fake = client
+    for user in ["friend", "viewer", "outsider"]:
+        assert (
+            c.post(
+                "/api/apps", json={"name": "new-app"}, headers=headers(user)
+            ).status_code
+            == 403
+        )
+    result = c.post("/api/apps", json={"name": "new-app"}, headers=headers("owner"))
+    assert result.status_code == 201
+    assert fake.created == "new-app"
+    assert result.json()["repository"] == {
+        "kind": "local",
+        "initial_path": "/workspace",
+        "default_branch": "main",
+    }
+    assert "db_password" not in result.text
+    assert (
+        c.post(
+            "/api/apps", json={"name": "new-app"}, headers=headers("owner")
+        ).status_code
+        == 409
+    )

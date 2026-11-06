@@ -1,0 +1,13 @@
+# Runtime files and local credentials do not belong in source history.
+home/
+logs/
+data/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]

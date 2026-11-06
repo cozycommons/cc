@@ -9,6 +9,7 @@ services:
       APPS_STATE: /state
       APPS_PROXY_CONFIG: /proxy/Caddyfile
       APPS_USERS: /run/users.json
+      APPS_CREATORS: owner,outsider
       APPS_POSTGRES_PASSWORD: ${APPS_POSTGRES_PASSWORD:?Run scripts/apps-dev.sh setup}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

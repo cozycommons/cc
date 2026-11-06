@@ -149,12 +149,56 @@ async def mcp_edit():
             )
 
 
+async def mcp_provision():
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(ROOT / "backend"),
+        "COMMONS_TOKEN": USERS["owner"],
+    }
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "app_runtime.mcp_server"], env=env
+    )
+    async with stdio_client(params) as (reader, writer):
+        async with ClientSession(reader, writer) as session:
+            await session.initialize()
+            result = await session.call_tool("create_app", {"name": NAME})
+            check(not result.isError, "Agent creates an app through MCP")
+            created = json.loads(result.content[0].text)
+            check(
+                created["repository"]["kind"] == "local",
+                "Creation returns local repository metadata",
+            )
+            for user, role in [("friend", "contributor"), ("viewer", "viewer")]:
+                result = await session.call_tool(
+                    "set_app_member", {"app": NAME, "user": user, "role": role}
+                )
+                check(
+                    not result.isError,
+                    "Owner grants " + role + " membership through MCP",
+                )
+
+
 def main():
-    request("POST", "/api/apps", {"name": NAME}, status=201)
+    asyncio.run(mcp_provision())
+    request("POST", "/api/apps", {"name": "forbidden-app"}, user="friend", status=403)
     request("POST", "/api/apps", {"name": OTHER}, user="outsider", status=201)
     request("PUT", f"/api/apps/{NAME}/members/friend", {"role": "contributor"})
     request("PUT", f"/api/apps/{NAME}/members/viewer", {"role": "viewer"})
     check(True, "Two isolated app environments and shared membership created")
+    initialized = command(
+        'test "$(git symbolic-ref --short HEAD)" = main && test "$(git rev-list --count HEAD)" = 1 && test -z "$(git status --porcelain)" && test -z "$(git remote)"'
+    )
+    check(
+        initialized["exit_code"] == 0,
+        "New app has a clean local main repository and initial commit, with no remote",
+    )
+    ignored = command(
+        "git check-ignore home/credentials logs/output.log data/runtime.db .env"
+    )
+    check(
+        ignored["exit_code"] == 0 and len(ignored["output"].splitlines()) == 4,
+        "Starter Git ignores credentials, logs and runtime data",
+    )
     asyncio.run(mcp_edit())
     for service, port in [("trip", 3000), ("experiment", 8080)]:
         conf = f"[program:{service}]\ncommand=python /workspace/trip.py {port}\ndirectory=/workspace\nautostart=true\nautorestart=true\nstdout_logfile=/workspace/logs/{service}.log\nstderr_logfile=/workspace/logs/{service}-error.log\n"
@@ -166,6 +210,15 @@ def main():
             {"path": f"/workspace/services/{service}.conf", "content": conf},
             user="friend",
         )
+    committed = command(
+        "git add trip.py notes.txt services && git commit -m 'Build trip app' && git rev-parse HEAD",
+        user="friend",
+    )
+    check(
+        committed["exit_code"] == 0,
+        "Contributor commits app source and service configuration to local main",
+    )
+    main_commit = committed["output"].strip().splitlines()[-1]
     result = command("supervisorctl reread && supervisorctl update", user="friend")
     check(
         result["exit_code"] == 0,
@@ -303,11 +356,19 @@ def main():
         command("commons expose 8080 --name experiment --public")["exit_code"] == 0,
         "Container publication capability works after replacement",
     )
+    check(
+        command("git rev-parse HEAD")["output"].strip() == main_commit,
+        "Local Git history survives container replacement",
+    )
     backup = request("POST", f"/api/apps/{NAME}/backups", status=201)
     request(
         "PUT",
         f"/api/apps/{NAME}/file",
         {"path": "/workspace/notes.txt", "content": "Changed after backup"},
+    )
+    later = command("git add notes.txt && git commit -m 'Change after backup'")
+    check(
+        later["exit_code"] == 0, "Agent can create a later local commit after a backup"
     )
     wait_site()
     site(user="viewer", method="POST", data={"note": "This should be undone"})
@@ -325,6 +386,10 @@ def main():
         request("GET", f"/api/apps/{NAME}/file?path=/workspace/notes.txt")["content"]
         == "Pack passport\n",
         "Restore recovers workspace files to the same backup",
+    )
+    check(
+        command("git rev-parse HEAD")["output"].strip() == main_commit,
+        "Workspace restore recovers .git history and the backed-up main commit",
     )
     request("DELETE", f"/api/apps/{NAME}/routes/experiment")
     check(

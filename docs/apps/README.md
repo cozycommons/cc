@@ -195,6 +195,8 @@ Each app is stewarded by a person or community; people may belong to several.
 | D12 | Normally one app, one persistent Docker container; agents control its files and processes | An app can evolve around its purpose without prescribing its interfaces or process layout |
 | D13 | Publish a default port and arbitrary named service ports through the shared proxy | Previews and experiments need no special platform abstraction |
 | D14 | Invoke external agents; defer invoking an agent from inside the app | Prove the shared environment before building an agent interaction surface |
+| D15 | Start each app with a local Git repo on persistent storage; remote hosting is optional | Avoid a Git service dependency while preserving commits and portable history |
+| D16 | Agents own deployment and restarts, with guidance to run committed main | Preserve a programmable environment without prescribed release folders or platform deployment hooks |
 
 ### Postgres details (D4)
 
@@ -214,6 +216,10 @@ Each app is stewarded by a person or community; people may belong to several.
   - Move Supabase Storage objects to the app's disk or R2.
 
 ## Prerequisites from the current pipeline
+
+The following concerns the existing shared CC application pipeline. New sandboxed
+apps are operated by their agents, with guidance to use committed main; the
+platform does not impose this CI/release workflow on them.
 
 Automated checks and recovery are prerequisites for automatic shipping; they
 do not replace a community's approval rules. These items come before any shared
@@ -307,3 +313,12 @@ secrets.
   switching vendors means reconnecting, not migrating.
 - **Platform creep:** every feature added to the platform is one that agents
   cannot freely change. Keep it small.
+
+## Repository boundaries
+
+CC holds the platform, standard container environment and starter guidance. Shared
+design components or scaffolding may be offered as optional, versioned assets.
+New apps keep source and local Git history in their own persistent environments.
+Existing CC projects stay where they are until separately scoped migration work.
+Smaller future projects can share a consolidated app and sandbox when they do not
+need separate permissions, dependencies, resource limits or process lifecycles.

@@ -39,7 +39,7 @@ scripts/apps-dev.sh mcp
 Use the script's absolute path in the client's server configuration. Set
 `COMMONS_USER=friend` to connect as the second local identity; the default is
 `owner`. The wrapper reads only the generated local credential file. Tools:
-`list_apps`, `exec_command`, `read_job`, `read_file`, `write_file`, `expose_port`,
+`list_apps`, `create_app`, `set_app_member`, `exec_command`, `read_job`, `read_file`, `write_file`, `expose_port`,
 `unexpose_port`. Shell commands return a job ID and retain up to 64 KiB of output.
 
 This is real MCP, tested with a protocol client, but it is **local stdio**, not a
@@ -56,8 +56,9 @@ scripts/apps-dev.sh cli exec weekend 'ls -la /workspace'
 scripts/apps-dev.sh cli job weekend JOB_ID
 ```
 
-Known local identities are owner, friend, viewer and outsider. Each may own its
-own apps. App owners grant contributor/viewer access to other known identities;
+Known local identities are owner, friend, viewer and outsider. In the local
+Compose configuration, owner and outsider have platform creation permission
+(`APPS_CREATORS`); friend and viewer can use only apps shared with them. App owners grant contributor/viewer access to other known identities;
 `grant APP USER none` revokes membership. Owner transfer is deferred. This local
 identity system is a test seam, not a substitute for hosted OAuth.
 
@@ -71,6 +72,12 @@ recreate rotates that capability. Trusted contributors can also leave processes
 behind, so membership revocation alone is not eviction of a hostile contributor.
 
 ## Run and publish services
+
+New apps start with a local Git repository on `main` in `/workspace`, with
+AGENTS.md and .gitignore in an initial commit. No remote is configured. The
+repository is retained across recreation and included in workspace backups.
+Agents may move it within persistent storage and choose their own layout. Existing
+prototype apps are not automatically converted or reinitialized.
 
 Agents find instructions in `/workspace/AGENTS.md` and can use Git, shell, Python,
 Node/npm, curl and Postgres tools. Put persistent content under `/workspace`.
@@ -158,3 +165,12 @@ container restart/replacement and file/database recovery.
 ![Synthetic trip app served through a dynamically published port](images/prototype.png)
 
 [Recorded local acceptance checks](verification.json).
+
+## Local Git and agent-operated deployment
+
+Use shell tools for ordinary `git add`, `git commit` and, if useful, branches.
+The starter recommends that live services run committed main, but committing does
+not deploy anything. The agent owns its build, start, restart and verification
+commands. Supervisor is available as a default, not a required deployment model.
+No dedicated development or release directory is imposed. Local Git history alone
+is not an off-server backup; add a remote later if desired.
