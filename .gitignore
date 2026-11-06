@@ -17,5 +17,6 @@ artifacts/
 # Retain exclusions for pre-rename local data and environments.
 .crowd-set/
 .crowd-set-venv/
+.apps-dev/
 
 .cache/dependency-age/

@@ -136,7 +136,8 @@ this threat model.
 Run `backend/.venv/bin/python -m pytest -q backend/tests/test_api_egress.py` for
 the source inventory tripwire. New literal HTTP(S) origins in the shared API fail
 unless listed or explicitly classified in a file-scoped non-egress exception.
-The test ignores docstrings and the separate Crowdset/compute runtimes. It cannot
+The test ignores docstrings and the separate Crowdset/compute runtimes, plus
+`backend/app_runtime`, the loopback-only local Docker manager. It cannot
 prove dynamic string construction or future dependency behavior; runtime denial
 is the security boundary. Review changed HTTP clients and dependencies too.
 

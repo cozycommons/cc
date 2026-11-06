@@ -1,0 +1,6 @@
+# Regenerate with scripts/lock-backend-requirements.sh backend/app_runtime/tests/requirements.in backend/app_runtime/tests/requirements.txt
+# uv-version: 0.13.7
+# uv-exclude-newer: 2026-10-28T00:00:00Z
+# requires-python: >=3.12
+# environments: python_version >= '3.12' and python_version < '3.14'
+websockets==15.0.1

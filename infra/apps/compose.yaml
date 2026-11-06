@@ -1,0 +1,50 @@
+name: cc-apps-local
+services:
+  manager:
+    build:
+      context: ../..
+      dockerfile: infra/apps/Dockerfile
+    container_name: cc-apps-local-manager
+    stop_grace_period: 2m
+    environment:
+      APPS_STATE: /state
+      APPS_PROXY_CONFIG: /proxy/Caddyfile
+      APPS_USERS: /run/users.json
+      APPS_CREATORS: owner,outsider
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - state:/state
+      - proxy-config:/proxy
+      - ../../.apps-dev/users.json:/run/users.json:ro
+    ports:
+      - "127.0.0.1:8091:9000"
+    networks: [control]
+  proxy:
+    image: caddy:2.10.2-alpine
+    container_name: cc-apps-local-proxy
+    # Every upstream is on a local Docker network. Never send platform
+    # credentials or app traffic through an inherited host HTTP proxy.
+    environment:
+      NO_PROXY: "*"
+      no_proxy: "*"
+    entrypoint: ["sh", "-c", "test -f /proxy/Caddyfile || cp /etc/caddy/initial /proxy/Caddyfile; exec caddy run --config /proxy/Caddyfile --adapter caddyfile"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/initial:ro
+      - proxy-config:/proxy
+    ports:
+      - "127.0.0.1:8090:80"
+    networks: [control]
+  runtime-image:
+    image: cc-apps-runtime:local
+    build:
+      context: ../..
+      dockerfile: infra/apps/runtime/Dockerfile
+    profiles: [build]
+networks:
+  control:
+    name: cc-apps-local-control
+volumes:
+  state:
+    name: cc-apps-local-state
+  proxy-config:
+    name: cc-apps-local-proxy-config
