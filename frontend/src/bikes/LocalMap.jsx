@@ -29,7 +29,7 @@ export function countOf(stations, i, need) {
 }
 
 // Drawn bottom to top; widths are in map units (the map is SIZE wide).
-const STREETS = [['water', 'bk-street--water'], ['park', 'bk-street--park'], ['minor', 'bk-street--minor'],
+const STREETS = [['sea', 'bk-street--sea'], ['water', 'bk-street--water'], ['park', 'bk-street--park'], ['minor', 'bk-street--minor'],
   ['major', 'bk-street--major'], ['bike', 'bk-street--bike']];
 
 // Live stations within RADIUS_M of you, drawn to scale with you at the center,

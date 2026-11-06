@@ -112,7 +112,8 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 @media (prefers-reduced-motion:reduce){.bk-fresh__refresh .is-spinning{animation:none}}
 
 .bk-street{fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
-.bk-street--water{stroke:#9ec5f4;stroke-width:2}
+/* Water areas: the sea arrives as tile-clipped rings, so even-odd keeps islands as holes. */
+.bk-street--sea,.bk-street--water{fill:#cfe2f5;fill-rule:evenodd;stroke:none}
 .bk-street--park{fill:#dfe6cf;stroke:#cfd9bb;stroke-width:.6}
 .bk-street--minor{stroke:#e8dcc6;stroke-width:1.6}
 .bk-street--major{stroke:#d8c3a0;stroke-width:3.2}

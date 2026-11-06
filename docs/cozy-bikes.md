@@ -136,14 +136,20 @@ re-center without reloading.
 
 ### Street basemap
 
-The Near me map draws OpenStreetMap streets, bike lanes, parks and shoreline
-under the stations, from static tiles in `frontend/public/bikes/map/` (2,025 tiles,
-7.3 MB; the densest Midtown tile is 42 KB, 16 KB gzipped). The page fetches only
-the tiles around you, from its own origin, so no map service learns where you
-are, and there is no map library or CSP change. `python -m bikes.basemap` (bikes
-venv) rebuilds them from BBBike's New York extract (NYC, Jersey City, Hoboken) in
-a few seconds with DuckDB's spatial extension; rerun it a few times a year. The
-format is in the module docstring. Data © OpenStreetMap contributors (ODbL),
+The Near me map draws OpenStreetMap streets, bike lanes, parks and filled water
+(harbor, Hudson, East River, lakes) under the stations, from static tiles in
+`frontend/public/bikes/map/` (2,022 tiles, 6.0 MB). The page fetches only the
+tiles around you, from its own origin, so no map service learns where you are,
+and there is no map library or CSP change. `python -m bikes.basemap` (bikes venv)
+rebuilds them from BBBike's New York extract (NYC, Jersey City, Hoboken) with
+DuckDB's spatial extension in under a minute; rerun it a few times a year. The
+format is in the module docstring.
+
+OpenStreetMap draws the harbor and tidal rivers only as coastline lines, so the
+builder closes the coastline into areas and calls an area water when it holds
+fewer than 10 ordinary street points (bridges, tunnels and piers do not count).
+The sea starts at latitude 40.55, above a coastline gap at the Raritan River
+mouth; no station is that far south. Data © OpenStreetMap contributors (ODbL),
 credited under the map.
 
 ## For agents
