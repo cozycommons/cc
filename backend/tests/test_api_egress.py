@@ -50,6 +50,8 @@ def test_api_literal_hosts_are_inventoried():
         rel = path.relative_to(ROOT / 'backend')
         if any(p in {'tests', '.venv', '__pycache__', 'crowdset', 'compute'} for p in rel.parts):
             continue  # Crowdset and compute are distinct runtimes, not main:app.
+        if rel.parts[0] == 'app_runtime':
+            continue  # Local Docker manager; separate entrypoint from main:app.
         for host in literal_hosts(path.read_text()):
             if host not in allowed and str(rel) not in NON_EGRESS.get(host, set()):
                 unknown.append(f'{rel}: {host}')
