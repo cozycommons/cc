@@ -110,3 +110,28 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-fresh__refresh .is-spinning{animation:bk-spin 1s linear infinite}
 @keyframes bk-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.bk-fresh__refresh .is-spinning{animation:none}}
+
+.bk-street{fill:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.bk-street--water{stroke:#9ec5f4;stroke-width:2}
+.bk-street--park{fill:#dfe6cf;stroke:#cfd9bb;stroke-width:.6}
+.bk-street--minor{stroke:#e8dcc6;stroke-width:1.6}
+.bk-street--major{stroke:#d8c3a0;stroke-width:3.2}
+.bk-street--bike{stroke:#69755a;stroke-width:1.2;stroke-dasharray:3 2}
+.bk-local__credit{margin:4px 0 0;font-size:11px;color:var(--ink-soft,#6f6256);text-align:right}
+
+/* Bike or dock is the first decision: two large keys, and an accent per mode
+   (moss for renting, clay for returning) so the page says which it answers. */
+.bk-page{--bk-accent:var(--moss-dark,#465243);--bk-accent-soft:#e2e6d8}
+.bk-page[data-mode="dock"]{--bk-accent:#9a4f2f;--bk-accent-soft:#f3dccd}
+.bk-mode{display:grid;gap:8px;flex:1;min-width:0}
+.bk-mode__choices{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bk-mode__choice{display:flex;align-items:center;justify-content:center;gap:6px;min-height:52px;padding:8px 6px;white-space:nowrap;border:2px solid var(--line-strong,#d6c5a7);border-radius:14px;background:#fffaf2;color:var(--ink-soft,#6f6256);font:600 14px var(--sans,system-ui,sans-serif);cursor:pointer;box-shadow:var(--key-shadow,0 2px 0 rgba(70,47,32,.18))}
+.bk-mode__choice[aria-checked="true"]{border-color:var(--bk-accent);background:var(--bk-accent-soft);color:var(--bk-accent)}
+.bk-mode__choice--bike[aria-checked="true"]{--bk-accent:var(--moss-dark,#465243);--bk-accent-soft:#e2e6d8}
+.bk-mode__choice--dock[aria-checked="true"]{--bk-accent:#9a4f2f;--bk-accent-soft:#f3dccd}
+.bk-mode__choice:focus-visible{outline:var(--focus-ring,3px solid #b76845);outline-offset:2px}
+.bk-mode--large .bk-mode__choice{flex-direction:column;min-height:120px;font-size:17px;border-radius:18px}
+.bk-mode--large .bk-mode__choice[aria-checked="true"]{border-color:var(--line-strong,#d6c5a7);background:#fffaf2;color:var(--ink,#3d2f29)}
+.bk-mode__ebike{min-height:32px;font-size:13px;color:var(--ink-soft,#6f6256)}
+.bk-near-head{align-items:start}
+.bk-answer-line{padding-left:12px;border-left:4px solid var(--bk-accent)}

@@ -2,13 +2,9 @@ import React from 'react';
 import LocalMap from './LocalMap.jsx';
 import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
+import ModeSwitch from './Mode.jsx';
 import { mins, percent, usePolling } from './live.js';
 
-export const NEEDS = [
-  { key: 'bike', label: 'Bike' },
-  { key: 'ebike', label: 'E-bike' },
-  { key: 'dock', label: 'Dock' },
-];
 const STATUS = { available: 'Available', empty: 'Empty', full: 'Full', closed: 'Closed', unknown: 'No recent report' };
 
 // Some stations send report times near 1970, so long silences read as "over a day".
@@ -61,12 +57,7 @@ export default function NearMe({ geo, locate, need, setNeed, live }) {
   return (
     <section className="bk-pane" aria-label="Near me">
       <div className="bk-near-head">
-        <div className="cc-segmented bk-needs" role="tablist" aria-label="I need">
-          {NEEDS.map((n) => (
-            <button key={n.key} type="button" role="tab" className="cc-segmented__item"
-              aria-selected={need === n.key} onClick={() => setNeed(n.key)}>{n.label}</button>
-          ))}
-        </div>
+        <ModeSwitch need={need} setNeed={setNeed} />
         <LocateButton geo={geo} locate={locate} compact />
       </div>
       {wait.status === 'error' && !result && <p className="cc-notice cc-notice--error" role="alert">{wait.message}</p>}

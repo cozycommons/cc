@@ -54,13 +54,26 @@ function api() {
 }
 
 describe('Cozy Bikes', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); window.localStorage.clear(); });
+
+  it('starts in the mode you picked last, and one tap on the start screen picks a mode and locates', async () => {
+    const calls = api();
+    window.localStorage.setItem('cozy-bikes.need', 'dock');
+    locate({ latitude: 40.750212, longitude: -73.991612 });
+    view();
+    expect(screen.getByRole('radio', { name: 'Find a dock' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Find a bike' }));
+    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=bike&limit=5'));
+    expect(window.localStorage.getItem('cozy-bikes.need')).toBe('bike');
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'E-bikes only' }));
+    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=ebike&limit=5'));
+  });
 
   it('finds stations near you, ranks them, and asks again for docks', async () => {
     const calls = api();
     locate({ latitude: 40.750212, longitude: -73.991612 });
     view();
-    fireEvent.click(screen.getByRole('button', { name: 'Use my location' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Find a bike' }));
     expect(await screen.findByText(WAIT.message)).toBeTruthy();
     expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=bike&limit=5');
     const cards = screen.getAllByRole('listitem').filter((li) => li.classList.contains('bk-station'));
@@ -87,7 +100,8 @@ describe('Cozy Bikes', () => {
     expect(screen.getByText(WAIT.message)).toBeTruthy();
     vi.stubGlobal('fetch', working);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Dock' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Find a dock' }));
+    expect(document.querySelector('.bk-page').dataset.mode).toBe('dock');
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.7359&lng=-73.9911&need=dock&limit=5'));
   });
 
@@ -109,7 +123,7 @@ describe('Cozy Bikes', () => {
     api();
     locate(null);
     view();
-    fireEvent.click(screen.getByRole('button', { name: 'Use my location' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Find a dock' }));
     expect((await screen.findByRole('alert')).textContent).toBe('Allow location to find stations near you.');
   });
 });

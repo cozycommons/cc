@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import '../../../design/cozy-wabi/components.css';
 import './cozy-home.css';
+import { Bike } from 'lucide-react';
 import SiteHeader from '../components/SiteHeader.jsx';
 
 export default function CozyWabiLanding() {
@@ -51,6 +52,14 @@ export default function CozyWabiLanding() {
               <div className="cc-home-project__body">
                 <h2>Cozy Trips</h2>
                 <p>Good trips. Clear tabs.</p>
+              </div>
+              <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
+            </Link>
+            <Link className="cc-home-project" to="/bikes" aria-label="Open Cozy Bikes live Citi Bike stations">
+              <span className="cc-home-project__icon" aria-hidden="true"><Bike size={26} strokeWidth={1.8} /></span>
+              <div className="cc-home-project__body">
+                <h2>Bikes</h2>
+                <p>A Citi Bike or a dock, and the odds when you arrive.</p>
               </div>
               <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
             </Link>
