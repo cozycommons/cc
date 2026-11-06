@@ -64,3 +64,25 @@ def test_arrivals_count_trip_ends_by_end_hour():
     model, _, _ = build(con, months=1)
     assert model['arrivals']['b'][9] == 100 and model['arrivals']['b'][8] == 0
     assert model['stations']['b'][18] == 100
+
+
+def test_weather_table_finds_fewer_trips_in_rain(monkeypatch):
+    import bikes.model as model_module
+    monkeypatch.setattr(model_module, 'WEATHER_MIN_EXPECTED', 0)
+    monkeypatch.setattr(model_module, 'WEATHER_MIN_HOURS', 1)
+    con = duckdb.connect()
+    weekdays = [d for d in range(1, 32) if dt.date(2026, 7, d).weekday() < 5]
+    rainy = set(weekdays[:8])
+    # Four 17:00 departures on dry weekdays, two when it rains.
+    rows = [('r', f'2026-07-{d:02d} 17:{m:02d}:00', None, 'a', 'A', 'b', 40.70, -74.0, 40.7162, -74.0, 'member', 'nyc', 2026, 7)
+            for d in weekdays for m in ((5, 35) if d in rainy else (5, 20, 35, 50))]
+    trips(con, rows)
+    con.execute("UPDATE trips SET ended_at = started_at + INTERVAL 10 MINUTE")
+
+    def weather(first, last):
+        return [(f'2026-07-{d:02d}T{h:02d}:00', 22.0, 3.0 if d in rainy and h == 17 else 0.0, 0.0)
+                for d in range(1, 32) for h in range(24)]
+    model, _, _ = build(con, months=1, weather=weather)
+    table = model['weather']
+    assert table['by_sky']['heavy rain'] < table['by_sky']['dry']
+    assert abs(table['by_sky']['heavy rain'] / table['by_sky']['dry'] - 0.5) < 0.01

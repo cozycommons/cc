@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 
-from . import gbfs, render
+from . import conditions, gbfs, render
 from .forecast import HORIZON_MIN, chance
 from .model import SERVICE_AREA
 from .plan import plan
@@ -41,6 +41,19 @@ AGENTS_TXT = (Path(__file__).with_name('agents.txt')).read_text()
 SITE_URL = os.environ.get('COMMONS_SITE_URL', 'https://cozycommons.dev').rstrip('/')
 API_URL = os.environ.get('PUBLIC_API_URL', 'https://api.cozycommons.dev').rstrip('/')
 TILE_NAME = re.compile(r'^(index|\d{1,3}_\d{1,3})\.json$')
+
+
+def live_model(when):
+    """The model with this hour's weather factors, and what answers say about conditions."""
+    model, summary = conditions.with_conditions(load_model(), when)
+    note = conditions.describe(summary)
+    return model, {**summary, 'note': note or None, 'alerts': gbfs.alerts(datetime.now(NEW_YORK))}
+
+
+def with_note(message, about):
+    extra = [about['note']] if about['note'] else []
+    extra += [a['summary'] for a in about['alerts'] if a.get('summary')]
+    return ' '.join([message, *extra])
 
 
 def map_links(lat, lng, radius_m, need, marks=(), you=False):
@@ -132,10 +145,11 @@ def stations(
 def station(station_id: str):
     """One station's live counts, and the chance each is still there in 15, 30 and 60 minutes."""
     dock = find_station(live_docks(), station_id)
-    model, now = load_model(), datetime.now(NEW_YORK)
+    now = datetime.now(NEW_YORK)
+    model, about = live_model(now)
     odds = {need: {f'{m}_min': None if dock.stale(now) or (p := chance(model, dock, need, now, m)) is None
                    else round(p, 3) for m in (15, 30, 60)} for need in ('bike', 'ebike', 'dock')}
-    return {**live_counts(dock, now), **freshness(), 'chance': odds,
+    return {**live_counts(dock, now), **freshness(), 'chance': odds, 'conditions': about,
             **map_links(dock.lat, dock.lng, 500, 'bike', [dock.short_name]),
             'wait_if_empty_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'arrivals')),
             'wait_if_full_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'stations'))}
@@ -188,7 +202,11 @@ def plan_trip(
     now = datetime.now(NEW_YORK)
     leave = now if depart is None else max(new_york(depart), now - timedelta(minutes=5))
     live = (leave - now).total_seconds() / 60 <= HORIZON_MIN
-    result = plan(load_model(), docks, origin, destination, now, leave, live, ebike)
+    model, about = live_model(leave)
+    result = plan(model, docks, origin, destination, now, leave, live, ebike)
+    # `answer` is the recommendation alone (the page shows conditions apart); `message` adds them for speech.
+    result['answer'] = result['message']
+    result['message'] = with_note(result['message'], about)
     if format == 'text':
         return PlainTextResponse(result['message'])
     links = {}
@@ -198,7 +216,7 @@ def plan_trip(
         span = distance_m(start['lat'], start['lng'], end['lat'], end['lng'])
         links = map_links(mid_lat, mid_lng, min(3000, max(600, span * 0.65)), 'ebike' if ebike else 'bike',
                           [start['station_id'], end['station_id']])
-    return {**result, **freshness(), **links}
+    return {**result, **freshness(), **links, 'conditions': about}
 
 
 @router.get('/wait')
@@ -216,12 +234,16 @@ def wait(
     docks = live_docks()
     lat, lng = point(docks, lat, lng, station, 'the place')
     when = datetime.now(NEW_YORK) if at is None else new_york(at)
-    result = nearby(load_model(), docks, lat, lng, when, need, live=at is None, limit=limit)
+    model, about = live_model(when)
+    result = nearby(model, docks, lat, lng, when, need, live=at is None, limit=limit)
+    # `answer` is the recommendation alone (the page shows conditions apart); `message` adds them for speech.
+    result['answer'] = result['message']
+    result['message'] = with_note(result['message'], about)
     if format == 'text':
         return PlainTextResponse(result['message'])
     best = result['best']
     links = map_links(lat, lng, 600, need, [best['station_id']] if best else [], you=station is None)
-    return {**result, **freshness(), **links, 'model_window': load_model()['window']}
+    return {**result, **freshness(), **links, 'conditions': about, 'model_window': model['window']}
 
 
 @router.get('/wait-or-ride')
@@ -232,8 +254,12 @@ def wait_or_ride(
     format: Literal['json', 'text'] = 'json',
 ):
     docks = live_docks()
-    model = load_model()
-    result = decide(model, docks, lat, lng, datetime.now(NEW_YORK))
+    now = datetime.now(NEW_YORK)
+    model, about = live_model(now)
+    result = decide(model, docks, lat, lng, now)
+    # `answer` is the recommendation alone (the page shows conditions apart); `message` adds them for speech.
+    result['answer'] = result['message']
+    result['message'] = with_note(result['message'], about)
     if format == 'text':
         # Siri Shortcuts read this aloud.
         return PlainTextResponse(result['message'])

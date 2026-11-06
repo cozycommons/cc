@@ -29,6 +29,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import urllib.request
 
 MODEL_PATH = Path(__file__).with_name('wait_model.json')
 # (south, north, west, east): New York and Jersey City. The trip files also carry
@@ -90,7 +91,63 @@ def aggregate(con, trips_sql, window):
                     FROM ({recent}) GROUP BY ALL""")
 
 
-def finalize(con, window):
+# Central Park hourly weather for the model window (Open-Meteo archive, CC BY 4.0).
+ARCHIVE_URL = ('https://archive-api.open-meteo.com/v1/archive?latitude=40.7812&longitude=-73.9665'
+               '&start_date={}&end_date={}&hourly=temperature_2m,precipitation,snowfall&timezone=America%2FNew_York')
+# Hours quieter than this (night) are too noisy to fit weather on.
+WEATHER_MIN_EXPECTED = 50
+WEATHER_MIN_HOURS = 20
+
+
+def weather_history(first_day, last_day):
+    """[(iso hour, temp C, precip mm, snow cm)] for the window, New York time."""
+    with urllib.request.urlopen(ARCHIVE_URL.format(first_day, last_day), timeout=60) as response:
+        hourly = json.load(response)['hourly']
+    return list(zip(hourly['time'], hourly['temperature_2m'], hourly['precipitation'], hourly['snowfall']))
+
+
+def weather_table(con, window, rows):
+    """Trip multipliers by weather: system departures against the model's own baseline
+    (day type and hour mean, times the month factor), by sky, sky and heat, and after snow."""
+    from .conditions import SNOW_AFTER_CM, heat, sky
+    first_day, last_day = window_days(window)
+    con.execute('CREATE OR REPLACE TEMP TABLE wx (ts TIMESTAMP, temp DOUBLE, precip DOUBLE, snow DOUBLE)')
+    con.executemany('INSERT INTO wx VALUES (?, ?, ?, ?)', [r for r in rows if None not in r])
+    hours = con.execute(f"""
+        WITH sys AS (
+            SELECT day + to_hours(hour) AS ts, sum(n) AS n FROM hourly WHERE kind = 'd' GROUP BY ALL
+        ), h AS (
+            SELECT wx.*, coalesce(sys.n, 0) AS n, isodow(wx.ts) >= 6 AS weekend, hour(wx.ts) AS hr, month(wx.ts) AS mo,
+                   coalesce(sum(wx.snow) OVER (ORDER BY wx.ts ROWS BETWEEN 72 PRECEDING AND 1 PRECEDING), 0) AS snow72
+            FROM wx LEFT JOIN sys USING (ts)
+            WHERE wx.ts >= DATE '{first_day}' AND wx.ts < DATE '{last_day}' + 1
+        ), dh AS (SELECT weekend, hr, avg(n) AS m FROM h GROUP BY ALL),
+        mf AS (SELECT mo, avg(n) / (SELECT avg(n) FROM h) AS f FROM h GROUP BY mo)
+        SELECT h.n, dh.m * mf.f AS expect, h.temp, h.precip, h.snow, h.snow72
+        FROM h JOIN dh USING (weekend, hr) JOIN mf USING (mo)
+    """).fetchall()
+    groups = {}
+    for n, expect, temp, precip, snow, snow72 in hours:
+        if expect < WEATHER_MIN_EXPECTED:
+            continue
+        s = sky(precip, snow)
+        keys = [('sky', s), ('sky_heat', f'{s}|{heat(temp)}')]
+        if s in ('dry', 'drizzle') and snow72 >= SNOW_AFTER_CM:
+            keys = [('after_snow', '')]
+        for key in keys:
+            total = groups.setdefault(key, [0.0, 0.0, 0])
+            total[0] += n
+            total[1] += expect
+            total[2] += 1
+    fitted = {key: round(n / expect, 3) for key, (n, expect, count) in groups.items() if count >= WEATHER_MIN_HOURS}
+    return {
+        'by_sky': {k: v for (kind, k), v in fitted.items() if kind == 'sky'},
+        'by_sky_heat': {k: v for (kind, k), v in fitted.items() if kind == 'sky_heat'},
+        'after_snow': fitted.get(('after_snow', '')),
+    }
+
+
+def finalize(con, window, weather=None):
     first_day, last_day = window_days(window)
     # A station only counts days from its first trip in the window, so a station
     # opened in July is not averaged over the empty months before.
@@ -141,6 +198,8 @@ def finalize(con, window):
         'month_factor': month_factor,
         # Share of trips on e-bikes, to split station rates for e-bike forecasts.
         'ebike_share': round(ebike_share, 3),
+        # Trip multipliers by weather (bikes.conditions); absent when no weather history was given.
+        **({'weather': weather_table(con, window, weather(*window_days(window)))} if weather else {}),
         'stations': dict(sorted(stations.items())),
         'arrivals': dict(sorted(arrivals.items())),
     }, places
@@ -172,7 +231,7 @@ def explore(model, places, monthly):
     }
 
 
-def build(con, months=12):
+def build(con, months=12, weather=None):
     """From a connection with the bikes.ingest `trips` view."""
     last = con.execute('SELECT max(year * 100 + month) FROM trips WHERE ride_id IS NOT NULL').fetchone()[0]
     if last is None:
@@ -180,10 +239,10 @@ def build(con, months=12):
     window = month_window(last, months)
     start_aggregates(con)
     aggregate(con, f"SELECT * FROM trips WHERE year * 100 + month IN ({', '.join(map(str, window))})", window)
-    return (*finalize(con, window), history(con))
+    return (*finalize(con, window, weather), history(con))
 
 
-def build_from_source(months=12, memory_limit='1GB', threads=2, workdir=None, log=print):
+def build_from_source(months=12, memory_limit='1GB', threads=2, workdir=None, log=print, weather=None):
     """Stream the latest monthly archives from S3 through an in-memory DuckDB."""
     import duckdb
     from .ingest import download, extract_csvs, list_archives, normalized, sql_literal
@@ -209,7 +268,7 @@ def build_from_source(months=12, memory_limit='1GB', threads=2, workdir=None, lo
                 if read:
                     aggregate(con, normalized(con, csv_path), window)
             zip_path.unlink()
-    return finalize(con, window)
+    return finalize(con, window, weather)
 
 
 def main(argv=None):
@@ -226,11 +285,12 @@ def main(argv=None):
     parser.add_argument('--explore-out', type=Path, default=EXPLORE_PATH)
     args = parser.parse_args(argv)
     if args.source == 's3':
-        model, places = build_from_source(args.months, args.memory_limit, args.threads, args.workdir)
+        model, places = build_from_source(args.months, args.memory_limit, args.threads, args.workdir,
+                                          weather=weather_history)
         monthly = json.loads(args.explore_out.read_text())['history'] if args.explore_out.exists() else None
     else:
         with duckdb.connect(str(Path(args.data_dir) / 'bikes.duckdb'), read_only=True) as con:
-            model, places, monthly = build(con, args.months)
+            model, places, monthly = build(con, args.months, weather=weather_history)
     write_json(args.out, model)
     write_json(args.explore_out, explore(model, places, monthly))
     print(f"{len(model['stations'])} stations, {model['window'][0]} to {model['window'][1]}, "

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import Conditions from './Conditions.jsx';
 import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
 import { mins, percent, usePolling } from './live.js';
@@ -109,10 +110,11 @@ export default function Plan({ geo, locate, live, seed }) {
       </div>
       {plan.status === 'error' && !result && <p className="cc-notice cc-notice--error" role="alert">{plan.message}</p>}
       {result?.live && <Freshness state={plan} />}
+      {result && <Conditions conditions={result.conditions} />}
       {result?.best && (
         <article className={`cc-card bk-plan${plan.status === 'error' ? ' is-stale' : ''}`} aria-live="polite">
           <p className="bk-plan__total"><b>{mins(result.best.expected_min)}</b> by bike · {mins(result.walk_only_min)} walking</p>
-          <p className="cc-body">{result.message}</p>
+          <p className="cc-body">{result.answer ?? result.message}</p>
           <Route option={result.best} ebike={ebike} />
           {!result.live && <p className="cc-caption">More than an hour out: timing only, no live odds.</p>}
           {result.alternatives.length > 0 && (
@@ -129,7 +131,7 @@ export default function Plan({ geo, locate, live, seed }) {
           )}
         </article>
       )}
-      {result && !result.best && <p className="cc-body">{result.message}</p>}
+      {result && !result.best && <p className="cc-body">{result.answer ?? result.message}</p>}
     </section>
   );
 }

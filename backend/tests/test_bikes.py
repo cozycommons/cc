@@ -4,8 +4,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
-from bikes import gbfs, routes
+from bikes import conditions, gbfs, routes
 from bikes.wait import Dock, decide, minutes, nearby
+
+@pytest.fixture(autouse=True)
+def no_live_weather(monkeypatch):
+    # Tests never call Open-Meteo; a test that wants weather passes its own Forecast.
+    monkeypatch.setattr(conditions, 'forecast', lambda: None)
+
 
 # Weekday 17:00 is busy (60 departures/hour, one a minute); 03:00 has one an hour.
 SLOTS = [100] * 48
@@ -47,6 +53,7 @@ def client(monkeypatch):
         'station_information': [{'station_id': 'a', 'short_name': PENN.short_name, 'name': PENN.name,
                                  'lat': PENN.lat, 'lon': PENN.lng}],
         'station_status': [{'station_id': 'a', 'is_installed': 1, 'is_returning': 1, 'num_docks_available': 3}],
+        'system_alerts': [],
     }
     gbfs.reset_cache()
     monkeypatch.setattr(gbfs, '_fetch', lambda feed: feeds[feed])
@@ -370,11 +377,13 @@ def test_responses_carry_citi_bikes_own_feed_time(monkeypatch):
                                  'lat': PENN.lat, 'lon': PENN.lng}],
         'station_status': [{'station_id': 'a', 'is_installed': 1, 'is_renting': 1, 'is_returning': 1,
                             'num_bikes_available': 2, 'num_docks_available': 3}],
+        'system_alerts': [],
     }
 
     def urlopen(url, timeout):  # the real _fetch parses this body
         feed = url.rsplit('/', 1)[1].removesuffix('.json')
-        return io.BytesIO(js.dumps({'last_updated': 1_783_000_000, 'data': {'stations': feeds[feed]}}).encode())
+        key = 'alerts' if feed == 'system_alerts' else 'stations'
+        return io.BytesIO(js.dumps({'last_updated': 1_783_000_000, 'data': {key: feeds[feed]}}).encode())
     monkeypatch.setattr(gbfs.urllib.request, 'urlopen', urlopen)
     monkeypatch.setattr(routes, 'load_model', lambda: MODEL)
     gbfs.reset_cache()
@@ -423,3 +432,59 @@ def test_map_png_draws_the_view(client):
     assert greens > 100
     assert http.get('/bikes/map.png').status_code == 422
     assert http.get('/bikes/map.png', params={'lat': PENN.lat, 'lng': PENN.lng, 'radius': 5000}).status_code == 422
+
+
+def test_holidays_ride_like_weekends():
+    from datetime import date
+    from bikes.conditions import day_type, holiday
+    assert holiday(date(2026, 11, 26)) == 'Thanksgiving'
+    assert holiday(date(2026, 7, 3)) == 'Independence Day'  # July 4 2026 is a Saturday
+    assert holiday(date(2026, 1, 19)) == 'Martin Luther King Jr. Day'
+    assert holiday(date(2026, 5, 25)) == 'Memorial Day'
+    assert holiday(date(2026, 11, 25)) is None
+    assert day_type(datetime(2026, 11, 26, 9)) == 1 and day_type(datetime(2026, 11, 25, 9)) == 0
+
+
+WEATHER = {'by_sky': {'dry': 1.07, 'rain': 0.63, 'heavy rain': 0.42, 'snow': 0.40},
+           'by_sky_heat': {'rain|25-30C': 0.97}, 'after_snow': 0.61}
+
+
+def test_weather_multiplier_buckets():
+    from bikes.conditions import multiplier
+    model = {'weather': WEATHER}
+    assert multiplier(model, 12, 0, 0, 0) == 1.07
+    assert multiplier(model, 12, 5.0, 0, 0) == 0.42
+    assert multiplier(model, 27, 1.0, 0, 0) == 0.97  # summer showers barely matter
+    assert multiplier(model, -3, 0, 0, 6.0) == 0.61  # snow on the ground, dry now
+    assert multiplier({}, 12, 5.0, 0, 0) == 1.0
+
+
+def test_heavy_rain_slows_refills_and_says_so():
+    from bikes.conditions import Forecast, describe, with_conditions
+    five_pm = WEDNESDAY.replace(hour=17)
+    model = {**MODEL, 'weather': WEATHER}
+    wet = Forecast({five_pm.strftime('%Y-%m-%dT%H'): (12.0, 6.0, 0.0)})
+    rainy, about = with_conditions(model, five_pm, source=lambda: wet)
+    dry_wait = nearby(model, [EMPTY_PENN], PENN.lat, PENN.lng, five_pm)['stations'][0]['wait_min']
+    wet_wait = nearby(rainy, [EMPTY_PENN], PENN.lat, PENN.lng, five_pm)['stations'][0]['wait_min']
+    assert wet_wait == round(dry_wait / 0.42, 1)
+    assert describe(about) == 'Heavy rain, 12°C: about 58% fewer trips than usual, so refills are slower.'
+    assert describe({'weather': None, 'holiday': 'Thanksgiving', 'factor': 1.0}) == 'Thanksgiving.'
+
+
+def test_answers_carry_conditions_and_citi_bike_alerts(client, monkeypatch):
+    from bikes.conditions import Forecast
+    import time as clock
+    http, feeds = client
+    feeds['system_alerts'] = [{'type': 'SYSTEM_CLOSURE', 'summary': 'Service paused for the storm.',
+                               'times': [{'start': int(clock.time()) - 60}]},
+                              {'type': 'STATION_CLOSURE', 'summary': 'Old alert.', 'times': [{'start': 1, 'end': 2}]}]
+    gbfs.reset_cache()
+    now = datetime.now(routes.NEW_YORK)
+    monkeypatch.setattr(conditions, 'forecast', lambda: Forecast({now.strftime('%Y-%m-%dT%H'): (-2.0, 0.0, 1.5)}))
+    monkeypatch.setattr(routes, 'load_model', lambda: {**MODEL, 'weather': WEATHER})
+    body = http.get('/bikes/wait', params={'lat': PENN.lat, 'lng': PENN.lng, 'need': 'dock'}).json()
+    assert body['conditions']['weather']['sky'] == 'snow' and body['conditions']['factor'] == 0.4
+    assert [a['summary'] for a in body['conditions']['alerts']] == ['Service paused for the storm.']
+    assert body['message'].endswith('Snow, -2°C: about 60% fewer trips than usual, so refills are slower. '
+                                    'Service paused for the storm.')

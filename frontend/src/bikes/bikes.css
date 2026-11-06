@@ -155,3 +155,9 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-pop__odds.is-stale{color:#a3302f;font-weight:600}
 .bk-pop__actions{display:flex;flex-wrap:wrap;gap:6px}
 .bk-pop__actions .cc-button{flex:1;min-width:0;padding-left:8px;padding-right:8px}
+
+.bk-conditions{display:grid;gap:6px}
+.bk-conditions p{display:flex;align-items:flex-start;gap:8px;margin:0;padding:8px 12px;border-radius:12px;background:#e7eef6;color:var(--ink,#3d2f29);font-size:14px;line-height:1.4}
+.bk-conditions svg{flex:none;margin-top:1px;color:#2a5f99}
+.bk-conditions p.is-alert{background:#f6e2dc}
+.bk-conditions p.is-alert svg{color:#a3302f}

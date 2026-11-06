@@ -9,17 +9,25 @@ not in the trip data, so they are not in the forecast.
 """
 from datetime import timedelta
 
+from .conditions import day_type, hour_factor
+
 STEP_S = 10
 # Past this, live counts say little about arrival and history alone answers.
 HORIZON_MIN = 60
 
 
-def per_step(model, rates, short_name, when, share):
+def rate(model, rates, short_name, when):
+    """Trips per hour at a station: its average for the day type and hour, scaled for the
+    season and, when the model carries live conditions, for that hour's weather."""
     slots = model[rates].get(short_name)
     if not slots:
         return 0.0
-    per_hour = slots[24 * (when.weekday() >= 5) + when.hour] / 100 * model['month_factor'][when.month - 1]
-    return per_hour * share * STEP_S / 3600
+    return (slots[24 * day_type(when) + when.hour] / 100 * model['month_factor'][when.month - 1]
+            * hour_factor(model, when))
+
+
+def per_step(model, rates, short_name, when, share):
+    return rate(model, rates, short_name, when) * share * STEP_S / 3600
 
 
 def distribution(model, short_name, count, capacity, start, minutes, share=1.0):

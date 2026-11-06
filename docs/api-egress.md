@@ -24,6 +24,7 @@ fixed-target TCP 5432 relay because libpq/psql do not use HTTP proxies.
 | `registerdisney.go.com`, `fan.api.espn.com` | `backend/espn/disney_login.py:60`, `backend/espn/disney_login.py:62`, urllib at line 110. These are the MyDisney login and ESPN cookie bootstrap hosts used by this implementation. No other Disney login origin is called. |
 | `site.api.espn.com` | `backend/espn/scoreboard.py:50`, `backend/espn/scoreboard.py:210`, public NBA scoreboard. |
 | `gist.githubusercontent.com` | `backend/espn/team_claims.py:31`, `backend/espn/team_claims.py:56`, public predictions fallback. Overriding `ESPN_PUBLIC_PREDICTIONS_FALLBACK_URL` requires explicitly reviewing and adding its exact hostname. |
+| `api.open-meteo.com` | `backend/bikes/conditions.py`: Central Park hourly forecast (no key), cached 30 min, 4 s timeout, 1 MB cap; failure leaves Cozy Bikes rates unadjusted. |
 | `gbfs.lyft.com` | `backend/bikes/gbfs.py:15`, `backend/bikes/gbfs.py:30`, Citi Bike's public GBFS station feeds via urllib, cached 60 s (status) and 1 h (locations). |
 | `api.partiful.com` | `backend/partiful/partiful_client.py:39`, `backend/partiful/partiful_client.py:142`. `partiful.com` is only an Origin/Referer header. |
 | `identitytoolkit.googleapis.com`, `securetoken.googleapis.com` | `backend/partiful/partiful_client.py:41`, `backend/partiful/partiful_client.py:45`, Firebase token exchange and refresh via the same urllib transport. |
@@ -43,8 +44,9 @@ imports it. Its dependency implementation uses `www.instagram.com` and
 not belong here. Moving the fetch box into the API requires a new policy review.
 
 The Cozy Bikes ingest (`backend/bikes/ingest.py`) downloads from
-`s3.amazonaws.com` as an offline command, not from the API, and is outside this
-boundary.
+`s3.amazonaws.com`, the basemap builder from `download.bbbike.org`, and the model
+builder from `archive-api.open-meteo.com`, all as offline commands, not from the
+API; they are outside this boundary.
 
 Crowdset and compute have separate entrypoints, not mounted by `main:app`.
 Their configurable R2, Supabase, compute/worker transfer URLs and YouTube media
