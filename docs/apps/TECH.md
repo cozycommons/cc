@@ -49,6 +49,12 @@ shared FastAPI API and does not mount Docker access into that existing service.
   separates long commands from individual HTTP request lifetimes while the tool
   waits and returns the completed result. Apps manage long-lived services
   with supervisor, not through special preview APIs.
+- A lifespan-managed thread checks persisted per-app backup deadlines every 30
+  seconds. Successful snapshots set the next deadline 24 hours later; failures
+  retry in five minutes. Only the newest three completed manifests per app are
+  retained, shared by automatic/manual snapshots. An atomic manifest marks
+  completion; partial failures never evict a good snapshot. A durable backup-only
+  marker restores prior running/stopped state after manager interruption.
 - Backups stop the app, dump its database and archive its workspace using a helper
   container. Restore is explicit and occurs while stopped. Platform routes and
   membership are not restored from app-owned files. Local backups are not disaster

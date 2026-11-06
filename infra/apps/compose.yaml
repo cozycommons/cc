@@ -5,6 +5,7 @@ services:
       context: ../..
       dockerfile: infra/apps/Dockerfile
     container_name: cc-apps-local-manager
+    stop_grace_period: 2m
     environment:
       APPS_STATE: /state
       APPS_PROXY_CONFIG: /proxy/Caddyfile

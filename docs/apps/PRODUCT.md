@@ -42,8 +42,12 @@ release or a migration of existing projects.
 8. Contributors can install dependencies and run multiple processes in one
    container. Registered services restart with the container. Persistent files
    survive restart and recreation; ad-hoc OS installs require reconstruction.
-9. Owners can stop/start an app and take a consistent maintenance-window backup
-   of workspace and database. Restore replaces both from a selected backup,
+9. The manager backs up each app's workspace and database every 24 hours and
+   retains its three newest successful backups. Owners may also back up manually;
+   these snapshots share the limit and reset the daily interval. Failed backups
+   preserve good snapshots and retry. Running apps pause briefly; stopped apps
+   stay stopped. Owners list retained backups and choose a restore point.
+   Restore replaces both from a selected backup,
    including the local repository and .git history, leaving membership and
    routing under platform control. Restore is explicitly destructive to newer
    app data; backups are retained outside app access.

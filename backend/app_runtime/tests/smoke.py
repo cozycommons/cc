@@ -156,6 +156,54 @@ async def mcp_provision():
                 )
 
 
+def automatic_backups(name):
+    """Advance only this synthetic app's deadline, leaving the daily interval intact."""
+    ids = []
+    seen = {b["id"] for b in request("GET", f"/api/apps/{name}/backups", user="outsider")["backups"]}
+    for _ in range(4):
+        subprocess.run(
+            ["docker", "exec", "cc-apps-local-manager", "python", "-c",
+             "import sqlite3,sys; c=sqlite3.connect('/state/registry.sqlite3'); "
+             "c.execute(\"UPDATE apps SET body=json_set(body, '$.next_backup_at', 0) WHERE name=?\", (sys.argv[1],)); "
+             "c.commit()", name],
+            check=True,
+        )
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            inventory = request("GET", f"/api/apps/{name}/backups", user="outsider")
+            snapshots = inventory["backups"]
+            if snapshots and snapshots[0]["id"] not in seen:
+                ids.append(snapshots[0]["id"])
+                seen.add(snapshots[0]["id"])
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("Daily scheduler did not produce a backup")
+    check([b["id"] for b in snapshots] == ids[-3:][::-1],
+          "Daily scheduler retains exactly the latest three backups per app")
+    check(all(b["kind"] == "automatic" for b in snapshots),
+          "Daily snapshots are marked automatic in owner inventory")
+    check(inventory["next_backup_at"] == snapshots[0]["created"] + 86400,
+          "Successful backup schedules the next one 24 hours later")
+    apps = request("GET", "/api/apps", user="outsider")
+    check(next(a for a in apps if a["name"] == name)["status"] == "stopped",
+          "Automatic backups leave a stopped app stopped")
+    removed = subprocess.run(
+        ["docker", "exec", "cc-apps-local-manager", "test", "!", "-e", "/state/backups/" + ids[0]],
+    )
+    check(removed.returncode == 0, "Retention removes expired snapshot files from storage")
+    subprocess.run(["docker", "restart", "cc-apps-local-manager"], check=True, capture_output=True)
+    for _ in range(60):
+        try:
+            if client.get("/health").status_code == 200:
+                break
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.5)
+    restored = request("GET", f"/api/apps/{name}/backups", user="outsider")
+    check(restored == inventory, "Manager restart preserves backup history and daily deadline")
+
+
 def main():
     asyncio.run(mcp_provision())
     request("POST", "/api/apps", {"name": "forbidden-app"}, user="friend", status=403)
@@ -404,6 +452,7 @@ def main():
     )
     # Retain the useful demonstration app; stop the extra isolation fixture.
     request("POST", f"/api/apps/{OTHER}/lifecycle/stop", user="outsider")
+    automatic_backups(OTHER)
     result = {
         "app": NAME,
         "other_app": OTHER,

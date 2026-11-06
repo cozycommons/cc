@@ -1,7 +1,7 @@
 {
-  "app": "trip-6b9f7bb8",
-  "other_app": "other-75825060",
-  "url": "http://trip-6b9f7bb8.localhost:8090",
+  "app": "trip-02861f08",
+  "other_app": "other-e9db0dd0",
+  "url": "http://trip-02861f08.localhost:8090",
   "checks": [
     "Agent creates an app through MCP",
     "Creation returns local repository metadata",
@@ -58,6 +58,12 @@
     "Restore recovers the database to its backup",
     "Restore recovers workspace files to the same backup",
     "Workspace restore recovers .git history and the backed-up main commit",
-    "Unpublishing removes public access"
+    "Unpublishing removes public access",
+    "Daily scheduler retains exactly the latest three backups per app",
+    "Daily snapshots are marked automatic in owner inventory",
+    "Successful backup schedules the next one 24 hours later",
+    "Automatic backups leave a stopped app stopped",
+    "Retention removes expired snapshot files from storage",
+    "Manager restart preserves backup history and daily deadline"
   ]
 }

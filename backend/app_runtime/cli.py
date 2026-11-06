@@ -12,7 +12,7 @@ def main():
     commands.add_parser("list")
     create = commands.add_parser("create")
     create.add_argument("app")
-    for name in ["start", "stop", "restart", "recreate", "backup"]:
+    for name in ["start", "stop", "restart", "recreate", "backup", "backups"]:
         commands.add_parser(name).add_argument("app")
     grant = commands.add_parser("grant")
     grant.add_argument("app")
@@ -65,6 +65,8 @@ def main():
         )
     elif args.command == "job":
         result = call("GET", base + "/jobs/" + segment(args.id))
+    elif args.command == "backups":
+        result = call("GET", base + "/backups")
     elif args.command == "backup":
         result = call("POST", base + "/backups")
     else:

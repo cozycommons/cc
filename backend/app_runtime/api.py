@@ -1,6 +1,9 @@
 """Local-only app manager. Hosted identity and deployment are intentionally separate."""
 
+import asyncio
 import base64
+from contextlib import asynccontextmanager
+
 import hmac
 import html
 import json
@@ -15,6 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
+from .backups import Backups, INTERVAL
 from .core import Store, allowed, digest, hostname, proxy_config, service_name, slug
 from .docker_runtime import Runtime
 
@@ -25,7 +29,22 @@ users = json.loads(Path(os.environ.get("APPS_USERS", "/run/users.json")).read_te
 config_path = Path(os.environ.get("APPS_PROXY_CONFIG", "/proxy/Caddyfile"))
 creators = set(os.environ.get("APPS_CREATORS", "owner").split(","))
 runtime = Runtime()
-app = FastAPI(title="Cozy Commons apps — local prototype")
+backups = Backups(store, runtime, state)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    stop = threading.Event()
+    worker = threading.Thread(target=backups.run, args=(stop,), daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        await asyncio.to_thread(worker.join)
+
+
+app = FastAPI(title="Cozy Commons apps — local prototype", lifespan=lifespan)
 # A restarted manager cannot reliably continue monitoring an old Docker exec.
 for old_job in store.all("jobs"):
     if old_job["status"] == "running":
@@ -188,6 +207,7 @@ def create(body: Create, who=Depends(identity)):
             "members": {who: "owner"},
             "routes": {},
             "status": "creating",
+            "next_backup_at": time.time() + INTERVAL,
             "repository": {
                 "kind": "local",
                 "initial_path": "/workspace",
@@ -386,28 +406,22 @@ def lifecycle(name: str, action: str, who=Depends(identity)):
     return public_record(record, who)
 
 
+@app.get("/api/apps/{name}/backups")
+def list_backups(name: str, who=Depends(identity)):
+    with store.lock:
+        record = authorized(name, who, "owner")
+        return {
+            "backups": backups.list(name),
+            "next_backup_at": record.get("next_backup_at"),
+            "error": record.get("backup_error"),
+        }
+
+
 @app.post("/api/apps/{name}/backups", status_code=201)
 def backup(name: str, who=Depends(identity)):
     with store.lock:
         record = authorized(name, who, "owner")
-        ready(record)
-        backup_id = uuid.uuid4().hex
-        folder = state / "backups" / backup_id
-        folder.mkdir(parents=True)
-        record["status"] = "maintenance"
-        store.put(record)
-        runtime.container(name).stop(timeout=10)
-        try:
-            runtime.dump(name, folder / "database.dump")
-            runtime.archive(name, backup_id)
-            (folder / "manifest.json").write_text(
-                json.dumps({"app": name, "id": backup_id, "created": time.time()})
-            )
-        finally:
-            runtime.container(name).start()
-            record["status"] = "running"
-            store.put(record)
-    return {"id": backup_id, "app": name}
+        return backups.create(record)
 
 
 class Restore(BaseModel):

@@ -130,6 +130,7 @@ when membership changes; authorization applies when a connection is established.
 scripts/apps-dev.sh cli restart weekend
 scripts/apps-dev.sh cli recreate weekend
 scripts/apps-dev.sh cli backup weekend
+scripts/apps-dev.sh cli backups weekend
 scripts/apps-dev.sh cli restore weekend BACKUP_ID --confirm-replace-data
 scripts/apps-dev.sh cli stop weekend
 scripts/apps-dev.sh cli start weekend
@@ -142,7 +143,25 @@ run it after replacement, or use dependencies in a workspace-local environment.
 It is not run automatically. Ordinary restart retains the container's writable
 layer, while registered services restart in either case.
 
-Backup briefly stops the app to dump its database and archive its workspace.
+The manager automatically backs up each app once every 24 hours, starting one
+day after creation (or adoption of an existing app with no backups). It retains
+the **three most recent successful backups per app**. Manual snapshots share
+this limit and reset the next daily backup to 24 hours later. Failed attempts
+keep the previous good snapshots and retry after five minutes. The schedule
+persists across manager restarts; an overdue app gets one catch-up backup, not
+one for every missed day. Older good snapshots remain if the manager is offline,
+so retention means three restore points rather than expiring the only good copy.
+
+`cli backups APP` lists retained IDs, timestamps, manual/automatic kind, next
+scheduled time (Unix timestamp), and any backup error. Listing and restoring
+backups remain owner-only. The MCP contract remains four tools.
+
+Backup briefly stops a running app to dump its database and archive its workspace;
+a stopped app stays stopped. Daily snapshots can interrupt active requests and
+shell jobs. A single scheduler in the manager serializes backups with lifecycle,
+restore and other registry operations. Run the manager with one worker only.
+Interrupted backups are recovered on startup; a failed restore is never
+mistaken for an interrupted backup.
 Restore recreates the app database (including removing tables created after the
 backup), replaces workspace files, keeps platform membership/routing, and leaves
 the app stopped if restoration fails. Backups cover files/database, not installed
@@ -186,8 +205,8 @@ container restart/replacement and file/database recovery.
 
 [Recorded local acceptance checks](verification.json).
 
-Validated on Linux with Python 3.12 and local Docker on 2026-11-06: all 30
-API/core/MCP tests and 56 live acceptance checks passed. The new restore regression
+Validated on Linux with Python 3.12 and local Docker on 2026-11-06: all 40
+API/core/MCP/backup tests and 62 live acceptance checks passed. The new restore regression
 failed against the original manager and passed after the fix. OSV Scanner 2.7.0
 reported no issues in the manager, runtime, or smoke-test dependency locks.
 macOS has not been exercised in this pass. The independent reviews required by

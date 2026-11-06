@@ -56,6 +56,7 @@ def client(tmp_path, monkeypatch):
         {
             "name": "trip",
             "status": "running",
+            "next_backup_at": api.time.time() + api.INTERVAL,
             "members": {"owner": "owner", "friend": "contributor", "viewer": "viewer"},
             "routes": {},
             "app_token_hash": digest("app-key"),
@@ -258,3 +259,15 @@ def test_creation_requires_platform_permission(client):
         ).status_code
         == 409
     )
+
+
+def test_backup_inventory_is_owner_only(client):
+    c, api, _ = client
+    for user in ["friend", "viewer"]:
+        assert c.get("/api/apps/trip/backups", headers=headers(user)).status_code == 403
+    assert c.get("/api/apps/trip/backups", headers=headers("outsider")).status_code == 404
+    assert c.get("/api/apps/trip/backups", headers=headers("app")).status_code == 403
+    result = c.get("/api/apps/trip/backups", headers=headers("owner"))
+    assert result.status_code == 200
+    assert result.json()["backups"] == []
+    assert result.json()["next_backup_at"] is not None

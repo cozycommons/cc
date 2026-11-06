@@ -45,6 +45,8 @@ PY
     done
     ;;
   stop)
+    # Quiesce scheduled backups before stopping app containers.
+    docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml stop manager
     # Stop only containers labelled as this prototype's apps.
     docker ps -q --filter label=cc.apps | while IFS= read -r container; do
       if [ -n "$container" ]; then docker stop "$container"; fi
