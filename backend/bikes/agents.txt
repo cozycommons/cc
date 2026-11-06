@@ -1,0 +1,63 @@
+# Cozy Bikes API
+
+Live Citi Bike (New York and Jersey City) stations, the chance a bike or dock is
+still there when you arrive, and trip plans. Public data, no auth, GET only.
+Base URL: https://api.cozycommons.dev/bikes   Schemas: https://api.cozycommons.dev/openapi.json
+
+Every endpoint reads Citi Bike's live feed, at most a minute or two old
+(`age_s` says how old). Times without an offset are New York time. Coordinates
+must be in the Citi Bike area (lat 40.45 to 40.95, lng -74.30 to -73.70). Add
+`format=text` to /wait and /plan for one sentence to relay to the user.
+
+## Find a station by name
+
+GET /stations?q=broadway e 14&limit=5
+GET /stations?q=west 31st street 7th avenue
+GET /stations?q=broadway&lat=40.7497&lng=-73.9915     (nearest first)
+-> stations: [{station, station_id, lat, lng, bikes, ebikes, classic_bikes, open_docks, docks_disabled,
+   renting, returning, reported_s (age of the station's own report), stale}]
+
+Stations are named by cross streets ("W 31 St & 7 Ave"), not landmarks. Street
+words are normalized (west -> W, 31st -> 31, avenue -> Ave). For a landmark or
+address ("Union Square", "Penn Station"), use its coordinates with lat and lng.
+
+Use the `station_id` anywhere a station is accepted below.
+
+## One station now and soon
+
+GET /stations/{station_id}
+-> live counts, chance.{bike,ebike,dock}.{15_min,30_min,60_min} (null when out
+   of service), wait_if_empty_min (until someone returns a bike), wait_if_full_min
+   (until someone takes one)
+
+## Nearest stations: where do I get a bike (or dock)?
+
+GET /wait?lat=40.7497&lng=-73.9915&need=bike        need: bike | ebike | dock
+GET /wait?station=6331.01&need=dock&limit=5         start from a station instead
+GET /wait?lat=...&lng=...&at=2026-07-15T17:00       any time: history only, no live counts
+-> best (lowest expected minutes), stations: [{walk_min, bikes, ebikes, open_docks,
+   status (available|empty|full|closed|unknown), chance (has it when you arrive),
+   wait_min (refill wait if it does not), expected_min}], message
+
+## Plan a trip
+
+GET /plan?from_lat=40.7497&from_lng=-73.9915&to_station=5492.05
+GET /plan?from_station=6331.01&to_lat=40.7295&to_lng=-73.9965&depart=2026-11-06T08:30&ebike=true
+-> best: {start, end (each with walk_min, live counts, chance), ride_min, expected_min},
+   alternatives, walk_only_min, message. Live odds cover departures up to an hour ahead.
+
+## Every station at once
+
+GET /live
+-> columnar arrays: id, name, lat, lng, bikes, ebikes, docks, docks_disabled, reported_s,
+   flags (1 renting, 2 returning, 4 stale)
+
+## Notes
+
+- Odds come from a year of trips (arrivals and departures by station, hour, day
+  type and season) applied to the live count. Rebalancing vans are not in the data.
+- Station reports are usually 1-4 minutes old. A station silent for 15 minutes is
+  `stale` (status `unknown`): its counts may be hours old, so it gets no odds and
+  is never recommended or planned through.
+- `open_docks` already excludes broken docks; `docks_disabled` counts them.
+- 404 means no such station in service; 503 means Citi Bike's feed is down.

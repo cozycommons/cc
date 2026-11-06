@@ -9,10 +9,10 @@ import re
 import subprocess
 
 
-FRONTEND_PROJECTS = ("crowdset", "dice", "design", "trips", "floor-planner")
-BACKEND_PROJECTS = ("beli", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips")
+FRONTEND_PROJECTS = ("bikes", "crowdset", "dice", "design", "trips", "floor-planner")
+BACKEND_PROJECTS = ("beli", "bikes", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips")
 INTEGRATIONS = {"beli", "espn", "partiful", "resy"}
-JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute")
+JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute", "bikes")
 SHARED_BACKEND_INPUTS = {
     "package.json", "package-lock.json", "scripts/bootstrap-dice-test-db.sh",
     "scripts/reset-local-dice-db.sh", "scripts/supabase-test-scaffold.sql",
@@ -31,6 +31,7 @@ def select(paths, test_files):
     frontend, backend = set(), set()
     crowdset = False
     compute = False
+    bikes = False
 
     for path in paths:
         if path.endswith(".md") or path.startswith(("docs/", ".agents/")) or path in {"LICENSE", ".gitignore"}:
@@ -39,6 +40,13 @@ def select(paths, test_files):
             compute = True
             if not path.startswith("backend/compute/tests/"):
                 crowdset = True
+        elif path.startswith(("backend/bikes/tests/", "backend/bikes/ingest.py")) or path in {"backend/requirements-bikes.in", "backend/requirements-bikes.txt"}:
+            # The offline ingest has its own DuckDB lockfile; main:app does not import it.
+            bikes = True
+        elif path == "backend/bikes/model.py":
+            # Builds the model offline; the API reads its output path.
+            bikes = True
+            backend.add("bikes")
         elif path in {".github/images/crowdset-tests.Dockerfile", "scripts/test_crowdset_ci_image.py"} or path.startswith("backend/crowdset/") or path in {"backend/requirements-crowdset.in", "backend/requirements-crowdset.txt"} or path.startswith(("scripts/crowdset-", "scripts/systemd/crowdset-")):
             crowdset = True
         elif path.startswith("frontend/"):
@@ -84,12 +92,12 @@ def select(paths, test_files):
             else:
                 frontend.update(FRONTEND_PROJECTS)
                 backend.update(BACKEND_PROJECTS)
-                compute = True
+                compute = bikes = True
         else:
             # Shared checks cover unmapped infrastructure; media tests need a runtime input.
             frontend.update(FRONTEND_PROJECTS)
             backend.update(BACKEND_PROJECTS)
-            compute = True
+            compute = bikes = True
 
     frontend_tests = sorted(
         path.removeprefix("frontend/") for path in test_files
@@ -114,6 +122,7 @@ def select(paths, test_files):
         "trips": "trips" in backend,
         "crowdset": crowdset,
         "compute": compute,
+        "bikes": bikes,
         # Both deployed frontend images compile the whole shared Vite application.
         "crowdset-container": crowdset or bool(frontend),
         "frontend_files": frontend_tests,

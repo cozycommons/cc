@@ -12,8 +12,8 @@ SPEC = importlib.util.spec_from_file_location('egress_start', DEPLOY / 'start.py
 start = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(start)
 
-# These are response links, request Origin/Referer headers, or sandbox constants,
-# not outbound destinations. Scope exemptions to the file so a new caller needs review.
+# These are response links, request Origin/Referer headers, sandbox constants, or
+# offline commands main:app never imports (bikes.ingest), not API destinations. Scope exemptions to the file so a new caller needs review.
 NON_EGRESS = {
     'cozycommons.dev': {'partiful/agent_tools.py', 'resy/agent_tools.py', 'espn/agent_tools.py',
                        'ig_logger/sinks/beli/agent_tools.py', 'trips/agent_tools.py',
@@ -26,6 +26,7 @@ NON_EGRESS = {
     'venmo.com': {'venmo/links.py'},
     'localhost': {'main.py', 'dice/notifications.py'},
     '127.0.0.1': {'main.py', 'runtime_policy.py', 'trips/local.py'},
+    's3.amazonaws.com': {'bikes/ingest.py'},
 }
 
 

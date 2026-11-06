@@ -28,6 +28,7 @@ const TripsApp = lazyWithRecovery(loadTripsApp);
 const Fantasy = lazyWithRecovery(() => import('./fantasy/Fantasy.jsx'));
 const FloorPlannerApp = lazyWithRecovery(loadFloorPlannerApp);
 const Connect = lazyWithRecovery(() => import('./connect/Connect.jsx'));
+const BikesApp = lazyWithRecovery(() => import('./bikes/BikesApp.jsx'));
 const Account = lazyWithRecovery(() => import('./account/Account.jsx'));
 const OAuthConsent = lazyWithRecovery(() => import('./auth/OAuthConsent.jsx'));
 
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="/connect" element={<React.Suspense fallback={<p>Loading…</p>}><Connect /></React.Suspense>} />
           <Route path="/account" element={<React.Suspense fallback={<p>Loading…</p>}><Account /></React.Suspense>} />
           <Route path="/oauth/consent" element={<React.Suspense fallback={<p>Loading connection request…</p>}><SupabaseProvider><OAuthConsent /></SupabaseProvider></React.Suspense>} />
+          <Route path="/bikes" element={<React.Suspense fallback={null}><BikesApp /></React.Suspense>} />
           <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
           <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
           <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
