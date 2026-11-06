@@ -9,7 +9,8 @@ access to its database. Do not put credentials in Git or public files.
 Bind web services to 0.0.0.0. Use `commons expose PORT --default` or
 `commons expose PORT --name NAME`; add --public only for intentional public access.
 `commons unexpose NAME` removes a route; use default for the main route.
-Publishing does not start your server. External agents can also use MCP tools.
+Publishing does not start your server. External agents run these same commands
+through the MCP exec_command tool, which waits and returns command output.
 
 For persistent processes, write /workspace/services/NAME.conf:
 

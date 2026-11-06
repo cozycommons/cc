@@ -19,9 +19,10 @@ release or a migration of existing projects.
    The agent chooses its layout within persistent storage. Contributors are
    trusted with all app files, processes and data.
    They cannot administer the platform or another app through platform tools.
-3. External agents can list authorized apps, execute shell commands, poll their
-   results, and read/write UTF-8 files through generic MCP tools. Commands have
-   bounded duration and retained output. Shell is not a per-file permission model.
+3. External agents use four MCP tools: list_apps, create_app, set_app_member,
+   and exec_command. Execution waits and returns a bounded result; agents use
+   shell commands for file operations and `commons expose/unexpose` for routing.
+   Shell is not a per-file permission model.
 4. Owners can add known local users as contributors or viewers. Contributors
    may edit and publish; viewers may only list and use authorized apps. Owners
    manage membership, lifecycle and recovery. Credentials are local prototype

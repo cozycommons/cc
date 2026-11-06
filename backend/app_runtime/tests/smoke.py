@@ -98,57 +98,33 @@ async def mcp_edit():
             await session.initialize()
             tools = await session.list_tools()
             check(
-                "exec_command" in [tool.name for tool in tools.tools],
-                "MCP handshake and generic shell tool discovery",
+                {tool.name for tool in tools.tools}
+                == {"list_apps", "create_app", "set_app_member", "exec_command"},
+                "MCP exposes exactly four platform and shell tools",
             )
-            result = await session.call_tool(
-                "write_file",
-                {
-                    "app": NAME,
-                    "path": "/workspace/trip.py",
-                    "content": (ROOT / "infra/apps/example_trip.py").read_text(),
-                },
-            )
-            check(
-                not result.isError, "Second contributor writes app source through MCP"
-            )
-            result = await session.call_tool(
-                "write_file",
-                {
-                    "app": NAME,
-                    "path": "/workspace/notes.txt",
-                    "content": "Pack passport\n",
-                },
-            )
-            check(not result.isError, "MCP persists a context file")
-            result = await session.call_tool(
-                "read_file", {"app": NAME, "path": "/workspace/notes.txt"}
-            )
-            check(
-                not result.isError and "Pack passport" in str(result.content),
-                "MCP reads the same context back",
-            )
-            result = await session.call_tool("expose_port", {"app": NAME, "port": 3000})
-            check(
-                not result.isError, "Contributor publishes the default port through MCP"
-            )
-            result = await session.call_tool(
-                "exec_command", {"app": NAME, "command": "printf mcp-shell"}
-            )
-            check(not result.isError, "MCP starts a shell command")
-            job_id = json.loads(result.content[0].text)["id"]
-            for _ in range(40):
+
+            async def shell(command):
                 result = await session.call_tool(
-                    "read_job", {"app": NAME, "job_id": job_id}
+                    "exec_command", {"app": NAME, "command": command}
                 )
+                check(not result.isError, "MCP shell call completes")
                 job = json.loads(result.content[0].text)
-                if job["status"] != "running":
-                    break
-                await asyncio.sleep(0.1)
-            check(
-                job["exit_code"] == 0 and job["output"] == "mcp-shell",
-                "MCP polls command output",
-            )
+                check(job["exit_code"] == 0, "MCP shell command succeeds")
+                return job
+
+            source = (ROOT / "infra/apps/example_trip.py").read_text()
+            await shell("printf %s " + shlex.quote(source) + " > /workspace/trip.py")
+            check(True, "Second contributor writes app source through MCP shell")
+            await shell("printf %s " + shlex.quote("Pack passport\n") + " > /workspace/notes.txt")
+            result = await shell("cat /workspace/notes.txt")
+            check(result["output"] == "Pack passport\n", "MCP shell reads the saved context")
+            await shell("commons expose 3000 --default")
+            check(True, "Contributor publishes the default port through MCP shell")
+            await shell("commons expose 8080 --name temporary && commons unexpose temporary")
+            check("temporary" not in next(a for a in request("GET", "/api/apps") if a["name"] == NAME)["routes"],
+                  "MCP shell removes a published route")
+            result = await shell("sleep 1; printf mcp-shell")
+            check(result["output"] == "mcp-shell", "MCP returns completed command output without polling tools")
 
 
 async def mcp_provision():

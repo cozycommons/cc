@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: scripts/apps-dev.sh setup
-      - run: PYTHONPATH=backend .apps-dev/venv/bin/python -m pytest backend/app_runtime/tests/test_core.py backend/app_runtime/tests/test_api.py -q
+      - run: PYTHONPATH=backend .apps-dev/venv/bin/python -m pytest backend/app_runtime/tests -q
       - run: scripts/apps-dev.sh start
       - name: Wait for manager
         run: curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:8091/health

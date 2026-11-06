@@ -39,8 +39,19 @@ scripts/apps-dev.sh mcp
 Use the script's absolute path in the client's server configuration. Set
 `COMMONS_USER=friend` to connect as the second local identity; the default is
 `owner`. The wrapper reads only the generated local credential file. Tools:
-`list_apps`, `create_app`, `set_app_member`, `exec_command`, `read_job`, `read_file`, `write_file`, `expose_port`,
-`unexpose_port`. Shell commands return a job ID and retain up to 64 KiB of output.
+`list_apps`, `create_app`, `set_app_member`, and `exec_command`.
+
+`exec_command(app, command, timeout=120)` waits for completion and returns the
+status, exit code, last 64 KiB of output, and truncation flag. The timeout is
+1–300 seconds; configure the MCP client's tool deadline to allow that timeout
+plus reporting overhead. Execution jobs remain internal to the manager; agents
+do not need a polling tool. If the connection is interrupted, a command may
+still be running: inspect its effects or use the platform CLI before retrying.
+
+Use shell commands for file operations and `commons expose` / `commons unexpose`
+for publishing. Start persistent services through supervisor. App discovery,
+creation and membership remain platform tools because they require the caller's
+identity; app containers only hold a capability to publish their own ports.
 
 This is real MCP, tested with a protocol client, but it is **local stdio**, not a
 hosted ChatGPT/Claude OAuth connector. Remote agent product connections are a
@@ -153,7 +164,7 @@ After starting the platform again, explicitly start any apps you want running.
 ## Checks
 
 ```bash
-PYTHONPATH=backend .apps-dev/venv/bin/python -m pytest backend/app_runtime/tests/test_core.py backend/app_runtime/tests/test_api.py -q
+PYTHONPATH=backend .apps-dev/venv/bin/python -m pytest backend/app_runtime/tests -q
 scripts/apps-dev.sh smoke
 ```
 
@@ -175,8 +186,8 @@ container restart/replacement and file/database recovery.
 
 [Recorded local acceptance checks](verification.json).
 
-Validated on Linux with Python 3.12 and local Docker on 2026-11-06: all 26
-API/core tests and 45 live acceptance checks passed. The new restore regression
+Validated on Linux with Python 3.12 and local Docker on 2026-11-06: all 30
+API/core/MCP tests and 56 live acceptance checks passed. The new restore regression
 failed against the original manager and passed after the fix. OSV Scanner 2.7.0
 reported no issues in the manager, runtime, or smoke-test dependency locks.
 macOS has not been exercised in this pass. The independent reviews required by

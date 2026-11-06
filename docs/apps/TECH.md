@@ -19,7 +19,8 @@ shared FastAPI API and does not mount Docker access into that existing service.
   its container. Starter AGENTS.md and .gitignore are the first commit. This
   initialization runs only during new app provisioning, not on restart or
   recreation; existing app files and history are not reseeded.
-- MCP exposes create_app and set_app_member through the existing manager API.
+- MCP exposes list_apps, create_app, set_app_member and exec_command through the
+  existing manager API. File operations and publishing use the app shell.
   APPS_CREATORS controls who can allocate new apps independently of app roles.
 - Each app gets a named workspace volume and its own Docker bridge network.
   Only its app container, shared proxy and Postgres join that network. The
@@ -44,8 +45,9 @@ shared FastAPI API and does not mount Docker access into that existing service.
 - An app-scoped token enables the in-container `commons expose` command. It only
   permits route mutations for that app; it cannot use shell or membership APIs.
   Recreating the container rotates it.
-- Shell jobs use Docker exec with GNU timeout and bounded retained output; polling
-  separates long commands from request lifetime. Apps manage long-lived services
+- Shell jobs use Docker exec with GNU timeout and bounded retained output; internal MCP polling
+  separates long commands from individual HTTP request lifetimes while the tool
+  waits and returns the completed result. Apps manage long-lived services
   with supervisor, not through special preview APIs.
 - Backups stop the app, dump its database and archive its workspace using a helper
   container. Restore is explicit and occurs while stopped. Platform routes and

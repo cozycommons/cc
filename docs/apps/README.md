@@ -161,7 +161,7 @@ Each app is stewarded by a person or community; people may belong to several.
 ### Agent access
 
 - **Chat agents** (ChatGPT, Claude) connect through one generic MCP connector
-  with shell and file tools (roughly `exec`, `read_file`, `write_file`),
+  with a shell tool (`exec_command`) for commands and file operations,
   protected by OAuth and limited to the apps and operations the user is
   authorized to access. Apps get no app-specific MCP tools; agents work with
   files, code and SQL directly.

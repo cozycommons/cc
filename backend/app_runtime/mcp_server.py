@@ -1,5 +1,7 @@
 """Vendor-neutral stdio MCP adapter; credentials remain in the client environment."""
 
+import time
+
 from mcp.server.fastmcp import FastMCP
 
 from .client import call, segment
@@ -33,50 +35,29 @@ def set_app_member(app: str, user: str, role: str) -> dict:
 
 @mcp.tool()
 def exec_command(app: str, command: str, timeout: int = 120) -> dict:
-    """Start a shell command in /workspace; poll its job ID for output. Maximum 300 seconds."""
-    return call(
-        "POST",
-        f"/api/apps/{segment(app)}/exec",
-        {"command": command, "timeout": timeout},
-    )
+    """Run a shell command in /workspace and return status, exit_code and output.
 
-
-@mcp.tool()
-def read_job(app: str, job_id: str) -> dict:
-    """Read a command's status, exit code and up to 64 KiB of retained output."""
-    return call("GET", f"/api/apps/{segment(app)}/jobs/{segment(job_id)}")
-
-
-@mcp.tool()
-def read_file(app: str, path: str) -> dict:
-    """Read a UTF-8 file under /workspace (up to 64 KiB)."""
-    return call("GET", f"/api/apps/{segment(app)}/file?path={segment(path)}")
-
-
-@mcp.tool()
-def write_file(app: str, path: str, content: str) -> dict:
-    """Write a UTF-8 file under /workspace. Contributors can change all app data."""
-    return call(
-        "PUT", f"/api/apps/{segment(app)}/file", {"path": path, "content": content}
-    )
-
-
-@mcp.tool()
-def expose_port(
-    app: str, port: int, name: str = "default", public: bool = False
-) -> dict:
-    """Publish a running HTTP service. Private by default; public permits anonymous visitors."""
-    return call(
-        "PUT",
-        f"/api/apps/{segment(app)}/routes/{segment(name)}",
-        {"port": port, "public": public},
-    )
-
-
-@mcp.tool()
-def unexpose_port(app: str, name: str = "default") -> dict:
-    """Remove a published route; the underlying process continues running."""
-    return call("DELETE", f"/api/apps/{segment(app)}/routes/{segment(name)}")
+    Waits for completion; timeout is 1–300 seconds. Retains the last 64 KiB of
+    output with a truncated flag. Use shell commands to read/write files and
+    `commons expose PORT --default` / `commons unexpose default` to publish or
+    remove HTTP/WebSocket routes. Publishing is private unless --public is set.
+    Use supervisor for persistent services; a command timeout terminates the shell.
+    """
+    base = f"/api/apps/{segment(app)}"
+    job = call("POST", base + "/exec", {"command": command, "timeout": timeout})
+    # The manager owns execution, timeout enforcement and output bounds. Poll
+    # here so agents need only one tool call, without giving containers job access.
+    deadline = time.monotonic() + timeout + 15
+    while True:
+        result = call("GET", base + "/jobs/" + segment(job["id"]))
+        if result["status"] != "running":
+            return result
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Manager did not finish reporting job {job['id']}; "
+                "inspect it through the platform CLI before retrying the command"
+            )
+        time.sleep(0.2)
 
 
 if __name__ == "__main__":
