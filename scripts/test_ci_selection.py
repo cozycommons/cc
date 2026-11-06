@@ -29,10 +29,25 @@ TEST_FILES = [
 
 class SelectionTests(unittest.TestCase):
     def test_compute_dependencies_and_test_only_changes(self):
-        plan = ci.select(["backend/compute/worker.py"], TEST_FILES)
-        self.assertEqual([j for j in ci.JOBS if plan[j]], ["crowdset", "crowdset-container", "compute"])
-        plan = ci.select(["backend/compute/tests/test_compute.py"], TEST_FILES)
-        self.assertEqual([j for j in ci.JOBS if plan[j]], ["compute"])
+        for path in ["backend/compute/worker.py", "backend/requirements-compute.in", "backend/requirements-compute.txt"]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], ["crowdset", "crowdset-container", "compute"])
+        for path in ["backend/compute/tests/test_compute.py", "backend/compute/tests/requirements.in", "backend/compute/tests/requirements.txt"]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], ["compute"])
+
+    def test_bikes_offline_and_api_suites(self):
+        for path in ["backend/bikes/ingest.py", "backend/bikes/basemap.py", "backend/bikes/tests/test_ingest.py", "backend/requirements-bikes.txt"]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], ["bikes"])
+        for path, jobs in [("backend/bikes/wait.py", ["backend-tests"]), ("backend/bikes/model.py", ["backend-tests", "bikes"])]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], jobs)
+                self.assertEqual(plan["backend_projects"], ["bikes"])
 
     def test_docs_only_skips_every_expensive_job(self):
         plan = ci.select(["README.md", "AGENTS.md", "docs/deployment.md", "backend/dice/TECH.md"], TEST_FILES)
@@ -67,7 +82,7 @@ class SelectionTests(unittest.TestCase):
                 self.assertFalse(plan["crowdset"])
 
     def test_crowdset_backend_is_isolated(self):
-        for path in ["scripts/test_crowdset_ci_image.py", ".github/images/crowdset-tests.Dockerfile", "scripts/crowdset-ci-image.sh", "backend/crowdset/video.py", "backend/crowdset/tests/test_video.py", "backend/crowdset/tests/requirements.txt", "backend/requirements-crowdset.txt", "scripts/crowdset-dev.sh"]:
+        for path in ["scripts/test_crowdset_ci_image.py", ".github/images/crowdset-tests.Dockerfile", "scripts/crowdset-ci-image.sh", "backend/crowdset/video.py", "backend/crowdset/tests/test_video.py", "backend/crowdset/tests/requirements.txt", "backend/requirements-crowdset.txt", "backend/requirements-crowdset.in", "scripts/crowdset-dev.sh"]:
             with self.subTest(path=path):
                 plan = ci.select([path], TEST_FILES)
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["crowdset", "crowdset-container"])
@@ -249,6 +264,15 @@ class GateTests(unittest.TestCase):
                     else:
                         with self.assertRaises(ValueError):
                             ci.check_gate(needs, ["trips"])
+
+    def test_supply_chain_failure_is_separate_from_selection(self):
+        for result in ('failure', 'cancelled', 'skipped', None):
+            needs = {'changes': {'result': 'success', 'outputs': {}},
+                     'supply-chain': {'result': result}}
+            with self.subTest(result=result), self.assertRaisesRegex(ValueError, 'supply-chain: required'):
+                ci.check_gate(needs, [], required_jobs=('supply-chain',))
+        ci.check_gate({'changes': {'result': 'success', 'outputs': {}},
+                       'supply-chain': {'result': 'success'}}, [], required_jobs=('supply-chain',))
 
     def test_selection_failure_blocks_merge(self):
         with self.assertRaises(ValueError):

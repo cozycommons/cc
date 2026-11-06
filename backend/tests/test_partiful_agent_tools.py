@@ -10,7 +10,6 @@ from fastmcp.server.auth import AccessToken
 
 from cc_mcp.registry import PROVIDERS
 from cc_mcp.server import EDIT_SCOPE, READ_SCOPE, build_server
-from partiful import agent_tools
 from partiful.agent_tools import LINK_STEP, RELINK_STEP
 from partiful.partiful_client import PartifulAuthError, PartifulError
 from tests import partiful_fakes
@@ -21,7 +20,6 @@ from tests.test_commons_agent_tools import Database, connect
 async def partiful(monkeypatch):
     db = Database()
     partiful_fakes.install(db, monkeypatch)
-    monkeypatch.setattr(agent_tools, '_LINK_ATTEMPTS', {})
     token = AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE])
     monkeypatch.setattr('cc_mcp.server.get_access_token', lambda: token)
     mcp = build_server(db, PROVIDERS)
@@ -37,14 +35,10 @@ def enable(db):
     db.settings[(db.user.id, 'partiful')] = {'user_id': db.user.id, 'project_id': 'partiful', 'enabled': True}
 
 
-def owner(db, row):
-    return next(r for r in db.partiful_accounts if r['id'] == row['id'])['owner_user_id']
-
 
 async def linked_user(db, call):
     enable(db)
-    row, token = partiful_fakes.add_account(db)
-    await call('link_partiful_account', api_token=token)
+    row, _token = partiful_fakes.add_account(db, owner=db.user.id)  # as the account page links it
     return row
 
 
@@ -54,10 +48,11 @@ async def test_new_user_sees_partiful_off_then_the_link_step(partiful):
     project = {p['id']: p for p in (await call('list_projects'))['projects']}['partiful']
     assert project['on_connector'] and project['enabled'] is False and project['linked'] is False
     assert {t['name']: t['access'] for t in project['tools']} == {
-        'get_partiful_events': 'read', 'link_partiful_account': 'edit'}
-    assert not {'get_partiful_events', 'link_partiful_account'} & await listed()
+        'get_partiful_events': 'read'}
+    assert not {'get_partiful_events'} & await listed()
     enabled = await call('enable_project', project_id='partiful')
     assert enabled['linked'] is False and enabled['next_step'] == LINK_STEP
+    assert 'Do not ask for the code or a ccp_ token in chat' in LINK_STEP
 
 
 @pytest.mark.asyncio
@@ -65,77 +60,26 @@ async def test_unlinked_user_gets_the_link_step(partiful):
     db, call, _ = partiful
     enable(db)
     partiful_fakes.add_account(db, owner=str(uuid4()))  # someone else's linked account
-    with pytest.raises(ToolError, match='Link your Partiful account first: Call link_partiful_account'):
+    with pytest.raises(ToolError, match='Link your Partiful account first: Ask the user to connect Partiful at https://cozycommons.dev/account#partiful'):
         await call('get_partiful_events')
     assert not db.partiful_logins and not db.partiful_reads
 
 
 @pytest.mark.asyncio
-async def test_link_never_echoes_the_token_keeps_the_session_and_enables_by_default(partiful):
+async def test_a_page_linked_account_turns_partiful_on_and_no_token_tool_exists(partiful):
     db, call, listed = partiful
-    enable(db)
-    row, token = partiful_fakes.add_account(db, label='synthetic-sam')
-    stored = dict(next(r for r in db.partiful_accounts if r['id'] == row['id']))
-    linked = await call('link_partiful_account', api_token=token)
-    assert linked == {'linked': True, 'status': 'linked', 'account': {'id': row['id'], 'label': 'synthetic-sam'},
-                      'next_step': 'Call get_partiful_events() to list your events.'}
-    assert token not in repr(linked) and row['token_hash'] not in repr(linked)
-    after = next(r for r in db.partiful_accounts if r['id'] == row['id'])
-    # Only owner_user_id changes: the refresh token and uid are untouched and nothing was decrypted.
-    assert {k: v for k, v in after.items() if k != 'owner_user_id'} == {
-        k: v for k, v in stored.items() if k != 'owner_user_id'}
-    assert after['owner_user_id'] == db.user.id and not db.partiful_logins
-    assert (await call('link_partiful_account', api_token=token))['status'] == 'already_linked'
-    del db.settings[(db.user.id, 'partiful')]
+    row, token = partiful_fakes.add_account(db, owner=db.user.id)  # as /account/linked-accounts links it
     project = {p['id']: p for p in (await call('list_projects'))['projects']}['partiful']
     assert project['enabled'] and project['linked'] and project['status']['in_use']
     assert project['enabled_reason'] == 'default: you already use it'
-    assert {'get_partiful_events', 'link_partiful_account'} <= await listed()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('bad', ['ccp_' + 'x' * 43, 'not-a-token', 'ccb_' + 'x' * 43])
-async def test_link_with_a_wrong_token_is_refused(partiful, bad):
-    db, call, _ = partiful
-    enable(db)
-    row, _token = partiful_fakes.add_account(db)
-    with pytest.raises(ToolError, match='No Partiful account matches that token') as error:
-        await call('link_partiful_account', api_token=bad)
-    assert bad not in str(error.value)
-    assert owner(db, row) is None
-
-
-@pytest.mark.asyncio
-async def test_account_linked_to_another_user_is_refused(partiful):
-    db, call, _ = partiful
-    enable(db)
-    other = str(uuid4())
-    row, token = partiful_fakes.add_account(db, owner=other)
-    with pytest.raises(ToolError, match='linked to another Commons user') as error:
+    assert 'link_partiful_account' not in await listed()
+    with pytest.raises(ToolError, match='Unknown tool'):
         await call('link_partiful_account', api_token=token)
-    assert token not in str(error.value) and owner(db, row) == other
 
 
-@pytest.mark.asyncio
-async def test_linking_another_of_your_accounts_replaces_the_link(partiful):
-    db, call, _ = partiful
-    first = await linked_user(db, call)
-    second, token = partiful_fakes.add_account(db, label='second')
-    result = await call('link_partiful_account', api_token=token)
-    assert result['replaced_account'] == {'id': first['id'], 'label': 'synthetic'}
-    assert owner(db, first) is None and owner(db, second) == db.user.id
 
 
-@pytest.mark.asyncio
-async def test_link_attempts_are_rate_limited(partiful):
-    db, call, _ = partiful
-    enable(db)
-    for _ in range(10):
-        with pytest.raises(ToolError, match='No Partiful account matches'):
-            await call('link_partiful_account', api_token='ccp_' + 'y' * 43)
-    _row, token = partiful_fakes.add_account(db)
-    with pytest.raises(ToolError, match='Too many link attempts'):
-        await call('link_partiful_account', api_token=token)
+
 
 
 @pytest.mark.asyncio

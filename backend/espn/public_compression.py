@@ -3,6 +3,10 @@
 from starlette.middleware.gzip import GZipMiddleware
 
 
+# Large public JSON bodies worth gzip; Cozy Bikes' live map payload is ~200 KB raw.
+COMPRESSED_PATHS = frozenset({"/espn/public/predictions/latest", "/bikes/live"})
+
+
 class PublicPredictionsCompression:
     def __init__(self, app):
         self.app = app
@@ -11,6 +15,6 @@ class PublicPredictionsCompression:
     async def __call__(self, scope, receive, send):
         handler = self.compressed if (
             scope["type"] == "http"
-            and scope["path"] == "/espn/public/predictions/latest"
+            and scope["path"] in COMPRESSED_PATHS
         ) else self.app
         await handler(scope, receive, send)

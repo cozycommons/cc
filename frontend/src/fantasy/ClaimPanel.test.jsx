@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import Fantasy from './Fantasy.jsx';
@@ -37,7 +37,8 @@ describe('team links', () => {
     expect((await screen.findAllByText('Jordan')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('Paulo R')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Paulo')).toBeNull();
-    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeTruthy();
+    // The header has its own Sign in; this one belongs to the team panel.
+    await waitFor(() => expect(within(screen.getByLabelText('Your team')).getByRole('button', { name: 'Sign in' })).toBeTruthy());
   });
 
   it('suggests the matching team, links it on confirm, and can unlink', async () => {

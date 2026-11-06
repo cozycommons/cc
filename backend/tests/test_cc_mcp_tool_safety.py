@@ -5,6 +5,7 @@ for each tool, and either arguments that target another user's resource or a
 stated reason the tool has none. Calls go through the full server, so the access
 middleware, scope checks and the tool's own ownership checks all run.
 """
+from copy import deepcopy
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Callable
@@ -17,7 +18,7 @@ from fastmcp.server.auth import AccessToken
 
 from cc_mcp.registry import PROVIDERS
 from cc_mcp.server import COMMONS, EDIT_SCOPE, LEVEL_SCOPE, READ_SCOPE, build_server
-from tests import beli_fakes, partiful_fakes, resy_fakes
+from tests import beli_fakes, espn_fakes, partiful_fakes, resy_fakes
 from tests.test_commons_agent_tools import Database, expense_args, repayment_args
 
 
@@ -47,32 +48,43 @@ def plans_foreign(_db, monkeypatch):
 
 
 def beli_foreign(db, _monkeypatch):
-    # Another user's linked account: the caller is unlinked and holds only that user's token.
-    _row, token = beli_fakes.add_account(db, owner=str(uuid4()))
+    # Another user's linked account: the caller is unlinked.
+    beli_fakes.add_account(db, owner=str(uuid4()))
     return {'get_restaurant_recs': {'neighborhood': 'West Village'},
-            'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1', 'dry_run': False},
-            'link_beli_account': {'api_token': token}}
+            'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1', 'dry_run': False}}
 
 
 def resy_foreign(db, _monkeypatch):
     # The caller is linked to their own Resy account; the targets belong to another linked user.
     resy_fakes.add_account(db, owner=db.user.id)
-    other, token = resy_fakes.add_account(db, owner=str(uuid4()))
+    other, _token = resy_fakes.add_account(db, owner=str(uuid4()))
     theirs = resy_fakes.add_reservation(db, other['email'])
     stale = {'terms_id': '0' * 16, 'dry_run': False}
     return {'book_resy_table': {**RESY_BOOK, 'payment_method_id': db.resy_cards[other['email']][0]['id'], **stale},
             'cancel_resy_reservation': {'reservation_id': theirs['reservation_id'], 'idempotency_key': 'cancel-1',
-                                        **stale},
-            'link_resy_account': {'api_token': token}}
+                                        **stale}}
 
 
 def partiful_foreign(db, _monkeypatch):
-    # The caller is linked to their own Partiful account; the event and token belong to another linked user.
+    # The caller is linked to their own Partiful account; the event belongs to another linked user.
     partiful_fakes.add_account(db, owner=db.user.id)
-    other, token = partiful_fakes.add_account(db, owner=str(uuid4()))
-    return {'get_partiful_events': {'event_id': db.partiful_events[other['uid']]['hosted'][0]['id']},
-            'link_partiful_account': {'api_token': token}}
+    other, _token = partiful_fakes.add_account(db, owner=str(uuid4()))
+    return {'get_partiful_events': {'event_id': db.partiful_events[other['uid']]['hosted'][0]['id']}}
 
+
+def espn_foreign(db, _monkeypatch):
+    # The caller is linked to their own ESPN account; the edit and player belong to another linked user.
+    espn_fakes.add_account(db, owner=db.user.id)
+    other, _token = espn_fakes.add_account(db, owner=str(uuid4()))
+    theirs = espn_fakes.add_edit(db, other)
+    return {'get_fantasy_activity': {'kind': 'roster_edits', 'proposal_id': theirs['id']},
+            'propose_fantasy_change': {'kind': 'roster_edit', 'drop_player_id': espn_fakes.RIVAL_STAR},
+            'approve_fantasy_change': {'kind': 'roster_edit', 'proposal_id': theirs['id'],
+                                       'idempotency_key': 'approve-1', 'dry_run': False}}
+
+
+ESPN_APPROVE = {'kind': 'roster_edit', 'proposal_id': str(uuid4()), 'idempotency_key': 'approve-1'}
+ESPN_PROPOSE = {'kind': 'roster_edit', 'add_player_id': espn_fakes.FREE_AGENT, 'drop_player_id': espn_fakes.DROP}
 
 RESY_BOOK = {'venue_id': resy_fakes.VENUE_ID, 'date': resy_fakes.day(), 'desired_time': '19:00',
              'idempotency_key': 'book-1'}
@@ -96,28 +108,33 @@ FIXTURES = {
                      'describe_floor_plan_schema': 'static schema'}),
     'beli': Fixture(
         args=lambda db: {'get_restaurant_recs': {'neighborhood': 'West Village'},
-                         'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1'},
-                         'link_beli_account': {'api_token': 'ccb_' + 'x' * 43}},
+                         'save_restaurant': {'name': 'Synthetic Bistro', 'idempotency_key': 'save-1'}},
         foreign=beli_foreign,
         foreign_error={'get_restaurant_recs': 'Link your Beli account first',
-                       'save_restaurant': 'Link your Beli account first',
-                       'link_beli_account': 'linked to another Commons user'}),
+                       'save_restaurant': 'Link your Beli account first'}),
     'resy': Fixture(
         args=lambda db: {'find_resy_tables': {'date': resy_fakes.day(), 'venue_id': resy_fakes.VENUE_ID},
                          'list_resy_reservations': {}, 'book_resy_table': RESY_BOOK,
-                         'cancel_resy_reservation': {'reservation_id': 1, 'idempotency_key': 'cancel-1'},
-                         'link_resy_account': {'api_token': 'ccr_' + 'x' * 43}},
+                         'cancel_resy_reservation': {'reservation_id': 1, 'idempotency_key': 'cancel-1'}},
         foreign=resy_foreign,
         foreign_error={'book_resy_table': 'is not on your Resy account',
-                       'cancel_resy_reservation': 'No reservation .* in your Resy account',
-                       'link_resy_account': 'linked to another Commons user'},
+                       'cancel_resy_reservation': 'No reservation .* in your Resy account'},
         no_resource={'find_resy_tables': 'public venue availability, read with the caller’s own linked login',
                      'list_resy_reservations': 'lists only the caller’s own linked Resy account'}),
     'partiful': Fixture(
-        args=lambda db: {'get_partiful_events': {}, 'link_partiful_account': {'api_token': 'ccp_' + 'x' * 43}},
+        args=lambda db: {'get_partiful_events': {}},
         foreign=partiful_foreign,
-        foreign_error={'get_partiful_events': 'Event not found',
-                       'link_partiful_account': 'linked to another Commons user'}),
+        foreign_error={'get_partiful_events': 'Event not found'}),
+    'espn': Fixture(
+        args=lambda db: {'get_fantasy_league': {}, 'get_fantasy_trends': {'kind': 'teams'},
+                         'get_fantasy_activity': {'kind': 'roster_edits'}, 'propose_fantasy_change': ESPN_PROPOSE,
+                         'approve_fantasy_change': ESPN_APPROVE},
+        foreign=espn_foreign,
+        foreign_error={'get_fantasy_activity': 'No roster edit .* in your ESPN account',
+                       'propose_fantasy_change': 'is not on your roster',
+                       'approve_fantasy_change': 'No roster edit .* in your ESPN account'},
+        no_resource={'get_fantasy_league': 'reads only the league of the caller’s own linked cookies',
+                     'get_fantasy_trends': 'reads only the league of the caller’s own linked cookies'}),
 }
 
 CASES = [pytest.param(provider, tool, level, id=f'{provider.name}.{tool}')
@@ -132,6 +149,7 @@ def server(monkeypatch):
     beli_fakes.install(db, monkeypatch)
     resy_fakes.install(db, monkeypatch)
     partiful_fakes.install(db, monkeypatch)
+    espn_fakes.install(db, monkeypatch)
     for provider in PROJECTS:
         db.settings[(db.user.id, provider.name)] = {'user_id': db.user.id, 'project_id': provider.name, 'enabled': True}
     holder = SimpleNamespace(token=AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE]))
@@ -154,6 +172,7 @@ def unchanged(db, settings):
     assert not db.beli_receipts and not db.beli_writes
     assert not any(row['owner_user_id'] == db.user.id for row in db.beli_accounts)
     assert not db.resy_receipts and not db.resy_sends
+    assert not db.espn_receipts and not espn_fakes.sends(db)
 
 
 def test_every_registered_tool_has_a_safety_fixture():
@@ -166,6 +185,7 @@ def test_every_registered_tool_has_a_safety_fixture():
             beli_fakes.install(db, monkeypatch)
             resy_fakes.install(db, monkeypatch)
             partiful_fakes.install(db, monkeypatch)
+            espn_fakes.install(db, monkeypatch)
             foreign = set(fixture.foreign(db, monkeypatch))
         assert foreign.isdisjoint(fixture.no_resource)
         assert foreign | set(fixture.no_resource) == set(provider.tools), \
@@ -231,12 +251,17 @@ async def test_another_users_resource_is_refused(server, monkeypatch, provider, 
     fixture = FIXTURES[provider.name]
     foreign = fixture.foreign(server.db, monkeypatch)
     error = fixture.foreign_error if isinstance(fixture.foreign_error, str) else fixture.foreign_error[tool]
-    linked_rows = server.db.beli_accounts + server.db.resy_accounts + server.db.partiful_accounts
+    linked_rows = (server.db.beli_accounts + server.db.resy_accounts + server.db.partiful_accounts
+                   + server.db.espn_accounts)
     owners = [row['owner_user_id'] for row in linked_rows]
+    espn_rows = deepcopy(server.db.espn_tables)
     with pytest.raises(ToolError, match=error):
         await server.call(tool, foreign[tool])
     unchanged(server.db, server.db.settings)
     assert [row['owner_user_id'] for row in linked_rows] == owners
+    assert server.db.espn_tables == espn_rows, 'no ESPN proposal may be created or changed for another user'
+    others = {row['swid'] for row in server.db.espn_accounts if row['owner_user_id'] != server.db.user.id}
+    assert not others & set(server.db.espn_logins), 'no ESPN cookies may be used for another user'
     assert not server.db.beli_logins, 'no Beli login may be decrypted for another user'
     others = {row['email'] for row in server.db.resy_accounts if row['owner_user_id'] != server.db.user.id}
     assert not others & set(server.db.resy_logins), 'no Resy login may be decrypted for another user'
@@ -280,6 +305,19 @@ async def test_linked_caller_reads_partiful_with_only_their_session(server):
     assert detail['event']['id'] == mine_id
     assert set(server.db.partiful_logins) == {mine['uid']}
     assert {uid for uid, _ in server.db.partiful_reads} == {mine['uid']} and other['uid'] not in repr(listed)
+
+
+@pytest.mark.asyncio
+async def test_linked_caller_approves_espn_change_with_only_their_cookies(server):
+    # Another user's linked account sits first, so a lookup that ignores the owner would pick it.
+    other, _ = espn_fakes.add_account(server.db, owner=str(uuid4()))
+    mine, _ = espn_fakes.add_account(server.db, owner=server.db.user.id)
+    proposed = (await server.call('propose_fantasy_change', ESPN_PROPOSE)).structured_content
+    assert proposed['status'] == 'pending' and not espn_fakes.sends(server.db)
+    approve = {**ESPN_APPROVE, 'proposal_id': proposed['proposal_id'], 'dry_run': False}
+    approved = (await server.call('approve_fantasy_change', approve)).structured_content
+    assert approved['status'] == 'executed' and espn_fakes.sends(server.db) == [('roster_edit', mine['swid'])]
+    assert set(server.db.espn_logins) == {mine['swid']} and other['swid'] not in repr(approved)
 
 
 @pytest.mark.asyncio

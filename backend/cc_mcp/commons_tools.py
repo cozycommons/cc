@@ -29,8 +29,6 @@ class CatalogProject:
 
 CATALOG = (
     CatalogProject('dice', 'Dice', 'Beer die records, rankings and stats.', 'https://cozycommons.dev/dice'),
-    CatalogProject('espn', 'ESPN', 'Manage fantasy league data and lineups.',
-                   'https://api.cozycommons.dev/espn/mcp', '/espn/mcp'),
     CatalogProject('fantasy', 'Fantasy', 'Fantasy basketball predictions updated daily.', 'https://cozycommons.dev/fantasy'),
     CatalogProject('crowdset', 'Crowdset', 'Collect and watch shared concert videos.', 'https://cozycommons.dev/crowdset'),
     CatalogProject('design', 'Design gallery', 'Browse Cozy Commons interface design studies.', 'https://cozycommons.dev/design'),
@@ -40,7 +38,8 @@ CATALOG = (
 def next_step(provider, state):
     status = state['status'] or {}
     if not state['enabled']:
-        return f"Call enable_project('{provider.name}') to add its {len(provider.tools)} tools."
+        count = len(provider.tools)
+        return f"Call enable_project('{provider.name}') to add its {count} tool{'' if count == 1 else 's'}."
     if state['linked'] is False:
         return provider.link.instructions
     return status.get('next_step') or f'Use the {provider.display_name} tools.'
@@ -118,7 +117,7 @@ def register_tools(mcp, context):
         provider = project(project_id)
         await run_in_threadpool(projects.set_enabled, context.service_client, signed_in.id, provider.name, True)
         state = (await run_in_threadpool(projects.project_states, context.service_client, signed_in, [provider]))[provider.name]
-        tools = await mcp.get_tools()
+        tools = {tool.name: tool for tool in await mcp.local_provider.list_tools()}
         await notify_tools_changed()
         return {'project_id': provider.name, 'enabled': True, 'linked': state['linked'],
                 'tools': [{'name': name, 'access': level, 'description': tools[name].description}

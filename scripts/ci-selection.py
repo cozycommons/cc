@@ -9,10 +9,10 @@ import re
 import subprocess
 
 
-FRONTEND_PROJECTS = ("crowdset", "dice", "design", "trips", "floor-planner")
-BACKEND_PROJECTS = ("beli", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips")
+FRONTEND_PROJECTS = ("bikes", "crowdset", "dice", "design", "trips", "floor-planner")
+BACKEND_PROJECTS = ("beli", "bikes", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips")
 INTEGRATIONS = {"beli", "espn", "partiful", "resy"}
-JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute")
+JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute", "bikes")
 SHARED_BACKEND_INPUTS = {
     "package.json", "package-lock.json", "scripts/bootstrap-dice-test-db.sh",
     "scripts/reset-local-dice-db.sh", "scripts/supabase-test-scaffold.sql",
@@ -31,15 +31,23 @@ def select(paths, test_files):
     frontend, backend = set(), set()
     crowdset = False
     compute = False
+    bikes = False
 
     for path in paths:
         if path.endswith(".md") or path.startswith(("docs/", ".agents/")) or path in {"LICENSE", ".gitignore"}:
             continue
-        if path.startswith("backend/compute/") or path == "backend/requirements-compute.txt":
+        if path.startswith("backend/compute/") or path in {"backend/requirements-compute.in", "backend/requirements-compute.txt"}:
             compute = True
             if not path.startswith("backend/compute/tests/"):
                 crowdset = True
-        elif path in {".github/images/crowdset-tests.Dockerfile", "scripts/test_crowdset_ci_image.py"} or path.startswith("backend/crowdset/") or path == "backend/requirements-crowdset.txt" or path.startswith(("scripts/crowdset-", "scripts/systemd/crowdset-")):
+        elif path.startswith(("backend/bikes/tests/", "backend/bikes/ingest.py", "backend/bikes/basemap.py")) or path in {"backend/requirements-bikes.in", "backend/requirements-bikes.txt"}:
+            # The offline ingest has its own DuckDB lockfile; main:app does not import it.
+            bikes = True
+        elif path == "backend/bikes/model.py":
+            # Builds the model offline; the API reads its output path.
+            bikes = True
+            backend.add("bikes")
+        elif path in {".github/images/crowdset-tests.Dockerfile", "scripts/test_crowdset_ci_image.py"} or path.startswith("backend/crowdset/") or path in {"backend/requirements-crowdset.in", "backend/requirements-crowdset.txt"} or path.startswith(("scripts/crowdset-", "scripts/systemd/crowdset-")):
             crowdset = True
         elif path.startswith("frontend/"):
             project = next((p for p in FRONTEND_PROJECTS if path.startswith((f"frontend/src/{p}/", f"frontend/public/{p}/"))), None)
@@ -84,12 +92,12 @@ def select(paths, test_files):
             else:
                 frontend.update(FRONTEND_PROJECTS)
                 backend.update(BACKEND_PROJECTS)
-                compute = True
+                compute = bikes = True
         else:
             # Shared checks cover unmapped infrastructure; media tests need a runtime input.
             frontend.update(FRONTEND_PROJECTS)
             backend.update(BACKEND_PROJECTS)
-            compute = True
+            compute = bikes = True
 
     frontend_tests = sorted(
         path.removeprefix("frontend/") for path in test_files
@@ -114,6 +122,7 @@ def select(paths, test_files):
         "trips": "trips" in backend,
         "crowdset": crowdset,
         "compute": compute,
+        "bikes": bikes,
         # Both deployed frontend images compile the whole shared Vite application.
         "crowdset-container": crowdset or bool(frontend),
         "frontend_files": frontend_tests,
@@ -143,7 +152,10 @@ def changed_paths(event_name, event):
     return [p for p in git_paths("diff", "--name-only", "--no-renames", "-z", base, head, "--") if p]
 
 
-def check_gate(needs, jobs):
+def check_gate(needs, jobs, required_jobs=()):
+    for job in required_jobs:
+        if needs.get(job, {}).get("result") != "success":
+            raise ValueError(f"{job}: required check did not succeed")
     if needs["changes"]["result"] != "success":
         raise ValueError("Project selection failed")
     outputs = needs["changes"]["outputs"]
@@ -192,7 +204,8 @@ def main():
         if not args.target:
             parser.error("gate requires a target")
         jobs = ("frontend-tests",) if args.target == "frontend" else JOBS[1:]
-        check_gate(json.loads(os.environ["CI_NEEDS"]), jobs)
+        check_gate(json.loads(os.environ["CI_NEEDS"]), jobs,
+                   required_jobs=("supply-chain",) if args.target == "backend" else ())
 
 
 if __name__ == "__main__":

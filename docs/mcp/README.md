@@ -1,7 +1,7 @@
 # Cozy Commons MCP
 
 One connection and browser sign-in serves every registered project: Commons
-discovery and enablement, Trips, Floor Planner, Beli, Resy and Partiful. Two
+discovery and enablement, Trips, Floor Planner, Beli, Resy, Partiful and ESPN. Two
 stable scopes, `commons:read` and `commons:edit`, cover all of them, and each
 user enables the projects whose tools their agent sees. Adding a project or tool therefore never
 changes the scope set or forces existing users to reconnect. The existing Beli,
@@ -30,10 +30,9 @@ The connector's approval page names the agent and the requested scopes
 then review the application and account on `/oauth/consent`. Choose Allow
 connection or Deny. Call `list_projects` first, then `enable_project` for any
 project that is off; preview writes and get user confirmation before committing.
-Remove the connector in the agent to disconnect. There is currently no in-app
-application-grant revocation page; contact the Cozy Commons administrator to
-revoke the Supabase Auth grant. Already-issued tokens may last until expiry
-(see the revocation details below).
+To disconnect, open Connected agents on [your account](https://cozycommons.dev/account#agents)
+(`/account#agents`) and choose Disconnect; that connection's access and refresh
+tokens stop working on the next request. Also remove the connector in the agent.
 
 ## Connection and deployment
 
@@ -160,14 +159,14 @@ contract (`ToolProvider` in `backend/cc_mcp/server.py`):
 ```python
 provider = ToolProvider(
     "beli", register_tools,
-    {"get_restaurant_recs": "read", "save_restaurant": "edit", "link_beli_account": "edit"},
+    {"get_restaurant_recs": "read", "save_restaurant": "edit"},
     title="Beli", description="Restaurant recommendations and your Beli Want to Try list.",
     url=DOCS_URL,
     status=beli_status,  # cheap, read-only; {"in_use": bool, "next_step": "..."}
     link=AccountLink(
-        "Call link_beli_account(api_token) once with your existing ccb_ token.",
+        "Ask the user to connect Beli at https://cozycommons.dev/account#beli, then call this tool again.",
         linked=linked_beli_account,  # (service_client, user) -> non-secret summary or None
-        tool="link_beli_account",
+        url="https://cozycommons.dev/account#beli",
     ),
 )
 ```
@@ -198,9 +197,10 @@ Checklist:
    step or “Reconnect your agent…”.
 6. Accounts that are not Commons users (Beli, Resy, Partiful, ESPN) declare an
    `AccountLink`. The link lives in the project's own tables, keyed by the
-   Commons user ID; tools resolve the account from the signed-in user server-side
-   and never accept a pasted token after linking. Until linked, every tool except
-   the link tool returns the link instructions, and `list_projects` shows them as
+   Commons user ID; tools resolve the account from the signed-in user server-side.
+   The user links on the account page (`/account/linked-accounts`) by signing in
+   to the service there; no tool accepts a password, code or token. Until linked,
+   every tool returns the link instructions, and `list_projects` shows them as
    the next step.
 7. Provide a cheap `status` callback whose `in_use` means “this user already uses
    the project”; it enables the project by default.
@@ -233,8 +233,7 @@ connector project, `list_projects` returns whether it is enabled and why
 (`your choice`, `default: you already use it` or `default: off until enabled`),
 whether its account is linked (projects with an account link), its tools with
 their access level, its status and the exact next step. Other public projects
-and the separate MCP integration not yet here (ESPN) are listed
-with their URL or endpoint.
+are listed with their URL.
 Status lookup failures do not prevent discovery. `enable_project(project_id)`
 returns the project's tools and any one-time link step.
 
@@ -279,12 +278,12 @@ conflict asks the agent to read/review the trip before retrying.
 
 DCR requests omitting scope receive `commons:read commons:edit`. A missing
 permission says, for example, “Reconnect your agent to grant commons:edit.”
-The unrelated `/beli/mcp`, `/resy/mcp`, `/partiful/mcp`, and `/espn/mcp`
+The legacy `/beli/mcp`, `/resy/mcp`, `/partiful/mcp`, and `/espn/mcp`
 endpoints remain unchanged.
 
 ## Beli
 
-Provider `backend/ig_logger/sinks/beli/agent_tools.py`, three tools:
+Provider `backend/ig_logger/sinks/beli/agent_tools.py`, two tools:
 
 - `get_restaurant_recs(neighborhood, day?, time?, table_size=2, limit=10)`
   (`read`): your Want to Try bookmarks first, then Beli trending, each with its
@@ -294,25 +293,31 @@ Provider `backend/ig_logger/sinks/beli/agent_tools.py`, three tools:
   existing confidence-gated bookmark flow (`logic.bookmark_name`). Ambiguous
   names return candidates and save nothing; saved or ranked places are reported,
   never duplicated.
-- `link_beli_account(api_token)` (`edit`): the one-time link step.
 
-A Beli account belongs to whoever holds its `ccb_` token (minted once by
-`POST /beli/onboard`; only its sha256 hash is stored). Migration
-`0017_beli_account_owner.sql` adds `beli_accounts.owner_user_id` (references
-`auth.users`, `on delete set null`) with a partial unique index, so a Commons
-user links at most one account and an account has at most one Commons owner.
-`link_beli_account` hashes the presented token, matches it in constant time and
-calls `beli_link_account(account, user)`, which in one transaction refuses an
-account owned by someone else ("This Beli account is linked to another Commons
-user") and moves the caller's earlier link if they link a different account of
-theirs. The token is never stored or returned; attempts are limited to 10 per
-user per hour, like onboarding. Linking changes only `owner_user_id`: the
-`ccb_` token, `/beli/*` routes, `/beli/mcp` and `@beli_eats` watcher
-subscriptions are untouched, and existing accounts stay unlinked until their
-owner links them. Until linked, the middleware answers every Beli tool except
-the link tool with the link step, and `list_projects` shows `linked: false` with
-that step. Beli is on by default (status `in_use`) once linked. There is no Beli
-web onboarding page, so linking happens only through the tool.
+Until linked, every Beli tool returns the link step, which sends the user to
+`https://cozycommons.dev/account#beli`. Linking on the account page:
+`POST /account/linked-accounts/beli` with
+`{login, password}` and the Commons session. Logins are printable ASCII. The
+server checks the login with Beli first; a wrong password stores nothing. An
+existing account with the same login (emails ASCII-case-insensitive, phone
+numbers by digits) is reused and keeps its `ccb_` token, receipts and watcher
+subscription. Otherwise a new account is created with a token nobody sees.
+`beli_link_account` then links it, refusing an account another Commons user
+owns; only after that is a reused row's stored password refreshed.
+`GET /account/linked-accounts` returns `{beli: summary | null}`. Attempts are
+limited to 10 per hour per Commons user and per Beli login.
+
+Migration `0017_beli_account_owner.sql` adds `beli_accounts.owner_user_id`
+(references `auth.users`, `on delete set null`) with a partial unique index, so
+a Commons user links at most one account and an account has at most one Commons
+owner. `beli_link_account(account, user)` refuses, in one transaction, an
+account owned by someone else and moves the caller's earlier link if they link a
+different account of theirs. The `ccb_` token, `/beli/*` routes, `/beli/mcp` and
+`@beli_eats` watcher subscriptions are untouched, and existing accounts stay
+unlinked until their owner connects them on the account page. Until linked, the
+middleware answers every Beli tool with the link step, and `list_projects` shows
+`linked: false` with that step. Beli is on by default (status `in_use`) once
+linked.
 
 Tools resolve the account from the signed-in user, decrypt its Beli login with
 the existing Fernet key per call and never return credentials. `save_restaurant`
@@ -331,7 +336,7 @@ denial and the function's privileges at release time.
 
 ## Resy
 
-Provider `backend/resy/agent_tools.py`, four tools plus the link step. Resy
+Provider `backend/resy/agent_tools.py`, four tools. Resy
 bookings and cancellations are real: they can charge a deposit and a
 cancellation fee to the user's saved card.
 
@@ -347,17 +352,26 @@ cancellation fee to the user's saved card.
   desired_time?, payment_method_id?, terms_id?, dry_run=true)` (`edit`).
 - `cancel_resy_reservation(reservation_id, idempotency_key, terms_id?,
   dry_run=true)` (`edit`).
-- `link_resy_account(api_token)` (`edit`): the one-time link step with the
-  existing `ccr_` token.
 
 Linking mirrors Beli: migration `0018_beli_resy_account_owner.sql` adds
 `resy_accounts.owner_user_id` (partial unique index, `on delete set null`) and
 `resy_link_account(account, user)`, which refuses another owner's account and
-moves the caller's earlier link in one transaction. The token is hashed and
-compared in constant time, never stored or returned, and limited to 10 attempts
-per user per hour. `/resy/*`, `/resy/mcp` and `ccr_` tokens are unchanged;
-existing accounts stay unlinked. Resy is on by default once linked. There is no
-Resy web onboarding page, so linking happens only through the tool.
+moves the caller's earlier link in one transaction. Until linked, every Resy
+tool returns the link step, which sends the user to
+`https://cozycommons.dev/account#resy`. `/resy/*`, `/resy/mcp` and `ccr_`
+tokens are unchanged; existing accounts stay unlinked. Resy is on by default
+once linked.
+
+Linking on the account page: `POST /account/linked-accounts/resy` with
+`{login, password}` (the Resy email) and the Commons session, under the same
+rules as Beli. Logins are printable-ASCII emails. The server logs in to Resy
+first; a wrong password stores nothing. An existing account with the same email
+(ASCII-case-insensitive) is reused and keeps its `ccr_` token and receipts.
+Otherwise a new account is created with a token nobody sees. `resy_link_account`
+then links it, refusing an account another Commons user owns; only after that
+are a reused row's stored password and Resy session refreshed.
+`GET /account/linked-accounts` adds `resy: summary | null`. Attempts are limited
+to 10 per hour per Commons user and per Resy email.
 
 Previews. A booking preview reads the slot from Resy's availability, the slot's
 booking details (`/3/details`) and the saved cards, and returns `terms`: venue,
@@ -408,19 +422,38 @@ step:
   what the legacy tools return: no guest lists. An event the user's own
   Partiful session cannot see is "Event not found"; the connector never uses
   another account's session.
-- `link_partiful_account(api_token)` (`edit`): the one-time link step with the
-  existing `ccp_` token.
 
 Linking mirrors Beli and Resy: migration `0019_beli_partiful_account_owner.sql`
 adds `partiful_accounts.owner_user_id` (partial unique index, `on delete set
 null`) and `partiful_link_account(account, user)`, which refuses another owner's
-account and moves the caller's earlier link in one transaction. The token is
-hashed and compared in constant time, never stored or returned, and limited to
-10 attempts per user per hour. Linking changes only `owner_user_id`; the stored
-Firebase refresh token and uid are untouched. `/partiful/*`, `/partiful/mcp` and
+account and moves the caller's earlier link in one transaction. Until linked,
+the tool returns the link step, which sends the user to
+`https://cozycommons.dev/account#partiful`. `/partiful/*`, `/partiful/mcp` and
 `ccp_` tokens are unchanged; existing accounts stay unlinked. Partiful is on by
-default once linked. Onboarding is SMS-based and has no web page, so linking
-happens only through the tool. There are no writes and so no receipts table.
+default once linked. There are no writes and so no receipts table.
+
+Linking on the account page takes two requests with the Commons session:
+`POST /account/linked-accounts/partiful/code` `{phone}` texts the Partiful
+sign-in code (10-digit US numbers or `+` international, normalized to E.164),
+then `POST /account/linked-accounts/partiful` `{phone, code}` verifies it with
+Partiful, which yields the account's Firebase uid. An existing account with that
+uid is reused, keeps its `ccp_` token and gets the fresh session; otherwise a new
+account is created with a token nobody sees. `partiful_link_account` links first,
+refusing another owner's account, and the session is stored only after, on the
+caller's row. Step 1 records a pending challenge bound to the Commons user and
+the normalized phone, valid for 10 minutes (one per user; a new send replaces
+it, and like the attempt counters it lives in the single worker's memory). Step
+2 refuses a phone with no such challenge; it reserves the challenge by id under
+a short lock (never held across the call to Partiful) and consumes it the
+moment Partiful accepts the code, before anything is stored: if saving then
+fails, the same code cannot be retried and the user sends a new one. It is
+released only when verification did not succeed, a second verify while one is
+running gets 409 "already being checked", and a verify never touches a
+challenge a later send replaced. Expired challenges are pruned on
+every store operation. Codes are 4 to 10 ASCII digits, checked in the route so a 422 never
+echoes one. Both requests count toward 10 per hour per Commons user and
+per phone number, which also limits texts to any one phone.
+`GET /account/linked-accounts` adds `partiful`.
 
 Partiful may rotate the refresh token on any read, and every path (`/partiful`,
 `/partiful/mcp`, `/mcp`) persists the new one. The `/partiful` routes therefore
@@ -428,6 +461,139 @@ read accounts through an uncached client (`app.state.partiful_supabase`), not
 the shared 120-second read cache, which would otherwise hand them a refresh
 token another path had already retired. A dead session asks the user to
 onboard again and relink.
+
+## ESPN
+
+Provider `backend/espn/agent_tools.py`, five tools plus the link step. The
+legacy `/espn/mcp` has fifteen; reads merge by a parameter and every write keeps
+the existing propose -> approve gate. Approving submits for real: a roster edit
+adds and drops players (a waiver target becomes a claim, bid 0), a trade sends
+an offer the other manager sees, and a lineup moves players between slots.
+
+- `get_fantasy_league(view="league", team_id?, limit=25)` (`read`): `league`
+  (settings, teams and `your_team_id`), `standings`, `team` (one roster;
+  `team_id` defaults to your own team), `draft` or `transactions`. Merges
+  `get_league`, `get_standings`, `get_team`, `get_draft` and `get_transactions`.
+- `get_fantasy_trends(kind="players", limit=10)` (`read`): `players` (ownership
+  and performance from league snapshots) or `teams`. Merges
+  `get_player_trends` and `get_team_trends`.
+- `get_fantasy_activity(kind, proposal_id?, limit=25, scoring_period_id?)`
+  (`read`): `lineup_runs`, `roster_edits` or `trades`, newest first, or one by
+  id. An edit or trade with an unresolved ESPN outcome is reconciled by
+  rereading ESPN, never resubmitted. Merges `get_lineup_runs`,
+  `get_roster_edits` and `get_trades`.
+- `propose_fantasy_change(kind, ...)` (`edit`): validates against the live league
+  and stores a pending proposal; sends nothing to ESPN. `lineup` (`date` or
+  `scoring_period_id`, neither = today) records a dry-run lineup run under the
+  standing rule that every scheduled player starts; `roster_edit`
+  (`add_player_id` and/or `drop_player_id`) and `trade`
+  (`counterparty_team_id`, `give_player_ids`, `receive_player_ids`) store a
+  pending row with a 30-minute expiry. Arguments of another kind are refused.
+  Returns `proposal_id` and a `summary`. Merges `run_lineup(dry_run=true)`,
+  `propose_roster_edit` and `propose_trade`.
+- `approve_fantasy_change(kind, proposal_id, idempotency_key, dry_run=true)`
+  (`edit`): `dry_run=true` shows what approving submits and sends nothing;
+  `dry_run=false` submits that one proposal through `roster_edits.approve_edit`,
+  `trades.approve_trade` or a live `lineup.run_lineup` for the previewed
+  scoring period. A lineup preview is approvable for 30 minutes, like edits and
+  trades. Merges `approve_roster_edit`, `approve_trade` and the live
+  `run_lineup`.
+
+Linking mirrors the other projects: migration
+`0089_beli_espn_account_owner.sql` adds `espn_accounts.owner_user_id` (partial
+unique index, `on delete set null`), `espn_link_account(account, user)` and
+`espn_agent_receipts`. One Commons user links one ESPN account, and an account
+has at most one Commons owner, so a league's cookies are never shared between
+Commons users. The account is one manager's cookies, and every write acts on the
+team those cookies own (the SWID member), as on `/espn`. The connector does not
+read or change `espn_team_claims`. Until linked, every ESPN tool returns the link
+step, which sends the user to `https://cozycommons.dev/account#espn`. `/espn/*`, `/espn/mcp`
+and `cce_` tokens are unchanged; existing accounts stay unlinked. ESPN is on by
+default once linked. A legacy `DELETE /espn/account` still deletes a linked
+account and its proposals.
+
+Linking on the account page, with the Commons session, two ways:
+
+- `POST /account/linked-accounts/espn` `{login, password, league_id?, season?,
+  enable_automation?}`: runs the MyDisney login once (as `/espn/onboard/login`
+  does; the password is never stored). Without `league_id` it looks up the
+  account's basketball leagues for the season (default: the current one, rolling
+  over July 1). With several it stores nothing and returns
+  `{status: "league_selection_required", season, leagues}`, and the page signs in
+  again with the chosen `league_id`. A wrong password and an unknown email get
+  the same message.
+- `POST /account/linked-accounts/espn/cookies` `{league_id, season, espn_s2,
+  swid, enable_automation?}`: cookies copied from a signed-in browser.
+
+Both probe the cookies against the league, then look for accounts with the same
+SWID (case and braces ignored), league and season. A probe proves only that the
+cookies can read the league, and the league's mTeam view lists every member's
+SWID, so typed cookies could name a league-mate's SWID. Only a MyDisney login
+proves a SWID, and the login path also requires a chosen `league_id` to be one of
+the login's own leagues. Migration `0091_beli_espn_proven_owner.sql` records
+which kind of claim the current owner made (`espn_accounts.owner_proven`;
+existing links, all made with a `cce_` token, start unproven):
+
+- Typed cookies create a new account (unproven) or refresh the caller's own
+  row. They never claim an account that already exists: 409, sign in with
+  email and password.
+- A MyDisney login links an unowned account, or takes over one whose owner is
+  unproven (`espn_claim_account_proven`, status `taken_over`), expiring the
+  roster edits, trade offers and lineup previews pending on it and applying the
+  form's automation choice. A proven owner is never displaced (409). It also
+  detaches every other row for the same SWID, league and season held without
+  proof (unowned, unproven, token retired, automation off, proposals expired).
+  Since migration `0092_beli_espn_atomic_takeover.sql` the claim takes the
+  encrypted cookies, the replacement token and the automation choice and commits
+  all of it with the ownership change in one transaction, so a failure leaves
+  the previous holder's row exactly as it was and a retry still takes over.
+- A row a link moves away from drops to unproven.
+- Since `0093_beli_espn_claim_locking.sql` the claim locks the target and the
+  duplicates in one statement, in id order, before branching (no deadlock
+  between opposite claims), detaches only rows for the same league and season,
+  refuses a missing user or empty cookies/token, and `service_role`'s
+  `UPDATE (status)` on `espn_lineup_runs` is explicit and checked by the
+  schema contract.
+- Typed cookies refresh an existing row with one `UPDATE` filtered on the
+  caller still owning it, never through a link: a request already in flight
+  cannot re-acquire a row a proven claim just detached (it gets the 409).
+- Writing new cookies into an existing row also replaces its `cce_` token with
+  one nobody sees, so fresh cookies reach only the linked Commons user, and
+  clears the legacy read cache. A stored `espn_s2` is decrypted only on the
+  caller's own row, to skip a write when nothing changed.
+
+- `POST /account/linked-accounts/espn/token` `{token}`: the way back for a legacy
+  user whose cookies expired and whose MyDisney login is challenged. Only this
+  page takes a `cce_` token; no agent tool does. It links the token's account
+  through `espn_link_account` (unproven, so a MyDisney login can still take it
+  over) without touching its cookies, token or automation; the user then
+  refreshes the cookies on their now-owned row with `/espn/cookies`. 10 per hour
+  per Commons user.
+
+A new account takes `enable_automation` (default true) for lineup automation.
+The RPC links first, and cookies are written only after, on the caller's row.
+`GET /account/linked-accounts` adds `espn: {id, label, league_id, season} |
+null`. Attempts are limited to 10 per hour per Commons user, per ESPN email and
+per SWID.
+
+Approvals. The proposal row is ESPN's own guard: an approval claims it
+atomically (pending -> executing) before anything is sent, and an unresolved
+row is only reconciled. On top, a commit writes a receipt (user, key, the kind
+and proposal id, and the summary) immediately before the approval and records
+the outcome on it. The receipt is never released: the connector has no `DELETE`
+grant on the table, and the Beli schema contract fails release if one appears.
+When ESPN's answer is lost, the call says the change "may have gone through"
+and asks for the same key and arguments. A retry with that key never submits
+again: for an edit or trade it rereads ESPN through the existing
+reconciliation, and for a lineup it replans that day read-only (a dry-run run)
+and counts the change set when no move remains. Otherwise it asks for a same-key
+retry later. An approval refused before it claimed its proposal (for example,
+another unresolved write with the same players) records `not_sent`, so the key
+replays that refusal; nothing was sent under it. A key with recorded details
+refuses another proposal. Replays return the original result. Before any key is
+reserved, an unknown, expired, already decided or unresolved proposal is
+refused with the fix (`get_fantasy_activity` to reconcile an unresolved one).
+Expired cookies ask the user to onboard again and relink.
 
 ## Local real OAuth exercise
 
@@ -487,8 +653,8 @@ the test runs on `127.0.0.1:8766`, and gives synthetic logins a per-process
 credentials key, so nothing reaches Beli. The test checks that Beli starts off
 and unlinked, that its tools return the link step, onboards two synthetic
 accounts through the real `POST /beli/onboard`, links one to a second synthetic
-user, and checks that linking it or a wrong token is refused. It then links its
-own account, checks the `ccb_` token still works on `/beli/me`, calls
+user, and checks that the account page refuses it. It then links its own account
+on the account page, checks the `ccb_` token still works on `/beli/me`, calls
 `get_restaurant_recs`, and previews, commits, replays and reuses a
 `save_restaurant` key with new details, asserting exactly one Beli write. The
 read-only grant reads recs and is refused on `save_restaurant`.
@@ -498,8 +664,8 @@ on `127.0.0.1:8767` (synthetic API key, per-process credentials key, no request
 pacing), so nothing reaches Resy. The test checks that Resy starts off and
 unlinked and that its tools return the link step, onboards two synthetic accounts
 through the real `POST /resy/onboard`, refuses linking the one linked to the
-second user and a wrong token, links its own and checks the `ccr_` token still
-works on `/resy/me`. It finds tables, previews a booking (deposit, cancellation
+second user on the account page, links its own on the account page from its email and checks the `ccr_` token
+still works on `/resy/me`. It finds tables, previews a booking (deposit, cancellation
 fee, policy and masked card in the summary), refuses a commit without
 `terms_id`, then commits while the fake records the booking and answers 504: the
 call reports an unconfirmed booking, and the same-key retry settles it from the
@@ -513,13 +679,38 @@ at a fake on `127.0.0.1:8768` (per-process credentials key, no pacing), so
 nothing reaches Partiful or Google. The fake rotates the refresh token on every
 refresh and retires the old one. The test checks that Partiful starts off and
 unlinked, onboards two synthetic phone numbers through the real
-`/partiful/onboard/start` and `/verify`, refuses linking the one linked to the
-second user and a wrong token, links its own without changing the stored
-session, and checks the `ccp_` token on `/partiful/me`. It lists events (no
+`/partiful/onboard/start` and `/verify`, refuses the other user's phone and a
+wrong code on the account page, links its own there by phone
+and texted code, and checks the `ccp_` token on `/partiful/me`. It lists events (no
 guest data), filters by scope, reads one event, is refused another user's
 event, and then calls the legacy `/partiful/events`, which must still work after
-the connector's rotations. The read-only grant reads events and cannot link.
-Synthetic users, trips and Beli, Resy and Partiful accounts remain in the
+the connector's rotations. The read-only grant reads events.
+
+For ESPN, `serve` points ESPN reads, writes and the public scoreboard at a fake
+on `127.0.0.1:8769` (per-process credentials key, no pacing), so nothing reaches
+ESPN. The fake serves the connector tests' synthetic league
+(`backend/tests/espn_fakes.py`), one per SWID cookie, and records every write.
+The test checks that ESPN starts off and unlinked, onboards two synthetic
+accounts through the real `POST /espn/onboard`, and on the account page refuses
+the other user's team and even the legacy team's own typed cookies. A MyDisney
+sign-in against a fake Disney login refuses a league that is not the login's.
+The page then refuses an unknown and another user's `cce_` token, claims the
+legacy team with its own (credentials untouched, the token still working on
+`/espn/me`). It reads the league, your
+team, standings and both trends, then proposes, previews, approves and replays a
+lineup. It proposes a roster edit and approves it while the fake records the
+write, answers 504 and hides it from reads: the call reports an unconfirmed
+approval, a same-key retry stays open, and once the fake shows the write the
+same-key retry settles it from ESPN with exactly one roster request sent. It
+refuses the key for another proposal, approves a trade offer, reads activity,
+is refused another user's edit on both read and approve, and checks that the
+legacy `/espn/roster/edits` lists the connector's edit. Fresh typed cookies on
+the claimed team then retire its token, a MyDisney sign-in proves the claim, and
+finally a MyDisney
+sign-in for the other user's SWID takes over that unproven link, retires its
+token and expires the edit pending on it. The read-only grant reads
+the league and is refused on proposals and approvals.
+Synthetic users, trips and Beli, Resy, Partiful and ESPN accounts remain in the
 loopback sandbox for inspection. Tokens and keys are never printed or committed. For interactive mode, also run the normal local frontend
 on port 8080 (for example `scripts/start-local-dice-frontend.sh`) and sign in
 with a synthetic sandbox account. The script can also run directly with

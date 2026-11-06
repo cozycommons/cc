@@ -75,6 +75,7 @@ Cookies are never logged.
 from __future__ import annotations
 
 import http.client
+from .errors import scrub
 import json
 import math
 import threading
@@ -102,6 +103,7 @@ RATE_LIMIT_COOLDOWN_S = 60.0
 READ_CACHE_TTL_S = 30.0
 SETTLED_PERIOD_TTL_S = 6 * 3600.0
 READ_CACHE_MAX_CHARS = 96_000_000
+MAX_READ_BYTES = 16 * 1024 * 1024
 
 AUTH_EXPIRED_MESSAGE = (
     "ESPN cookies expired or were rejected; re-onboard with fresh "
@@ -289,6 +291,14 @@ def reset_shared_state() -> None:
     _PROCESS_COOLDOWN = RequestCooldown()
 
 
+REQUIRED_SETTINGS = ('acquisitionSettings', 'rosterSettings', 'scoringSettings')
+
+
+def complete_settings(data):
+    settings = data.get('settings') if isinstance(data, dict) else None
+    return isinstance(settings, dict) and all(isinstance(settings.get(k), dict) for k in REQUIRED_SETTINGS)
+
+
 class EspnClient:
     """Authenticated ESPN Fantasy access for a single league.
 
@@ -364,7 +374,10 @@ class EspnClient:
             req.add_header(k, v)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
+                body = resp.read(MAX_READ_BYTES + 1)
+                if len(body) > MAX_READ_BYTES:
+                    raise EspnError("ESPN read response exceeds size limit")
+                raw = body.decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             if e.code == 429 and self._cooldown is not None:
                 self._cooldown.defer(e.headers.get("Retry-After") if e.headers else None)
@@ -373,12 +386,12 @@ class EspnClient:
                     f"{what} -> {e.code}: {AUTH_EXPIRED_MESSAGE}", status=e.code
                 ) from e
             try:
-                detail = e.read().decode("utf-8", errors="replace")[:200]
+                detail = scrub(e.read(4096).decode("utf-8", errors="replace"))
             except Exception:
                 detail = ""
             raise EspnError(f"{what} -> {e.code} {detail}", status=e.code) from e
         except urllib.error.URLError as e:
-            raise EspnError(f"{what}: network error {e}") from e
+            raise EspnError(f"{what}: network error {scrub(e)}") from None
         return raw
 
     @staticmethod
@@ -438,13 +451,14 @@ class EspnClient:
                     f"{what} -> {e.code}: {AUTH_EXPIRED_MESSAGE}", status=e.code
                 ) from e
             try:
-                detail = e.read().decode("utf-8", errors="replace")[:200]
+                # Keep the existing excerpt length for lineup lock detection.
+                detail = scrub(e.read(4096).decode("utf-8", errors="replace"), limit=200)
             except Exception:
                 detail = ""
             error_type = EspnWriteUncertain if e.code >= 500 or e.code == 408 else EspnError
             raise error_type(f"{what} -> {e.code} {detail}", status=e.code) from e
         except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
-            raise EspnWriteUncertain(f"{what}: network error {e}") from e
+            raise EspnWriteUncertain(f"{what}: network error {scrub(e)}") from None
         text = raw.strip()
         if not text:
             return {}
@@ -490,6 +504,11 @@ class EspnClient:
         data = self._get(url, what="ESPN league", max_age=max_age)
         if not isinstance(data, dict):
             raise EspnError("ESPN league: unexpected response (expected object)")
+        if 'mSettings' in views and 'mRoster' in views and not complete_settings(data):
+            # Roster views can truncate settings; refresh rules without roster views.
+            alone = self._get(self.league_url()+'?view=mSettings', what="ESPN league settings", max_age=max_age)
+            if isinstance(alone, dict) and isinstance(alone.get('settings'), dict):
+                data = {**data, 'settings': {**(data.get('settings') or {}), **alone['settings']}}
         return data
 
     def _fetch_players(self, players_filter: dict, max_age: float = 0) -> list:
@@ -541,6 +560,7 @@ class EspnClient:
         league object (in practice just a ``players`` key) whose
         ``players`` array holds the nested entries.
         """
+        limit = (players_filter.get("players") or {}).get("limit")
         url = self.league_url() + "?view=kona_player_info"
         data = self._get(
             url,
@@ -558,7 +578,7 @@ class EspnClient:
                 "ESPN league players: unexpected response "
                 "(expected players list)"
             )
-        return players
+        return players[:limit] if limit is not None else players
 
     def get_league_players(self, limit: int = 1000, *, max_age: float = 0) -> list:
         """Player entries for THIS league, sorted by percent owned (desc).

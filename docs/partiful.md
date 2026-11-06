@@ -30,8 +30,9 @@ API, the client is the only file that needs updating.
   one server serves every user.
 - `backend/partiful/agent_tools.py` — the same reads on the shared Cozy
   Commons connector at `/mcp` (`get_partiful_events`), with the account resolved
-  from the signed-in Commons user after a one-time `link_partiful_account`
-  (migration `0019_beli_partiful_account_owner.sql`). See
+  from the signed-in Commons user once they connect Partiful at
+  https://cozycommons.dev/account#partiful (migration
+  `0019_beli_partiful_account_owner.sql`). See
   [docs/mcp/README.md](mcp/README.md#partiful).
 - `backend/migrations/0003_beli_partiful_accounts.sql` — the
   `partiful_accounts` table (registered in the shared app-schema "beli"

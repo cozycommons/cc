@@ -1,0 +1,17 @@
+# Exact HTTPS destinations. No suffixes or wildcards. Deployment adds one Supabase host.
+backoffice-service-t57o3dxfca-nn.a.run.app
+backoffice-service-onboarding-t57o3dxfca-nn.a.run.app
+api.resy.com
+lm-api-reads.fantasy.espn.com
+lm-api-writes.fantasy.espn.com
+registerdisney.go.com
+fan.api.espn.com
+site.api.espn.com
+gbfs.lyft.com
+api.partiful.com
+identitytoolkit.googleapis.com
+securetoken.googleapis.com
+api.twilio.com
+account.venmo.com
+pics-v3.venmo.com
+gist.githubusercontent.com

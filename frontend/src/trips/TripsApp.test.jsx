@@ -4,8 +4,10 @@ import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import TripsApp from './TripsApp.jsx';
 
-const mocked = vi.hoisted(() => ({ auth: null, request: vi.fn() }));
+const mocked = vi.hoisted(() => ({ auth: null, request: vi.fn(), identity: null }));
 vi.mock('./useTripsAuth.js', () => ({ useTripsAuth: () => mocked.auth, localDemo: false }));
+vi.mock('../components/commonsIdentity.js', () => ({ useCommonsIdentity: () => mocked.identity,
+  signInToCommons: vi.fn(), signOutOfCommons: vi.fn() }));
 vi.mock('./api.js', () => ({ tripRequest: (...args) => mocked.request(...args) }));
 // These tests exercise route/auth/form behavior. Native dialog focus is covered
 // by the browser acceptance run; jsdom does not implement showModal().
@@ -20,6 +22,7 @@ beforeEach(() => {
   sessionStorage.clear();
   mocked.auth = { loading: false, user: null, profile: null, error: '', supabase: {},
     signIn: vi.fn(), signOut: vi.fn().mockResolvedValue({}) };
+  mocked.identity = { status: 'signed-out', user: null, profile: null };
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -38,6 +41,8 @@ const answer = (joined) => (_client, path) => Promise.resolve(
 function signedIn() {
   mocked.auth.user = { id: 'user-a', user_metadata: { full_name: 'Account name' } };
   mocked.auth.profile = { user_id: 'user-a', display_name: 'Existing Dice name', avatar_url: '/avatar.png' };
+  mocked.identity = { status: 'signed-in', user: mocked.auth.user,
+    profile: { user_id: 'user-a', display_name: 'Existing Dice name', avatar_url: '/avatar.png', email: 'a@example.test' } };
 }
 
 const confirmationGroup = { id: 'trip-id', name: 'Synthetic trip', owner_id: 'user-a', currency: 'USD', revision: 1,
@@ -104,22 +109,20 @@ it('shows the canonical shared profile and does not ask for a separate trip iden
   signedIn();
   mocked.request.mockResolvedValue([]);
   open();
-  expect(screen.getByText('Existing Dice name')).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'New trip', exact: true }));
   expect(screen.queryByLabelText('Your name')).not.toBeInTheDocument();
   expect(screen.getByText('You’ll join as Existing Dice name.')).toBeInTheDocument();
 });
 
-it('keeps the account name and photo while the shared profile is loading', async () => {
+it('shows the shared account avatar and opens Venmo settings from its menu', async () => {
   signedIn();
-  mocked.auth.profile = null;
-  mocked.auth.user.user_metadata.avatar_url = '/google-avatar.png';
   mocked.request.mockResolvedValue([]);
   open();
-  const identity = screen.getByRole('button', { name: 'Signed in as Account name. Open profile' });
-  expect(identity).toHaveTextContent('Account name');
-  expect(identity.querySelector('img')).toHaveAttribute('src', '/google-avatar.png');
-  expect(screen.getByRole('button', { name: 'Sign out', exact: true })).toBeInTheDocument();
+  const identity = screen.getByRole('button', { name: 'Account: Existing Dice name' });
+  expect(identity.querySelector('img')).toHaveAttribute('src', '/avatar.png');
+  fireEvent.click(identity);
+  fireEvent.click(screen.getByRole('button', { name: 'Venmo for trips' }));
+  expect(screen.getByRole('dialog', { name: 'Your profile' })).toBeInTheDocument();
 });
 
 it('uses the retained invitation after OAuth and navigates after joining', async () => {
@@ -253,7 +256,8 @@ it('opens the joined trip itself after accepting an invite, not the trip list', 
   expect(screen.queryByRole('heading', { name: 'Your trips' })).not.toBeInTheDocument();
 });
 
-it('links signed-out Trips visitors to agent setup', () => {
+it('leaves sign-in to the Trips welcome, not the header', () => {
   open();
-  expect(screen.getAllByRole('link', { name: 'Connect your agent' }).every(link => link.getAttribute('href') === '/connect')).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Continue with Google/ })).toBeInTheDocument();
 });

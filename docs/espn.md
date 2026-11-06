@@ -35,6 +35,12 @@ account and only ever touches that account's league.
   `get_team_trends`, `get_draft`, `get_lineup_runs`, `run_lineup`,
   roster-edit and trade propose/approve, `get_roster_edits`,
   `get_trades`.
+- **Shared connector** — the same reads and the same propose → approve
+  gates are also on the Cozy Commons connector at `/mcp` as five tools,
+  signed in with Google instead of a pasted token: connect the ESPN team
+  once at https://cozycommons.dev/account#espn. See
+  [docs/mcp/README.md#espn](mcp/README.md#espn). `/espn/mcp` and its tokens
+  are unchanged.
 - **Deliberate v1 limit** — no matchup summaries; there is no
   `/espn/matchups` endpoint.
 
@@ -80,21 +86,20 @@ with a team in a fantasy basketball league.
    unpacked**, and select the repo's `extension/espn-connector/`
    folder. It stays installed; to update, refresh the folder and
    reload it there.
-2. Open **https://cozycommons.dev/fantasy/connect**.
-3. Click the extension's toolbar icon (**Cozy Commons ESPN
-   Connector**) and hit **Copy token**. It reads your ESPN session
-   cookies (`espn_s2` + `SWID`) from your browser and produces a
-   one-time copy token / pairing. Your ESPN password never reaches
-   the backend.
-4. Paste the token on the hosted capture page at /fantasy/connect.
-   The backend creates your account, stores the cookies encrypted at
-   rest, and the page shows your `cce_...` API token.
+2. Click the extension's toolbar icon (**Cozy Commons ESPN
+   Connector**), fill in your league ID and season, and hit
+   **Connect**. It reads your ESPN session cookies (`espn_s2` +
+   `SWID`) from your browser and sends them to `POST /espn/onboard`.
+   Your ESPN password never reaches the backend.
+3. The backend creates your account, stores the cookies encrypted at
+   rest, and the popup shows your `cce_...` API token (**Copy
+   token**).
 
 **You, or an agent helping you — save and verify:**
 
-5. Save the `cce_...` token immediately. It is shown **once** and
+4. Save the `cce_...` token immediately. It is shown **once** and
    cannot be retrieved later.
-6. Verify: `GET /espn/me` with `Authorization: Bearer <token>` must
+5. Verify: `GET /espn/me` with `Authorization: Bearer <token>` must
    return `200` with the account (`id`, `league_id`, `season`) and
    `"lineup_automation_enabled"` matching your choice. Opt out later with
    `POST /espn/automation/lineup` (`{"enabled": false}`).
@@ -103,9 +108,8 @@ Your account is live, with daily lineup automation set to your choice.
 
 Failure modes to know:
 
-- The hosted capture page is the reliable intake. Do **not** paste
-  the token into an in-app vault dialog — it has rejected valid
-  tokens.
+- Do **not** paste the token into an in-app vault dialog — it has
+  rejected valid tokens.
 - If the password login below fails with `AUTHORIZATION_CREDENTIALS`,
   that's Disney's risk check, not a wrong password. Don't retry the
   credentials; switch to this extension flow.
@@ -117,20 +121,26 @@ Lineup scheduling runs server-side; how it works is in
 
 The alternative front door — no cookies to extract:
 
-1. Open the connect page: **https://cozycommons.dev/fantasy/connect**
-2. On the **Automatic lineups** form, enter your ESPN email and password,
-   tick "Set my lineup automatically every day" if you want daily lineups,
+1. Open **https://cozycommons.dev/account#espn** and sign in to Cozy
+   Commons. (`/fantasy/connect` links here; it no longer has its own
+   form.)
+2. Under **Linked accounts → ESPN**, enter your ESPN email and password,
+   tick "Set my lineup automatically each day" if you want daily lineups,
    and hit **Connect ESPN**.
 3. If you're in more than one basketball league, pick yours from the list.
-4. Save the `cce_...` token it shows you — like the cookie flow, it's
-   **shown once**.
+
+No `cce_` token is shown: the account is tied to your Cozy Commons
+sign-in, and agents reach it through the `/mcp` connector. If you set up
+ESPN earlier and hold a `cce_` token, the same row also takes it ("Use a
+cce_ token from earlier setup") when the email sign-in is challenged;
+then paste fresh cookies there. Never give the token to an agent.
 
 Your password travels once, over HTTPS, straight to the backend, which
 uses it for a single MyDisney login and then discards it. It is never
 stored or logged; the only secret kept is the pair of ESPN session
 cookies the login returns, encrypted at rest exactly like the cookie
-flow. The form answers with your league name and your team name, so you
-can confirm it connected the right team before you close the page.
+flow. The row then shows the connected league and season. The legacy
+`POST /espn/onboard/login` route is unchanged for existing clients.
 
 **Reality check:** Disney's login risk checks reject this backend
 login for many accounts — it fails with `AUTHORIZATION_CREDENTIALS`,

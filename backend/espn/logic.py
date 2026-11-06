@@ -453,7 +453,7 @@ def build_snapshot(client) -> dict:
         )
 
     players = []
-    for entry in client.get_players(300, max_age=READ_CACHE_TTL_S) or []:
+    for entry in client.get_league_players(300, max_age=READ_CACHE_TTL_S) or []:
         if not isinstance(entry, dict):
             continue
         player = entry.get("player")

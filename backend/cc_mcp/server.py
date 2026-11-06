@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import time
 from collections.abc import Mapping
@@ -16,24 +17,32 @@ import jwt
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken, JWTVerifier, OAuthProxy, TokenVerifier
+from fastmcp.server.auth.middleware import RequireAuthMiddleware
+from fastmcp.server.auth.oauth_proxy.models import UpstreamTokenSet
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import Middleware
+from fastmcp.tools import Tool
+from key_value.aio.adapters.pydantic import PydanticAdapter
 from mcp.server.auth.handlers.revoke import RevocationHandler
 from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
-from mcp.server.auth.provider import AuthorizationParams, RefreshToken
+from mcp.server.auth.provider import AuthorizationParams, RefreshToken, TokenError
 from mcp.server.auth.settings import RevocationOptions
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route, request_response
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 
-from . import projects
+from mcp_validation import ToolArgumentErrors
+
+from . import connections, oauth_storage, projects
 from .oauth_storage import SupabaseOAuthStore
+
+logger = logging.getLogger(__name__)
 
 # Two stable scopes cover every project. Adding a project or tool never changes
 # them, so existing connections keep working; per-user enablement picks projects.
@@ -87,6 +96,7 @@ class ToolProvider:
 
 
 # One resolved user per request token: the middleware and the tool share it.
+_oauth_resource_scopes: ContextVar[tuple[str, ...] | None] = ContextVar("cc_mcp_oauth_resource_scopes", default=None)
 _request_user: ContextVar[tuple[str, Any] | None] = ContextVar("cc_mcp_request_user", default=None)
 
 
@@ -181,7 +191,7 @@ class ProjectAccessMiddleware(Middleware):
                 return False
             return provider.name in visible
 
-        return [tool for tool in tools if tool.key in self.tools and allowed(tool.key)]
+        return [tool for tool in tools if tool.name in self.tools and allowed(tool.name)]
 
     async def on_call_tool(self, context, call_next):
         entry = self.tools.get(context.message.name)
@@ -339,11 +349,46 @@ class SupabaseOAuthTokenVerifier(TokenVerifier):
         return verified
 
 
-class ResourceBoundOAuthProxy(OAuthProxy):
-    """Keep MCP scopes local and upstream Supabase credentials server-side."""
+# A connection's last_used_at is written at most this often per worker.
+TOUCH_INTERVAL_SECONDS = 300
+# FastMCP's collection for upstream token sets; existing connections live there.
+UPSTREAM_TOKENS = "mcp-upstream-tokens"
 
-    def __init__(self, *args, default_scopes=(), legacy_scopes=None, **kwargs):
+
+class DisconnectedDuringRefresh(Exception):
+    """A refresh's write-back found its token set deleted; carries the new upstream tokens."""
+
+    def __init__(self, tokens: UpstreamTokenSet):
+        super().__init__("Upstream token set was deleted during refresh.")
+        self.tokens = tokens
+
+
+class UpstreamTokenStore(PydanticAdapter[UpstreamTokenSet]):
+    async def put(self, key, value, *, collection=None, ttl=None):
+        try:
+            await super().put(key, value, collection=collection, ttl=ttl)
+        except oauth_storage.RowGone as gone:
+            raise DisconnectedDuringRefresh(value) from gone
+
+
+class ResourceBoundOAuthProxy(OAuthProxy):
+    """Keep MCP scopes local and upstream Supabase credentials server-side.
+
+    With `service_client`, approvals, refreshes and use also write the
+    cc_mcp_connections index (best effort: an index failure never fails auth),
+    and a refresh that loses to a disconnect signs out its new upstream session.
+    """
+
+    def __init__(self, *args, default_scopes=(), legacy_scopes=None, service_client=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self._upstream_token_store = UpstreamTokenStore(
+            key_value=self._client_storage,
+            pydantic_model=UpstreamTokenSet,
+            default_collection=UPSTREAM_TOKENS,
+            raise_on_validation_error=True,
+        )
+        self._service_client = service_client
+        self._touched: dict[str, float] = {}
         self._resource_scopes = frozenset(kwargs.get("valid_scopes", ()))
         # Pre-commons scope -> (project, level). Tokens issued before commons
         # scopes keep exactly their old per-project reach until they expire.
@@ -421,7 +466,116 @@ class ResourceBoundOAuthProxy(OAuthProxy):
                 break
         return routes
 
+    async def exchange_authorization_code(self, client, authorization_code):
+        scope_token = _oauth_resource_scopes.set(tuple(authorization_code.scopes))
+        try:
+            issued = await super().exchange_authorization_code(client, authorization_code)
+        finally:
+            _oauth_resource_scopes.reset(scope_token)
+        await self._index(issued.access_token, used=False,
+                          redirect_host=connections.redirect_host(authorization_code.redirect_uri))
+        return issued
+
+    async def exchange_refresh_token(self, client, refresh_token, scopes):
+        # FastMCP reads the upstream token set, awaits Supabase, then writes the
+        # set back. A disconnect during that wait must win, so the write-back
+        # only updates a set that still exists. Nothing is issued if it is gone.
+        scope_token = _oauth_resource_scopes.set(tuple(scopes))
+        try:
+            with oauth_storage.ExistingOnly(UPSTREAM_TOKENS):
+                issued = await super().exchange_refresh_token(client, refresh_token, scopes)
+        except DisconnectedDuringRefresh as gone:
+            await self._sign_out_upstream(gone.tokens.access_token)
+            raise TokenError("invalid_grant", "This connection was disconnected.") from None
+        finally:
+            _oauth_resource_scopes.reset(scope_token)
+        await self._index(issued.access_token, used=False)  # moves expires_at
+        return issued
+
+    async def _try_transparent_refresh(self, upstream_token_set: UpstreamTokenSet) -> UpstreamTokenSet:
+        # FastMCP 3 can also refresh while validating access tokens. The same
+        # disconnect-wins rule applies to this new write-back path.
+        scope_token = _oauth_resource_scopes.set(tuple(upstream_token_set.scope.split()))
+        try:
+            with oauth_storage.ExistingOnly(UPSTREAM_TOKENS):
+                return await super()._try_transparent_refresh(upstream_token_set)
+        except DisconnectedDuringRefresh as gone:
+            await self._sign_out_upstream(gone.tokens.access_token)
+            raise TokenError("invalid_grant", "This connection was disconnected.") from None
+        finally:
+            _oauth_resource_scopes.reset(scope_token)
+
+    def _translate_scopes_from_idp(self, scopes: list[str]) -> list[str]:
+        # Supabase grants OIDC scopes; only the locally approved grant may
+        # authorize Commons tools, including after refresh or a legacy grant.
+        approved = _oauth_resource_scopes.get()
+        if approved is None:
+            raise AgentConfigError("OAuth resource scopes are unavailable.")
+        return list(approved)
+
+    async def _sign_out_upstream(self, upstream_access_token: str) -> None:
+        """End the Supabase session behind tokens nobody will hold (best effort)."""
+        if self._service_client is None:
+            return
+        try:
+            await run_in_threadpool(self._service_client.auth.admin.sign_out, upstream_access_token, "local")
+        except Exception:  # noqa: BLE001 - our only copy is discarded; the session is orphaned either way.
+            logger.warning("Upstream sign-out after a disconnected refresh failed", exc_info=True)
+
     async def load_access_token(self, token: str) -> AccessToken | None:
+        access = await self._load_access_token(token)
+        if access is None:
+            return None
+        # Throttled per worker; this also indexes connections approved before
+        # the index existed the first time they are used.
+        upstream_token_id = access.claims["_upstream_token_id"]
+        now = time.monotonic()
+        if now - self._touched.get(upstream_token_id, -TOUCH_INTERVAL_SECONDS) >= TOUCH_INTERVAL_SECONDS:
+            if len(self._touched) > 10_000:
+                self._touched = {key: at for key, at in self._touched.items() if now - at < TOUCH_INTERVAL_SECONDS}
+            self._touched[upstream_token_id] = now
+            await self._index(token, used=True, access=access)
+        return access
+
+    async def _index(self, token: str, *, used: bool, redirect_host: str | None = None,
+                     access: AccessToken | None = None) -> None:
+        if self._service_client is None:
+            return
+        try:
+            access = access or await self._load_access_token(token)
+            if access is None:
+                return
+            upstream_token_id = access.claims["_upstream_token_id"]
+            tokens = await self._upstream_token_store.get(key=upstream_token_id)
+            if tokens is None:
+                return
+            client = await self.get_client(access.client_id)
+            if redirect_host is None and client is not None:
+                redirect_host = connections.redirect_host(*(client.redirect_uris or ()))
+            await run_in_threadpool(
+                connections.touch, self._service_client,
+                upstream_token_id=upstream_token_id,
+                user_id=access.claims["sub"],
+                client_id=access.client_id,
+                client_name=connections.client_label(getattr(client, "client_name", None)),
+                redirect_host=redirect_host,
+                scopes=access.scopes,
+                approved_at=connections.timestamp(tokens.created_at),
+                expires_at=connections.timestamp(tokens.refresh_token_expires_at or tokens.expires_at),
+                last_used_at=connections.timestamp(time.time()) if used else None,
+            )
+        except Exception:  # noqa: BLE001 - the index is display data; auth never depends on it.
+            logger.warning("Agent connection index write failed", exc_info=True)
+
+    async def _mark_revoked(self, upstream_token_id: str) -> None:
+        if self._service_client is None:
+            return
+        try:
+            await run_in_threadpool(connections.mark_revoked, self._service_client, upstream_token_id)
+        except Exception:  # noqa: BLE001 - the tokens are already gone; the row expires with them.
+            logger.warning("Agent connection index revoke failed", exc_info=True)
+
+    async def _load_access_token(self, token: str) -> AccessToken | None:
         try:
             local_claims = self.jwt_issuer.verify_token(token)
         except Exception:
@@ -463,7 +617,7 @@ class ResourceBoundOAuthProxy(OAuthProxy):
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         if isinstance(token, RefreshToken):
             try:
-                claims = self.jwt_issuer.verify_token(token.token)
+                claims = self.jwt_issuer.verify_token(token.token, expected_token_use="refresh")
             except Exception:
                 return
             jti = claims.get("jti")
@@ -472,6 +626,7 @@ class ResourceBoundOAuthProxy(OAuthProxy):
                 if jti:
                     await self._jti_mapping_store.delete(key=jti)
                 await self._revoke_proxy_token_set(mapping.upstream_token_id)
+                await self._mark_revoked(mapping.upstream_token_id)
             await super().revoke_token(token)
             return
 
@@ -491,6 +646,10 @@ async def _unavailable(_request: Request) -> JSONResponse:
         status_code=503,
         headers={"Cache-Control": "private, no-store"},
     )
+
+
+async def _get_not_allowed(scope, receive, send) -> None:
+    await Response(status_code=405, headers={"Allow": "POST, DELETE"})(scope, receive, send)
 
 
 def unavailable_agent_app() -> Starlette:
@@ -547,9 +706,24 @@ def create_agent_app(
         client_storage=storage,
         jwt_signing_key=settings.jwt_signing_key,
         require_authorization_consent=True,
+        # FastMCP 3 defaults CIMD on: a URL client_id makes this server fetch
+        # that URL before any authentication. Clients register through DCR.
+        enable_cimd=False,
+        service_client=service_client,
     )
     mcp = build_server(service_client, providers, auth=oauth)
     app = mcp.http_app(path=MCP_PATH, transport="streamable-http", stateless_http=True)
+    # FastMCP 3 omits GET on stateless transports: there is no session to
+    # stream. Unauthenticated GET still gets the 401 metadata challenge clients
+    # use for discovery; authenticated GET gets 405 instead of an open stream.
+    transport = next(route for route in app.routes if isinstance(route, Route) and route.path == MCP_PATH)
+    app.router.routes.append(Route(
+        MCP_PATH,
+        endpoint=RequireAuthMiddleware(
+            _get_not_allowed, transport.endpoint.required_scopes, transport.endpoint.resource_metadata_url,
+        ),
+        methods=["GET"],
+    ))
     app.state.cc_mcp_oauth = oauth
     app.state.cc_mcp = mcp
     return app
@@ -573,13 +747,18 @@ def build_server(service_client, providers: tuple[ToolProvider, ...], *, auth=No
     if len(set(legacy)) != len(legacy) or set(legacy) & set(SCOPES):
         raise AgentConfigError("Legacy scopes must be unique and distinct from commons scopes.")
 
-    mcp = FastMCP("Cozy Commons", auth=auth, on_duplicate_tools="error", instructions=INSTRUCTIONS)
+    mcp = FastMCP("Cozy Commons", auth=auth, on_duplicate="error", instructions=INSTRUCTIONS)
     context = ToolContext(service_client, tuple(providers))
     registry: dict[str, tuple[ToolProvider, Access]] = {}
+    # Registration is synchronous; the public list_tools API is async. Inspect
+    # only local Tool objects here, before any request middleware can filter them.
+    def local_tool_names():
+        return {tool.name for tool in mcp.local_provider._components.values() if isinstance(tool, Tool)}
+
     for provider in providers:
-        before = set(mcp._tool_manager._tools)
+        before = local_tool_names()
         provider.register(mcp, context)
-        registered = set(mcp._tool_manager._tools) - before
+        registered = local_tool_names() - before
         if registered != set(provider.tools):
             raise AgentConfigError(
                 f"Provider {provider.name} must declare exactly the tools it registers: "
@@ -593,7 +772,8 @@ def build_server(service_client, providers: tuple[ToolProvider, ...], *, auth=No
             registry[tool] = (provider, level)
         if provider.link and provider.link.tool and provider.link.tool not in provider.tools:
             raise AgentConfigError(f"Link tool {provider.link.tool} is not a {provider.name} tool.")
-    if mcp._mounted_servers:
+    if mcp.providers != [mcp.local_provider]:
         raise AgentConfigError("Providers must register tools directly; mounted servers bypass validation.")
     mcp.add_middleware(ProjectAccessMiddleware(context, registry))
+    mcp.add_middleware(ToolArgumentErrors())
     return mcp

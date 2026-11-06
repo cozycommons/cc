@@ -9,6 +9,7 @@ define a separate repository or make a feature WSL-specific.
 - `frontend/`: Vite + React Cozy Commons home, Dice at `/dice`, and Cozy Trips at `/trips`.
 - `backend/`: FastAPI shared API with Dice routes under `/dice`, Trips under `/trips`, and other project integrations.
 - `backend/ig_logger/`: generic Instagram-source → sink platform; routes under `/ig-logger`. `backend/ig_logger/sinks/beli/`: multi-tenant Beli restaurant app (the first sink); routes under `/beli`, MCP server at `/beli/mcp`.
+- `backend/bikes/`: Cozy Bikes (`docs/cozy-bikes.md`). `ingest.py` and `model.py` run offline on the DuckDB lockfile `backend/requirements-bikes.txt`; `routes.py` serves `/bikes/live`, `/bikes/wait`, `/bikes/plan` and `/bikes/wait-or-ride` from the committed `wait_model.json` and live GBFS; `recorder.py` logs live status (stdlib only); `basemap.py` builds the street tiles in `frontend/public/bikes/map/` from OpenStreetMap.
 - `supabase/`: isolated local Supabase configuration and project seed data.
 - `scripts/`: shared development plus project-specific migration and verification tooling.
 - `docs/`: product contracts and operational guidance.
@@ -93,6 +94,12 @@ Windows-path syntax to repository scripts or documented developer commands.
 
 See `docs/dice-sandbox.md`, `docs/dice-data-model-testing.md`, and
 `docs/deployment.md` for the authoritative workflows.
+
+## Security
+
+Before changing credentials, account linking, auth or OAuth, SQL functions,
+grants or migrations, dependencies or lockfiles, CI workflows, the frontend CSP
+or outbound network calls, read `docs/security.md` and follow its review rules.
 
 ## UI design
 

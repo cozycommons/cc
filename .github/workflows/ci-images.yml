@@ -27,7 +27,9 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Build media test environment
         run: bash scripts/crowdset-ci-image.sh build
       - name: Verify image tools and dependencies
@@ -51,7 +53,9 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Authenticate to the CI image registry
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

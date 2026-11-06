@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextvars import ContextVar, Token
 from datetime import datetime, timedelta, timezone
 from typing import Any, SupportsFloat
 
@@ -10,6 +11,38 @@ from starlette.concurrency import run_in_threadpool
 
 TABLE = "cc_mcp_oauth_state"
 DEFAULT_COLLECTION = "default"
+
+# Collections whose puts in the current context may only update a live row.
+_EXISTING_ONLY: ContextVar[frozenset[str]] = ContextVar("cc_mcp_existing_only", default=frozenset())
+
+
+class RowGone(LookupError):
+    """An existing-only put found no live row: something deleted it first."""
+
+
+class ExistingOnly:
+    """Within this block, puts to `collection` update a live row and never create one.
+
+    A writer that read a row, awaited something slow and then writes it back uses
+    this so that a concurrent delete wins instead of being silently undone. A
+    plain class, not @contextmanager, which would write __traceback__ onto
+    frozen exceptions such as MCP's TokenError.
+    """
+
+    def __init__(self, collection: str):
+        self._collection = collection
+        self._token: Token[frozenset[str]] | None = None
+
+    def __enter__(self) -> None:
+        self._token = _EXISTING_ONLY.set(_EXISTING_ONLY.get() | {self._collection})
+
+    def __exit__(self, *_exc) -> None:
+        if self._token is not None:
+            _EXISTING_ONLY.reset(self._token)
+
+
+def is_existing_only(collection: str) -> bool:
+    return collection in _EXISTING_ONLY.get()
 
 
 class SupabaseOAuthStore:
@@ -103,6 +136,34 @@ class SupabaseOAuthStore:
         ]
         self._client.table(TABLE).upsert(rows, on_conflict="collection,key").execute()
 
+    def _update_live(
+        self,
+        collection: str,
+        keys: Sequence[str],
+        values: Sequence[Mapping[str, Any]],
+        ttl: SupportsFloat | None,
+    ) -> None:
+        """Rewrite rows that still exist and have not expired, else raise RowGone.
+
+        Each key is one UPDATE, so across workers a concurrent delete either
+        commits first (no row matches) or removes the updated row afterwards.
+        """
+        if len(keys) != len(values):
+            raise ValueError("OAuth storage keys and values must have matching lengths.")
+        expiry = self._expiry(ttl)
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        for key, value in zip(keys, values):
+            response = (
+                self._client.table(TABLE)
+                .update({"value": dict(value), "expires_at": expiry, "updated_at": now})
+                .eq("collection", collection)
+                .eq("key", key)
+                .or_(f"expires_at.is.null,expires_at.gt.{now}")
+                .execute()
+            )
+            if not self._data(response):
+                raise RowGone(f"No live OAuth state row in {collection}.")
+
     def _delete_many(self, collection: str, keys: Sequence[str]) -> int:
         if not keys:
             return 0
@@ -133,7 +194,7 @@ class SupabaseOAuthStore:
         collection: str | None = None,
         ttl: SupportsFloat | None = None,
     ) -> None:
-        await run_in_threadpool(self._upsert_many, self._collection(collection), [key], [value], ttl)
+        await self.put_many([key], [value], collection=collection, ttl=ttl)
 
     async def delete(self, key: str, *, collection: str | None = None) -> bool:
         count = await run_in_threadpool(self._delete_many, self._collection(collection), [key])
@@ -162,9 +223,10 @@ class SupabaseOAuthStore:
         collection: str | None = None,
         ttl: SupportsFloat | None = None,
     ) -> None:
-        await run_in_threadpool(
-            self._upsert_many, self._collection(collection), list(keys), list(values), ttl
-        )
+        collection = self._collection(collection)
+        # Decide on the event loop, where the caller set the context.
+        write = self._update_live if is_existing_only(collection) else self._upsert_many
+        await run_in_threadpool(write, collection, list(keys), list(values), ttl)
 
     async def delete_many(self, keys: Sequence[str], *, collection: str | None = None) -> int:
         return await run_in_threadpool(self._delete_many, self._collection(collection), list(keys))

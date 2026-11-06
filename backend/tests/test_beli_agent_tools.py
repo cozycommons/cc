@@ -10,7 +10,6 @@ from fastmcp.server.auth import AccessToken
 
 from cc_mcp.registry import PROVIDERS
 from cc_mcp.server import EDIT_SCOPE, READ_SCOPE, build_server
-from ig_logger.sinks.beli import agent_tools
 from ig_logger.sinks.beli.agent_tools import LINK_STEP
 from ig_logger.sinks.beli.beli_client import BeliError, BeliUnauthorized
 from tests import beli_fakes
@@ -21,7 +20,6 @@ from tests.test_commons_agent_tools import Database, connect
 async def beli(monkeypatch):
     db = Database()
     beli_fakes.install(db, monkeypatch)
-    monkeypatch.setattr(agent_tools, '_LINK_ATTEMPTS', {})
     token = AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE])
     monkeypatch.setattr('cc_mcp.server.get_access_token', lambda: token)
     mcp = build_server(db, PROVIDERS)
@@ -37,14 +35,10 @@ def enable(db):
     db.settings[(db.user.id, 'beli')] = {'user_id': db.user.id, 'project_id': 'beli', 'enabled': True}
 
 
-def owner(db, row):
-    return next(r for r in db.beli_accounts if r['id'] == row['id'])['owner_user_id']
-
 
 async def linked_user(db, call):
     enable(db)
-    row, token = beli_fakes.add_account(db)
-    await call('link_beli_account', api_token=token)
+    row, _token = beli_fakes.add_account(db, owner=db.user.id)  # as the account page links it
     return row
 
 
@@ -58,12 +52,25 @@ async def test_new_user_sees_beli_off_then_the_link_step(beli):
     assert project['on_connector'] and project['enabled'] is False and project['linked'] is False
     assert project['status']['in_use'] is False
     assert {t['name']: t['access'] for t in project['tools']} == {
-        'get_restaurant_recs': 'read', 'save_restaurant': 'edit', 'link_beli_account': 'edit'}
-    assert not {'get_restaurant_recs', 'save_restaurant', 'link_beli_account'} & await listed()
+        'get_restaurant_recs': 'read', 'save_restaurant': 'edit'}
+    assert not {'get_restaurant_recs', 'save_restaurant'} & await listed()
     enabled = await call('enable_project', project_id='beli')
     assert enabled['linked'] is False and enabled['next_step'] == LINK_STEP
     project = {p['id']: p for p in (await call('list_projects'))['projects']}['beli']
-    assert project['next_step'] == LINK_STEP and 'link_beli_account' in project['next_step']
+    assert project['next_step'] == LINK_STEP and 'cozycommons.dev/account#beli' in project['next_step']
+    assert 'Do not ask for their Beli password or a ccb_ token' in LINK_STEP
+
+
+@pytest.mark.asyncio
+async def test_a_page_linked_account_turns_beli_on_and_no_token_tool_exists(beli):
+    db, _, call, listed = beli
+    row, token = beli_fakes.add_account(db, owner=db.user.id)  # as /account/linked-accounts links it
+    project = {p['id']: p for p in (await call('list_projects'))['projects']}['beli']
+    assert project['enabled'] and project['linked'] and project['status']['in_use']
+    assert project['enabled_reason'] == 'default: you already use it'
+    assert 'link_beli_account' not in await listed()
+    with pytest.raises(ToolError, match='Unknown tool'):
+        await call('link_beli_account', api_token=token)
 
 
 @pytest.mark.asyncio
@@ -73,76 +80,14 @@ async def test_unlinked_user_gets_the_link_step(beli, tool, arguments):
     db, _, call, _ = beli
     enable(db)
     beli_fakes.add_account(db, owner=str(uuid4()))  # someone else's linked account
-    with pytest.raises(ToolError, match='Link your Beli account first: Call link_beli_account'):
+    with pytest.raises(ToolError, match='Link your Beli account first: Ask the user to connect Beli at https://cozycommons.dev/account#beli'):
         await call(tool, **arguments)
     assert not db.beli_logins and not db.beli_writes and not db.beli_receipts
 
 
-@pytest.mark.asyncio
-async def test_link_success_never_echoes_the_token_and_enables_by_default(beli):
-    db, _, call, listed = beli
-    enable(db)
-    row, token = beli_fakes.add_account(db, label='synthetic-sam')
-    linked = await call('link_beli_account', api_token=token)
-    assert linked == {'linked': True, 'status': 'linked', 'account': {'id': row['id'], 'label': 'synthetic-sam'},
-                      'next_step': linked['next_step']}
-    assert token not in repr(linked) and row['token_hash'] not in repr(linked)
-    assert owner(db, row) == db.user.id
-    assert not any(token in repr(value) for value in row.values())  # only the hash is stored
-    assert (await call('link_beli_account', api_token=token))['status'] == 'already_linked'
-    # Without a stored choice, a linked account turns Beli on (status in_use).
-    del db.settings[(db.user.id, 'beli')]
-    project = {p['id']: p for p in (await call('list_projects'))['projects']}['beli']
-    assert project['enabled'] and project['linked'] and project['status']['in_use']
-    assert project['enabled_reason'] == 'default: you already use it'
-    assert project['next_step'] == 'Call get_restaurant_recs(neighborhood).'
-    assert {'get_restaurant_recs', 'save_restaurant', 'link_beli_account'} <= await listed()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize('bad', ['ccb_' + 'x' * 43, 'not-a-token', 'ccb_'])
-async def test_link_with_a_wrong_token_is_refused(beli, bad):
-    db, _, call, _ = beli
-    enable(db)
-    row, _token = beli_fakes.add_account(db)
-    with pytest.raises(ToolError, match='No Beli account matches that token') as error:
-        await call('link_beli_account', api_token=bad)
-    assert bad not in str(error.value) or bad == 'ccb_'
-    assert owner(db, row) is None
 
-
-@pytest.mark.asyncio
-async def test_account_linked_to_another_user_is_refused(beli):
-    db, _, call, _ = beli
-    enable(db)
-    other = str(uuid4())
-    row, token = beli_fakes.add_account(db, owner=other)
-    with pytest.raises(ToolError, match='linked to another Commons user') as error:
-        await call('link_beli_account', api_token=token)
-    assert token not in str(error.value)
-    assert owner(db, row) == other
-
-
-@pytest.mark.asyncio
-async def test_linking_another_of_your_accounts_replaces_the_link(beli):
-    db, _, call, _ = beli
-    first = await linked_user(db, call)
-    second, token = beli_fakes.add_account(db, label='second')
-    result = await call('link_beli_account', api_token=token)
-    assert result['replaced_account'] == {'id': first['id'], 'label': 'synthetic'}
-    assert owner(db, first) is None and owner(db, second) == db.user.id
-
-
-@pytest.mark.asyncio
-async def test_link_attempts_are_rate_limited(beli):
-    db, _, call, _ = beli
-    enable(db)
-    for _ in range(10):
-        with pytest.raises(ToolError, match='No Beli account matches'):
-            await call('link_beli_account', api_token='ccb_' + 'y' * 43)
-    _row, token = beli_fakes.add_account(db)
-    with pytest.raises(ToolError, match='Too many link attempts'):
-        await call('link_beli_account', api_token=token)
 
 
 @pytest.mark.asyncio
@@ -260,7 +205,7 @@ async def test_unconfirmed_write_keeps_the_key_and_settles_on_retry(beli, failur
 @pytest.mark.asyncio
 @pytest.mark.parametrize('failure,message', [
     (BeliError('Beli GET /api -> 503', status=503), r'Beli did not answer \(HTTP 503\)'),
-    (BeliUnauthorized('unauthorized', status=401), 'Onboard again at POST')])
+    (BeliUnauthorized('unauthorized', status=401), 'sign in to Beli again at https://cozycommons.dev/account#beli')])
 async def test_beli_failures_name_the_fix_and_release_the_key(beli, failure, message):
     db, _, call, _ = beli
     await linked_user(db, call)
@@ -270,13 +215,3 @@ async def test_beli_failures_name_the_fix_and_release_the_key(beli, failure, mes
     assert not db.beli_receipts and not db.beli_writes
     db.beli_failure = None
     assert (await call('save_restaurant', **SAVE, dry_run=False))['status'] == 'bookmarked'
-
-
-@pytest.mark.asyncio
-async def test_link_does_not_touch_watcher_subscriptions(beli):
-    db, _, call, _ = beli
-    row = await linked_user(db, call)
-    stored = next(r for r in db.beli_accounts if r['id'] == row['id'])
-    assert stored['watcher_opt_in'] is True
-    assert {k: v for k, v in stored.items() if k != 'owner_user_id'} == {
-        k: v for k, v in row.items() if k != 'owner_user_id'}

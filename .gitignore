@@ -18,3 +18,5 @@ artifacts/
 .crowd-set/
 .crowd-set-venv/
 .apps-dev/
+
+.cache/dependency-age/

@@ -42,7 +42,7 @@ export default function Connect() {
     }
   };
   return <div className="cc-page cc-connect">
-    <SiteHeader><Link to="/trips">Trips</Link></SiteHeader>
+    <SiteHeader />
     <main id="connect-main">
       <h1>Connect your agent</h1>
       <section aria-labelledby="connector-heading" className="cc-connect-endpoint">
@@ -72,10 +72,12 @@ export default function Connect() {
         <p>Ask your agent to call <code>list_projects</code> first. It shows each project, whether it is on for you, and your next step. Projects you already use, such as Trips when you belong to a trip, are on already. Your agent turns others on with <code>enable_project</code> and off with <code>disable_project</code>. Turning a project off hides its tools and keeps its data. If new tools do not appear, refresh the agent’s tool list or reconnect.</p>
         <ul><li><Link to="/trips">Trips</Link>: read balances and settlement links, split expenses, and record repayments already made. It does not send money.</li>
           <li><Link to="/floor-planner">Floor Planner</Link>: read and edit plans you have access to.</li>
-          <li>Beli: get restaurant recommendations and save places to your Beli Want to Try list. The first time, your agent links your Beli account with your existing Beli token using <code>link_beli_account</code>; after that you don’t paste the token again.</li>
-          <li>Resy: find open tables, list your reservations, and book or cancel real reservations. Bookings and cancellations can charge a deposit or cancellation fee to your card; your agent shows each fee, the policy and the card first. Link once with your existing Resy token using <code>link_resy_account</code>.</li>
-          <li>Partiful: read-only. List the events you host, RSVP’d to or were invited to, or read one event’s details. Guest lists are never shared. Link once with your existing Partiful token using <code>link_partiful_account</code>.</li></ul>
-        <p>Writes always need a preview first (<code>dry_run=true</code>) and your confirmation before saving. For trip expenses, review the per-person amounts. For Resy, review the fees and card before you say yes.</p>
+          <li>Beli: get restaurant recommendations and save places to your Beli Want to Try list. Connect Beli once under <Link to="/account#beli">Linked accounts</Link>.</li>
+          <li>Resy: find open tables, list your reservations, and book or cancel real reservations. Bookings and cancellations can charge a deposit or cancellation fee to your card; your agent shows each fee, the policy and the card first. Connect Resy once under <Link to="/account#resy">Linked accounts</Link>.</li>
+          <li>Partiful: read-only. List the events you host, RSVP’d to or were invited to, or read one event’s details. Guest lists are never shared. Connect Partiful once under <Link to="/account#partiful">Linked accounts</Link>.</li>
+          <li>ESPN: read your fantasy basketball league, and set lineups, add and drop players or offer trades for your own team. Every change is proposed first and only sent to ESPN after you approve that exact change. Connect ESPN once under <Link to="/account#espn">Linked accounts</Link>.</li></ul>
+        <p>Sign in to Beli, Resy, Partiful and ESPN only on your account page. Never give an agent those passwords, codes or tokens.</p>
+        <p>Writes always need a preview first (<code>dry_run=true</code>) and your confirmation before saving. For trip expenses, review the per-person amounts. For Resy, review the fees and card before you say yes. For ESPN, review the proposed lineup, roster edit or trade offer.</p>
       </section>
       <section aria-labelledby="reconnect-heading">
         <h2 id="reconnect-heading">Connected before projects could be switched on?</h2>
@@ -83,8 +85,8 @@ export default function Connect() {
       </section>
       <section aria-labelledby="disconnect-heading">
         <h2 id="disconnect-heading">Disconnect</h2>
-        <p>Remove or disconnect the connector in your agent. To revoke the Cozy Commons application grant in Supabase Auth, contact the Cozy Commons administrator; there is currently no in-app grant revocation page.</p>
-        <p>Already-issued tokens may stay valid until expiry. After a grant or permission change, disconnect and reconnect to sign in and consent again.</p>
+        <p>Open <Link to="/account#agents">Connected agents</Link> on your account and choose Disconnect. That agent’s access stops on its next request, and it must sign in and approve again to reconnect. Also remove the connector in your agent so it stops asking.</p>
+        <p>A connection approved before the account page existed shows there after its next use.</p>
       </section>
     </main>
   </div>;

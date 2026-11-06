@@ -62,7 +62,7 @@ Decoded working files use float32 samples so decoder/downmix peaks above full sc
 From the repository root:
 
 ```bash
-.crowdset-venv/bin/python -m pip install pytest==8.3.4 httpx==0.28.1
+.crowdset-venv/bin/python -m pip install --require-hashes --only-binary=:all: -r backend/crowdset/tests/requirements.txt
 PYTHONPATH=backend .crowdset-venv/bin/python -m pytest backend/crowdset/tests -q
 ```
 

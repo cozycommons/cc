@@ -57,6 +57,40 @@ to application sinks. Routes: `/beli/*`. MCP: `/beli/mcp`.
    friend's Beli data (covered by `tests/test_beli_accounts.py`).
 3. Rate-limited: 10 onboarding attempts per IP per hour.
 
+### Beli session lifetime
+
+All Beli callers (REST, both MCP endpoints, and the Instagram watcher) use
+the same process-local cache keyed by account row ID. Each entry owns its
+client, tokens, request pacing, and auth lock. The lock covers only login and
+refresh, so concurrent requests for one account share one login or refresh but
+their API calls run in parallel; other accounts authenticate independently.
+The User-Agent is derived from the account ID and stays stable across requests,
+credential changes and restarts. Onboarding probes use their login as the key
+before a row exists.
+
+Access tokens refresh one minute before expiry, and a refresh token Beli
+returns replaces the stored one. A rejected refresh (400/401) falls back to
+password login on the same client; a refresh outage does not. A 401 on an API
+call drops only the token that call used, so `api_with_reauth` recovers with
+one refresh. Only a rejected password login evicts the cached client, and a
+stale client cannot evict a newer entry.
+
+Successful relinking on `/account` evicts the local entry after the password
+write, and linking a different Beli login also evicts the previously linked
+account's session. Every caller resolves the stored credentials before cache
+lookup; a changed login or password replaces the entry, including in other
+workers. Already-running requests may finish with their previously resolved
+credentials.
+
+Entries have a one-day absolute TTL, pruned on the next cache lookup, and a
+256-account capacity that evicts the oldest entry. One day keeps logins to about
+one per account per day while bounding how long a session outlives a password
+change made in the Beli app, since Beli may not revoke refresh tokens. No
+expired entry is returned by a lookup. Idle entries can remain in memory until
+another lookup or process exit. Tokens are never persisted: the small
+deployment accepts one cold login per account per process after a restart,
+avoiding a second stored secret and cross-process token coordination.
+
 ## User onboarding
 
 Each friend onboards with their own Beli login. Nothing is shared and no
@@ -111,7 +145,7 @@ reported instead of re-bookmarked.
 
 | Var | Purpose |
 |---|---|
-| `BELI_CREDENTIALS_KEY` | Fernet key for Beli logins at rest. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Set in Coolify; **never commit**. |
+| `BELI_CREDENTIALS_KEY` | Fernet key for Beli logins at rest (comma-separated keys during rotation; see `docs/deployment.md#credential-key-rotation`). Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Set in Coolify; **never commit**. |
 | `BELI_EATS_INGEST_KEY` | Service key for `POST /beli/eats-ingest` (the harness cron). Generate: `openssl rand -hex 32`. Set in Coolify; **never commit**. |
 
 ## Watcher
@@ -161,8 +195,9 @@ ChatGPT Custom GPT Action via the OpenAPI spec, MCP for Claude/clients).
 ## Shared Cozy Commons connector
 
 Beli is also on the shared OAuth connector at `/mcp`
-([docs/mcp/README.md](mcp/README.md#beli)): `get_restaurant_recs`,
-`save_restaurant` and the one-time `link_beli_account(api_token)`, which ties
-the account to the signed-in Commons user (`beli_accounts.owner_user_id`,
-migration `0017_beli_account_owner.sql`). Linking changes nothing for the
-`ccb_` token, `/beli/*`, `/beli/mcp` or the watcher.
+([docs/mcp/README.md](mcp/README.md#beli)): `get_restaurant_recs` and
+`save_restaurant`. The user ties their Beli account to their Commons sign-in
+once by signing in to Beli at https://cozycommons.dev/account#beli
+(`beli_accounts.owner_user_id`, migration `0017_beli_account_owner.sql`).
+Linking changes nothing for the `ccb_` token, `/beli/*`, `/beli/mcp` or the
+watcher.

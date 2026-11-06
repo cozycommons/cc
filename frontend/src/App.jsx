@@ -1,4 +1,5 @@
 import React from 'react';
+import CspBoundary from './CspBoundary.jsx';
 import { lazyWithRecovery } from './lazyWithRecovery.js';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 const RouteAnalytics = React.lazy(() => import('./analytics/RouteAnalytics.jsx'));
@@ -27,6 +28,8 @@ const TripsApp = lazyWithRecovery(loadTripsApp);
 const Fantasy = lazyWithRecovery(() => import('./fantasy/Fantasy.jsx'));
 const FloorPlannerApp = lazyWithRecovery(loadFloorPlannerApp);
 const Connect = lazyWithRecovery(() => import('./connect/Connect.jsx'));
+const BikesApp = lazyWithRecovery(() => import('./bikes/BikesApp.jsx'));
+const Account = lazyWithRecovery(() => import('./account/Account.jsx'));
 const OAuthConsent = lazyWithRecovery(() => import('./auth/OAuthConsent.jsx'));
 
 const DesignIndex = lazyWithRecovery(() => import('./design/DesignIndex.jsx'));
@@ -52,29 +55,33 @@ const TripsSplash = () => <p role="status" style={{ boxSizing: 'border-box', min
 export default function App() {
   return (
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-      <React.Suspense fallback={null}><RouteAnalytics /></React.Suspense>
-      <Routes>
-        <Route path="/admin/*" element={<React.Suspense fallback={<p>Loading…</p>}><Admin /></React.Suspense>} />
-        <Route path="/" element={<React.Suspense fallback={null}><CozyWabiLanding /></React.Suspense>} />
-        <Route path="/trips/*" element={<React.Suspense fallback={<TripsSplash />}><PreloadedSupabaseRoute load={loadTripsApp}><TripsApp /></PreloadedSupabaseRoute></React.Suspense>} />
-        <Route path="/floor-planner/*" element={<React.Suspense fallback={<p>Opening Floor Planner…</p>}><PreloadedSupabaseRoute load={loadFloorPlannerApp}><FloorPlannerApp /></PreloadedSupabaseRoute></React.Suspense>} />
-        <Route path="/connect" element={<React.Suspense fallback={<p>Loading…</p>}><Connect /></React.Suspense>} />
-        <Route path="/oauth/consent" element={<React.Suspense fallback={<p>Loading connection request…</p>}><SupabaseProvider><OAuthConsent /></SupabaseProvider></React.Suspense>} />
-        <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
-        <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
-        <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
-        <Route path="/design" element={<React.Suspense fallback={null}><DesignIndex /></React.Suspense>} />
-        <Route path="/design/dice" element={<React.Suspense fallback={null}><DiceDesignApp /></React.Suspense>} />
-        <Route
-          path="/dice/*"
-          element={(
-            <React.Suspense fallback={<p>Opening Dice…</p>}>
-              <PreloadedSupabaseRoute load={loadDiceApp}><DiceApp /></PreloadedSupabaseRoute>
-            </React.Suspense>
-          )}
-        />
-        <Route path="*" element={<Navigate replace to="/" />} />
-      </Routes>
+      <CspBoundary>
+        <React.Suspense fallback={null}><RouteAnalytics /></React.Suspense>
+        <Routes>
+          <Route path="/admin/*" element={<React.Suspense fallback={<p>Loading…</p>}><Admin /></React.Suspense>} />
+          <Route path="/" element={<React.Suspense fallback={null}><CozyWabiLanding /></React.Suspense>} />
+          <Route path="/trips/*" element={<React.Suspense fallback={<TripsSplash />}><PreloadedSupabaseRoute load={loadTripsApp}><TripsApp /></PreloadedSupabaseRoute></React.Suspense>} />
+          <Route path="/floor-planner/*" element={<React.Suspense fallback={<p>Opening Floor Planner…</p>}><PreloadedSupabaseRoute load={loadFloorPlannerApp}><FloorPlannerApp /></PreloadedSupabaseRoute></React.Suspense>} />
+          <Route path="/connect" element={<React.Suspense fallback={<p>Loading…</p>}><Connect /></React.Suspense>} />
+          <Route path="/account" element={<React.Suspense fallback={<p>Loading…</p>}><Account /></React.Suspense>} />
+          <Route path="/oauth/consent" element={<React.Suspense fallback={<p>Loading connection request…</p>}><SupabaseProvider><OAuthConsent /></SupabaseProvider></React.Suspense>} />
+          <Route path="/bikes" element={<React.Suspense fallback={null}><BikesApp /></React.Suspense>} />
+          <Route path="/fantasy/*" element={<React.Suspense fallback={null}><Fantasy /></React.Suspense>} />
+          <Route path="/crowdset/:slug?" element={<React.Suspense fallback={<p>Opening Crowdset…</p>}><Crowdset /></React.Suspense>} />
+          <Route path="/crowd-set" element={<LegacyCrowdsetRedirect />} />
+          <Route path="/design" element={<React.Suspense fallback={null}><DesignIndex /></React.Suspense>} />
+          <Route path="/design/dice" element={<React.Suspense fallback={null}><DiceDesignApp /></React.Suspense>} />
+          <Route
+            path="/dice/*"
+            element={(
+              <React.Suspense fallback={<p>Opening Dice…</p>}>
+                <PreloadedSupabaseRoute load={loadDiceApp}><DiceApp /></PreloadedSupabaseRoute>
+              </React.Suspense>
+            )}
+          />
+          <Route path="*" element={<Navigate replace to="/" />} />
+        </Routes>
+      </CspBoundary>
     </BrowserRouter>
   );
 }

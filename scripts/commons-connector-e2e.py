@@ -41,7 +41,7 @@ BISTRO = {'id': 501, 'name': 'Synthetic Bistro', 'neighborhood': 'West Village',
 
 def fake_beli():
     """Minimal synthetic Beli API: logins, trending, search and bookmarks. Records every save."""
-    state = {'sessions': {}, 'saved': []}
+    state = {'sessions': {}, 'saved': [], 'logins': []}
 
     class Beli(BaseHTTPRequestHandler):
         def answer(self, payload):
@@ -58,6 +58,7 @@ def fake_beli():
             body = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
             if self.path == '/api/token/':
                 access = secrets.token_urlsafe(16)
+                state['logins'].append(body.get('email'))
                 state['sessions'][access] = body.get('email')
                 return self.answer({'access': access, 'refresh': secrets.token_urlsafe(16)})
             if self.login() is None:
@@ -143,6 +144,7 @@ def fake_resy():
             path = urlsplit(self.path).path
             if path == '/3/auth/password':
                 token = secrets.token_urlsafe(16)
+                form['email'] = form['email'].lower()  # Resy logins are case-insensitive
                 state['sessions'][token] = form['email']
                 state['cards'].setdefault(form['email'], [{'id': next_id(), 'brand': 'visa', 'last_four': '4242',
                                                            'is_default': True}])
@@ -283,6 +285,100 @@ def fake_partiful():
     return ThreadingHTTPServer(FAKE_PARTIFUL, Partiful), state
 
 
+# ESPN reads, writes and the public scoreboard come here too; nothing reaches ESPN.
+FAKE_ESPN = ('127.0.0.1', 8769)
+
+
+def fake_espn():
+    """Synthetic ESPN Fantasy API over the connector tests' League model, one league per SWID cookie.
+
+    Each league records every write (League.sends). Set answer_lost and hidden on a
+    league to record the next write, answer 504 and keep it out of reads until reveal().
+    """
+    from espn.espn_client import EspnWriteUncertain
+    from tests.espn_fakes import League
+
+    # disney: email -> (password, SWID) for the MyDisney login the account page runs.
+    state = {'leagues': {}, 'disney': {}}
+
+    class Espn(BaseHTTPRequestHandler):
+        def answer(self, payload, status=200, headers=()):
+            body = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            for name, value in headers:
+                self.send_header(name, value)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def league(self):
+            cookies = dict(part.strip().split('=', 1) for part in self.headers.get('Cookie', '').split(';')
+                           if '=' in part)
+            swid = cookies.get('SWID', '')
+            if not cookies.get('espn_s2', '').startswith('synthetic-s2-') or not swid:
+                return None
+            return state['leagues'].setdefault(swid, League(swid, 'e2e'))
+
+        def do_GET(self):
+            path, query = urlsplit(self.path).path, parse_qs(urlsplit(self.path).query)
+            if path == '/scoreboard':
+                return self.answer({'events': []})
+            if path.startswith('/fans/'):  # league discovery: one basketball league per SWID
+                if self.league() is None:
+                    return self.send_error(401)
+                entry = {'abbrev': 'FBA', 'seasonId': 2027, 'entryId': 7,
+                         'entryMetadata': {'teamName': 'Synthetic Squad'},
+                         'groups': [{'groupId': 999, 'groupName': 'Synthetic League'}]}
+                return self.answer({'preferences': [{'type': {'code': 'fantasy'}, 'metaData': {'entry': entry}}]})
+            league = self.league()
+            if league is None:
+                return self.send_error(401)
+            if path == '/reads/seasons/2027/players':
+                return self.answer([row['player'] for row in league.league_players()])
+            if path == '/reads/seasons/2027/segments/0/leagues/999':
+                if query.get('view') == ['kona_player_info']:
+                    return self.answer({'players': league.league_players()})
+                return self.answer(league.payload(query.get('view', [])))
+            self.send_error(404)
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
+            path = urlsplit(self.path).path
+            if path == '/disney/api-key':
+                return self.answer({}, headers=[('api-key', 'synthetic-disney-key')])
+            if path == '/disney/guest/login':
+                assert self.headers.get('Authorization') == 'APIKEY synthetic-disney-key'
+                password, swid = state['disney'].get(body['loginValue'].lower(), (None, None))
+                if password is None or body['password'] != password:
+                    return self.answer({'error': {'errors': [{'code': 'AUTHORIZATION_CREDENTIALS'}]}}, status=400)
+                return self.answer({}, headers=[('Set-Cookie', f'espn_s2=synthetic-s2-{secrets.token_urlsafe(16)}'),
+                                                ('Set-Cookie', f'SWID={swid}')])
+            league = self.league()
+            if league is None:
+                return self.send_error(401)
+            if urlsplit(self.path).path != '/writes/seasons/2027/segments/0/leagues/999/transactions/':
+                return self.send_error(404)
+            assert body['memberId'] == league.swid, 'a transaction is only ever sent for the cookie owner'
+            team, items = body['teamId'], body['items']
+            try:
+                if body['type'] == 'ROSTER':
+                    return self.answer(league.lineup(team, items))
+                if body['type'] in ('FREEAGENT', 'WAIVER'):
+                    return self.answer(league.roster(team, [{'action': i['type'], 'playerId': i['playerId']}
+                                                            for i in items]))
+                give = [i['playerId'] for i in items if i['fromTeamId'] == team]
+                receive = [i['playerId'] for i in items if i['toTeamId'] == team]
+                counterparty = next(i['toTeamId'] for i in items if i['fromTeamId'] == team)
+                return self.answer(league.trade(team, counterparty, give, receive))
+            except EspnWriteUncertain:
+                return self.send_error(504)
+
+        def log_message(self, *_args):
+            pass
+
+    return ThreadingHTTPServer(FAKE_ESPN, Espn), state
+
+
 class MemoryTokens:
     tokens = None
     client = None
@@ -341,13 +437,13 @@ async def exercise(args):
                        'Authorization': 'Bearer ' + os.environ['LOCAL_SUPABASE_SERVICE_ROLE_KEY']}
 
     async def onboard_beli(label):
-        """The real /beli/onboard path, against the fake Beli API. Returns the ccb_ token."""
+        """The real /beli/onboard path, against the fake Beli API. Returns (ccb_ token, login, password)."""
+        login, password = f'beli-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(16)
         async with httpx.AsyncClient(timeout=30) as http:
             response = await http.post(endpoint[:-len('/mcp')] + '/beli/onboard', json={
-                'label': label, 'beli_id': f'beli-e2e-{uuid4().hex}@example.test',
-                'password': secrets.token_urlsafe(16)})
+                'label': label, 'beli_id': login, 'password': password})
         assert response.status_code == 200, f'Beli onboarding: HTTP {response.status_code}'
-        return response.json()['token']
+        return response.json()['token'], login, password
 
     resy_server, resy_state = fake_resy()
     resy_serving = asyncio.create_task(asyncio.to_thread(resy_server.serve_forever, poll_interval=0.1))
@@ -356,7 +452,7 @@ async def exercise(args):
     partiful_serving = asyncio.create_task(asyncio.to_thread(partiful_server.serve_forever, poll_interval=0.1))
 
     async def onboard_partiful(label):
-        """The real /partiful/onboard start + verify path, against the fake. Returns (ccp_ token, synthetic uid)."""
+        """The real /partiful/onboard start + verify path, against the fake. Returns (ccp_ token, synthetic uid, phone)."""
         phone = '+1555' + ''.join(secrets.choice('0123456789') for _ in range(7))
         async with httpx.AsyncClient(timeout=30) as http:
             started = await http.post(endpoint[:-len('/mcp')] + '/partiful/onboard/start', json={'phone': phone})
@@ -364,16 +460,32 @@ async def exercise(args):
             response = await http.post(endpoint[:-len('/mcp')] + '/partiful/onboard/verify',
                                        json={'phone': phone, 'code': '123456', 'label': label})
         assert response.status_code == 200, f'Partiful onboarding: HTTP {response.status_code}'
-        return response.json()['token'], partiful_state['uids'][phone]
+        return response.json()['token'], partiful_state['uids'][phone], phone
+
+    espn_server, espn_state = fake_espn()
+    espn_serving = asyncio.create_task(asyncio.to_thread(espn_server.serve_forever, poll_interval=0.1))
+
+    async def onboard_espn(label):
+        """The real /espn/onboard path, against the fake ESPN API. Returns (cce_ token, synthetic SWID, espn_s2)."""
+        swid, espn_s2 = '{' + str(uuid4()).upper() + '}', 'synthetic-s2-' + secrets.token_urlsafe(16)
+        async with httpx.AsyncClient(timeout=30) as http:
+            response = await http.post(endpoint[:-len('/mcp')] + '/espn/onboard', json={
+                'label': label, 'league_id': 999, 'season': 2027, 'enable_automation': False,
+                'espn_s2': espn_s2, 'swid': swid})
+        assert response.status_code == 200, f'ESPN onboarding: HTTP {response.status_code}'
+        return response.json()['token'], swid, espn_s2
+
+    def espn_sends():
+        return [(swid, kind) for swid, league in espn_state['leagues'].items() for kind in league.sends]
 
     async def onboard_resy(label):
-        """The real /resy/onboard path, against the fake Resy API. Returns (ccr_ token, synthetic email)."""
-        email = f'resy-e2e-{uuid4().hex}@example.test'
+        """The real /resy/onboard path, against the fake Resy API. Returns (ccr_ token, synthetic email, password)."""
+        email, password = f'resy-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(16)
         async with httpx.AsyncClient(timeout=30) as http:
             response = await http.post(endpoint[:-len('/mcp')] + '/resy/onboard', json={
-                'label': label, 'email': email, 'password': secrets.token_urlsafe(16)})
+                'label': label, 'email': email, 'password': password})
         assert response.status_code == 200, f'Resy onboarding: HTTP {response.status_code}'
-        return response.json()['token'], email
+        return response.json()['token'], email, password
 
     # Guard every browser-style hop before sending any request (including Location
     # and consent response URLs). Never follow redirects to a hosted service.
@@ -565,11 +677,12 @@ async def exercise(args):
                 await call('get_trip_overview', evidence='Trips usable again after enable_project')
 
                 # Beli: off for a new user, then enable, link once, and use without a token.
-                beli = {'get_restaurant_recs', 'save_restaurant', 'link_beli_account'}
+                beli = {'get_restaurant_recs', 'save_restaurant'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['beli']['enabled'] is False and projects['beli']['linked'] is False
                 enabled = await call('enable_project', project_id='beli', evidence='enable_project beli')
-                assert enabled['linked'] is False and 'link_beli_account' in enabled['next_step']
+                assert enabled['linked'] is False and 'cozycommons.dev/account#beli' in enabled['next_step']
+                assert 'ccb_ token in chat' in enabled['next_step']
                 assert beli <= await listed(session)
                 print('PASS list_projects/enable_project show Beli unlinked with the link step')
                 await refused(session, 'get_restaurant_recs', {'neighborhood': 'West Village'},
@@ -577,7 +690,8 @@ async def exercise(args):
                 await refused(session, 'save_restaurant', {'name': 'Synthetic Bistro', 'idempotency_key': 'unlinked',
                               'dry_run': False}, 'Link your Beli account first',
                               'unlinked save_restaurant refused with the link step')
-                beli_token, other_token = await onboard_beli('e2e-mine'), await onboard_beli('e2e-other')
+                (beli_token, beli_login, beli_password), (other_token, other_login, _) = (
+                    await onboard_beli('e2e-mine'), await onboard_beli('e2e-other'))
                 print('PASS synthetic Beli onboarding through /beli/onboard (fake loopback Beli API)')
                 async with httpx.AsyncClient(timeout=30) as http:
                     other = await http.post(database_url + '/auth/v1/admin/users', headers=service_headers,
@@ -587,12 +701,22 @@ async def exercise(args):
                 other_account = get_account_row_by_token(service, other_token)['id']
                 assert service.rpc('beli_link_account', {'p_account_id': other_account,
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_beli_account', {'api_token': other_token}, 'linked to another Commons user',
-                              "link_beli_account refused for another user's account")
-                await refused(session, 'link_beli_account', {'api_token': 'ccb_' + secrets.token_urlsafe(32)},
-                              'No Beli account matches', 'link_beli_account refused for a wrong token')
-                linked = await call('link_beli_account', api_token=beli_token, evidence='link_beli_account')
-                assert linked['status'] == 'linked' and beli_token not in json.dumps(linked)
+                # The account page links with the Beli login itself: no ccb_ token reaches the agent.
+                page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
+                mine = {'Authorization': 'Bearer ' + user_token}
+                async with httpx.AsyncClient(timeout=30) as http:
+                    taken = await http.post(page + '/beli', headers=mine,
+                                            json={'login': other_login, 'password': 'synthetic'})
+                    assert taken.status_code == 409, f"Other user's Beli login: HTTP {taken.status_code}"
+                    print("PASS account page refuses another user's Beli login")
+                    linked = await http.post(page + '/beli', headers=mine,
+                                             json={'login': beli_login.upper(), 'password': beli_password})
+                    assert linked.status_code == 200 and linked.json()['status'] == 'linked', linked.text
+                    assert beli_token not in linked.text and beli_password not in linked.text
+                    assert linked.json()['account']['id'] == get_account_row_by_token(service, beli_token)['id']
+                    summary = (await http.get(page, headers=mine)).json()['beli']
+                assert summary['id'] == linked.json()['account']['id']
+                print('PASS account page links the existing Beli account from its login (fake loopback Beli API)')
                 async with httpx.AsyncClient(timeout=30) as http:
                     legacy_me = await http.get(endpoint[:-len('/mcp')] + '/beli/me',
                                                headers={'Authorization': 'Bearer ' + beli_token})
@@ -601,9 +725,18 @@ async def exercise(args):
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['beli']['linked'] is True and 'get_restaurant_recs' in projects['beli']['next_step']
                 print('PASS list_projects shows Beli linked with the next step')
+                logins_before = len(beli_state['logins'])
                 recs = await call('get_restaurant_recs', neighborhood='West Village', day='saturday', time='19:00',
                                   evidence='get_restaurant_recs')
                 assert [r['id'] for r in recs['recs']] == [501]
+                assert (await call('get_restaurant_recs', neighborhood='West Village'))['recs']
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_recs = await http.get(endpoint[:-len('/mcp')] + '/beli/recs',
+                        params={'neighborhood': 'West Village'},
+                        headers={'Authorization': 'Bearer ' + beli_token})
+                assert legacy_recs.status_code == 200 and legacy_recs.json()['recs']
+                assert len(beli_state['logins']) - logins_before == 1, beli_state['logins']
+                print('PASS repeated recs across /mcp and /beli share one Beli password login')
                 save = dict(name='Synthetic Bistro', idempotency_key=f'save-{uuid4()}')
                 preview = await call('save_restaurant', **save, evidence='save_restaurant dry_run')
                 assert preview['dry_run'] and preview['status'] == 'would_bookmark' and not beli_state['saved']
@@ -617,13 +750,13 @@ async def exercise(args):
                 print('PASS every Beli tool over real OAuth: link, recs, preview, commit, replay; one Beli write')
 
                 # Resy: off for a new user, then enable, link once, preview with fees, book and cancel.
-                resy = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation',
-                        'link_resy_account'}
+                resy = {'find_resy_tables', 'list_resy_reservations', 'book_resy_table', 'cancel_resy_reservation'}
                 when = (date.today() + timedelta(days=7)).isoformat()
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['resy']['enabled'] is False and projects['resy']['linked'] is False
                 enabled = await call('enable_project', project_id='resy', evidence='enable_project resy')
-                assert enabled['linked'] is False and 'link_resy_account' in enabled['next_step']
+                assert enabled['linked'] is False and 'cozycommons.dev/account#resy' in enabled['next_step']
+                assert 'ccr_ token in chat' in enabled['next_step']
                 assert resy <= await listed(session)
                 print('PASS list_projects/enable_project show Resy unlinked with the link step')
                 await refused(session, 'find_resy_tables', {'date': when, 'venue_id': 7001},
@@ -631,18 +764,27 @@ async def exercise(args):
                 await refused(session, 'book_resy_table', {'venue_id': 7001, 'date': when, 'desired_time': '19:00',
                               'idempotency_key': 'unlinked', 'terms_id': '0' * 16, 'dry_run': False},
                               'Link your Resy account first', 'unlinked book_resy_table refused with the link step')
-                resy_token, mine_email = await onboard_resy('e2e-mine')
-                other_resy, other_email = await onboard_resy('e2e-other')
+                resy_token, mine_email, mine_password = await onboard_resy('e2e-mine')
+                other_resy, other_email, _ = await onboard_resy('e2e-other')
                 print('PASS synthetic Resy onboarding through /resy/onboard (fake loopback Resy API)')
                 from resy.accounts import get_account_row_by_token as resy_account_row
                 assert service.rpc('resy_link_account', {'p_account_id': resy_account_row(service, other_resy)['id'],
                                    'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_resy_account', {'api_token': other_resy}, 'linked to another Commons user',
-                              "link_resy_account refused for another user's account")
-                await refused(session, 'link_resy_account', {'api_token': 'ccr_' + secrets.token_urlsafe(32)},
-                              'No Resy account matches', 'link_resy_account refused for a wrong token')
-                linked = await call('link_resy_account', api_token=resy_token, evidence='link_resy_account')
-                assert linked['status'] == 'linked' and resy_token not in json.dumps(linked)
+                # The account page links with the Resy email itself: no ccr_ token reaches the agent.
+                resy_page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
+                async with httpx.AsyncClient(timeout=30) as http:
+                    taken = await http.post(resy_page + '/resy', headers={'Authorization': 'Bearer ' + user_token},
+                                            json={'login': other_email, 'password': 'synthetic'})
+                    assert taken.status_code == 409, f"Other user's Resy login: HTTP {taken.status_code}"
+                    print("PASS account page refuses another user's Resy login")
+                    linked = await http.post(resy_page + '/resy', headers={'Authorization': 'Bearer ' + user_token},
+                                             json={'login': mine_email.upper(), 'password': mine_password})
+                    assert linked.status_code == 200 and linked.json()['status'] == 'linked', linked.text
+                    assert resy_token not in linked.text and mine_password not in linked.text
+                    assert linked.json()['account']['id'] == resy_account_row(service, resy_token)['id']
+                    summary = (await http.get(resy_page, headers={'Authorization': 'Bearer ' + user_token})).json()
+                assert summary['resy']['id'] == linked.json()['account']['id']
+                print('PASS account page links the existing Resy account from its email (fake loopback Resy API)')
                 async with httpx.AsyncClient(timeout=30) as http:
                     legacy_me = await http.get(endpoint[:-len('/mcp')] + '/resy/me',
                                                headers={'Authorization': 'Bearer ' + resy_token})
@@ -697,35 +839,62 @@ async def exercise(args):
                       'one booking and one cancellation sent')
 
                 # Partiful: read-only. Off for a new user, then enable, link once, list and read events.
-                partiful = {'get_partiful_events', 'link_partiful_account'}
+                partiful = {'get_partiful_events'}
                 projects = {p['id']: p for p in (await call('list_projects'))['projects']}
                 assert projects['partiful']['enabled'] is False and projects['partiful']['linked'] is False
                 enabled = await call('enable_project', project_id='partiful', evidence='enable_project partiful')
-                assert enabled['linked'] is False and 'link_partiful_account' in enabled['next_step']
+                assert enabled['linked'] is False and 'cozycommons.dev/account#partiful' in enabled['next_step']
+                assert 'ccp_ token in chat' in enabled['next_step']
                 assert partiful <= await listed(session)
                 print('PASS list_projects/enable_project show Partiful unlinked with the link step')
                 await refused(session, 'get_partiful_events', {}, 'Link your Partiful account first',
                               'unlinked get_partiful_events refused with the link step')
-                partiful_token, mine_uid = await onboard_partiful('e2e-mine')
-                other_partiful, other_uid = await onboard_partiful('e2e-other')
+                partiful_token, mine_uid, mine_phone = await onboard_partiful('e2e-mine')
+                other_partiful, other_uid, other_phone = await onboard_partiful('e2e-other')
                 print('PASS synthetic Partiful onboarding through /partiful/onboard (fake loopback Partiful API)')
-                onboarded_reads = len(partiful_state['reads'])  # onboarding probes each new session once
                 from partiful.accounts import get_account_row_by_token as partiful_account_row
                 mine_row = partiful_account_row(service, partiful_token)['id']
                 assert service.rpc('partiful_link_account', {
                     'p_account_id': partiful_account_row(service, other_partiful)['id'],
                     'p_user_id': other.json()['id']}).execute().data == 'linked'
-                await refused(session, 'link_partiful_account', {'api_token': other_partiful},
-                              'linked to another Commons user', "link_partiful_account refused for another user's account")
-                await refused(session, 'link_partiful_account', {'api_token': 'ccp_' + secrets.token_urlsafe(32)},
-                              'No Partiful account matches', 'link_partiful_account refused for a wrong token')
                 stored = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
                     .eq('id', mine_row).single().execute().data
-                linked = await call('link_partiful_account', api_token=partiful_token, evidence='link_partiful_account')
-                assert linked['status'] == 'linked' and partiful_token not in json.dumps(linked)
-                assert service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
-                    .eq('id', mine_row).single().execute().data == stored
-                print('PASS linking changes only the owner; the stored Partiful session is untouched')
+                # The account page links with a texted code: no ccp_ token or code reaches the agent.
+                partiful_page = endpoint[:-len('/mcp')] + '/account/linked-accounts/partiful'
+                page_auth = {'Authorization': 'Bearer ' + user_token}
+                async with httpx.AsyncClient(timeout=30) as http:
+                    unsent = await http.post(partiful_page, headers=page_auth, json={'phone': mine_phone, 'code': '123456'})
+                    assert unsent.status_code == 400 and 'Send a code' in unsent.text, unsent.text
+                    print('PASS account page refuses a Partiful code it did not send to this user')
+                    for phone in (other_phone, mine_phone):
+                        sent = await http.post(partiful_page + '/code', headers=page_auth, json={'phone': phone})
+                        assert sent.json() == {'status': 'code_sent', 'phone': phone}, sent.text
+                        if phone == other_phone:
+                            taken = await http.post(partiful_page, headers=page_auth,
+                                                    json={'phone': other_phone, 'code': '123456'})
+                            assert taken.status_code == 409, f"Other user's Partiful phone: HTTP {taken.status_code}"
+                            print("PASS account page refuses another user's Partiful account")
+                    stale = await http.post(partiful_page, headers=page_auth, json={'phone': other_phone, 'code': '123456'})
+                    assert stale.status_code == 400 and 'Send a code' in stale.text  # the challenge moved to mine_phone
+                    wrong = await http.post(partiful_page, headers=page_auth, json={'phone': mine_phone, 'code': '000000'})
+                    assert wrong.status_code == 400 and '000000' not in wrong.text
+                    print('PASS account page refuses a wrong Partiful code')
+                    linked = await http.post(partiful_page, headers=page_auth,
+                                             json={'phone': mine_phone[2:], 'code': '123456'})  # 10-digit form
+                    assert linked.status_code == 200 and linked.json() == {
+                        'status': 'linked', 'account': {'id': mine_row, 'label': 'e2e-mine'}}, linked.text
+                    assert partiful_token not in linked.text and mine_uid not in linked.text
+                    replayed = await http.post(partiful_page, headers=page_auth,
+                                               json={'phone': mine_phone, 'code': '123456'})
+                    assert replayed.status_code == 400 and 'Send a code' in replayed.text  # consumed on success
+                    summary = (await http.get(partiful_page[:-len('/partiful')], headers=page_auth)).json()
+                assert summary['partiful'] == {'id': mine_row, 'label': 'e2e-mine'}
+                relinked = service.table('partiful_accounts').select('refresh_token_enc,uid_enc,token_hash') \
+                    .eq('id', mine_row).single().execute().data
+                assert relinked['token_hash'] == stored['token_hash'] and relinked['uid_enc'] == stored['uid_enc']
+                assert relinked['refresh_token_enc'] != stored['refresh_token_enc']
+                print('PASS account page links the existing Partiful account by texted code and stores the fresh session')
+                onboarded_reads = len(partiful_state['reads'])  # each sign-in probes its new session once
                 async with httpx.AsyncClient(timeout=30) as http:
                     legacy_me = await http.get(endpoint[:-len('/mcp')] + '/partiful/me',
                                                headers={'Authorization': 'Bearer ' + partiful_token})
@@ -751,6 +920,186 @@ async def exercise(args):
                 assert legacy_events.json()['count'] == 2
                 print('PASS legacy /partiful/events still works after connector reads rotated the refresh token')
                 print('PASS every Partiful tool over real OAuth: link, list, details; only the caller\'s session read')
+
+                # ESPN: off for a new user, then enable, link once, read, and propose -> approve each kind.
+                espn = {'get_fantasy_league', 'get_fantasy_trends', 'get_fantasy_activity', 'propose_fantasy_change',
+                        'approve_fantasy_change'}
+                projects = {p['id']: p for p in (await call('list_projects'))['projects']}
+                assert projects['espn']['enabled'] is False and projects['espn']['linked'] is False
+                enabled = await call('enable_project', project_id='espn', evidence='enable_project espn')
+                assert enabled['linked'] is False and 'cozycommons.dev/account#espn' in enabled['next_step']
+                assert 'cce_ token in chat' in enabled['next_step']
+                assert espn <= await listed(session)
+                every_tool = await listed(session)
+                assert not {name for name in every_tool if name.startswith('link_')}, every_tool
+                print('PASS no token link tool is listed with Beli, Resy, Partiful and ESPN all on')
+                print('PASS list_projects/enable_project show ESPN unlinked with the link step')
+                await refused(session, 'get_fantasy_league', {}, 'Link your ESPN account first',
+                              'unlinked get_fantasy_league refused with the link step')
+                espn_token, mine_swid, mine_s2 = await onboard_espn('e2e-mine')
+                other_espn, other_swid, other_s2 = await onboard_espn('e2e-other')
+                print('PASS synthetic ESPN onboarding through /espn/onboard (fake loopback ESPN API)')
+                from espn.accounts import get_account_row_by_token as espn_account_row
+                mine_espn = espn_account_row(service, espn_token)['id']
+                other_espn_id = espn_account_row(service, other_espn)['id']
+                assert service.rpc('espn_link_account', {'p_account_id': other_espn_id,
+                                   'p_user_id': other.json()['id']}).execute().data == 'linked'
+                stored_espn = service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash') \
+                    .eq('id', mine_espn).single().execute().data
+                # The account page links with a MyDisney login, the only proof that a SWID is the caller's:
+                # typed cookies prove only that they can read the league. No cce_ token reaches the agent.
+                espn_page = endpoint[:-len('/mcp')] + '/account/linked-accounts'
+                page_auth = {'Authorization': 'Bearer ' + user_token}
+                team = team_ids = {'league_id': 999, 'season': 2027}
+                espn_email, espn_password = f'espn-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(12)
+                espn_state['disney'][espn_email] = (espn_password, mine_swid)
+                async with httpx.AsyncClient(timeout=30) as http:
+                    taken = await http.post(espn_page + '/espn/cookies', headers=page_auth,
+                                            json={**team, 'espn_s2': other_s2, 'swid': other_swid})
+                    assert taken.status_code == 409, f"Other user's ESPN team: HTTP {taken.status_code}"
+                    print("PASS account page refuses another user's ESPN team from typed cookies")
+                    typed = await http.post(espn_page + '/espn/cookies', headers=page_auth,
+                                            json={**team, 'espn_s2': mine_s2, 'swid': mine_swid.lower()})
+                    assert typed.status_code == 409 and 'email and password' in typed.text, typed.text
+                    print('PASS account page never claims an existing ESPN team from typed cookies, even its own')
+                    wrong = await http.post(espn_page + '/espn', headers=page_auth,
+                                            json={'login': espn_email, 'password': 'wrong', 'season': 2027})
+                    assert wrong.status_code == 400 and 'did not accept' in wrong.text and 'wrong' not in wrong.text
+                    elsewhere = await http.post(espn_page + '/espn', headers=page_auth, json={
+                        'login': espn_email, 'password': espn_password, 'season': 2027, 'league_id': 4242})
+                    assert elsewhere.status_code == 400 and 'not one of your' in elsewhere.text, elsewhere.text
+                    # The way back when MyDisney is challenged: claim the legacy team with its cce_ token, here only.
+                    unknown = await http.post(espn_page + '/espn/token', headers=page_auth,
+                                              json={'token': 'cce_' + secrets.token_urlsafe(32)})
+                    assert unknown.status_code == 400 and 'No ESPN account matches' in unknown.text
+                    theirs_token = await http.post(espn_page + '/espn/token', headers=page_auth, json={'token': other_espn})
+                    assert theirs_token.status_code == 409 and other_espn not in theirs_token.text
+                    linked = await http.post(espn_page + '/espn/token', headers=page_auth, json={'token': espn_token})
+                    assert linked.status_code == 200 and linked.json() == {'status': 'linked', 'account': {
+                        'id': mine_espn, 'label': 'e2e-mine', 'league_id': 999, 'season': 2027}}, linked.text
+                    assert espn_token not in linked.text
+                    summary = (await http.get(espn_page, headers=page_auth)).json()['espn']
+                    legacy_me = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                               headers={'Authorization': 'Bearer ' + espn_token})
+                assert summary == {'id': mine_espn, 'label': 'e2e-mine', 'league_id': 999, 'season': 2027}
+                assert legacy_me.status_code == 200 and legacy_me.json()['label'] == 'e2e-mine'
+                claimed = service.table('espn_accounts').select('espn_s2_enc,swid_enc,token_hash,owner_proven') \
+                    .eq('id', mine_espn).single().execute().data
+                assert claimed['owner_proven'] is False and {k: claimed[k] for k in stored_espn} == stored_espn
+                print('PASS account page claims the legacy team with its cce_ token, unproven, credentials untouched; '
+                      'the token still works on /espn')
+                overview = await call('get_fantasy_league', evidence='get_fantasy_league view=league')
+                assert overview['your_team_id'] == 7 and len(overview['teams']) == 2
+                team = await call('get_fantasy_league', view='team', evidence='get_fantasy_league view=team (yours)')
+                assert team['team']['team_id'] == 7
+                await call('get_fantasy_league', view='standings', evidence='get_fantasy_league view=standings')
+                await call('get_fantasy_trends', kind='teams', evidence='get_fantasy_trends kind=teams')
+                await call('get_fantasy_trends', kind='players', evidence='get_fantasy_trends kind=players')
+                assert not espn_sends()
+                plan = await call('propose_fantasy_change', kind='lineup', evidence='propose_fantasy_change lineup')
+                assert 'Synthetic Player 101 bench -> UTIL' in plan['summary'] and not espn_sends()
+                lineup_approval = dict(kind='lineup', proposal_id=plan['proposal_id'], idempotency_key=f'lineup-{uuid4()}')
+                preview = await call('approve_fantasy_change', **lineup_approval,
+                                     evidence='approve_fantasy_change lineup dry_run')
+                assert preview['status'] == 'would_approve' and not espn_sends()
+                lineup_done = await call('approve_fantasy_change', **lineup_approval, dry_run=False,
+                                         evidence='approve_fantasy_change lineup commit')
+                assert lineup_done['status'] == 'ok' and espn_sends() == [(mine_swid, 'lineup')]
+                assert await call('approve_fantasy_change', **lineup_approval, dry_run=False,
+                                  evidence='approve_fantasy_change lineup idempotent replay') == lineup_done
+                edit = await call('propose_fantasy_change', kind='roster_edit', add_player_id=9001, drop_player_id=105,
+                                  evidence='propose_fantasy_change roster_edit')
+                edit_approval = dict(kind='roster_edit', proposal_id=edit['proposal_id'],
+                                     idempotency_key=f'edit-{uuid4()}')
+                assert (await call('approve_fantasy_change', **edit_approval,
+                                   evidence='approve_fantasy_change roster_edit dry_run'))['status'] == 'would_approve'
+                espn_state['leagues'][mine_swid].answer_lost = espn_state['leagues'][mine_swid].hidden = True
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'not confirmed',
+                              'approve_fantasy_change lost ESPN answer keeps its key and asks for a same-key retry')
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'not confirmed',
+                              'approve_fantasy_change same-key retry before ESPN shows it: reads only, still open')
+                espn_state['leagues'][mine_swid].reveal()
+                settled = await call('approve_fantasy_change', **edit_approval, dry_run=False,
+                                     evidence='approve_fantasy_change same-key retry settles from ESPN')
+                assert settled['status'] == 'executed' and settled['confirmed_from'] == 'ESPN'
+                assert await call('approve_fantasy_change', **edit_approval, dry_run=False,
+                                  evidence='approve_fantasy_change roster_edit idempotent replay') == settled
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'proposal_id': plan['proposal_id'],
+                              'kind': 'lineup', 'dry_run': False}, 'already used for',
+                              'approve_fantasy_change key reuse for another proposal refused')
+                assert espn_sends() == [(mine_swid, 'lineup'), (mine_swid, 'roster_edit')]
+                print('PASS lost roster-edit answer settled once by reading ESPN; no second submission')
+                offer = await call('propose_fantasy_change', kind='trade', counterparty_team_id=8,
+                                   give_player_ids=[106], receive_player_ids=[201],
+                                   evidence='propose_fantasy_change trade')
+                offered = await call('approve_fantasy_change', kind='trade', proposal_id=offer['proposal_id'],
+                                     idempotency_key=f'trade-{uuid4()}', dry_run=False,
+                                     evidence='approve_fantasy_change trade commit')
+                assert offered['status'] == 'offered'
+                activity = await call('get_fantasy_activity', kind='roster_edits', evidence='get_fantasy_activity')
+                assert [e['status'] for e in activity['edits']] == ['executed']
+                one = await call('get_fantasy_activity', kind='trades', proposal_id=offer['proposal_id'],
+                                 evidence='get_fantasy_activity one trade')
+                assert one['status'] == 'offered'
+                theirs = service.table('espn_roster_edits').insert({
+                    'account_id': other_espn_id, 'league_id': 999, 'season': 2027, 'team_id': 7,
+                    'drop_player_id': 105, 'preview': 'Synthetic other edit', 'status': 'pending',
+                    'expires_at': '2099-01-01T00:00:00+00:00'}).execute().data[0]['id']
+                await refused(session, 'get_fantasy_activity', {'kind': 'roster_edits', 'proposal_id': theirs},
+                              'in your ESPN account', "get_fantasy_activity refused for another user's edit")
+                await refused(session, 'approve_fantasy_change', {'kind': 'roster_edit', 'proposal_id': theirs,
+                              'idempotency_key': f'x-{uuid4()}', 'dry_run': False}, 'in your ESPN account',
+                              "approve_fantasy_change refused for another user's edit")
+                async with httpx.AsyncClient(timeout=30) as http:
+                    legacy_edits = await http.get(endpoint[:-len('/mcp')] + '/espn/roster/edits',
+                                                  headers={'Authorization': 'Bearer ' + espn_token})
+                assert legacy_edits.status_code == 200 and legacy_edits.json()['count'] == 1
+                print('PASS legacy /espn/roster/edits sees the connector edit through the same gate')
+                assert espn_sends() == [(mine_swid, 'lineup'), (mine_swid, 'roster_edit'), (mine_swid, 'trade')]
+                assert other_swid not in {swid for swid, _kind in espn_sends()}
+                print('PASS every ESPN tool over real OAuth: link, league, trends, activity, propose and approve; '
+                      'one lineup, one roster edit and one trade sent')
+                # Fresh cookies on the claimed team retire its token; a MyDisney sign-in then proves the claim.
+                async with httpx.AsyncClient(timeout=30) as http:
+                    renewed = await http.post(espn_page + '/espn/cookies', headers=page_auth, json={
+                        **team_ids, 'espn_s2': 'synthetic-s2-' + secrets.token_urlsafe(16), 'swid': mine_swid})
+                    assert renewed.status_code == 200 and renewed.json()['status'] == 'already_linked', renewed.text
+                    retired = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                             headers={'Authorization': 'Bearer ' + espn_token})
+                    assert retired.status_code == 401, f'retired cce_ token: HTTP {retired.status_code}'
+                    proving = await http.post(espn_page + '/espn', headers=page_auth,
+                                              json={'login': espn_email.upper(), 'password': espn_password, 'season': 2027})
+                    assert proving.status_code == 200 and proving.json()['status'] == 'already_linked', proving.text
+                    assert espn_password not in proving.text
+                assert service.table('espn_accounts').select('owner_proven').eq('id', mine_espn).single().execute() \
+                    .data['owner_proven'] is True
+                assert (await call('get_fantasy_league', evidence='get_fantasy_league after the cookie refresh')
+                        )['your_team_id'] == 7
+                print('PASS fresh cookies on the claimed team retire its cce_ token; a MyDisney sign-in then proves '
+                      'the claim (fake loopback Disney login)')
+                # The other user's link was made without proof (as a league-mate's typed cookies would be), so
+                # a MyDisney sign-in for that SWID takes the team over and expires the proposal left on it.
+                takeover_email, takeover_password = f'espn-e2e-{uuid4().hex}@example.test', secrets.token_urlsafe(12)
+                espn_state['disney'][takeover_email] = (takeover_password, other_swid)
+                async with httpx.AsyncClient(timeout=30) as http:
+                    signed = await http.post(espn_page + '/espn', headers=page_auth, json={
+                        'login': takeover_email, 'password': takeover_password, 'season': 2027,
+                        'enable_automation': False})
+                    assert signed.status_code == 200 and signed.json()['status'] == 'taken_over', signed.text
+                    assert signed.json()['account']['id'] == other_espn_id
+                    squatter = await http.get(endpoint[:-len('/mcp')] + '/espn/me',
+                                              headers={'Authorization': 'Bearer ' + other_espn})
+                assert squatter.status_code == 401, f"previous holder's cce_ token: HTTP {squatter.status_code}"
+                claimed = service.table('espn_accounts').select('owner_user_id,owner_proven,lineup_automation_enabled') \
+                    .eq('id', other_espn_id).single().execute().data
+                assert claimed['owner_proven'] is True and claimed['lineup_automation_enabled'] is False
+                assert claimed['owner_user_id'] != other.json()['id']
+                assert service.table('espn_roster_edits').select('status').eq('id', theirs).single().execute() \
+                    .data['status'] == 'expired'
+                assert (await call('get_fantasy_league', evidence='get_fantasy_league after the takeover')
+                        )['your_team_id'] == 7
+                print('PASS a MyDisney sign-in takes over a team linked without proof, retires its token and '
+                      'expires its pending proposal')
                 access_token = auth.context.current_tokens.access_token
         callback = loop.create_future()
         readonly = provider('commons:read')
@@ -780,11 +1129,16 @@ async def exercise(args):
                 assert not (await session.call_tool('find_resy_tables', {'date': when, 'venue_id': 7001})).isError
                 assert len(resy_state['sends']) == 2
                 print('PASS read-only token finds Resy tables; bookings and cancellations refused; nothing sent')
-                await refused(session, 'link_partiful_account', {'api_token': partiful_token}, 'commons:edit',
-                              'read-only token denied on link_partiful_account')
                 readonly_events = await session.call_tool('get_partiful_events', {})
                 assert not readonly_events.isError and readonly_events.structuredContent['count'] == 2
-                print('PASS read-only token reads Partiful events; linking refused')
+                print('PASS read-only token reads Partiful events')
+                await refused(session, 'propose_fantasy_change', {'kind': 'lineup'}, 'commons:edit',
+                              'read-only token denied on propose_fantasy_change')
+                await refused(session, 'approve_fantasy_change', {**edit_approval, 'dry_run': False}, 'commons:edit',
+                              'read-only token denied on approve_fantasy_change')
+                assert not (await session.call_tool('get_fantasy_league', {})).isError
+                assert len(espn_sends()) == 3
+                print('PASS read-only token reads the ESPN league; proposals and approvals refused; nothing sent')
 
         # A token minted exactly as the M1 deployment did: same signing key and
         # upstream mapping (jti), pre-commons scopes. It keeps its old reach.
@@ -806,6 +1160,52 @@ async def exercise(args):
                 await refused(session, 'list_floor_plans', {}, 'Reconnect your agent once',
                               'pre-commons token refused outside its old project with a reconnect step')
                 assert not (await session.call_tool('disable_project', {'project_id': 'floor-planner'})).isError
+
+        # Disconnect from the account page: the same API and session the /account page uses.
+        origin = endpoint[:-len('/mcp')]
+        main_tokens, readonly_tokens = auth.context.current_tokens, readonly.context.current_tokens
+        mcp_call = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'whoami', 'arguments': {}}}
+
+        def bearer(token):
+            return {'Authorization': f'Bearer {token}', 'Accept': 'application/json, text/event-stream'}
+
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as http:
+            mine = {'Authorization': 'Bearer ' + user_token}
+            listed = await http.get(origin + '/account/connections', headers=mine)
+            assert listed.status_code == 200 and listed.headers['cache-control'] == 'private, no-store'
+            agents = {tuple(agent['scopes']): agent for agent in listed.json()}
+            assert set(agents) == {('commons:read', 'commons:edit'), ('commons:read',)}, listed.json()
+            assert {(a['client_name'], a['redirect_host']) for a in agents.values()} == {
+                ('Commons loopback connector exercise', '127.0.0.1')}
+            assert all(a['approved_at'] and a['last_used_at'] and a['expires_at'] for a in agents.values())
+            print('PASS account lists each agent connection with its client name, redirect host and last use')
+            target = agents[('commons:read', 'commons:edit')]['id']
+
+            email, password = f'commons-e2e-other-{uuid4().hex}@example.test', secrets.token_urlsafe(32)
+            created = await http.post(database_url + '/auth/v1/admin/users', headers=service_headers,
+                                      json={'email': email, 'password': password, 'email_confirm': True})
+            assert created.status_code == 200, f'Create second synthetic user: HTTP {created.status_code}'
+            other = await http.post(database_url + '/auth/v1/token?grant_type=password',
+                                    headers={'apikey': service_headers['apikey']}, json={'email': email, 'password': password})
+            theirs = {'Authorization': 'Bearer ' + other.json()['access_token']}
+            assert (await http.get(origin + '/account/connections', headers=theirs)).json() == []
+            assert (await http.delete(f'{origin}/account/connections/{target}', headers=theirs)).status_code == 404
+            assert (await http.post(endpoint, headers=bearer(main_tokens.access_token), json=mcp_call)).status_code == 200
+            print("PASS another user's disconnect returns 404 and the connection keeps working")
+
+            assert (await http.delete(f'{origin}/account/connections/{target}', headers=mine)).status_code == 204
+            assert (await http.post(endpoint, headers=bearer(main_tokens.access_token), json=mcp_call)).status_code == 401
+            assert (await http.post(endpoint, headers=bearer(legacy), json=mcp_call)).status_code == 401
+            refreshed = await http.post(origin + '/token', data={
+                'grant_type': 'refresh_token', 'refresh_token': main_tokens.refresh_token,
+                'client_id': auth.context.client_info.client_id})
+            assert refreshed.status_code == 401 and refreshed.json()['error'] == 'invalid_grant', refreshed.text
+            assert (await http.delete(f'{origin}/account/connections/{target}', headers=mine)).status_code == 204
+            remaining = (await http.get(origin + '/account/connections', headers=mine)).json()
+            assert [tuple(agent['scopes']) for agent in remaining] == [('commons:read',)]
+            still = await http.post(endpoint, headers=bearer(readonly_tokens.access_token), json=mcp_call)
+            assert still.status_code == 200 and '"result"' in still.text and '"isError":true' not in still.text, still.text
+            print('PASS disconnect from account revokes access and refresh')
     finally:
         await asyncio.to_thread(server.shutdown)
         server.server_close()
@@ -819,6 +1219,9 @@ async def exercise(args):
         await asyncio.to_thread(partiful_server.shutdown)
         partiful_server.server_close()
         await partiful_serving
+        await asyncio.to_thread(espn_server.shutdown)
+        espn_server.server_close()
+        await espn_serving
 
 
 if __name__ == '__main__':
