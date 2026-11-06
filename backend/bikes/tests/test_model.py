@@ -37,6 +37,8 @@ def test_rates_count_only_days_a_station_existed():
     assert model['ride_mps'] == 3.0
     assert model['month_factor'][6] == 1.0
     assert 'LA Metro Demo 2' not in model['stations']
+    # Every trip ends at 'end', which has no departures, so no place: only a and b keep arrival rows.
+    assert set(model['arrivals']) == {'a', 'b'} and model['arrivals']['a'] == [0] * 48
     assert monthly == {'month': ['2026-07'], 'nyc': [57], 'jc': [0]}
     stations = explore(model, places, monthly)['stations']
     assert (stations['id'], stations['name'], stations['lat']) == (['a', 'b'], ['A', 'B'], [40.7, 40.7])
@@ -44,3 +46,17 @@ def test_rates_count_only_days_a_station_existed():
 
 def test_month_window_crosses_years():
     assert month_window(202602, 4) == [202511, 202512, 202601, 202602]
+
+
+def test_arrivals_count_trip_ends_by_end_hour():
+    con = duckdb.connect()
+    days = [day for day in range(1, 32) if dt.date(2026, 7, day).weekday() < 5]
+    # a -> b at 08:50 every weekday, arriving 09:00; b -> a once a day so b has a place.
+    rows = [('r', f'2026-07-{d:02d} 08:50:00', f'2026-07-{d:02d} 09:00:00', 'a', 'A', 'b', 40.70, -74.0, 40.7162, -74.0,
+             'member', 'nyc', 2026, 7) for d in days]
+    rows += [('r', f'2026-07-{d:02d} 18:00:00', f'2026-07-{d:02d} 18:10:00', 'b', 'B', 'a', 40.7162, -74.0, 40.70, -74.0,
+              'member', 'nyc', 2026, 7) for d in days]
+    trips(con, rows)
+    model, _, _ = build(con, months=1)
+    assert model['arrivals']['b'][9] == 100 and model['arrivals']['b'][8] == 0
+    assert model['stations']['b'][18] == 100

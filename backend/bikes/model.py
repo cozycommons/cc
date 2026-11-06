@@ -1,9 +1,11 @@
 """Build backend/bikes/wait_model.json from Citi Bike trips.
 
-A full dock frees a slot when someone takes a bike out, so the expected wait is
-the time to the station's next departure. The model stores each station's mean
-departures per hour by day type (weekday, weekend) and hour, over the last
-`--months` published months, keyed by the station's GBFS `short_name`. A
+A full dock frees a slot when someone takes a bike out, and an empty dock gets a
+bike when someone ends a trip there, so the expected waits are the times to the
+station's next departure and next arrival. The model stores each station's mean
+departures (`stations`) and arrivals (`arrivals`) per hour by day type (weekday,
+weekend) and hour, over the last `--months` published months, keyed by the
+station's GBFS `short_name`. A
 system-wide factor per calendar month scales those averages for the season.
 It also stores the riding speed between stations, measured crow-flies from real
 trips, which the API uses to price riding to another dock.
@@ -56,7 +58,8 @@ def window_days(window):
 
 
 def start_aggregates(con):
-    con.execute('CREATE OR REPLACE TEMP TABLE hourly (station VARCHAR, day DATE, hour TINYINT, n INTEGER)')
+    # kind 'd' counts departures (trip starts), 'a' arrivals (trip ends).
+    con.execute('CREATE OR REPLACE TEMP TABLE hourly (station VARCHAR, kind VARCHAR, day DATE, hour TINYINT, n INTEGER)')
     # Ride speeds in 0.01 m/s bins: an exact-enough median that sums across files.
     con.execute('CREATE OR REPLACE TEMP TABLE speeds (mps DOUBLE, n INTEGER)')
     # Latest name and mean departure coordinates, summed so files combine.
@@ -65,13 +68,16 @@ def start_aggregates(con):
 
 
 def aggregate(con, trips_sql, window):
-    """Add departures and speeds from normalized trips (TRIP_COLUMNS) within the window."""
+    """Add departures, arrivals and speeds from normalized trips (TRIP_COLUMNS) within the window."""
     first_day, last_day = window_days(window)
     # Ride IDs exist only from February 2021, and only those rows use GBFS short names.
     recent = (f"SELECT * FROM ({trips_sql}) WHERE ride_id IS NOT NULL AND start_station_id IS NOT NULL "
               f"AND started_at >= DATE '{first_day}' AND started_at < DATE '{last_day}' + 1")
-    con.execute(f"""INSERT INTO hourly SELECT start_station_id, started_at::DATE, hour(started_at), count(*)
+    con.execute(f"""INSERT INTO hourly SELECT start_station_id, 'd', started_at::DATE, hour(started_at), count(*)
                     FROM ({recent}) GROUP BY ALL""")
+    con.execute(f"""INSERT INTO hourly SELECT end_station_id, 'a', ended_at::DATE, hour(ended_at), count(*)
+                    FROM ({recent}) WHERE end_station_id IS NOT NULL
+                      AND ended_at >= DATE '{first_day}' AND ended_at < DATE '{last_day}' + 1 GROUP BY ALL""")
     con.execute(f"""INSERT INTO speeds SELECT round({HAVERSINE_M} / epoch(ended_at - started_at), 2), count(*)
                     FROM ({recent})
                     WHERE end_station_id IS NOT NULL AND end_station_id <> start_station_id AND end_lat IS NOT NULL
@@ -84,8 +90,8 @@ def aggregate(con, trips_sql, window):
 
 def finalize(con, window):
     first_day, last_day = window_days(window)
-    # A station only counts days from its first departure in the window, so a
-    # station opened in July is not averaged over the empty months before.
+    # A station only counts days from its first trip in the window, so a station
+    # opened in July is not averaged over the empty months before.
     rates = con.execute(f"""
         WITH days AS (
             SELECT d::DATE AS day, isodow(d) >= 6 AS weekend
@@ -94,21 +100,21 @@ def finalize(con, window):
             SELECT station, min(day) AS first FROM hourly GROUP BY station
         ), active AS (
             SELECT station, weekend, count(*) AS days FROM opened JOIN days ON day >= first GROUP BY ALL
-        ), departures AS (
-            SELECT station, isodow(day) >= 6 AS weekend, hour, sum(n) AS n FROM hourly GROUP BY ALL
+        ), counts AS (
+            SELECT station, kind, isodow(day) >= 6 AS weekend, hour, sum(n) AS n FROM hourly GROUP BY ALL
         )
-        SELECT station, weekend, hour, n / days AS per_hour
-        FROM departures JOIN active USING (station, weekend)
+        SELECT station, kind, weekend, hour, n / days AS per_hour
+        FROM counts JOIN active USING (station, weekend)
     """).fetchall()
     if not rates:
         raise ValueError('No trips with ride IDs in the window')
-    stations = {}
-    for station, weekend, hour, per_hour in rates:
-        # Hundredths of a departure per hour; slot 0-23 weekday, 24-47 weekend.
-        stations.setdefault(station, [0] * 48)[24 * weekend + hour] = round(per_hour * 100)
+    by_kind = {'d': {}, 'a': {}}
+    for station, kind, weekend, hour, per_hour in rates:
+        # Hundredths of a trip per hour; slot 0-23 weekday, 24-47 weekend.
+        by_kind[kind].setdefault(station, [0] * 48)[24 * weekend + hour] = round(per_hour * 100)
 
     daily = dict(con.execute("""
-        SELECT month(day), sum(n) / count(DISTINCT day) FROM hourly GROUP BY ALL
+        SELECT month(day), sum(n) / count(DISTINCT day) FROM hourly WHERE kind = 'd' GROUP BY ALL
     """).fetchall())
     mean = sum(daily.values()) / len(daily)
     month_factor = [round(daily.get(m, mean) / mean, 3) for m in range(1, 13)]
@@ -121,12 +127,15 @@ def finalize(con, window):
     places = {station: (name, round(lat / n, 5), round(lng / n, 5)) for station, name, lat, lng, n in con.execute('''
         SELECT station, arg_max(name, seen), sum(lat), sum(lng), sum(n) FROM places GROUP BY station HAVING sum(n) > 0
     ''').fetchall() if south <= lat / n <= north and west <= lng / n <= east}
-    stations = {s: slots for s, slots in stations.items() if s in places}
+    # Departures define the station set: an arrival-only id has no place to show.
+    stations = {s: slots for s, slots in by_kind['d'].items() if s in places}
+    arrivals = {s: by_kind['a'].get(s, [0] * 48) for s in stations}
     return {
         'window': [f'{window[0] // 100}-{window[0] % 100:02d}', f'{window[-1] // 100}-{window[-1] % 100:02d}'],
         'ride_mps': round(ride_mps, 2),
         'month_factor': month_factor,
         'stations': dict(sorted(stations.items())),
+        'arrivals': dict(sorted(arrivals.items())),
     }, places
 
 

@@ -62,7 +62,8 @@ def docks():
         if not live or not live.get('is_installed'):
             continue
         found.append(Dock(info['short_name'], info['name'], float(info['lat']), float(info['lon']),
-                          int(live.get('num_docks_available', 0)), bool(live.get('is_returning'))))
+                          int(live.get('num_docks_available', 0)), bool(live.get('is_returning')),
+                          int(live.get('num_bikes_available', 0)), bool(live.get('is_renting'))))
     if not found:
         raise GbfsError('no installed stations')
     return found

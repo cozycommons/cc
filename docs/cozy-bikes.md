@@ -83,6 +83,39 @@ GROUP BY ALL ORDER BY trips DESC LIMIT 10;
 The view stores the data directory's absolute path. After moving the directory,
 rerun the ingest to rewrite it.
 
+## Wait at the nearest stations
+
+`GET /bikes/wait?lat=&lng=` answers one question: which stations are nearest, and
+how long until I have a bike there?
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `lat`, `lng` | required | Inside `SERVICE_AREA` |
+| `need` | `bike` | `bike` to rent, `dock` to return |
+| `at` | now | Any ISO time; without an offset it is New York time |
+| `limit` | 3 | Nearest stations to return, 1 to 10 |
+| `format` | `json` | `text` returns the sentence alone, for Siri |
+
+Each station has its walk at 1 m/s crow-flies and two expected waits read at
+arrival time: `wait_if_empty_min` (60 / arrivals per hour, when someone returns a
+bike) and `wait_if_full_min` (60 / departures per hour, when someone takes one).
+`null` means no such trips at that hour.
+
+Without `at`, live GBFS adds `bikes`, `open_docks`, `status` (`available`,
+`empty`, `full` or `closed`), `wait_min` (0 when it has what you need) and
+`total_min` (walk plus wait). `best` is the returned station with the lowest
+`total_min`. With `at`, there are no live counts for that time, so `live` is
+false, `best` is null and the message gives both conditional waits for the
+nearest station. Station names and places still come from the live feed.
+
+```
+$ curl 'https://<api>/bikes/wait?lat=40.7497&lng=-73.9915&format=text'
+Walk to W 31 St & 7 Ave, a 1-minute walk: 71 bikes now.
+$ curl 'https://<api>/bikes/wait?lat=40.7497&lng=-73.9915&at=2026-07-15T03:00&format=text'
+At 3 AM on a weekday, the nearest station is W 31 St & 7 Ave, a 1-minute walk. If it is empty,
+a bike usually comes back in about 72 minutes; if it is full, a dock usually opens in about 72 minutes.
+```
+
 ## Wait or ride
 
 At a full dock a slot opens when someone takes a bike out, so the expected wait
@@ -90,9 +123,9 @@ is `60 / departures per hour` for that station, weekday or weekend, hour, and
 season. `python -m bikes.model` (bikes venv) builds `backend/bikes/wait_model.json`
 from the last 12 published months:
 
-- per GBFS `short_name`, mean departures per hour for 24 weekday and 24 weekend
-  hours, in hundredths, averaged over the days since the station's first
-  departure in the window;
+- per GBFS `short_name`, mean departures (`stations`) and arrivals (`arrivals`)
+  per hour for 24 weekday and 24 weekend hours, in hundredths, averaged over the
+  days since the station's first trip in the window;
 - a system-wide factor per calendar month for the season;
 - the median riding speed between stations, crow-flies, from real trips.
 
@@ -126,6 +159,7 @@ Stations whose mean location falls outside `SERVICE_AREA` in `bikes/model.py` ar
 dropped: the trip files include Lyft test stations in Los Angeles. The API
 validates caller locations against the same box.
 
-Known simplifications: departures are averaged, not live; other riders already
+Known simplifications: departures and arrivals are averaged, not live, and
+arrivals exclude rebalancing vans; other riders already
 waiting for the same dock and rebalancing vans are ignored; the full dock stands
 in for your destination.
