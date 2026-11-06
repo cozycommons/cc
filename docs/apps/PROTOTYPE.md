@@ -14,7 +14,7 @@ scripts/apps-dev.sh smoke
 ```
 
 Setup creates ignored `.apps-dev/` credentials and a Python environment, then
-builds the manager and app images. Start launches Caddy, the manager and Postgres;
+builds the manager and app images. Start launches Caddy and the manager;
 only `127.0.0.1:8090` (proxy) and `127.0.0.1:8091` (manager) are published.
 The local namespace uses `<app>.localhost:8090`, not real cozycommons.dev DNS.
 Some clients do not resolve wildcard localhost; use `curl --resolve` or an
@@ -73,8 +73,7 @@ Compose configuration, owner and outsider have platform creation permission
 `grant APP USER none` revokes membership. Owner transfer is deferred. This local
 identity system is a test seam, not a substitute for hosted OAuth.
 
-Contributors have full access to the app's code and data, including its database
-password. A contributor who behaves maliciously can modify the app or leave a
+Contributors have full access to the app's code and data. A contributor who behaves maliciously can modify the app or leave a
 backdoor; this prototype is for trusted collaborators, not hostile tenants.
 The app's internal publication token is restricted to its own route operations;
 it cannot execute commands through the platform or manage membership. Revoking a
@@ -91,8 +90,11 @@ Agents may move it within persistent storage and choose their own layout. Existi
 prototype apps are not automatically converted or reinitialized.
 
 Agents find instructions in `/workspace/AGENTS.md` and can use Git, shell, Python,
-Node/npm, curl and Postgres tools. Put persistent content under `/workspace`.
-The app's own `DATABASE_URL` is available in its environment.
+Node/npm, curl and SQLite tools. Put persistent content under `/workspace`.
+The starter recommends SQLite for new apps, for example at
+`/workspace/data/app.sqlite3`, without requiring a particular engine or schema.
+The platform supplies no database, role, password or `DATABASE_URL`. Agents own
+application storage and can install another engine inside their sandbox if needed.
 
 For services that should restart automatically, write a supervisor definition
 under `/workspace/services/` and run `supervisorctl reread && supervisorctl update`.
@@ -136,7 +138,7 @@ scripts/apps-dev.sh cli stop weekend
 scripts/apps-dev.sh cli start weekend
 ```
 
-Recreation replaces the container while retaining workspace and database; it
+Recreation replaces the container while retaining the workspace and its app-owned data; it
 rotates the internal publication token. Ad-hoc packages installed outside the
 workspace are lost. Record dependency installation in `/workspace/setup.sh` and
 run it after replacement, or use dependencies in a workspace-local environment.
@@ -156,17 +158,28 @@ so retention means three restore points rather than expiring the only good copy.
 scheduled time (Unix timestamp), and any backup error. Listing and restoring
 backups remain owner-only. The MCP contract remains four tools.
 
-Backup briefly stops a running app to dump its database and archive its workspace;
+Backup briefly stops a running app and archives its entire workspace;
 a stopped app stays stopped. Daily snapshots can interrupt active requests and
 shell jobs. A single scheduler in the manager serializes backups with lifecycle,
 restore and other registry operations. Run the manager with one worker only.
 Interrupted backups are recovered on startup; a failed restore is never
 mistaken for an interrupted backup.
-Restore recreates the app database (including removing tables created after the
-backup), replaces workspace files, keeps platform membership/routing, and leaves
-the app stopped if restoration fails. Backups cover files/database, not installed
-OS packages, process memory or live connections. The local implementation buffers
-Postgres dumps in memory and is intended for small synthetic data sets.
+
+Restore replaces `/workspace`, including code, Git history, SQLite files and
+sidecars, and any other app-owned data stored there. Membership and routing stay
+under platform control. A failed restore leaves the app stopped. Backups do not
+include the container's entire writable filesystem, installed OS packages,
+process memory or external databases. For a self-managed database server, keep
+its data under `/workspace`, supervise graceful shutdown and test recovery using
+a compatible engine version.
+
+Older prototype apps used shared Postgres. Those records and their backups are
+not silently converted or pruned. The manager blocks their backup, restore and
+recreation until explicit migration; inventory reports the migration requirement.
+Export their data using the old stack, import it into a new sandbox's chosen
+storage engine, and verify recovery before retiring the old resources. Existing
+Postgres volumes and containers are not deleted by setup/start. This change does
+not migrate real application data or existing Cozy Commons services.
 
 Backups live in the manager's Docker volume outside the app's filesystem.
 They are not off-server disaster recovery. Production hosting needs durable
@@ -195,7 +208,7 @@ not depend on that container having registry access. Docker builds behind a TLS-
 supply its CA bundle as the optional BuildKit `proxy_ca` secret; no CA is baked
 into either image.
 
-The smoke test exercises real Docker, Postgres, Caddy, the MCP protocol, separate
+The smoke test exercises real Docker, SQLite, Caddy, the MCP protocol, separate
 identities, two HTTP ports, WebSockets, isolation, bounded shell execution,
 container restart/replacement and file/database recovery.
 
@@ -205,10 +218,11 @@ container restart/replacement and file/database recovery.
 
 [Recorded local acceptance checks](verification.json).
 
-Validated on Linux with Python 3.12 and local Docker on 2026-11-06: all 40
-API/core/MCP/backup tests and 62 live acceptance checks passed. The new restore regression
-failed against the original manager and passed after the fix. OSV Scanner 2.7.0
-reported no issues in the manager, runtime, or smoke-test dependency locks.
+Validated on Linux with Python 3.12 and local Docker on 2026-11-06: all 42
+API/core/MCP/backup tests and 64 live acceptance checks passed. The smoke demo
+owns a SQLite database within its workspace and verifies that
+restoration removes data and tables created after backup. OSV Scanner 2.7.0
+reported no issues in the manager or smoke-test dependency locks.
 macOS has not been exercised in this pass. The independent reviews required by
 [the repository security policy](../security.md#review-before-merge) remain a
 merge prerequisite; this is still a local prototype, not a hosted deployment.

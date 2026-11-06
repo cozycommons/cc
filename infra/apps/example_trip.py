@@ -7,13 +7,20 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
-import psycopg
+import sqlite3
+from pathlib import Path
+
+
+DATA = Path("/workspace/data")
+DATA.mkdir(exist_ok=True)
+DATABASE = DATA / "trip.sqlite3"
 
 
 def notes():
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+    with sqlite3.connect(DATABASE) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS notes (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, note text NOT NULL)"
+            "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, note text NOT NULL)"
         )
         return conn.execute("SELECT note FROM notes ORDER BY id").fetchall()
 
@@ -56,8 +63,8 @@ class Handler(BaseHTTPRequestHandler):
             .strip()[:500]
         )
         if note:
-            with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-                conn.execute("INSERT INTO notes (note) VALUES (%s)", (note,))
+            with sqlite3.connect(DATABASE) as conn:
+                conn.execute("INSERT INTO notes (note) VALUES (?)", (note,))
         self.send_response(303)
         self.send_header("Location", "/")
         self.end_headers()

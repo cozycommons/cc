@@ -33,11 +33,6 @@ class Runtime:
         self.starts.append(self.current)
         self.states[self.current] = "running"
 
-    def dump(self, name, path):
-        path.write_bytes(b"PGDMPsynthetic")
-        if self.fail == "dump":
-            raise RuntimeError("synthetic dump failure")
-
     def archive(self, name, backup_id):
         (self.state / "backups" / backup_id / "workspace.tgz").write_bytes(b"synthetic")
         if self.fail == "archive":
@@ -92,14 +87,13 @@ def test_retention_is_per_app_and_includes_manual_backups(setup):
     assert len(backups.list("other")) == 3
 
 
-@pytest.mark.parametrize("failure", ["dump", "archive"])
-def test_failure_keeps_good_backups_removes_partial_and_retries(setup, failure):
+def test_failure_keeps_good_backups_removes_partial_and_retries(setup):
     backups, clock = setup
     for _ in range(3):
         clock[0] += INTERVAL
         backups.tick()
     previous = backups.list("trip")
-    backups.runtime.fail = failure
+    backups.runtime.fail = "archive"
     clock[0] += INTERVAL
     backups.tick()
     assert backups.list("trip") == previous
@@ -123,7 +117,7 @@ def test_recovers_interrupted_backup_but_never_failed_restore(setup, complete):
     folder = backups.root / backup_id
     folder.mkdir(parents=True)
     if complete:
-        (folder / "manifest.json").write_text(json.dumps({"app": "trip", "id": backup_id, "created": clock[0]}))
+        (folder / "manifest.json").write_text(json.dumps({"app": "trip", "id": backup_id, "created": clock[0], "format": "workspace-v1"}))
     record = backups.store.get("trip")
     record.update(status="maintenance", backup_pending={"id": backup_id, "was_running": True})
     backups.store.put(record)
@@ -181,3 +175,21 @@ def test_scheduler_survives_temporary_registry_failure(setup):
     backups.tick = tick
     backups.run(stop)
     assert len(attempts) == 2
+
+
+def test_legacy_managed_database_and_backups_require_migration(setup):
+    backups, clock = setup
+    record = backups.store.get("trip")
+    record["db_password"] = "legacy-test-only"
+    backups.store.put(record)
+    for n in range(4):
+        folder = backups.root / f"{n:032x}"
+        folder.mkdir(parents=True)
+        (folder / "manifest.json").write_text(json.dumps({"id": folder.name, "app": "trip", "created": clock[0]}))
+    clock[0] += INTERVAL
+    backups.tick()
+    assert len(backups.list("trip")) == 4
+    assert "migration" in backups.store.get("trip")["backup_error"]
+    assert "trip" not in backups.runtime.stops
+    with pytest.raises(ValueError, match="legacy managed database"):
+        backups.create(record)

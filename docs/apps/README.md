@@ -97,11 +97,11 @@ internet ─► platform proxy (route access policy) ─┬─► /mcp    shell 
                                                         │
           ┌─────────────────────────────────────────────▼─────────────────┐
           │ app: AGENTS.md · code · tests · memory/ · git history           │
-          │       own Postgres database + role (local service)              │
-          └──────────────────────────────────────────────────────────────────┘
-                     │ continuous WAL + volume snapshots
+          │ app-owned storage in /workspace (SQLite recommended)          │
+          └───────────────────────────────────────────────────────────────┘
+                     │ daily stopped-workspace archives
                      ▼
-              off-server object storage (R2/S3)
+              manager volume (off-server copies planned)
 ```
 
 ### Platform
@@ -134,7 +134,7 @@ they cannot remove platform controls or grant themselves additional access.
 
 One app normally has one persistent Docker container, organized around a purpose:
 a new app idea, someone's health, or a particular trip. It holds files, code,
-`AGENTS.md`, tests, memory and git history, with access to its own database. It
+`AGENTS.md`, tests, memory and git history, with app-owned storage inside its sandbox. It
 can start with context and files and acquire interfaces and behavior over time.
 Each app is stewarded by a person or community; people may belong to several.
 
@@ -183,8 +183,8 @@ Each app is stewarded by a person or community; people may belong to several.
 |---|---|---|
 | D1 | Every app, existing or new, follows the same basic structure | Agents build all of it, so separate classes add cost without benefit |
 | D2 | Community policy and change risk set how a change ships | Members can shape software without granting every change automatic publication |
-| D3 | Each app's database is local to the host | Direct agent access and locally managed storage and recovery |
-| D4 | One local Postgres server, one database and role per app; Postgres is the only engine | A common SQL dialect and separate data ownership; existing apps can eventually migrate with dump/restore |
+| D3 | Persistent application data lives under the sandbox workspace | App code and storage move and recover together |
+| D4 | Recommend SQLite in starter AGENTS.md; agents choose and manage their storage engine | Keep application implementation decisions inside the sandbox; no platform-managed database |
 | D5 | Keep Supabase Auth for sign-in | Replacing it makes nothing easier for agents |
 | D6 | Generic machine access, initially shell and files over MCP, with SSH for coding agents | The shared environment stays independent of the agent vendor and access transport |
 | D7 | Rent agent capabilities and own data, context and apps | Benefit from each vendor release instead of competing with it |
@@ -198,22 +198,19 @@ Each app is stewarded by a person or community; people may belong to several.
 | D15 | Start each app with a local Git repo on persistent storage; remote hosting is optional | Avoid a Git service dependency while preserving commits and portable history |
 | D16 | Agents own deployment and restarts, with guidance to run committed main | Preserve a programmable environment without prescribed release folders or platform deployment hooks |
 
-### Postgres details (D4)
+### App-owned storage (D4)
 
-- Each app gets a database and a role with `CONNECT` on only that database,
-  plus a per-role `statement_timeout` and connection limit. The Postgres
-  container has a memory cap.
-- An app that needs strict isolation can get its own Postgres container with
-  the same conventions.
-- Back up continuously with WAL-G or pgBackRest to object storage, for
-  point-in-time restore. Rehearse a full restore onto a new VM before moving
-  any shared app. Until that test passes, the backups are unproven.
-- When moving off Supabase:
-  - Define a local `auth.uid()` that reads the user ID the backend sets for
-    each request, so existing row-level security policies keep working.
-  - Replace foreign keys to `auth.users` with plain UUID columns.
-  - Remove grants to `anon` and `authenticated`.
-  - Move Supabase Storage objects to the app's disk or R2.
+Recommend SQLite under `/workspace/data` for a fresh sandbox. This is soft
+starter guidance: apps own their schema, migrations, dependencies and any database
+service they choose to install. The platform does not allocate a database or
+inject a connection URL.
+
+Daily backups stop the app and archive `/workspace`, including database files
+and their journal/WAL sidecars. Retain the three newest successful backups.
+Other engines need persistent data in the workspace, graceful shutdown, and a
+tested recovery procedure with a compatible version. External storage and OS
+packages outside the workspace are not covered. Off-server copies and a tested
+fresh-host restore remain requirements before hosting important data.
 
 ## Prerequisites from the current pipeline
 

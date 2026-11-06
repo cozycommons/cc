@@ -1,7 +1,7 @@
 {
-  "app": "trip-02861f08",
-  "other_app": "other-e9db0dd0",
-  "url": "http://trip-02861f08.localhost:8090",
+  "app": "trip-5ef53854",
+  "other_app": "other-a026c1d0",
+  "url": "http://trip-5ef53854.localhost:8090",
   "checks": [
     "Agent creates an app through MCP",
     "Creation returns local repository metadata",
@@ -39,7 +39,8 @@
     "Named public website is reachable without credentials",
     "Platform socket, registry and user credentials absent from app",
     "Other app is absent from this app network",
-    "App database role cannot connect to another app database",
+    "App owns a valid SQLite database in its workspace without platform database credentials",
+    "Starter guidance recommends SQLite without requiring a database engine",
     "Agent installs an additional package inside its container",
     "Agent starts a WebSocket service",
     "WebSocket service is listening",
@@ -52,6 +53,7 @@
     "Workspace, services and database survive container replacement",
     "Container publication capability works after replacement",
     "Local Git history survives container replacement",
+    "Backup contains workspace storage without a separate managed database dump",
     "Agent can create a later local commit after a backup",
     "App can add a database table after backup",
     "Restore removes database objects created after the backup",

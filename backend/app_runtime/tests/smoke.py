@@ -1,4 +1,4 @@
-"""Real Docker + HTTP + MCP acceptance test; creates only synthetic app data."""
+"""Real Docker + HTTP + MCP + SQLite acceptance test; creates only synthetic app data."""
 
 import asyncio
 import json
@@ -297,14 +297,12 @@ def main():
         "Other app is absent from this app network",
     )
     result = command(
-        "python - <<'PY'\nimport os, psycopg\nurl=os.environ['DATABASE_URL'].rsplit('/',1)[0]+'/app_"
-        + OTHER.replace("-", "_")
-        + "'\ntry: psycopg.connect(url)\nexcept psycopg.OperationalError: print('denied')\nPY"
+        "test -z \"${DATABASE_URL+x}\" && sqlite3 /workspace/data/trip.sqlite3 'PRAGMA integrity_check;'"
     )
-    check(
-        result["output"].strip() == "denied",
-        "App database role cannot connect to another app database",
-    )
+    check(result["exit_code"] == 0 and result["output"].strip() == "ok",
+          "App owns a valid SQLite database in its workspace without platform database credentials")
+    check("SQLite" in request("GET", f"/api/apps/{NAME}/file?path=/workspace/AGENTS.md")["content"],
+          "Starter guidance recommends SQLite without requiring a database engine")
     request(
         "PUT", f"/api/apps/{NAME}/file",
         {"path": "/workspace/websocket-requirements.txt",
@@ -401,6 +399,10 @@ def main():
         "Local Git history survives container replacement",
     )
     backup = request("POST", f"/api/apps/{NAME}/backups", status=201)
+    check(backup["format"] == "workspace-v1" and subprocess.run(
+        ["docker", "exec", "cc-apps-local-manager", "test", "!", "-e",
+         "/state/backups/" + backup["id"] + "/database.dump"]
+    ).returncode == 0, "Backup contains workspace storage without a separate managed database dump")
     request(
         "PUT",
         f"/api/apps/{NAME}/file",
@@ -414,8 +416,8 @@ def main():
     site(user="viewer", method="POST", data={"note": "This should be undone"})
     check(
         command("python -c " + shlex.quote(
-            "import os, psycopg; c=psycopg.connect(os.environ['DATABASE_URL'], autocommit=True); "
-            "c.execute('CREATE TABLE after_backup (note text)')"
+            "import sqlite3; c=sqlite3.connect('/workspace/data/trip.sqlite3'); "
+            "c.execute('CREATE TABLE after_backup (note text)'); c.commit()"
         ))["exit_code"] == 0,
         "App can add a database table after backup",
     )
@@ -426,8 +428,8 @@ def main():
     )
     check(
         command("python -c " + shlex.quote(
-            "import os, psycopg; c=psycopg.connect(os.environ['DATABASE_URL']); "
-            "assert c.execute(\"SELECT to_regclass('public.after_backup')\").fetchone()[0] is None"
+            "import sqlite3; c=sqlite3.connect('/workspace/data/trip.sqlite3'); "
+            "assert c.execute(\"SELECT name FROM sqlite_master WHERE name='after_backup'\").fetchone() is None"
         ))["exit_code"] == 0,
         "Restore removes database objects created after the backup",
     )

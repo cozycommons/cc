@@ -17,7 +17,7 @@ def list_apps() -> list:
 
 @mcp.tool()
 def create_app(name: str) -> dict:
-    """Create an app with persistent storage, database and local Git repo on main.
+    """Create an app with persistent workspace storage and local Git repo on main.
 
     Requires platform creation permission, separate from contributing to an app.
     Does not deploy any website; use the shell to build/start services and expose a port.

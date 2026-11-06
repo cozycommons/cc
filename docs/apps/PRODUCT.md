@@ -13,8 +13,9 @@ release or a migration of existing projects.
 1. A person with platform creation permission creates an app with a unique
    lowercase slug. Platform names such as admin, api, auth and www are reserved;
    `--` is reserved for named services.
-2. Each app has persistent workspace files, developer tools and a separate
-   database. New apps start with a local Git repository on main, a starter
+2. Each app has persistent workspace files and developer tools. Storage engines
+   and schemas belong to the app; starter guidance recommends SQLite under
+   /workspace/data, without requiring it. No database is provisioned by the platform. New apps start with a local Git repository on main, a starter
    AGENTS.md, a .gitignore and an initial commit. No remote Git service is needed.
    The agent chooses its layout within persistent storage. Contributors are
    trusted with all app files, processes and data.
@@ -42,12 +43,12 @@ release or a migration of existing projects.
 8. Contributors can install dependencies and run multiple processes in one
    container. Registered services restart with the container. Persistent files
    survive restart and recreation; ad-hoc OS installs require reconstruction.
-9. The manager backs up each app's workspace and database every 24 hours and
+9. The manager backs up each app's workspace (including app-owned data) every 24 hours and
    retains its three newest successful backups. Owners may also back up manually;
    these snapshots share the limit and reset the daily interval. Failed backups
    preserve good snapshots and retry. Running apps pause briefly; stopped apps
    stay stopped. Owners list retained backups and choose a restore point.
-   Restore replaces both from a selected backup,
+   Restore replaces the workspace from a selected backup,
    including the local repository and .git history, leaving membership and
    routing under platform control. Restore is explicitly destructive to newer
    app data; backups are retained outside app access.

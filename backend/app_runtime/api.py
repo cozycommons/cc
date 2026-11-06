@@ -213,7 +213,6 @@ def create(body: Create, who=Depends(identity)):
                 "initial_path": "/workspace",
                 "default_branch": "main",
             },
-            "db_password": secrets.token_hex(24),
             "app_token_hash": digest(token),
         }
         store.put(record)
@@ -387,6 +386,8 @@ def lifecycle(name: str, action: str, who=Depends(identity)):
     with store.lock:
         record = authorized(name, who, "owner")
         if action == "recreate":
+            if "db_password" in record:
+                raise HTTPException(409, "Export the legacy managed database into a new sandbox before recreation")
             record["status"] = "maintenance"
             store.put(record)
             token = secrets.token_urlsafe(32)
@@ -433,7 +434,7 @@ def restore(name: str, backup_id: str, body: Restore, who=Depends(identity)):
     if not body.confirm_replace_data:
         raise HTTPException(
             422,
-            "Restore replaces current workspace and database; confirm_replace_data is required",
+            "Restore replaces the current workspace, including app-managed data; confirm_replace_data is required",
         )
     if not len(backup_id) == 32 or any(c not in "0123456789abcdef" for c in backup_id):
         raise HTTPException(404, "Backup not found")
@@ -445,11 +446,12 @@ def restore(name: str, backup_id: str, body: Restore, who=Depends(identity)):
             or json.loads((folder / "manifest.json").read_text())["app"] != name
         ):
             raise HTTPException(404, "Backup not found")
+        if "db_password" in record or json.loads((folder / "manifest.json").read_text()).get("format") != "workspace-v1":
+            raise HTTPException(409, "Legacy database backups require explicit migration; no data was replaced")
         record["status"] = "maintenance"
         store.put(record)
         runtime.container(name).stop(timeout=10)
         try:
-            runtime.restore_db(name, folder / "database.dump")
             runtime.archive(name, backup_id, restore=True)
             runtime.container(name).start()
             record["status"] = "running"

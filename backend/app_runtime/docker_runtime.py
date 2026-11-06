@@ -1,13 +1,8 @@
-"""Only the trusted manager can access Docker and the database administrator."""
+"""Only the trusted manager can access Docker; app storage stays in its workspace."""
 
-import io
 import json
-import os
-import tarfile
 
 import docker
-import psycopg
-from psycopg import sql
 
 PREFIX = "cc-apps-local-"
 IMAGE = "cc-apps-runtime:local"
@@ -16,12 +11,6 @@ IMAGE = "cc-apps-runtime:local"
 class Runtime:
     def __init__(self):
         self.client = docker.from_env()
-        self.password = os.environ["APPS_POSTGRES_PASSWORD"]
-
-    def admin(self):
-        return psycopg.connect(
-            host="postgres", user="postgres", password=self.password, autocommit=True
-        )
 
     def container(self, name):
         return self.client.containers.get(PREFIX + name)
@@ -35,31 +24,10 @@ class Runtime:
 
     def create(self, record, token):
         name = record["name"]
-        db = "app_" + name.replace("-", "_")
-        # Hyphen/underscore normalization cannot collide because underscores are invalid slugs.
-        with self.admin() as conn:
-            conn.execute("REVOKE CONNECT ON DATABASE postgres FROM PUBLIC")
-            conn.execute("REVOKE CONNECT ON DATABASE template1 FROM PUBLIC")
-            conn.execute(
-                sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
-                    sql.Identifier(db), sql.Literal(record["db_password"])
-                )
-            )
-            conn.execute(
-                sql.SQL("CREATE DATABASE {} OWNER {}").format(
-                    sql.Identifier(db), sql.Identifier(db)
-                )
-            )
-            conn.execute(
-                sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(
-                    sql.Identifier(db)
-                )
-            )
         network = self.client.networks.create(
             PREFIX + name, driver="bridge", labels={"cc.apps": name}
         )
-        for shared, alias in [("proxy", "proxy"), ("postgres", "postgres")]:
-            network.connect(PREFIX + shared, aliases=[alias])
+        network.connect(PREFIX + "proxy", aliases=["proxy"])
         self.client.volumes.create(
             PREFIX + name + "-workspace", labels={"cc.apps": name}
         )
@@ -75,7 +43,6 @@ class Runtime:
 
     def create_container(self, record, token):
         name = record["name"]
-        db = "app_" + name.replace("-", "_")
         self.client.containers.run(
             IMAGE,
             name=PREFIX + name,
@@ -93,7 +60,6 @@ class Runtime:
                 PREFIX + name + "-workspace": {"bind": "/workspace", "mode": "rw"}
             },
             environment={
-                "DATABASE_URL": f"postgresql://{db}:{record['db_password']}@postgres:5432/{db}",
                 "COMMONS_APP": name,
                 "COMMONS_APP_TOKEN": token,
                 "COMMONS_CONTROL_URL": "http://proxy/api-control",
@@ -156,61 +122,6 @@ else:
         if result.exit_code:
             raise ValueError(result.output.decode()[-1000:])
         return result.output.decode()
-
-    def dump(self, name, target):
-        db = "app_" + name.replace("-", "_")
-        result = self.client.containers.get(PREFIX + "postgres").exec_run(
-            ["pg_dump", "-U", "postgres", "-Fc", db]
-        )
-        if result.exit_code or not result.output.startswith(b"PGDMP"):
-            raise RuntimeError("Database backup failed")
-        target.write_bytes(result.output)
-
-    def restore_db(self, name, source):
-        pg = self.client.containers.get(PREFIX + "postgres")
-        content = source.read_bytes()
-        archive = io.BytesIO()
-        with tarfile.open(fileobj=archive, mode="w") as tar:
-            item = tarfile.TarInfo("restore.dump")
-            item.size = len(content)
-            item.mode = 0o600
-            tar.addfile(item, io.BytesIO(content))
-        pg.put_archive("/tmp", archive.getvalue())
-        db = "app_" + name.replace("-", "_")
-        # pg_restore --clean only drops objects present in the dump. Recreate
-        # the database so tables added after the backup cannot survive restore.
-        with self.admin() as conn:
-            conn.execute(
-                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(db))
-            )
-            conn.execute(
-                sql.SQL("CREATE DATABASE {} OWNER {} TEMPLATE template0").format(
-                    sql.Identifier(db), sql.Identifier(db)
-                )
-            )
-            conn.execute(
-                sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(
-                    sql.Identifier(db)
-                )
-            )
-        result = pg.exec_run(
-            [
-                "pg_restore",
-                "-U",
-                "postgres",
-                "--exit-on-error",
-                "--clean",
-                "--if-exists",
-                "-d",
-                db,
-                "/tmp/restore.dump",
-            ]
-        )
-        pg.exec_run(["rm", "-f", "/tmp/restore.dump"])
-        if result.exit_code:
-            raise RuntimeError(
-                "Database restore failed: " + result.output.decode()[-1000:]
-            )
 
     def archive(self, name, backup_id, restore=False):
         command = (

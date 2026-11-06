@@ -60,7 +60,6 @@ def client(tmp_path, monkeypatch):
             "members": {"owner": "owner", "friend": "contributor", "viewer": "viewer"},
             "routes": {},
             "app_token_hash": digest("app-key"),
-            "db_password": "never-expose",
         }
     )
     with TestClient(api.app, raise_server_exceptions=False) as client:
@@ -76,7 +75,7 @@ def test_membership_and_private_public_transitions(client):
     assert c.get("/api/apps").status_code == 401
     assert c.get("/api/apps", headers=headers("outsider")).json() == []
     result = c.get("/api/apps", headers=headers("friend"))
-    assert "never-expose" not in result.text and "app_token_hash" not in result.text
+    assert "app_token_hash" not in result.text
     path = "/api/apps/trip/routes/default"
     assert (
         c.put(path, json={"port": 3000}, headers=headers("viewer")).status_code == 403
@@ -253,6 +252,7 @@ def test_creation_requires_platform_permission(client):
         "default_branch": "main",
     }
     assert "db_password" not in result.text
+    assert "db_password" not in client[1].store.get("new-app")
     assert (
         c.post(
             "/api/apps", json={"name": "new-app"}, headers=headers("owner")
@@ -271,3 +271,20 @@ def test_backup_inventory_is_owner_only(client):
     assert result.status_code == 200
     assert result.json()["backups"] == []
     assert result.json()["next_backup_at"] is not None
+
+
+def test_legacy_database_restore_and_recreate_fail_before_mutation(client):
+    c, api, _ = client
+    backup_id = "a" * 32
+    folder = api.state / "backups" / backup_id
+    folder.mkdir(parents=True)
+    (folder / "manifest.json").write_text(json.dumps({"id": backup_id, "app": "trip", "created": 1}))
+    response = c.post(f"/api/apps/trip/backups/{backup_id}/restore",
+                      json={"confirm_replace_data": True}, headers=headers("owner"))
+    assert response.status_code == 409
+    assert api.store.get("trip")["status"] == "running"
+    record = api.store.get("trip")
+    record["db_password"] = "legacy-test-only"
+    api.store.put(record)
+    assert c.post("/api/apps/trip/lifecycle/recreate", headers=headers("owner")).status_code == 409
+    assert api.store.get("trip")["status"] == "running"

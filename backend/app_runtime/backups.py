@@ -28,6 +28,7 @@ class Backups:
                 valid_id = len(manifest.parent.name) == 32 and all(c in "0123456789abcdef" for c in manifest.parent.name)
                 if valid_id and data["id"] == manifest.parent.name and data["app"] == name:
                     if isinstance(data["created"], (int, float)) and math.isfinite(data["created"]):
+                        data.setdefault("format", "legacy-database")
                         data.setdefault("kind", "manual")
                         result.append(data)
             except (OSError, ValueError, KeyError, TypeError):
@@ -35,7 +36,8 @@ class Backups:
         return sorted(result, key=lambda item: (item["created"], item["id"]), reverse=True)
 
     def prune(self, name):
-        for item in self.list(name)[RETAIN:]:
+        snapshots = [item for item in self.list(name) if item["format"] == "workspace-v1"]
+        for item in snapshots[RETAIN:]:
             shutil.rmtree(self.root / item["id"])
 
     def recover(self, record):
@@ -65,6 +67,8 @@ class Backups:
     def create(self, record, kind="manual"):
         # Caller holds store.lock, also used by lifecycle/restore/exec admission.
         name = record["name"]
+        if "db_password" in record:
+            raise ValueError("Export the legacy managed database into a new sandbox before backup")
         actual = self.runtime.status(name)
         if record["status"] not in {"running", "stopped"} or actual not in {"running", "stopped"}:
             raise ValueError("App is unavailable for backup")
@@ -77,9 +81,8 @@ class Backups:
             folder.mkdir(parents=True)
             if was_running:
                 self.runtime.container(name).stop(timeout=10)
-            self.runtime.dump(name, folder / "database.dump")
             self.runtime.archive(name, backup_id)
-            manifest = {"id": backup_id, "app": name, "created": self.clock(), "kind": kind}
+            manifest = {"id": backup_id, "app": name, "created": self.clock(), "kind": kind, "format": "workspace-v1"}
             temporary = folder / "manifest.tmp"
             temporary.write_text(json.dumps(manifest))
             temporary.replace(folder / "manifest.json")
@@ -113,6 +116,10 @@ class Backups:
             with self.store.lock:
                 record = self.store.get(entry["name"])
                 try:
+                    if "db_password" in record:
+                        record["backup_error"] = "Legacy managed database requires migration to sandbox storage; old backups retained"
+                        self.store.put(record)
+                        continue
                     self.recover(record)
                     self.prune(record["name"])
                     if "next_backup_at" not in record:

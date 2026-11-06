@@ -2,7 +2,6 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-unset APPS_POSTGRES_PASSWORD
 if [ -n "${DOCKER_CONTEXT:-}" ]; then
   DOCKER_ENDPOINT="$(docker context inspect "$DOCKER_CONTEXT" --format '{{.Endpoints.docker.Host}}')"
 else
@@ -19,21 +18,20 @@ case "${1:-help}" in
     python3 - <<'PY'
 import json, pathlib, secrets
 p=pathlib.Path('.apps-dev')
-for name, content in [('users.json',json.dumps({user:secrets.token_urlsafe(32) for user in ['owner','friend','viewer','outsider']},indent=2)),('compose.env','APPS_POSTGRES_PASSWORD='+secrets.token_hex(32)+'\n')]:
-    dest=p/name
-    if not dest.exists():
-        dest.write_text(content+'\n')
-        dest.chmod(0o600)
+dest=p/'users.json'
+if not dest.exists():
+    dest.write_text(json.dumps({user:secrets.token_urlsafe(32) for user in ['owner','friend','viewer','outsider']},indent=2)+'\n')
+    dest.chmod(0o600)
 PY
     python3 -m venv .apps-dev/venv
     .apps-dev/venv/bin/pip install --require-hashes --only-binary=:all: -r backend/app_runtime/requirements.txt
     .apps-dev/venv/bin/pip download --require-hashes --only-binary=:all: --no-deps \
       --platform any --implementation py --abi none \
       -r backend/app_runtime/tests/requirements.txt -d .apps-dev/wheels
-    docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml --profile build build
+    docker compose --env-file /dev/null -f infra/apps/compose.yaml --profile build build
     ;;
   start)
-    docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml up -d manager proxy postgres
+    docker compose --env-file /dev/null -f infra/apps/compose.yaml up -d manager proxy
     attempts=0
     until curl --noproxy '*' --fail --silent http://127.0.0.1:8091/health >/dev/null 2>&1; do
       attempts=$((attempts + 1))
@@ -46,15 +44,15 @@ PY
     ;;
   stop)
     # Quiesce scheduled backups before stopping app containers.
-    docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml stop manager
+    docker compose --env-file /dev/null -f infra/apps/compose.yaml stop manager
     # Stop only containers labelled as this prototype's apps.
     docker ps -q --filter label=cc.apps | while IFS= read -r container; do
       if [ -n "$container" ]; then docker stop "$container"; fi
     done
-    docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml stop
+    docker compose --env-file /dev/null -f infra/apps/compose.yaml stop
     ;;
   status)
-    docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml ps
+    docker compose --env-file /dev/null -f infra/apps/compose.yaml ps
     ;;
   cli|mcp|smoke)
     action="$1"

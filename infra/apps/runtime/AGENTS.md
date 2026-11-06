@@ -3,8 +3,24 @@
 This container is one Cozy Commons app. /workspace persists across replacement.
 You may download files, install dependencies, edit code and run multiple services.
 Record reproducible dependency setup in /workspace/setup.sh; changes outside
-/workspace survive restart but not replacement. The app's DATABASE_URL gives full
-access to its database. Do not put credentials in Git or public files.
+/workspace survive restart but not replacement. Do not put credentials in Git
+or public files.
+
+## Application storage
+
+For a fresh app, prefer SQLite at a path such as /workspace/data/app.sqlite3.
+It needs no separate server; Python's sqlite3 module and the sqlite3 CLI are
+available. This is a recommendation, not a platform requirement. Choose another
+engine when the app needs it, and manage its installation, schema and services
+inside this sandbox. The platform does not provision databases or DATABASE_URL.
+
+Keep all persistent data under /workspace and out of Git. Platform backups stop
+the container and archive this whole directory, including SQLite journal/WAL
+files, then resume it. Keep each SQLite database and its sidecars together.
+Supervise any database server you install and configure graceful shutdown.
+For other engines, document and test recovery with a compatible engine version.
+Data outside /workspace, external databases, and installed OS packages are not
+included in workspace backups.
 
 Bind web services to 0.0.0.0. Use `commons expose PORT --default` or
 `commons expose PORT --name NAME`; add --public only for intentional public access.
@@ -42,7 +58,7 @@ actual website and record the running commit when useful. A commit alone does
 not restart a process or undo data changes. Keep a way to return to a known-good
 version, and document dependency setup, start and recovery commands in this repo.
 
-The repository and .git history are included in workspace backups. Database and
-other persistent data need the platform's coordinated backup too. A local Git
+The repository, .git history and app data under /workspace are included in
+workspace backups. A local Git
 repo alone does not protect against losing the host. A remote can be added later
 without changing the app's deployment workflow.
