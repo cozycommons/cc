@@ -440,19 +440,25 @@ def restore(name: str, backup_id: str, body: Restore, who=Depends(identity)):
         raise HTTPException(404, "Backup not found")
     with store.lock:
         record = authorized(name, who, "owner")
-        folder = state / "backups" / backup_id
-        if (
-            not (folder / "manifest.json").exists()
-            or json.loads((folder / "manifest.json").read_text())["app"] != name
-        ):
+        # Select a manager-owned directory rather than constructing a filesystem
+        # path from request input. Never follow a substituted backup symlink.
+        folder = next(
+            (candidate for candidate in (state / "backups").iterdir()
+             if candidate.name == backup_id and candidate.is_dir() and not candidate.is_symlink()),
+            None,
+        ) if (state / "backups").is_dir() else None
+        if folder is None or not (folder / "manifest.json").is_file() or (folder / "manifest.json").is_symlink():
             raise HTTPException(404, "Backup not found")
-        if "db_password" in record or json.loads((folder / "manifest.json").read_text()).get("format") != "workspace-v1":
+        manifest = json.loads((folder / "manifest.json").read_text())
+        if manifest["app"] != name:
+            raise HTTPException(404, "Backup not found")
+        if "db_password" in record or manifest.get("format") != "workspace-v1":
             raise HTTPException(409, "Legacy database backups require explicit migration; no data was replaced")
         record["status"] = "maintenance"
         store.put(record)
         runtime.container(name).stop(timeout=10)
         try:
-            runtime.archive(name, backup_id, restore=True)
+            runtime.archive(record["name"], folder.name, restore=True)
             runtime.container(name).start()
             record["status"] = "running"
         except Exception:

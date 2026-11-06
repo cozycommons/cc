@@ -288,3 +288,36 @@ def test_legacy_database_restore_and_recreate_fail_before_mutation(client):
     api.store.put(record)
     assert c.post("/api/apps/trip/lifecycle/recreate", headers=headers("owner")).status_code == 409
     assert api.store.get("trip")["status"] == "running"
+
+
+def test_restore_selects_owned_directory_and_rejects_symlinks(client, tmp_path):
+    from unittest.mock import MagicMock
+
+    c, api, fake = client
+    backup_id = "b" * 32
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    manifest = {"app": "trip", "id": backup_id, "format": "workspace-v1"}
+    (outside / "manifest.json").write_text(json.dumps(manifest))
+    root = api.state / "backups"
+    root.mkdir()
+    folder = root / backup_id
+    folder.symlink_to(outside, target_is_directory=True)
+    fake.archive = MagicMock()
+    fake.container = MagicMock()
+    path = f"/api/apps/trip/backups/{backup_id}/restore"
+    args = {"json": {"confirm_replace_data": True}, "headers": headers("owner")}
+    assert c.post(path, **args).status_code == 404
+    fake.archive.assert_not_called()
+    fake.container.assert_not_called()
+    folder.unlink()
+    folder.mkdir()
+    (folder / "manifest.json").symlink_to(outside / "manifest.json")
+    assert c.post(path, **args).status_code == 404
+    fake.archive.assert_not_called()
+    (folder / "manifest.json").unlink()
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+    assert c.post(path, **args).status_code == 200
+    fake.archive.assert_called_once_with("trip", backup_id, restore=True)
+    fake.container.return_value.stop.assert_called_once_with(timeout=10)
+    fake.container.return_value.start.assert_called_once()
