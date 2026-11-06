@@ -326,3 +326,35 @@ def test_live_feed_flags_stale_stations(client):
     assert body['flags'] == [2 | 4] and body['reported_s'][0] >= 7200
     one = http.get('/bikes/stations/6230.04').json()
     assert one['stale'] is True and one['chance']['dock'] == {'15_min': None, '30_min': None, '60_min': None}
+
+
+
+def test_review_fixes_fail_fast_skip_bad_stations_and_bound_times(client, monkeypatch):
+    http, feeds = client
+    # A provider outage costs one inline timeout per cooldown, not one per request.
+    calls = []
+
+    def down(feed):
+        calls.append(feed)
+        raise gbfs.GbfsError(f'{feed}: timeout')
+    monkeypatch.setattr(gbfs, '_fetch', down)
+    gbfs.reset_cache()
+    assert [http.get('/bikes/live').status_code for _ in range(5)] == [503] * 5
+    assert calls == ['station_information']
+
+    # One malformed station is skipped; the rest still answer.
+    monkeypatch.setattr(gbfs, '_fetch', lambda feed: feeds[feed])
+    gbfs.reset_cache()
+    feeds['station_information'].append({'station_id': 'x', 'name': 'No short name', 'lat': None, 'lon': -73.9})
+    feeds['station_status'].append({'station_id': 'x', 'is_installed': 1, 'num_docks_available': None})
+    assert http.get('/bikes/live').json()['stations']['id'] == [PENN.short_name]
+
+    # Times far outside a year are rejected, not a 500.
+    for at in ('9999-12-31T23:59:59', '0001-01-01T00:00:00+14:00', '2000-01-01T00:00'):
+        assert http.get('/bikes/wait', params={'lat': PENN.lat, 'lng': PENN.lng, 'at': at}).status_code == 422
+    trip = {'from_lat': PENN.lat, 'from_lng': PENN.lng, 'to_lat': 40.7295, 'to_lng': -73.9965}
+    assert http.get('/bikes/plan', params={**trip, 'depart': '9999-12-31T23:59:59'}).status_code == 422
+
+    # The 404 does not echo the caller's input.
+    missing = http.get('/bikes/stations/%3Cb%3Ex')
+    assert missing.status_code == 404 and '<b>' not in missing.text
