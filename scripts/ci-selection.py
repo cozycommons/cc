@@ -40,7 +40,7 @@ def select(paths, test_files):
             compute = True
             if not path.startswith("backend/compute/tests/"):
                 crowdset = True
-        elif path.startswith(("backend/bikes/tests/", "backend/bikes/ingest.py", "backend/bikes/basemap.py")) or path in {"backend/requirements-bikes.in", "backend/requirements-bikes.txt"}:
+        elif path.startswith(("backend/bikes/tests/", "backend/bikes/ingest.py", "backend/bikes/basemap.py", "backend/bikes/weather_history.py")) or path in {"backend/requirements-bikes.in", "backend/requirements-bikes.txt"}:
             # The offline ingest has its own DuckDB lockfile; main:app does not import it.
             bikes = True
         elif path == "backend/bikes/model.py":

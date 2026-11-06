@@ -316,7 +316,7 @@ class Store:
         partial.replace(self.manifest_path)
 
     def write_catalog(self):
-        """Point bikes.duckdb's `trips` view at the Parquet files (absolute path)."""
+        """Point bikes.duckdb's `trips` (and `weather`) views at the Parquet files (absolute path)."""
         import duckdb
         path, partial = self.root / 'bikes.duckdb', self.root / 'bikes.duckdb.part'
         partial.unlink(missing_ok=True)
@@ -324,6 +324,10 @@ class Store:
         with duckdb.connect(str(partial)) as con:
             con.execute(f"CREATE VIEW trips AS SELECT * FROM read_parquet({pattern}, hive_partitioning=true, "
                         "hive_types={'system': VARCHAR, 'year': INTEGER, 'month': INTEGER})")
+            # Hourly weather from bikes.weather_history, when it has been built.
+            if any((self.root / 'weather').glob('*.parquet')):
+                weather = sql_literal(str(self.root / 'weather' / '*.parquet'))
+                con.execute(f'CREATE VIEW weather AS SELECT * FROM read_parquet({weather})')
         partial.replace(path)
 
 

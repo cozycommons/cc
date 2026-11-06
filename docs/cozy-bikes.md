@@ -92,13 +92,38 @@ given hour off that average is mostly weather and holidays: over 2025-11 to
 a snowstorm), 43-56 mm rain days (19% to 34%), and Christmas and New Year's Day
 (about a third). Events (marathons, parades) do not show citywide; they are local.
 
-- `bikes.model` fetches Central Park's hourly weather for the window (Open-Meteo
-  archive, CC BY 4.0) and fits trip multipliers against the model's own baseline:
-  by sky (dry, drizzle, rain, heavy rain, snow) and temperature band, plus "snow
-  on the ground" (2 cm or more in the past 72 hours, dry now). Fitted on the year:
-  heavy rain 0.42, snow 0.40 (0.24 below freezing), rain 0.63 (but 0.97 at
-  25-30 °C), snow on the ground 0.61, dry 1.07. They are in `wait_model.json` as
-  `weather`. On held-out days the fit cut the error in wet hours from 39% to 35%.
+- `python -m bikes.weather_history` (bikes venv) stores hourly weather since June
+  2013 as `<data>/weather/{obs,model}-<year>.parquet` and a `weather` view in
+  `bikes.duckdb`: METAR observations from the Iowa Environmental Mesonet's ASOS
+  archive (`obs`) and Open-Meteo's reanalysis (`model`), at Central Park, LaGuardia,
+  JFK and Newark. Columns: `hour` (New York), `station`, `source`, `temp_c`,
+  `precip_mm`, `snow_cm` (model only), `snowing`, `wx` (METAR codes). About 2 MB;
+  finished years download once. NOAA's own access service stops in mid 2025.
+- `bikes.model` fits trip multipliers against the model's own baseline: by sky
+  (dry, drizzle, rain, heavy rain, snow) and temperature band, plus "snow on the
+  ground" (2 cm or more in the past 72 hours, dry now). It uses Central Park's
+  observations from the `weather` view when the store has them (snowing from the
+  observer, depth from the model), else the Open-Meteo archive. Fitted on the
+  year: heavy rain 0.26, rain 0.43, drizzle 0.79, snow 0.36 (0.17 below freezing),
+  snow on the ground 0.59, dry 1.07. They are in `wait_model.json` as `weather`.
+
+### Is Central Park enough?
+
+Checked on Oct 2025 to Sep 2026, trips counted by the hour in each area, every
+fifth day held out:
+
+- The stations agree. When Central Park records 0.5 mm in an hour, LaGuardia is
+  wet 93% of the time, Newark 86%, JFK 78%; daily totals correlate 0.93, 0.86 and
+  0.82. Splitting trips by nearest station puts 90% in Central Park's area anyway
+  (LaGuardia 8%, Newark under 1%, JFK almost none).
+- Nearest-station weather predicts each area no better than Central Park (wet-hour
+  error 34.4% against 34.5%). One point is enough.
+- The source matters. Open-Meteo's reanalysis catches 81% of observed rain hours
+  and 72% of heavy ones, and 35% of its rain hours were dry at the park. Fitted on
+  modeled rain, the factors are diluted (heavy rain 0.47 instead of 0.31). Fitting
+  on observations and still serving on the Open-Meteo forecast cut wet-hour error
+  from 34.5% to 30.6%. Factors fit on observations and served on observations
+  would reach 28%; a live METAR for the current hour is the next step.
 - `bikes.conditions` fetches the live hourly forecast from `api.open-meteo.com`
   (cached 30 minutes, 4 s timeout; if it is down, rates are unadjusted) and scales
   every arrival and departure rate by its hour's factor, so waits and odds account

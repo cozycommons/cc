@@ -1,9 +1,10 @@
 """What makes this hour unlike an average one: weather and holidays.
 
 The model's rates are averages over a year. A year of hourly Citi Bike trips
-against Central Park weather (bikes.model) shows how far conditions move them:
-heavy rain or snow cuts trips to about 0.4x, rain to about 0.7x, a dry hour below
-freezing to about 0.8x, and days after a snowstorm stay low. `multiplier` applies
+against Central Park's observed weather (bikes.model) shows how far conditions
+move them: heavy rain cuts trips to about 0.26x, rain to about 0.43x, snow below
+freezing to about 0.17x, a dry hour below freezing to about 0.8x, and days after
+a snowstorm stay low. `multiplier` applies
 the fitted factor for an hour; holidays use the weekend profile.
 
 Live weather comes from Open-Meteo's forecast (no key, CC BY 4.0), cached for 30
