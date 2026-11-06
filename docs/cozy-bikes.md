@@ -83,6 +83,62 @@ GROUP BY ALL ORDER BY trips DESC LIMIT 10;
 The view stores the data directory's absolute path. After moving the directory,
 rerun the ingest to rewrite it.
 
+## The /bikes page
+
+Mobile first, in three tabs:
+
+- **Near me**: Bike, E-bike or Dock. The answer sentence, a live map of stations
+  within 800 m (colored 3+, 1–2, none or closed, with the five listed stations
+  labeled by count), and a card per station with live classic, e-bike and dock
+  counts, the chance it still has one when you arrive, the wait if it is gone
+  and the expected minutes. Refreshes every minute while visible.
+  `?lat=&lng=` sets the location, for shared links.
+- **Plan**: from your location (or a station) to a searched station, leaving
+  now or in 15, 30 or 60 minutes, optionally on an e-bike. Shows walk, start
+  station, ride, end station and walk with live odds at each end, against
+  walking the whole way. There is no address search: it would need a geocoder,
+  a new outbound host.
+- **Explore**: every dock by hour and trips per month (below).
+
+`?tab=plan` or `?tab=explore` opens a tab.
+
+## Live stations and trip plans
+
+`GET /bikes/live` returns every station in service, columnar (`id`, `name`,
+`lat`, `lng`, `bikes`, `ebikes`, `docks`, `flags` with 1 renting and 2
+returning) and the status feed's age. It is gzipped (46 KB for about 2,500
+stations).
+
+`GET /bikes/plan?from_lat=&from_lng=&to_lat=&to_lng=[&depart=][&ebike=true]`
+tries the four nearest renting stations within 1 km of the origin against the
+four nearest returning stations of the destination. Each pair costs walk, ride
+(`ride_mps`) and walk, plus each end's refill wait weighted by the chance it is
+empty or full on arrival. The lowest expected minutes wins; `walk_only_min`
+compares walking. Live odds cover departures up to an hour ahead.
+
+### Arrival odds
+
+`forecast.py` treats a station's available bikes as a birth-death chain bounded
+by 0 and its docks in service (bikes plus open docks now). From the live count
+it steps in 10 s ticks with the station's arrival and departure rates for each
+hour it crosses. `chance` is the probability it is not empty (or, for a dock,
+not full) on arrival. E-bikes use the same chain with rates scaled by the
+system e-bike share of trips (`ebike_share`, 72% for 2025-11 to 2026-10).
+`/bikes/wait` ranks stations by expected minutes: walk plus
+`(1 - chance) * refill wait`, with an hour for a station that never refills at
+that hour.
+
+## Recording live status
+
+The trip files do not say how full a station was, so measuring fullness by hour
+needs a record of the live feed. `python -m bikes.recorder` polls station status
+every minute and appends a row per station whose report changed to
+`status-YYYY-MM-DD.csv.gz` under `~/.local/share/cozy-bikes/status` (or `--out`,
+`COZY_BIKES_STATUS`). It uses only the standard library and `gbfs.lyft.com`.
+`--once` polls once, for cron. Nothing reads these files yet: after a few weeks
+they can replace the forecast's trip-based rates with observed fullness, which
+includes rebalancing.
+
 ## Wait at the nearest stations
 
 `GET /bikes/wait?lat=&lng=` answers one question: which stations are nearest, and
@@ -91,7 +147,7 @@ how long until I have a bike there?
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `lat`, `lng` | required | Inside `SERVICE_AREA` |
-| `need` | `bike` | `bike` to rent, `dock` to return |
+| `need` | `bike` | `bike` or `ebike` to rent, `dock` to return |
 | `at` | now | Any ISO time; without an offset it is New York time |
 | `limit` | 3 | Nearest stations to return, 1 to 10 |
 | `format` | `json` | `text` returns the sentence alone, for Siri |
@@ -101,10 +157,10 @@ arrival time: `wait_if_empty_min` (60 / arrivals per hour, when someone returns 
 bike) and `wait_if_full_min` (60 / departures per hour, when someone takes one).
 `null` means no such trips at that hour.
 
-Without `at`, live GBFS adds `bikes`, `open_docks`, `status` (`available`,
-`empty`, `full` or `closed`), `wait_min` (0 when it has what you need) and
-`total_min` (walk plus wait). `best` is the returned station with the lowest
-`total_min`. With `at`, there are no live counts for that time, so `live` is
+Without `at`, live GBFS adds `bikes`, `ebikes`, `open_docks`, `status`
+(`available`, `empty`, `full` or `closed`), `chance` (it has what you need on
+arrival), `wait_min` (the refill wait if it does not) and `expected_min`.
+`best` is the returned station with the lowest `expected_min`. With `at`, there are no live counts for that time, so `live` is
 false, `best` is null and the message gives both conditional waits for the
 nearest station. Station names and places still come from the live feed.
 
@@ -152,9 +208,10 @@ otherwise the expected wait against the best open dock within 1.5 km, priced as
 the ride there plus a walk back at 1 m/s crow-flies. Add `format=text` for a
 sentence that Siri can speak.
 
-Siri Shortcut: Get Current Location, then Get Contents of URL
-`https://<api>/bikes/wait-or-ride?format=text&lat=<Latitude>&lng=<Longitude>`, then
-Speak Text.
+Siri Shortcut (as the page shows): Get Current Location, then Get Contents of URL
+`https://<api>/bikes/wait?format=text&lat=<Latitude>&lng=<Longitude>`, then Speak
+Text. Add `&need=dock` for the docking version. `/bikes/wait-or-ride` stays for
+shortcuts that already use it.
 
 ## Explorer
 

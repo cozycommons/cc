@@ -247,3 +247,13 @@ def test_low_odds_are_spelled_out_and_a_rarely_refilled_station_still_counts():
     assert result['message'].endswith('The nearest, Drain, has 1, 9% likely to last until you arrive.')
     quiet = nearby(DRAIN, [one_left, far], 40.7495, -73.9900, WEDNESDAY.replace(hour=3))
     assert quiet['best']['station'] == 'Drain' and quiet['message'] == 'Walk to Drain, a 1-minute walk: 1 bike now.'
+
+
+def test_plan_accepts_the_depart_format_the_page_sends(client):
+    from datetime import datetime, timedelta, timezone
+    http, _ = client
+    soon = (datetime.now(timezone.utc) + timedelta(minutes=30)).strftime('%Y-%m-%dT%H:%MZ')
+    later = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime('%Y-%m-%dT%H:%MZ')
+    trip = {'from_lat': PENN.lat, 'from_lng': PENN.lng, 'to_lat': 40.7295, 'to_lng': -73.9965}
+    assert http.get('/bikes/plan', params={**trip, 'depart': soon}).json()['live'] is True
+    assert http.get('/bikes/plan', params={**trip, 'depart': later}).json()['live'] is False
