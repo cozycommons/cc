@@ -15,7 +15,8 @@ from functools import cache
 import json
 import math
 
-from .forecast import chance
+from .conditions import holiday
+from .forecast import chance, rate
 from .model import MODEL_PATH
 
 # Crow-flies walking speed: about 1.3 m/s on the street grid with a 1.3x detour.
@@ -76,10 +77,7 @@ def distance_m(a_lat, a_lng, b_lat, b_lng):
 def expected_wait_min(model, short_name, when, rates='stations'):
     """Minutes until the next departure (rates='stations') or arrival (rates='arrivals'),
     or None for a dock with no such trips then."""
-    slots = model[rates].get(short_name)
-    if not slots:
-        return None
-    per_hour = slots[24 * (when.weekday() >= 5) + when.hour] / 100 * model['month_factor'][when.month - 1]
+    per_hour = rate(model, rates, short_name, when)
     return 60 / per_hour if per_hour > 0 else None
 
 
@@ -113,7 +111,9 @@ def minutes_or_none(value):
 
 
 def describe_when(when):
-    return f"{when.hour % 12 or 12} {'AM' if when.hour < 12 else 'PM'} on a {'weekend' if when.weekday() >= 5 else 'weekday'}"
+    day = holiday(when.date())
+    kind = day if day else f"a {'weekend' if when.weekday() >= 5 else 'weekday'}"
+    return f"{when.hour % 12 or 12} {'AM' if when.hour < 12 else 'PM'} on {kind}"
 
 
 NEEDS = {

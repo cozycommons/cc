@@ -8,6 +8,7 @@ registerdisney.go.com
 fan.api.espn.com
 site.api.espn.com
 gbfs.lyft.com
+api.open-meteo.com
 api.partiful.com
 identitytoolkit.googleapis.com
 securetoken.googleapis.com

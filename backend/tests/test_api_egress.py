@@ -28,6 +28,8 @@ NON_EGRESS = {
     '127.0.0.1': {'main.py', 'runtime_policy.py', 'trips/local.py'},
     's3.amazonaws.com': {'bikes/ingest.py'},
     'download.bbbike.org': {'bikes/basemap.py'},
+    # bikes.model's weather history download runs offline; the API imports the module for constants only.
+    'archive-api.open-meteo.com': {'bikes/model.py'},
     'api.cozycommons.dev': {'bikes/routes.py'},
 }
 

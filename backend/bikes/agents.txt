@@ -53,6 +53,16 @@ GET /live
 -> columnar arrays: id, name, lat, lng, bikes, ebikes, docks, docks_disabled, reported_s,
    flags (1 renting, 2 returning, 4 stale)
 
+## Conditions
+
+/wait, /plan and /stations/{id} answers carry `conditions`: this hour's Central Park
+weather (sky, temp_c, precip_mm, snow_72h_cm), a holiday name, `factor` (trips
+versus an average hour: rain about 0.6, heavy rain or snow about 0.4, snow on
+the ground about 0.6), a `note` to relay when the hour is unusual, and Citi
+Bike's active `alerts` (storm suspensions, closures for events). Odds and waits
+already include the factor. `message` adds the note and alerts; `answer` is the
+recommendation alone.
+
 ## Show the user a map
 
 /wait, /plan and /stations/{id} answers carry two links for the same view:

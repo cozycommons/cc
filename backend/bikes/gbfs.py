@@ -21,9 +21,9 @@ from .wait import Dock
 logger = logging.getLogger(__name__)
 
 FEED = 'https://gbfs.lyft.com/gbfs/2.3/bkn/en/'
-TTL_S = {'station_information': 3600.0, 'station_status': 60.0}
+TTL_S = {'station_information': 3600.0, 'station_status': 60.0, 'system_alerts': 300.0}
 # Live counts older than this would mislead, so a request fetches inline instead.
-MAX_STALE_S = {'station_information': 86400.0, 'station_status': 300.0}
+MAX_STALE_S = {'station_information': 86400.0, 'station_status': 300.0, 'system_alerts': 3600.0}
 TIMEOUT_S = 10
 FAIL_COOLDOWN_S = 30.0
 MAX_BYTES = 8_000_000
@@ -51,7 +51,8 @@ def _fetch(feed):
         raise GbfsError(f'{feed}: response too large')
     try:
         payload = json.loads(body)
-        stations = payload['data']['stations']
+        # Alerts (suspensions, closures for storms or events) come as data.alerts.
+        stations = payload['data']['alerts' if feed == 'system_alerts' else 'stations']
     except (ValueError, KeyError, TypeError):
         raise GbfsError(f'{feed}: unexpected response') from None
     if isinstance(payload.get('last_updated'), (int, float)):
@@ -111,6 +112,26 @@ def _fail_fast(feed):
         failed = _failed.get(feed)
     if failed is not None and time.monotonic() - failed < FAIL_COOLDOWN_S:
         raise GbfsError(f'{feed}: failed recently')
+
+
+def alerts(now):
+    """Citi Bike's active system alerts, newest feed copy; [] when the feed is unavailable.
+
+    Alerts carry storm suspensions and station closures for events. They never
+    block an answer, so a failure here only drops them."""
+    try:
+        items = _feed('system_alerts')
+    except GbfsError:
+        return []
+    stamp = now.timestamp()
+    active = []
+    for alert in items:
+        times = alert.get('times') or []
+        if times and not any(t.get('start', 0) <= stamp <= (t.get('end') or float('inf')) for t in times):
+            continue
+        active.append({'type': alert.get('type'), 'summary': alert.get('summary'),
+                       'description': alert.get('description'), 'station_ids': alert.get('station_ids') or []})
+    return active
 
 
 def feed_updated_at():
