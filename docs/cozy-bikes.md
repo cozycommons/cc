@@ -134,16 +134,28 @@ The locate button (lucide `LocateFixed` on the Cozy Wabi key) sits beside the
 Bike/E-bike/Dock toggle and in the Plan tab's From row, so a moved phone can
 re-center without reloading.
 
+### Interactive map
+
+Near me's map moves: drag to pan, pinch or scroll to zoom (200 m to 3 km from
+the center to each side), arrow keys and +/- when focused, and the corner keys
+zoom or return to you. Tap a station for its live counts, the chance a bike or
+dock is still there in 15 and 30 minutes, and Plan from here / Plan to here,
+which opens Plan with that end filled in. The search box above flies to a
+station by cross streets. During a gesture the drawing moves by a CSS transform
+and is redrawn for the new view when the gesture ends, so phones stay smooth.
+Minor streets drop out past 1.5 km. `/bikes?lat=&lng=&radius=&station=` opens
+that view with the station's popup: answers link it as `map_url`.
+
 ### Street basemap
 
-The Near me map draws OpenStreetMap streets, bike lanes, parks and filled water
-(harbor, Hudson, East River, lakes) under the stations, from static tiles in
-`frontend/public/bikes/map/` (2,022 tiles, 6.0 MB). The page fetches only the
-tiles around you, from its own origin, so no map service learns where you are,
-and there is no map library or CSP change. `python -m bikes.basemap` (bikes venv)
-rebuilds them from BBBike's New York extract (NYC, Jersey City, Hoboken) with
-DuckDB's spatial extension in under a minute; rerun it a few times a year. The
-format is in the module docstring.
+The map draws OpenStreetMap streets, bike lanes, parks and filled water (harbor,
+Hudson, East River, lakes) from tiles in `backend/bikes/map/` (2,022 tiles,
+6.0 MB). The API serves them at `/bikes/map/{name}.json` (gzipped, cached a day)
+to the page, and draws the same tiles into `/bikes/map.png`; only our own
+origins see where you look. There is no map library or CSP change.
+`python -m bikes.basemap` (bikes venv) rebuilds them from BBBike's New York
+extract (NYC, Jersey City, Hoboken) with DuckDB's spatial extension in under a
+minute; rerun it a few times a year. The format is in the module docstring.
 
 OpenStreetMap draws the harbor and tidal rivers only as coastline lines, so the
 builder closes the coastline into areas and calls an area water when it holds
@@ -175,6 +187,14 @@ Landmarks and addresses are the agent's to geocode.
   has published no guide for adding a custom server to Dots. Until it does, give
   Dots the same `agents.txt` URL if it can browse, or use ChatGPT's custom
   connector path when that reaches Dots.
+- **Maps in any agent, no MCP needed**: `/bikes/wait`, `/bikes/plan` and
+  `/bikes/stations/{id}` answers carry `map_url` (the interactive page on that
+  view, station open) and `map_image` (`/bikes/map.png`: a 640 x 640 PNG of
+  live stations over the streets, colored by bikes or docks, with counts on the
+  stations that matter). Nearly every chat agent can show an image or a link, so
+  this is the visual path for Muse and Dots today. Renders take 70 to 150 ms
+  and are shared for a minute per view. `COMMONS_SITE_URL` and `PUBLIC_API_URL`
+  set the link origins (default cozycommons.dev, api.cozycommons.dev).
 - **Rich UI in the chat (not built)**: hosts that support MCP Apps (spec
   2026-01-26, `io.modelcontextprotocol/ui`; Claude and ChatGPT) render a tool's
   `ui://` HTML resource inline. If we want Muse, Dots or ChatGPT to show station

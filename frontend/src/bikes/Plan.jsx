@@ -74,10 +74,11 @@ function Route({ option, ebike }) {
   );
 }
 
-export default function Plan({ geo, locate, live }) {
+export default function Plan({ geo, locate, live, seed }) {
   const mine = geo.status === 'ready' ? { name: 'My location', lat: geo.lat, lng: geo.lng } : null;
-  const [from, setFrom] = useState(null);
-  const [to, setTo] = useState(null);
+  // `seed` carries a station picked on the map ("Plan from here" / "Plan to here").
+  const [from, setFrom] = useState(() => seed?.from ?? null);
+  const [to, setTo] = useState(() => seed?.to ?? null);
   const [leave, setLeave] = useState(0);
   const [ebike, setEbike] = useState(false);
   const origin = from ?? mine;

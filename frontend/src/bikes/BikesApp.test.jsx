@@ -81,7 +81,7 @@ describe('Cozy Bikes', () => {
     expect(within(cards[1]).getByText('Best · Available')).toBeTruthy();
     expect(within(cards[1]).getByText('97%')).toBeTruthy();
     expect(document.querySelectorAll('.bk-local__unknown')).toHaveLength(1);  // the stale one, drawn hollow
-    expect(screen.getByRole('img', { name: '2 stations within 800 m, colored by bikes' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: /^Map of Citi Bike stations colored by bikes/ })).toBeTruthy();
     expect(within(cards[0]).getByText('Reported 2 min ago')).toBeTruthy();
 
     // Relocating asks again from the new position.
