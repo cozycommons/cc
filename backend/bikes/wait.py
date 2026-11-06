@@ -179,30 +179,70 @@ def live_fields(model, dock, need, now, walk, arrive):
     }
 
 
-def nearby(model, docks, lat, lng, when: datetime, need='bike', live=True, limit=3):
+def nearby(model, docks, lat, lng, when: datetime, need='bike', live=True, limit=3, include=None):
     """The `limit` nearest stations, each with its walk and expected waits, and the best one.
 
     Waits are read at arrival time (now plus the walk). With live data, each
     station also gets the chance it has what you need when you arrive (from its
     live count; see forecast.py) and the expected minutes until you have it: the
     walk, plus the refill wait weighted by the chance it is gone. `best` has the
-    lowest expected minutes. Without live data (an arbitrary time), both
-    conditional waits are given and there is no recommendation.
+    lowest expected minutes, and each a `verdict`. Without live data (an arbitrary
+    time), both conditional waits are given and there is no recommendation.
+
+    `include` (a Dock) is answered as `selected` from the same point: a station
+    picked on the map, near or not. It does not change `best` or the message.
     """
-    stations = []
-    for dock in sorted(docks, key=lambda d: distance_m(lat, lng, d.lat, d.lng))[:limit]:
+    def entry_for(dock):
         entry, walk, arrive = station_entry(model, dock, lat, lng, when)
         if live:
             entry.update(live_fields(model, dock, need, when, walk, arrive))
-        stations.append(entry)
+            entry['verdict'] = verdict(entry, need)
+        return entry
+
+    stations = [entry_for(dock) for dock in sorted(docks, key=lambda d: distance_m(lat, lng, d.lat, d.lng))[:limit]]
     best = min((s for s in stations if live and s['expected_min'] is not None),
                key=lambda s: s['expected_min'], default=None)
-    return {'need': need, 'at': when.isoformat(timespec='minutes'), 'live': live,
-            'best': best, 'stations': stations, 'message': nearby_message(stations, best, need, live, when)}
+    selected = None if include is None else next(
+        (s for s in stations if s['station_id'] == include.short_name), None) or entry_for(include)
+    return {'need': need, 'at': when.isoformat(timespec='minutes'), 'live': live, 'best': best,
+            'selected': selected, 'stations': stations, 'message': nearby_message(stations, best, need, live, when)}
 
 
-def percent(p):
-    return f'{min(99, round(p * 100))}%' if p < 0.995 else 'over 99%'
+def odds(p):
+    """A chance as people say it: 'about 7 in 10', 'very likely', 'very unlikely'."""
+    if p >= 0.95:
+        return 'very likely'
+    if p < 0.05:
+        return 'very unlikely'
+    return f'about {max(1, min(9, round(p * 10)))} in 10'
+
+
+def verdict(entry, need):
+    """One call on a station for someone heading there now: {'tone', 'text'}.
+
+    Tones: go, likely, risky, skip, unknown. Chance is on arrival (after the walk).
+    """
+    status, p, wait = entry.get('status'), entry.get('chance'), entry.get('wait_min')
+    noun = NEEDS[need][3]
+    if status == 'unknown' or (p is None and status != 'closed'):
+        return {'tone': 'unknown', 'text': 'Not reporting: counts may be wrong'}
+    if status == 'closed':
+        return {'tone': 'skip', 'text': 'Closed for docking' if need == 'dock' else 'Closed for rentals'}
+    if status == 'available':
+        if p >= 0.9:
+            return {'tone': 'go', 'text': 'Go: it will be there'}
+        if p >= 0.7:
+            return {'tone': 'likely', 'text': 'Likely there when you arrive'}
+        if p >= 0.4:
+            return {'tone': 'risky', 'text': 'Toss-up: have a backup'}
+        return {'tone': 'skip', 'text': 'Probably gone by the time you arrive'}
+    article = 'an' if noun[0] in 'aeo' else 'a'
+    if p >= 0.7:
+        return {'tone': 'likely', 'text': f'{status.capitalize()} now, but {article} {noun} likely by the time you arrive'}
+    if wait is None:
+        return {'tone': 'skip', 'text': f'{status.capitalize()}, and rarely refills at this hour'}
+    tone = 'risky' if wait <= 10 else 'skip'
+    return {'tone': tone, 'text': f'{status.capitalize()}: {article} {noun} in about {minutes(wait)}'}
 
 
 def nearby_message(stations, best, need, live, when):
@@ -224,12 +264,12 @@ def nearby_message(stations, best, need, live, when):
     if count > 0:
         message = f"{walk}: {count} {noun}{'' if count == 1 else 's'} now."
         if best['chance'] < MENTION_BELOW:
-            message = message[:-1] + f", {percent(best['chance'])} likely one is left when you arrive."
+            message += f" Odds one is left when you arrive: {odds(best['chance'])}."
 
     else:
         message = f"{walk}. It is {best['status']}, but {refill} in {duration(best['wait_min'])}."
         if best['chance'] >= 0.05:
-            message += f" {percent(best['chance']).capitalize()} chance one is back by the time you arrive."
+            message += f" Odds one is back by the time you arrive: {odds(best['chance'])}."
     if best is not nearest:
         if nearest['status'] == 'closed':
             reason = 'is closed'
@@ -237,7 +277,10 @@ def nearby_message(stations, best, need, live, when):
             reason = f"has not reported for {since(nearest['reported_s'])}"
 
         elif nearest[key] > 0:
-            reason = f"has {nearest[key]}, {percent(nearest['chance'])} likely to last until you arrive"
+            words = odds(nearest['chance'])
+            reason = (f"has {nearest[key]}, {words} to last until you arrive" if words.startswith('very')
+                      else f"has {nearest[key]}, with {words} odds {'it lasts' if nearest[key] == 1 else 'they last'} "
+                           'until you arrive')
         elif nearest['wait_min'] is None:
             reason = f"is {nearest['status']} and rarely refills at this hour"
         else:

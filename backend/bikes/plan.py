@@ -9,7 +9,7 @@ no useful live counts, so their chances are null and only the timing is planned.
 from datetime import timedelta
 
 from .forecast import HORIZON_MIN, chance
-from .wait import MENTION_BELOW, WALK_MPS, distance_m, duration, minutes, percent, refill_cost, refill_wait
+from .wait import MENTION_BELOW, WALK_MPS, distance_m, duration, minutes, odds, refill_cost, refill_wait
 
 CANDIDATES = 4
 REACH_M = 1000
@@ -80,7 +80,7 @@ def plan_message(best, walk_only):
     def odds(leg, noun):
         if leg['chance'] is None or leg['chance'] >= MENTION_BELOW:
             return ''
-        return f" ({percent(leg['chance'])} likely to have {noun})"
+        return f" (odds of {noun}: {odds(leg['chance'])})"
     bike = 'an e-bike' if start['need'] == 'ebike' else 'a bike'
     message = (f"Walk {minutes(start['walk_min'])} to {start['station']}{odds(start, bike)}, "
                f"ride {minutes(best['ride_min'])} to {end['station']}{odds(end, 'a dock')}, "
