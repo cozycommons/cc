@@ -79,7 +79,7 @@ def test_retention_is_per_app_and_includes_manual_backups(setup):
     assert len(backups.list("other")) == 3
     assert not (backups.root / ids[0]).exists()
     clock[0] += 1
-    with backups.store.lock:
+    with backups.store.app_lock("trip"):
         manual = backups.create(backups.store.get("trip"))
     assert len(backups.list("trip")) == 3
     assert backups.list("trip")[0] == manual

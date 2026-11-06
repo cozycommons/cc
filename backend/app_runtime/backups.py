@@ -65,7 +65,7 @@ class Backups:
         self.prune(record["name"])
 
     def create(self, record, kind="manual"):
-        # Caller holds store.lock, also used by lifecycle/restore/exec admission.
+        # Caller holds store.app_lock(name), also used by app mutations.
         name = record["name"]
         if "db_password" in record:
             raise ValueError("Export the legacy managed database into a new sandbox before backup")
@@ -113,7 +113,7 @@ class Backups:
         for entry in self.store.all():
             if stop is not None and stop.is_set():
                 break
-            with self.store.lock:
+            with self.store.app_lock(entry["name"]):
                 record = self.store.get(entry["name"])
                 try:
                     if "db_password" in record:

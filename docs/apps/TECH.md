@@ -56,8 +56,11 @@ shared FastAPI API and does not mount Docker access into that existing service.
   retained, shared by automatic/manual snapshots. An atomic manifest marks
   completion; partial failures never evict a good snapshot. A durable backup-only
   marker restores prior running/stopped state after manager interruption.
+- Per-app locks serialize mutations without holding the registry lock during
+  Docker or archive operations; other apps remain available during backups.
 - Backups stop the app and archive its entire workspace using a helper
-  container. Restore is explicit and occurs while stopped. Platform routes and
+  container. Restore is explicit and occurs while stopped. It stages extraction on the
+  workspace volume before replacement, with rollback on ordinary rename failures. Platform routes and
   membership are not restored from app-owned files. Local backups are not disaster
   recovery; off-server copies and hosted restore drills remain a hosted gate.
 

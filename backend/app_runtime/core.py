@@ -56,6 +56,7 @@ def digest(token: str) -> str:
 class Store:
     def __init__(self, path: Path):
         self.lock = threading.RLock()
+        self._app_locks = {}
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS apps (name TEXT PRIMARY KEY, body TEXT NOT NULL)"
@@ -64,6 +65,11 @@ class Store:
             "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL)"
         )
         self.db.commit()
+
+    def app_lock(self, name):
+        """Serialize changes to one app without blocking registry readers."""
+        with self.lock:
+            return self._app_locks.setdefault(name, threading.RLock())
 
     def all(self, table="apps"):
         assert table in {"apps", "jobs"}

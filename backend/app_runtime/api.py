@@ -30,6 +30,7 @@ config_path = Path(os.environ.get("APPS_PROXY_CONFIG", "/proxy/Caddyfile"))
 creators = set(os.environ.get("APPS_CREATORS", "owner").split(","))
 runtime = Runtime()
 backups = Backups(store, runtime, state)
+proxy_lock = threading.RLock()
 
 
 @asynccontextmanager
@@ -140,11 +141,12 @@ def public_record(record, who):
 
 
 def sync_proxy():
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    temp = config_path.with_suffix(".tmp")
-    temp.write_text(proxy_config(store.all()))
-    temp.replace(config_path)
-    runtime.reload_proxy()
+    with proxy_lock:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = config_path.with_suffix(".tmp")
+        temp.write_text(proxy_config(store.all()))
+        temp.replace(config_path)
+        runtime.reload_proxy()
 
 
 @app.exception_handler(ValueError)
@@ -198,7 +200,7 @@ def create(body: Create, who=Depends(identity)):
     if who not in creators:
         raise HTTPException(403, "App creation is not enabled for this identity")
     name = slug(body.name)
-    with store.lock:
+    with store.app_lock(name):
         if store.get(name):
             raise HTTPException(409, "App name already allocated")
         token = secrets.token_urlsafe(32)
@@ -234,7 +236,7 @@ class Member(BaseModel):
 
 @app.put("/api/apps/{name}/members/{user}")
 def member(name: str, user: str, body: Member, who=Depends(identity)):
-    with store.lock:
+    with store.app_lock(name):
         record = authorized(name, who, "owner")
         if user not in users or body.role not in {"viewer", "contributor", "none"}:
             raise HTTPException(
@@ -258,7 +260,7 @@ class Route(BaseModel):
 @app.put("/api/apps/{name}/routes/{service}")
 def expose(name: str, service: str, body: Route, who=Depends(identity)):
     service_name(service)
-    with store.lock:
+    with store.app_lock(name), proxy_lock:
         record = authorized(name, who, "contributor")
         previous = dict(record["routes"])
         record["routes"][service] = body.model_dump()
@@ -275,7 +277,7 @@ def expose(name: str, service: str, body: Route, who=Depends(identity)):
 
 @app.delete("/api/apps/{name}/routes/{service}")
 def unexpose(name: str, service: str, who=Depends(identity)):
-    with store.lock:
+    with store.app_lock(name), proxy_lock:
         record = authorized(name, who, "contributor")
         record["routes"].pop(service, None)
         store.put(record)
@@ -324,7 +326,7 @@ def execute_job(job, command, timeout):
 
 @app.post("/api/apps/{name}/exec", status_code=202)
 def execute(name: str, body: Command, who=Depends(identity)):
-    with store.lock:
+    with store.app_lock(name):
         record = authorized(name, who, "contributor")
         ready(record)
         if (
@@ -366,24 +368,26 @@ class FileWrite(BaseModel):
 
 @app.get("/api/apps/{name}/file")
 def read_file(name: str, path: str, who=Depends(identity)):
-    record = authorized(name, who, "contributor")
-    ready(record)
-    return {"content": runtime.file(name, path)}
+    with store.app_lock(name):
+        record = authorized(name, who, "contributor")
+        ready(record)
+        return {"content": runtime.file(name, path)}
 
 
 @app.put("/api/apps/{name}/file")
 def write_file(name: str, body: FileWrite, who=Depends(identity)):
-    record = authorized(name, who, "contributor")
-    ready(record)
-    runtime.file(name, body.path, body.content)
-    return {"written": body.path}
+    with store.app_lock(name):
+        record = authorized(name, who, "contributor")
+        ready(record)
+        runtime.file(name, body.path, body.content)
+        return {"written": body.path}
 
 
 @app.post("/api/apps/{name}/lifecycle/{action}")
 def lifecycle(name: str, action: str, who=Depends(identity)):
     if action not in {"start", "stop", "restart", "recreate"}:
         raise HTTPException(422, "Choose start, stop, restart or recreate")
-    with store.lock:
+    with store.app_lock(name):
         record = authorized(name, who, "owner")
         if action == "recreate":
             if "db_password" in record:
@@ -409,7 +413,7 @@ def lifecycle(name: str, action: str, who=Depends(identity)):
 
 @app.get("/api/apps/{name}/backups")
 def list_backups(name: str, who=Depends(identity)):
-    with store.lock:
+    with store.app_lock(name):
         record = authorized(name, who, "owner")
         return {
             "backups": backups.list(name),
@@ -420,7 +424,7 @@ def list_backups(name: str, who=Depends(identity)):
 
 @app.post("/api/apps/{name}/backups", status_code=201)
 def backup(name: str, who=Depends(identity)):
-    with store.lock:
+    with store.app_lock(name):
         record = authorized(name, who, "owner")
         return backups.create(record)
 
@@ -438,7 +442,7 @@ def restore(name: str, backup_id: str, body: Restore, who=Depends(identity)):
         )
     if not len(backup_id) == 32 or any(c not in "0123456789abcdef" for c in backup_id):
         raise HTTPException(404, "Backup not found")
-    with store.lock:
+    with store.app_lock(name):
         record = authorized(name, who, "owner")
         # Select a manager-owned directory rather than constructing a filesystem
         # path from request input. Never follow a substituted backup symlink.

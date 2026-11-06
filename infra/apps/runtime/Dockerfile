@@ -10,3 +10,4 @@ RUN chmod +x /usr/local/bin/app-start /usr/local/bin/commons
 ENV HOME=/workspace/home
 WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/app-start"]
+COPY infra/apps/runtime/restore_workspace.py /opt/restore_workspace.py

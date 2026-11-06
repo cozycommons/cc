@@ -160,15 +160,20 @@ backups remain owner-only. The MCP contract remains four tools.
 
 Backup briefly stops a running app and archives its entire workspace;
 a stopped app stays stopped. Daily snapshots can interrupt active requests and
-shell jobs. A single scheduler in the manager serializes backups with lifecycle,
-restore and other registry operations. Run the manager with one worker only.
+shell jobs. Per-app locks serialize backups with lifecycle, restore and other
+changes to that app. Registry reads and requests to other apps stay available.
+Run the manager with one worker only.
 Interrupted backups are recovered on startup; a failed restore is never
 mistaken for an interrupted backup.
 
 Restore replaces `/workspace`, including code, Git history, SQLite files and
 sidecars, and any other app-owned data stored there. Membership and routing stay
-under platform control. A failed restore leaves the app stopped. Backups do not
-include the container's entire writable filesystem, installed OS packages,
+under platform control. Restore extracts into temporary space on the workspace
+volume before replacing current files, so it needs room for both copies. Missing, corrupt or incomplete
+archives leave current files intact; ordinary replacement errors roll back. A
+failed restore leaves the app stopped. A host/helper crash during replacement
+can require manual recovery from `.commons-restore-*/previous` in the workspace;
+this is not a crash-atomic volume swap. Backups do not include the container's entire writable filesystem, installed OS packages,
 process memory or external databases. For a self-managed database server, keep
 its data under `/workspace`, supervise graceful shutdown and test recovery using
 a compatible engine version.

@@ -321,3 +321,47 @@ def test_restore_selects_owned_directory_and_rejects_symlinks(client, tmp_path):
     fake.archive.assert_called_once_with("trip", backup_id, restore=True)
     fake.container.return_value.stop.assert_called_once_with(timeout=10)
     fake.container.return_value.start.assert_called_once()
+
+
+@pytest.mark.parametrize('automatic', [False, True])
+def test_backup_does_not_block_other_apps_or_lose_same_app_updates(client, automatic):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from unittest.mock import MagicMock
+
+    c, api, fake = client
+    entered, release = threading.Event(), threading.Event()
+    fake.container = MagicMock()
+
+    def archive(*args):
+        entered.set()
+        assert release.wait(5), 'test did not release backup'
+
+    fake.archive = archive
+    other = api.store.get('trip')
+    other.update(name='other', routes={'default': {'port': 3000, 'public': True}})
+    api.store.put(other)
+    if automatic:
+        record = api.store.get('trip')
+        record['next_backup_at'] = 0
+        api.store.put(record)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        snapshot = pool.submit(api.backups.tick) if automatic else pool.submit(
+            c.post, '/api/apps/trip/backups', headers=headers('owner'))
+        try:
+            assert entered.wait(2)
+            authorization = pool.submit(c.get, '/authorize/other/default')
+            assert authorization.result(timeout=2).status_code == 204
+            membership = pool.submit(c.put, '/api/apps/trip/members/viewer',
+                                     json={'role': 'contributor'}, headers=headers('owner'))
+            # Reads remain available while this app is marked unavailable.
+            assert api.store.get('trip')['status'] == 'maintenance'
+        finally:
+            release.set()
+        result = snapshot.result(timeout=2)
+        if not automatic:
+            assert result.status_code == 201
+        assert membership.result(timeout=2).status_code == 200
+    assert api.store.get('trip')['members']['viewer'] == 'contributor'
+    assert api.store.get('trip')['status'] == 'running'

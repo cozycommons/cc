@@ -125,7 +125,7 @@ else:
 
     def archive(self, name, backup_id, restore=False):
         command = (
-            "find /workspace -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; tar xzf /backup/workspace.tgz -C /workspace"
+            "python /opt/restore_workspace.py /backup/workspace.tgz"
             if restore
             else f"tar czf /state/backups/{backup_id}/workspace.tgz -C /workspace ."
         )
