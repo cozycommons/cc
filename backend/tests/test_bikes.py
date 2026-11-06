@@ -137,3 +137,27 @@ def test_durations_switch_to_hours():
     from bikes.wait import duration
     assert [duration(v) for v in (0.4, 12, 89, 90, 150)] == [
         'about 1 minute', 'about 12 minutes', 'about 89 minutes', 'about 2 hours', 'about 2 hours']
+
+
+def test_stale_feed_is_served_while_one_refresh_runs(monkeypatch):
+    gbfs.reset_cache()
+    fetched, started = [], []
+    monkeypatch.setattr(gbfs, '_fetch', lambda feed: fetched.append(feed) or [{'v': len(fetched)}])
+    monkeypatch.setattr(gbfs, 'start_refresh', started.append)
+    assert gbfs._feed('station_status') == [{'v': 1}]  # cold: fetched inline
+
+    gbfs._cache['station_status'] = (gbfs.time.monotonic() - 120, [{'v': 'old'}])
+    assert gbfs._feed('station_status') == [{'v': 'old'}]  # past TTL: no wait
+    assert gbfs._feed('station_status') == [{'v': 'old'}]
+    assert started == ['station_status'] and fetched == ['station_status']  # one refresh, not inline
+
+    def fail(feed):
+        raise gbfs.GbfsError('timeout')
+    monkeypatch.setattr(gbfs, '_fetch', fail)
+    gbfs._refresh('station_status')  # what the thread runs
+    assert gbfs._feed('station_status') == [{'v': 'old'}] and 'station_status' in started
+
+    gbfs._cache['station_status'] = (gbfs.time.monotonic() - 600, [{'v': 'old'}])
+    with pytest.raises(gbfs.GbfsError):  # too stale to serve: fetch inline, and surface the failure
+        gbfs._feed('station_status')
+    gbfs.reset_cache()

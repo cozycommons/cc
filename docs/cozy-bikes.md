@@ -116,6 +116,17 @@ At 3 AM on a weekday, the nearest station is W 31 St & 7 Ave, a 1-minute walk. I
 a bike usually comes back in about 72 minutes; if it is full, a dock usually opens in about 72 minutes.
 ```
 
+### Latency
+
+The request path is plain Python over in-memory data; DuckDB only builds the
+model offline. The model (890 KB JSON) loads once per process in about 12 ms, and
+the nearest-station search scans about 2,500 live stations. The GBFS feeds are
+served from memory past their TTL (60 s status, 1 h locations) while one
+background thread refreshes them, so warm requests never wait on Citi Bike.
+Only a cold process, or status older than 5 minutes, fetches inline (about
+350 ms; 503 if Citi Bike is down). Measured in-process on `/bikes/wait?limit=10`:
+p50 2 ms, p99 4 ms warm; 2 ms max during a simulated 3 s refresh.
+
 ## Wait or ride
 
 At a full dock a slot opens when someone takes a bike out, so the expected wait
