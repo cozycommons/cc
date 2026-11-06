@@ -1,5 +1,6 @@
 import React from 'react';
 import BikeMap from './BikeMap.jsx';
+import Conditions from './Conditions.jsx';
 import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
 import ModeSwitch from './Mode.jsx';
@@ -65,7 +66,8 @@ export default function NearMe({ geo, locate, need, setNeed, live, focus, onPlan
       {result && (
         <div className={`bk-results${wait.status === 'error' ? ' is-stale' : ''}`}>
           <Freshness state={wait} />
-          <p className="bk-answer-line" aria-live="polite">{result.message}</p>
+          <Conditions conditions={result.conditions} />
+          <p className="bk-answer-line" aria-live="polite">{result.answer ?? result.message}</p>
           {live.data && (
             <BikeMap stations={live.data.stations} home={geo} focus={focus} need={need} onPlan={onPlan}
               highlight={result.stations.map((s) => s.station_id)} />

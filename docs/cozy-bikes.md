@@ -83,6 +83,32 @@ GROUP BY ALL ORDER BY trips DESC LIMIT 10;
 The view stores the data directory's absolute path. After moving the directory,
 rerun the ingest to rewrite it.
 
+## Weather, holidays and alerts
+
+The rates are yearly averages by station, day type, hour and month. What moves a
+given hour off that average is mostly weather and holidays: over 2025-11 to
+2026-10 the days furthest from normal were the Jan 25-30 snowstorm and cold snap
+(7% to 27% of normal, and low for days after the snow stopped), Feb 23 (no trips:
+a snowstorm), 43-56 mm rain days (19% to 34%), and Christmas and New Year's Day
+(about a third). Events (marathons, parades) do not show citywide; they are local.
+
+- `bikes.model` fetches Central Park's hourly weather for the window (Open-Meteo
+  archive, CC BY 4.0) and fits trip multipliers against the model's own baseline:
+  by sky (dry, drizzle, rain, heavy rain, snow) and temperature band, plus "snow
+  on the ground" (2 cm or more in the past 72 hours, dry now). Fitted on the year:
+  heavy rain 0.42, snow 0.40 (0.24 below freezing), rain 0.63 (but 0.97 at
+  25-30 °C), snow on the ground 0.61, dry 1.07. They are in `wait_model.json` as
+  `weather`. On held-out days the fit cut the error in wet hours from 39% to 35%.
+- `bikes.conditions` fetches the live hourly forecast from `api.open-meteo.com`
+  (cached 30 minutes, 4 s timeout; if it is down, rates are unadjusted) and scales
+  every arrival and departure rate by its hour's factor, so waits and odds account
+  for the weather at the time you arrive. Federal holidays use the weekend profile.
+- Citi Bike's GBFS `system_alerts` (storm suspensions, closures for events) are
+  passed through.
+- Answers carry `conditions` (weather, holiday, factor, a `note`, alerts). `message`
+  adds the note and alerts for speech; `answer` is the recommendation alone. The
+  page shows the note and alerts above the answer when the hour is unusual.
+
 ## The /bikes page
 
 Linked from the home shelf. Mobile first. The first decision is renting or
