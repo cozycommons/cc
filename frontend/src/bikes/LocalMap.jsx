@@ -10,10 +10,13 @@ export const LEVELS = [
   { key: 'low', label: '1–2', color: '#fab219' },
   { key: 'out', label: 'No', color: '#d03b3b' },
   { key: 'closed', label: 'Closed', color: '#9a8f82' },
+  // Drawn hollow: its counts are at least 15 minutes old.
+  { key: 'unknown', label: 'No recent report', color: '#9a8f82' },
 ];
 const COLOR = Object.fromEntries(LEVELS.map((l) => [l.key, l.color]));
 
 export function level(stations, i, need) {
+  if (stations.flags[i] & 4) return 'unknown';
   const serving = need === 'dock' ? stations.flags[i] & 2 : stations.flags[i] & 1;
   if (!serving) return 'closed';
   const count = stations[need === 'dock' ? 'docks' : need === 'ebike' ? 'ebikes' : 'bikes'][i];
@@ -45,7 +48,9 @@ export default function LocalMap({ stations, center, need, highlight, onSelect }
           return (
             <g key={id} className={`bk-local__station${marked ? ' is-marked' : ''}`} onClick={() => onSelect?.(id)}>
               <circle cx={x} cy={y} r="16" fill="transparent" />
-              <circle cx={x} cy={y} r={marked ? 11 : 8} fill={COLOR[level(stations, i, need)]} />
+              {level(stations, i, need) === 'unknown'
+                ? <circle className="bk-local__unknown" cx={x} cy={y} r={marked ? 10 : 7} />
+                : <circle cx={x} cy={y} r={marked ? 11 : 8} fill={COLOR[level(stations, i, need)]} />}
               {marked && <text x={x} y={y + 4} textAnchor="middle">{countOf(stations, i, need)}</text>}
             </g>
           );
@@ -54,7 +59,13 @@ export default function LocalMap({ stations, center, need, highlight, onSelect }
       </svg>
       <figcaption>
         <ul className="bk-legend bk-legend--ramp" aria-label={noun}>
-          {LEVELS.map((l) => <li key={l.key}><i style={{ background: l.color }} />{l.key === 'closed' ? l.label : `${l.label} ${noun}`}</li>)}
+          {LEVELS.map((l) => (
+            <li key={l.key}>
+              <i className={l.key === 'unknown' ? 'bk-legend__unknown' : undefined}
+                style={l.key === 'unknown' ? undefined : { background: l.color }} />
+              {['closed', 'unknown'].includes(l.key) ? l.label : `${l.label} ${noun}`}
+            </li>
+          ))}
           <li><i className="bk-legend__you" />You · ring 400 m</li>
         </ul>
       </figcaption>

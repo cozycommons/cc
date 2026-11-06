@@ -17,12 +17,12 @@ const LIVE = {
   stations: {
     id: ['6331.01', '6364.07'], name: ['W 31 St & 7 Ave', 'W 37 St & Broadway'],
     lat: [40.74916, 40.7546], lng: [-73.9916, -73.9876],
-    bikes: [0, 6], ebikes: [0, 4], docks: [40, 2], flags: [3, 3],
+    bikes: [0, 6], ebikes: [0, 4], docks: [40, 2], flags: [3, 3 | 4],
   },
 };
 const station = (over) => ({
   station: 'W 31 St & 7 Ave', station_id: '6331.01', walk_min: 1, bikes: 0, ebikes: 0, open_docks: 40,
-  status: 'empty', chance: 0.2, wait_min: 8, expected_min: 7.4, ...over,
+  status: 'empty', chance: 0.2, wait_min: 8, expected_min: 7.4, reported_s: 140, docks_disabled: 0, ...over,
 });
 const WAIT = {
   need: 'bike', live: true,
@@ -67,10 +67,17 @@ describe('Cozy Bikes', () => {
     expect(cards.map((c) => within(c).getByRole('heading').textContent)).toEqual(['W 31 St & 7 Ave', 'W 37 St & Broadway']);
     expect(within(cards[1]).getByText('Best · Available')).toBeTruthy();
     expect(within(cards[1]).getByText('97%')).toBeTruthy();
+    expect(document.querySelectorAll('.bk-local__unknown')).toHaveLength(1);  // the stale one, drawn hollow
     expect(screen.getByRole('img', { name: '2 stations within 800 m, colored by bikes' })).toBeTruthy();
+    expect(within(cards[0]).getByText('Reported 2 min ago')).toBeTruthy();
+
+    // Relocating asks again from the new position.
+    locate({ latitude: 40.7359, longitude: -73.9911 });
+    fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.7359&lng=-73.9911&need=bike&limit=5'));
 
     fireEvent.click(screen.getByRole('tab', { name: 'Dock' }));
-    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=dock&limit=5'));
+    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.7359&lng=-73.9911&need=dock&limit=5'));
   });
 
   it('plans a trip from your location to a searched station', async () => {
@@ -78,7 +85,7 @@ describe('Cozy Bikes', () => {
     locate({ latitude: 40.750212, longitude: -73.991612 });
     view();
     fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Start from my location' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use my location' }));
     fireEvent.change(await screen.findByLabelText('To'), { target: { value: '37 broad' } });
     fireEvent.click(await screen.findByRole('button', { name: 'W 37 St & Broadway' }));
     expect(await screen.findByText(PLAN.message)).toBeTruthy();
@@ -102,5 +109,13 @@ describe('station search', () => {
     expect(searchWords('West 31st Street & 7th Avenue')).toEqual(['w', '31', 'st', '&', '7', 'ave']);
     expect(matches('W 31 St & 7 Ave', searchWords('west 31st 7th avenue'))).toBe(true);
     expect(matches('Henry Hudson Pkwy E & W 231 St', searchWords('31'))).toBe(false);
+  });
+});
+
+describe('report age', () => {
+  it('reads minutes, hours, then over a day', async () => {
+    const { reportedLabel } = await import('./NearMe.jsx');
+    expect([30, 140, 3 * 3600, 1783000000].map(reportedLabel)).toEqual(
+      ['Reported just now', 'Reported 2 min ago', 'Reported 3 hours ago', 'No report in over a day']);
   });
 });

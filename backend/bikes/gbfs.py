@@ -117,7 +117,8 @@ def docks():
         found.append(Dock(info['short_name'], info['name'], float(info['lat']), float(info['lon']),
                           int(live.get('num_docks_available', 0)), bool(live.get('is_returning')),
                           int(live.get('num_bikes_available', 0)), bool(live.get('is_renting')),
-                          int(live.get('num_ebikes_available', 0))))
+                          int(live.get('num_ebikes_available', 0)), int(live.get('last_reported') or 0),
+                          int(live.get('num_docks_disabled', 0))))
     if not found:
         raise GbfsError('no installed stations')
     _joined = (info_feed, status_feed, found)

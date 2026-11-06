@@ -16,7 +16,7 @@ REACH_M = 1000
 
 
 def candidates(docks, lat, lng, serving):
-    near = sorted((distance_m(lat, lng, d.lat, d.lng), d) for d in docks if serving(d))
+    near = sorted(((distance_m(lat, lng, d.lat, d.lng), d) for d in docks if serving(d)), key=lambda pair: pair[0])
     return [(gap, d) for gap, d in near[:CANDIDATES] if gap <= REACH_M] or near[:1]
 
 
@@ -32,11 +32,12 @@ def plan(model, docks, origin, destination, now, depart, live, ebike=False):
     need = 'ebike' if ebike else 'bike'
     lead = (depart - now).total_seconds() / 60
     options = []
-    for start_gap, start in candidates(docks, *origin, lambda d: d.renting):
+    # Stations that stopped reporting are left out: their counts may be hours old.
+    for start_gap, start in candidates(docks, *origin, lambda d: d.renting and not d.stale(now)):
         walk_to = start_gap / WALK_MPS / 60
         at_start = depart + timedelta(minutes=walk_to)
         p_bike, bike_wait, bike_risk = leg(model, start, need, now, at_start, lead + walk_to) if live else (None, None, 0.0)
-        for end_gap, end in candidates(docks, *destination, lambda d: d.returning):
+        for end_gap, end in candidates(docks, *destination, lambda d: d.returning and not d.stale(now)):
             if end is start:
                 continue
             ride = distance_m(start.lat, start.lng, end.lat, end.lng) / model['ride_mps'] / 60

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import LocateButton from './LocateButton.jsx';
 import { mins, percent, usePolling } from './live.js';
 
 const LEAVE = [{ label: 'Now', minutes: 0 }, { label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }];
@@ -13,7 +14,7 @@ export function matches(name, words) {
   return words.every((w) => (/^\d+$/.test(w) ? tokens.includes(w) : tokens.some((t) => t.startsWith(w))));
 }
 
-function StationSearch({ id, label, stations, value, onPick, mine }) {
+function StationSearch({ id, label, stations, value, onPick, mine, action }) {
   const [text, setText] = useState('');
   const found = useMemo(() => {
     const words = searchWords(text);
@@ -26,7 +27,10 @@ function StationSearch({ id, label, stations, value, onPick, mine }) {
       {value ? (
         <div className="bk-search__picked">
           <span>{value.name}</span>
-          <button type="button" className="bk-link" onClick={() => { onPick(null); setText(''); }}>Change</button>
+          <span className="bk-search__actions">
+            {action}
+            <button type="button" className="bk-link" onClick={() => { onPick(null); setText(''); }}>Change</button>
+          </span>
         </div>
       ) : (
         <>
@@ -86,11 +90,11 @@ export default function Plan({ geo, locate, live }) {
   const result = plan.data;
   return (
     <section className="bk-pane" aria-label="Plan a trip">
-      {!mine && geo.status !== 'locating' && (
-        <button type="button" className="cc-button cc-button--secondary" onClick={locate}>Start from my location</button>
-      )}
+      {!mine && <LocateButton geo={geo} locate={locate} label="Use my location" />}
+      {geo.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{geo.message}</p>}
       <StationSearch id="bk-from" label="From" stations={stations} value={from ?? mine}
-        onPick={(v) => setFrom(v && v.name === 'My location' ? null : v)} mine={mine} />
+        onPick={(v) => setFrom(v && v.name === 'My location' ? null : v)} mine={mine}
+        action={!from && mine ? <LocateButton geo={geo} locate={locate} compact /> : null} />
       <StationSearch id="bk-to" label="To" stations={stations} value={to} onPick={setTo} />
       <div className="bk-row">
         <div className="cc-segmented" role="tablist" aria-label="Leave">

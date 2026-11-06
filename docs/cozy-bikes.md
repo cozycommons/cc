@@ -102,6 +102,22 @@ Mobile first, in three tabs:
 
 `?tab=plan` or `?tab=explore` opens a tab.
 
+### Live dock status and freshness
+
+Every answer reads Citi Bike's live open docks (`num_docks_available`, which
+already leaves out broken docks; `docks_disabled` counts those) and whether the
+station accepts returns (`is_returning`, else status `closed`). Citi Bike rebuilds
+the feed about every 60 s and each station's own report is typically 1 to 4
+minutes old; the cache adds at most a minute. Responses carry `reported_s`, the
+age of each station's report. A station silent for 15 minutes (`STALE_S`) is
+`unknown`: no odds, never recommended, left out of plans, and drawn hollow on the
+map. In November 2026 about two dozen stations had not reported for over an hour,
+and a few send report times near 1970, which read as "over a day".
+
+The locate button (lucide `LocateFixed` on the Cozy Wabi key) sits beside the
+Bike/E-bike/Dock toggle and in the Plan tab's From row, so a moved phone can
+re-center without reloading.
+
 ## For agents
 
 Everything is public and read only, so an agent needs no connector or sign-in:

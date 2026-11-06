@@ -55,10 +55,13 @@ def matches(name, words):
     return all(w in tokens if w.isdigit() else any(t.startswith(w) for t in tokens) for w in words)
 
 
-def live_counts(dock):
+def live_counts(dock, now):
+    age = dock.report_age_s(now)
     return {'station': dock.name, 'station_id': dock.short_name, 'lat': dock.lat, 'lng': dock.lng,
             'bikes': dock.bikes, 'ebikes': dock.ebikes, 'classic_bikes': dock.bikes - dock.ebikes,
-            'open_docks': dock.docks, 'renting': dock.renting, 'returning': dock.returning}
+            'open_docks': dock.docks, 'docks_disabled': dock.docks_disabled,
+            'renting': dock.renting, 'returning': dock.returning,
+            'reported_s': None if age is None else round(age), 'stale': dock.stale(now)}
 
 
 def find_station(docks, station_id):
@@ -100,7 +103,8 @@ def stations(
         found.sort(key=lambda d: distance_m(lat, lng, d.lat, d.lng))
     else:
         found.sort(key=lambda d: d.name)
-    return {'age_s': round(gbfs.status_age_s()), 'stations': [live_counts(d) for d in found[:limit]]}
+    now = datetime.now(NEW_YORK)
+    return {'age_s': round(gbfs.status_age_s()), 'stations': [live_counts(d, now) for d in found[:limit]]}
 
 
 @router.get('/stations/{station_id}')
@@ -108,9 +112,9 @@ def station(station_id: str):
     """One station's live counts, and the chance each is still there in 15, 30 and 60 minutes."""
     dock = find_station(live_docks(), station_id)
     model, now = load_model(), datetime.now(NEW_YORK)
-    odds = {need: {f'{m}_min': None if (p := chance(model, dock, need, now, m)) is None else round(p, 3)
-                   for m in (15, 30, 60)} for need in ('bike', 'ebike', 'dock')}
-    return {**live_counts(dock), 'age_s': round(gbfs.status_age_s()), 'chance': odds,
+    odds = {need: {f'{m}_min': None if dock.stale(now) or (p := chance(model, dock, need, now, m)) is None
+                   else round(p, 3) for m in (15, 30, 60)} for need in ('bike', 'ebike', 'dock')}
+    return {**live_counts(dock, now), 'age_s': round(gbfs.status_age_s()), 'chance': odds,
             'wait_if_empty_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'arrivals')),
             'wait_if_full_min': minutes_or_none(expected_wait_min(model, dock.short_name, now, 'stations'))}
 
@@ -123,15 +127,17 @@ def new_york(at):
 @router.get('/live')
 def live():
     """Every station in service now, columnar, for the live map."""
-    docks = live_docks()
+    docks, now = live_docks(), datetime.now(NEW_YORK)
     return {
         'age_s': round(gbfs.status_age_s()),
         'stations': {
             'id': [d.short_name for d in docks], 'name': [d.name for d in docks],
             'lat': [round(d.lat, 5) for d in docks], 'lng': [round(d.lng, 5) for d in docks],
             'bikes': [d.bikes for d in docks], 'ebikes': [d.ebikes for d in docks], 'docks': [d.docks for d in docks],
-            # 1 renting, 2 returning
-            'flags': [int(d.renting) | int(d.returning) << 1 for d in docks],
+            'docks_disabled': [d.docks_disabled for d in docks],
+            'reported_s': [None if (age := d.report_age_s(now)) is None else round(age) for d in docks],
+            # 1 renting, 2 returning, 4 no report for 15 minutes (counts may be wrong)
+            'flags': [int(d.renting) | int(d.returning) << 1 | int(d.stale(now)) << 2 for d in docks],
         },
     }
 

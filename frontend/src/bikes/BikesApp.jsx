@@ -3,6 +3,7 @@ import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import Explore from './Explore.jsx';
 import NearMe from './NearMe.jsx';
+import LocateButton from './LocateButton.jsx';
 import Plan from './Plan.jsx';
 import { useGeo, usePolling } from './live.js';
 import '../../../design/cozy-wabi/components.css';
@@ -46,14 +47,12 @@ export default function BikesApp() {
           ))}
         </nav>
         {tab === 'near' && (geo.status === 'ready' ? (
-          <NearMe geo={geo} need={need} setNeed={setNeed} live={live} />
+          <NearMe geo={geo} locate={locate} need={need} setNeed={setNeed} live={live} />
         ) : (
           <section className="bk-pane bk-start" aria-label="Near me">
             <h1 className="cc-h1">Bikes near you</h1>
             <p className="cc-body">Live bikes, e-bikes and docks at the closest Citi Bike stations, and the odds they are still there when you arrive.</p>
-            <button type="button" className="cc-button cc-button--primary" onClick={locate} disabled={geo.status === 'locating'}>
-              {geo.status === 'locating' ? 'Finding you…' : 'Use my location'}
-            </button>
+            <LocateButton geo={geo} locate={locate} label="Use my location" variant="primary" />
             {geo.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{geo.message}</p>}
           </section>
         ))}

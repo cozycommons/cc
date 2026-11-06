@@ -298,3 +298,31 @@ def test_search_folds_street_words_and_matches_numbers_whole():
     assert matches('W 31 St & 7 Ave', search_words('west 31st 7th avenue'))
     assert not matches('Henry Hudson Pkwy E & W 231 St', search_words('31'))
     assert matches('Broadway & E 14 St', search_words('broad e 14'))
+
+
+def test_a_silent_station_is_unknown_and_never_recommended():
+    noon = WEDNESDAY.replace(hour=12).astimezone()
+    silent = Dock('s', 'Silent', 40.7500, -73.9900, 9, True, bikes=8, reported=int(noon.timestamp()) - 3600)
+    fresh = Dock('f', 'Fresh', 40.7530, -73.9900, 9, True, bikes=2, reported=int(noon.timestamp()) - 120, docks_disabled=3)
+    result = nearby(MODEL, [silent, fresh], 40.7499, -73.9900, noon)
+    first, second = result['stations']
+    assert (first['status'], first['chance'], first['reported_s']) == ('unknown', None, 3600)
+    assert (second['status'], second['reported_s'], second['docks_disabled']) == ('available', 120, 3)
+    assert result['best']['station'] == 'Fresh'
+    assert result['message'].endswith('The nearest, Silent, has not reported for 60 minutes.')
+    from bikes.wait import since
+    assert [since(s) for s in (120, 3 * 3600, 1_783_000_000)] == ['2 minutes', '3 hours', 'over a day']
+    trip = plan(MODEL, [silent, fresh, Dock('e', 'End', 40.7800, -73.9700, 5, True, reported=int(noon.timestamp()))],
+                (40.7499, -73.9900), (40.7800, -73.9700), noon, noon, live=True)
+    assert trip['best']['start']['station'] == 'Fresh'
+
+
+def test_live_feed_flags_stale_stations(client):
+    import time as clock
+    http, feeds = client
+    feeds['station_status'][0]['last_reported'] = int(clock.time()) - 7200
+    gbfs.reset_cache()
+    body = http.get('/bikes/live').json()['stations']
+    assert body['flags'] == [2 | 4] and body['reported_s'][0] >= 7200
+    one = http.get('/bikes/stations/6230.04').json()
+    assert one['stale'] is True and one['chance']['dock'] == {'15_min': None, '30_min': None, '60_min': None}

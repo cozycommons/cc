@@ -14,7 +14,8 @@ must be in the Citi Bike area (lat 40.45 to 40.95, lng -74.30 to -73.70). Add
 GET /stations?q=broadway e 14&limit=5
 GET /stations?q=west 31st street 7th avenue
 GET /stations?q=broadway&lat=40.7497&lng=-73.9915     (nearest first)
--> stations: [{station, station_id, lat, lng, bikes, ebikes, classic_bikes, open_docks, renting, returning}]
+-> stations: [{station, station_id, lat, lng, bikes, ebikes, classic_bikes, open_docks, docks_disabled,
+   renting, returning, reported_s (age of the station's own report), stale}]
 
 Stations are named by cross streets ("W 31 St & 7 Ave"), not landmarks. Street
 words are normalized (west -> W, 31st -> 31, avenue -> Ave). For a landmark or
@@ -35,7 +36,7 @@ GET /wait?lat=40.7497&lng=-73.9915&need=bike        need: bike | ebike | dock
 GET /wait?station=6331.01&need=dock&limit=5         start from a station instead
 GET /wait?lat=...&lng=...&at=2026-07-15T17:00       any time: history only, no live counts
 -> best (lowest expected minutes), stations: [{walk_min, bikes, ebikes, open_docks,
-   status (available|empty|full|closed), chance (has it when you arrive),
+   status (available|empty|full|closed|unknown), chance (has it when you arrive),
    wait_min (refill wait if it does not), expected_min}], message
 
 ## Plan a trip
@@ -48,10 +49,15 @@ GET /plan?from_station=6331.01&to_lat=40.7295&to_lng=-73.9965&depart=2026-11-06T
 ## Every station at once
 
 GET /live
--> columnar arrays: id, name, lat, lng, bikes, ebikes, docks, flags (1 renting, 2 returning)
+-> columnar arrays: id, name, lat, lng, bikes, ebikes, docks, docks_disabled, reported_s,
+   flags (1 renting, 2 returning, 4 stale)
 
 ## Notes
 
 - Odds come from a year of trips (arrivals and departures by station, hour, day
   type and season) applied to the live count. Rebalancing vans are not in the data.
+- Station reports are usually 1-4 minutes old. A station silent for 15 minutes is
+  `stale` (status `unknown`): its counts may be hours old, so it gets no odds and
+  is never recommended or planned through.
+- `open_docks` already excludes broken docks; `docks_disabled` counts them.
 - 404 means no such station in service; 503 means Citi Bike's feed is down.

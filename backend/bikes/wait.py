@@ -23,6 +23,8 @@ WALK_MPS = 1.0
 SEARCH_M = 1500
 # Beyond this, say which dock the answer is about.
 NEAR_M = 150
+# Station reports are normally 1-4 minutes old; past this, do not trust the counts.
+STALE_S = 900
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,17 @@ class Dock:
     bikes: int = 0
     renting: bool = True
     ebikes: int = 0
+    # Epoch seconds of the station's own last report; 0 when the feed gives none.
+    reported: int = 0
+    docks_disabled: int = 0
+
+    def report_age_s(self, now):
+        return max(0, now.timestamp() - self.reported) if self.reported else None
+
+    def stale(self, now):
+        """Silent long enough that its counts may be wrong (some stations stop reporting for hours)."""
+        age = self.report_age_s(now)
+        return age is not None and age > STALE_S
 
 
 @dataclass(frozen=True)
@@ -84,6 +97,15 @@ def duration(value):
         return f'about {minutes(value)}'
     hours = round(value / 60)
     return f"about {hours} hour{'s' if hours != 1 else ''}"
+
+
+def since(seconds):
+    """How long a station has been silent; some report timestamps near 1970."""
+    if seconds < 90 * 60:
+        return minutes(seconds / 60)
+    if seconds < 48 * 3600:
+        return f'{round(seconds / 3600)} hours'
+    return 'over a day'
 
 
 def minutes_or_none(value):
@@ -139,13 +161,18 @@ def live_fields(model, dock, need, now, walk, arrive):
     attribute = NEEDS[need][0]
     count = getattr(dock, attribute)
     serving = dock.returning if need == 'dock' else dock.renting
+    age = dock.report_age_s(now)
+    live = {'bikes': dock.bikes, 'ebikes': dock.ebikes, 'open_docks': dock.docks, 'docks_disabled': dock.docks_disabled,
+            'reported_s': None if age is None else round(age)}
+    if dock.stale(now):
+        return {**live, 'status': 'unknown', 'chance': None, 'wait_min': None, 'expected_min': None}
     status = 'closed' if not serving else 'available' if count > 0 else ('full' if need == 'dock' else 'empty')
     p = chance(model, dock, need, now, walk)
     wait = refill_wait(model, dock, need, arrive) if serving else None
     # Walk, plus the refill wait in the case it is gone (or still gone) when you arrive.
     expected = None if p is None else walk + (1 - p) * refill_cost(wait)
     return {
-        'bikes': dock.bikes, 'ebikes': dock.ebikes, 'open_docks': dock.docks, 'status': status,
+        **live, 'status': status,
         'chance': None if p is None else round(p, 3),
         'wait_min': minutes_or_none(wait),
         'expected_min': minutes_or_none(expected),
@@ -206,6 +233,9 @@ def nearby_message(stations, best, need, live, when):
     if best is not nearest:
         if nearest['status'] == 'closed':
             reason = 'is closed'
+        elif nearest['status'] == 'unknown':
+            reason = f"has not reported for {since(nearest['reported_s'])}"
+
         elif nearest[key] > 0:
             reason = f"has {nearest[key]}, {percent(nearest['chance'])} likely to last until you arrive"
         elif nearest['wait_min'] is None:
