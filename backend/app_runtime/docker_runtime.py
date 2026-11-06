@@ -177,6 +177,22 @@ else:
             tar.addfile(item, io.BytesIO(content))
         pg.put_archive("/tmp", archive.getvalue())
         db = "app_" + name.replace("-", "_")
+        # pg_restore --clean only drops objects present in the dump. Recreate
+        # the database so tables added after the backup cannot survive restore.
+        with self.admin() as conn:
+            conn.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(db))
+            )
+            conn.execute(
+                sql.SQL("CREATE DATABASE {} OWNER {} TEMPLATE template0").format(
+                    sql.Identifier(db), sql.Identifier(db)
+                )
+            )
+            conn.execute(
+                sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(
+                    sql.Identifier(db)
+                )
+            )
         result = pg.exec_run(
             [
                 "pg_restore",

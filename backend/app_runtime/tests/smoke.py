@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import sys
 import socket
+import shlex
+import subprocess
 import time
 import uuid
 from websockets.sync.client import connect
@@ -279,8 +281,22 @@ def main():
         result["output"].strip() == "denied",
         "App database role cannot connect to another app database",
     )
+    request(
+        "PUT", f"/api/apps/{NAME}/file",
+        {"path": "/workspace/websocket-requirements.txt",
+         "content": (ROOT / "backend/app_runtime/tests/requirements.txt").read_text()},
+    )
+    # Stage a hash-verified, platform-independent wheel from setup. The agent
+    # still installs it itself, without requiring registry access from the app.
+    wheel = next((ROOT / ".apps-dev/wheels").glob("websockets-*-py3-none-any.whl"))
+    subprocess.run(
+        ["docker", "cp", str(wheel), f"cc-apps-local-{NAME}:/workspace/{wheel.name}"],
+        check=True,
+    )
     result = command(
-        "pip install --disable-pip-version-check websockets==15.0.1", user="friend"
+        "pip install --disable-pip-version-check --require-hashes --only-binary=:all: "
+        "--no-index --find-links=/workspace -r /workspace/websocket-requirements.txt",
+        user="friend",
     )
     check(
         result["exit_code"] == 0,
@@ -306,7 +322,7 @@ def main():
     )
     readiness = "import socket,time\nfor _ in range(50):\n try:\n  socket.create_connection(('127.0.0.1',8081),timeout=1).close();break\n except OSError: time.sleep(.1)\nelse: raise RuntimeError('WebSocket server not ready')"
     check(
-        command("python -c " + __import__("shlex").quote(readiness))["exit_code"] == 0,
+        command("python -c " + shlex.quote(readiness))["exit_code"] == 0,
         "WebSocket service is listening",
     )
     request("PUT", f"/api/apps/{NAME}/routes/socket", {"port": 8081, "public": True})
@@ -372,10 +388,24 @@ def main():
     )
     wait_site()
     site(user="viewer", method="POST", data={"note": "This should be undone"})
+    check(
+        command("python -c " + shlex.quote(
+            "import os, psycopg; c=psycopg.connect(os.environ['DATABASE_URL'], autocommit=True); "
+            "c.execute('CREATE TABLE after_backup (note text)')"
+        ))["exit_code"] == 0,
+        "App can add a database table after backup",
+    )
     request(
         "POST",
         f"/api/apps/{NAME}/backups/{backup['id']}/restore",
         {"confirm_replace_data": True},
+    )
+    check(
+        command("python -c " + shlex.quote(
+            "import os, psycopg; c=psycopg.connect(os.environ['DATABASE_URL']); "
+            "assert c.execute(\"SELECT to_regclass('public.after_backup')\").fetchone()[0] is None"
+        ))["exit_code"] == 0,
+        "Restore removes database objects created after the backup",
     )
     page = wait_site().text
     check(

@@ -14,6 +14,7 @@ case "$DOCKER_ENDPOINT" in
 esac
 case "${1:-help}" in
   setup)
+    python3 -c 'import sys; sys.exit(0 if (3, 12) <= sys.version_info[:2] < (3, 14) else "Apps requires Python 3.12 or 3.13")'
     mkdir -p .apps-dev
     python3 - <<'PY'
 import json, pathlib, secrets
@@ -25,7 +26,10 @@ for name, content in [('users.json',json.dumps({user:secrets.token_urlsafe(32) f
         dest.chmod(0o600)
 PY
     python3 -m venv .apps-dev/venv
-    .apps-dev/venv/bin/pip install -r backend/app_runtime/requirements.txt
+    .apps-dev/venv/bin/pip install --require-hashes --only-binary=:all: -r backend/app_runtime/requirements.txt
+    .apps-dev/venv/bin/pip download --require-hashes --only-binary=:all: --no-deps \
+      --platform any --implementation py --abi none \
+      -r backend/app_runtime/tests/requirements.txt -d .apps-dev/wheels
     docker compose --env-file .apps-dev/compose.env -f infra/apps/compose.yaml --profile build build
     ;;
   start)

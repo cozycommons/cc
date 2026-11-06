@@ -25,6 +25,11 @@ services:
   proxy:
     image: caddy:2.10.2-alpine
     container_name: cc-apps-local-proxy
+    # Every upstream is on a local Docker network. Never send platform
+    # credentials or app traffic through an inherited host HTTP proxy.
+    environment:
+      NO_PROXY: "*"
+      no_proxy: "*"
     entrypoint: ["sh", "-c", "test -f /proxy/Caddyfile || cp /etc/caddy/initial /proxy/Caddyfile; exec caddy run --config /proxy/Caddyfile --adapter caddyfile"]
     volumes:
       - ./Caddyfile:/etc/caddy/initial:ro

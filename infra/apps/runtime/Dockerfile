@@ -1,6 +1,8 @@
 FROM python:3.12-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends bash curl git nodejs npm supervisor postgresql-client ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir psycopg[binary]==3.2.13
+COPY infra/apps/runtime/requirements.txt /opt/runtime-requirements.txt
+RUN --mount=type=secret,id=proxy_ca \
+    PIP_CERT=${PIP_CERT:-/run/secrets/proxy_ca} sh -c '[ -f "$PIP_CERT" ] || unset PIP_CERT; pip install --no-cache-dir --require-hashes --only-binary=:all: -r /opt/runtime-requirements.txt'
 COPY infra/apps/runtime/entrypoint.sh /usr/local/bin/app-start
 COPY infra/apps/runtime/supervisord.conf /etc/supervisor/supervisord.conf
 COPY infra/apps/runtime/AGENTS.md /opt/app-AGENTS.md

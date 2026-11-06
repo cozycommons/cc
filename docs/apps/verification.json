@@ -1,7 +1,7 @@
 {
-  "app": "trip-641c7c22",
-  "other_app": "other-a5d612a5",
-  "url": "http://trip-641c7c22.localhost:8090",
+  "app": "trip-c29f6039",
+  "other_app": "other-f58ba44a",
+  "url": "http://trip-c29f6039.localhost:8090",
   "checks": [
     "Agent creates an app through MCP",
     "Creation returns local repository metadata",
@@ -42,6 +42,8 @@
     "Container publication capability works after replacement",
     "Local Git history survives container replacement",
     "Agent can create a later local commit after a backup",
+    "App can add a database table after backup",
+    "Restore removes database objects created after the backup",
     "Restore recovers the database to its backup",
     "Restore recovers workspace files to the same backup",
     "Workspace restore recovers .git history and the backed-up main commit",

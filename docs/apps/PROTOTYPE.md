@@ -2,7 +2,7 @@
 
 This runs separate local Docker services. It does not deploy to the VPS, modify
 DNS, read production dotenv files, or migrate current Cozy Commons apps.
-Docker Engine/Compose and Python 3.12+ are required. Scripts work on macOS and
+Docker Engine/Compose and Python 3.12 or 3.13 are required. Scripts work on macOS and
 Ubuntu with Bash 3.2+. Run commands from this checkout's root.
 
 ## Start
@@ -132,7 +132,8 @@ It is not run automatically. Ordinary restart retains the container's writable
 layer, while registered services restart in either case.
 
 Backup briefly stops the app to dump its database and archive its workspace.
-Restore explicitly replaces both, keeps platform membership/routing, and leaves
+Restore recreates the app database (including removing tables created after the
+backup), replaces workspace files, keeps platform membership/routing, and leaves
 the app stopped if restoration fails. Backups cover files/database, not installed
 OS packages, process memory or live connections. The local implementation buffers
 Postgres dumps in memory and is intended for small synthetic data sets.
@@ -156,6 +157,14 @@ PYTHONPATH=backend .apps-dev/venv/bin/python -m pytest backend/app_runtime/tests
 scripts/apps-dev.sh smoke
 ```
 
+Dependency installs use hash-locked files. Regenerate them with the repository's
+`scripts/lock-backend-requirements.sh` workflow; the `.in` files record the uv
+version and dependency cooldown. Setup also downloads the smoke test’s
+hash-verified WebSocket wheel, so installing the test service inside an app does
+not depend on that container having registry access. Docker builds behind a TLS-inspecting proxy can
+supply its CA bundle as the optional BuildKit `proxy_ca` secret; no CA is baked
+into either image.
+
 The smoke test exercises real Docker, Postgres, Caddy, the MCP protocol, separate
 identities, two HTTP ports, WebSockets, isolation, bounded shell execution,
 container restart/replacement and file/database recovery.
@@ -165,6 +174,14 @@ container restart/replacement and file/database recovery.
 ![Synthetic trip app served through a dynamically published port](images/prototype.png)
 
 [Recorded local acceptance checks](verification.json).
+
+Validated on Linux with Python 3.12 and local Docker on 2026-11-06: all 26
+API/core tests and 45 live acceptance checks passed. The new restore regression
+failed against the original manager and passed after the fix. OSV Scanner 2.7.0
+reported no issues in the manager, runtime, or smoke-test dependency locks.
+macOS has not been exercised in this pass. The independent reviews required by
+[the repository security policy](../security.md#review-before-merge) remain a
+merge prerequisite; this is still a local prototype, not a hosted deployment.
 
 ## Local Git and agent-operated deployment
 
