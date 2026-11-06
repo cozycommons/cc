@@ -67,7 +67,7 @@ def live_counts(dock, now):
 def find_station(docks, station_id):
     dock = next((d for d in docks if d.short_name == station_id), None)
     if dock is None:
-        raise HTTPException(404, f'No station {station_id!r} in service. Search with /bikes/stations?q=.')
+        raise HTTPException(404, 'No such station in service. Search with /bikes/stations?q=.')
     return dock
 
 
@@ -120,8 +120,14 @@ def station(station_id: str):
 
 
 def new_york(at):
-    """A time without an offset is New York time."""
-    return at.replace(tzinfo=NEW_YORK) if at.tzinfo is None else at.astimezone(NEW_YORK)
+    """A time without an offset is New York time, within a year of now (422 otherwise)."""
+    try:
+        when = at.replace(tzinfo=NEW_YORK) if at.tzinfo is None else at.astimezone(NEW_YORK)
+        if abs(when - datetime.now(NEW_YORK)) <= timedelta(days=366):
+            return when
+    except OverflowError:
+        pass
+    raise HTTPException(422, 'Pick a time within a year of now.')
 
 
 @router.get('/live')

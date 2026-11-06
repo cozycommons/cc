@@ -6,6 +6,9 @@ thread refreshes it, so a request never waits on Citi Bike once the cache is
 warm; only a cold start, or a feed older than MAX_STALE_S, fetches inline. One
 attempt per fetch with a hard timeout; failures raise GbfsError without the
 provider's response text, and a failed background refresh keeps the old copy.
+After an inline fetch fails, requests fail fast for FAIL_COOLDOWN_S instead of
+each waiting out the timeout: these routes share the API's worker threads, so a
+Citi Bike outage must not hold them all.
 """
 import json
 import logging
@@ -22,12 +25,14 @@ TTL_S = {'station_information': 3600.0, 'station_status': 60.0}
 # Live counts older than this would mislead, so a request fetches inline instead.
 MAX_STALE_S = {'station_information': 86400.0, 'station_status': 300.0}
 TIMEOUT_S = 10
+FAIL_COOLDOWN_S = 30.0
 MAX_BYTES = 8_000_000
 
 _lock = threading.Lock()
 _cache = {}  # feed -> (fetched at, stations)
 _refreshing = set()
 _fetching = {feed: threading.Lock() for feed in TTL_S}
+_failed = {}  # feed -> when its last inline fetch failed
 _joined = (None, None, None)  # (info, status, docks): rebuilt only when a feed changes
 
 
@@ -79,13 +84,28 @@ def _feed(feed):
                 _refreshing.add(feed)
                 start_refresh(feed)
             return cached[1]
-    # Cold or too stale: one request fetches; concurrent ones wait for it, then reuse it.
+    # Cold or too stale: one request fetches; concurrent ones wait for it, then reuse
+    # it, or fail fast if it failed.
+    _fail_fast(feed)
     with _fetching[feed]:
         with _lock:
             cached = _cache.get(feed)
             if cached and time.monotonic() - cached[0] < MAX_STALE_S[feed]:
                 return cached[1]
-        return _store(feed)
+        _fail_fast(feed)
+        try:
+            return _store(feed)
+        except GbfsError:
+            with _lock:
+                _failed[feed] = time.monotonic()
+            raise
+
+
+def _fail_fast(feed):
+    with _lock:
+        failed = _failed.get(feed)
+    if failed is not None and time.monotonic() - failed < FAIL_COOLDOWN_S:
+        raise GbfsError(f'{feed}: failed recently')
 
 
 def status_age_s():
@@ -100,6 +120,7 @@ def reset_cache():
     global _joined
     _cache.clear()
     _refreshing.clear()
+    _failed.clear()
     _joined = (None, None, None)
 
 
@@ -108,17 +129,21 @@ def docks():
     info_feed, status_feed = _feed('station_information'), _feed('station_status')
     if _joined[0] is info_feed and _joined[1] is status_feed:
         return _joined[2]
-    status = {s['station_id']: s for s in status_feed}
+    status = {s.get('station_id'): s for s in status_feed if isinstance(s, dict)}
     found = []
-    for info in _feed('station_information'):
-        live = status.get(info['station_id'])
-        if not live or not live.get('is_installed'):
+    for info in info_feed:
+        # One malformed station is skipped, not a 500 on every route for an hour.
+        try:
+            live = status.get(info['station_id'])
+            if not live or not live.get('is_installed'):
+                continue
+            found.append(Dock(str(info['short_name']), str(info['name']), float(info['lat']), float(info['lon']),
+                              int(live.get('num_docks_available') or 0), bool(live.get('is_returning')),
+                              int(live.get('num_bikes_available') or 0), bool(live.get('is_renting')),
+                              int(live.get('num_ebikes_available') or 0), int(live.get('last_reported') or 0),
+                              int(live.get('num_docks_disabled') or 0)))
+        except (KeyError, TypeError, ValueError):
             continue
-        found.append(Dock(info['short_name'], info['name'], float(info['lat']), float(info['lon']),
-                          int(live.get('num_docks_available', 0)), bool(live.get('is_returning')),
-                          int(live.get('num_bikes_available', 0)), bool(live.get('is_renting')),
-                          int(live.get('num_ebikes_available', 0)), int(live.get('last_reported') or 0),
-                          int(live.get('num_docks_disabled', 0))))
     if not found:
         raise GbfsError('no installed stations')
     _joined = (info_feed, status_feed, found)
