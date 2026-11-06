@@ -85,7 +85,14 @@ rerun the ingest to rewrite it.
 
 ## The /bikes page
 
-Mobile first, in three tabs:
+Linked from the home shelf. Mobile first. The first decision is renting or
+returning: the start screen is two large keys, **Find a bike** and **Find a
+dock**, and one tap picks the mode and asks for your location. After that the
+same two keys stay at the top of Near me (with "E-bikes only" under Find a
+bike), and the page takes the mode's accent: moss for bikes, clay for docks. The
+choice is remembered on the device, and `?need=bike|ebike|dock` sets it in a link.
+
+Three tabs:
 
 - **Near me**: Bike, E-bike or Dock. The answer sentence, a live map of stations
   within 800 m (colored 3+, 1–2, none or closed, with the five listed stations
@@ -127,6 +134,18 @@ The locate button (lucide `LocateFixed` on the Cozy Wabi key) sits beside the
 Bike/E-bike/Dock toggle and in the Plan tab's From row, so a moved phone can
 re-center without reloading.
 
+### Street basemap
+
+The Near me map draws OpenStreetMap streets, bike lanes, parks and shoreline
+under the stations, from static tiles in `frontend/public/bikes/map/` (2,025 tiles,
+7.3 MB; the densest Midtown tile is 42 KB, 16 KB gzipped). The page fetches only
+the tiles around you, from its own origin, so no map service learns where you
+are, and there is no map library or CSP change. `python -m bikes.basemap` (bikes
+venv) rebuilds them from BBBike's New York extract (NYC, Jersey City, Hoboken) in
+a few seconds with DuckDB's spatial extension; rerun it a few times a year. The
+format is in the module docstring. Data © OpenStreetMap contributors (ODbL),
+credited under the map.
+
 ## For agents
 
 Everything is public and read only, so an agent needs no connector or sign-in:
@@ -136,8 +155,29 @@ cross streets (street words folded: "west 31st street" finds "W 31 St"), and
 `/bikes/stations/{id}` gives live counts plus the chance a bike, e-bike or dock
 is still there in 15, 30 and 60 minutes. `/bikes/wait` takes `station=` and
 `/bikes/plan` takes `from_station=`/`to_station=` in place of coordinates.
-Landmarks and addresses are the agent's to geocode. A `/mcp` provider can wrap
-the same functions later if agents on the shared connector should see them.
+Landmarks and addresses are the agent's to geocode.
+
+### Integrating an agent client
+
+- **Any agent that can call HTTPS** (Claude Code, Codex, scripts): point it at
+  `https://api.cozycommons.dev/bikes/agents.txt`. No key, no sign-in.
+- **Meta Muse** builds custom connectors itself, in chat, from a public API: ask
+  it to make a Cozy Bikes connector from that `agents.txt` URL. No OAuth is
+  needed, which matters: Muse's custom OAuth connectors have been reported to
+  lose access after about an hour (no refresh token).
+- **OpenAI Dots** connects through OpenAI's plugin and app ecosystem; OpenAI
+  has published no guide for adding a custom server to Dots. Until it does, give
+  Dots the same `agents.txt` URL if it can browse, or use ChatGPT's custom
+  connector path when that reaches Dots.
+- **Rich UI in the chat (not built)**: hosts that support MCP Apps (spec
+  2026-01-26, `io.modelcontextprotocol/ui`; Claude and ChatGPT) render a tool's
+  `ui://` HTML resource inline. If we want Muse, Dots or ChatGPT to show station
+  cards and the map instead of text, add a public read-only MCP server at
+  `/bikes/mcp` (fastmcp 3.4 supports `@mcp.tool(app=AppConfig(resource_uri=...))`)
+  whose tools return the same JSON as `structuredContent`, plus one self-contained
+  `ui://cozy-bikes/stations.html` that renders it. Clients without MCP Apps still
+  get the text. A new public endpoint in `main:app` is in `docs/security.md`'s
+  review scope.
 
 ## Live stations and trip plans
 

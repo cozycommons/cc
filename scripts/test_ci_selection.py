@@ -39,7 +39,7 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["compute"])
 
     def test_bikes_offline_and_api_suites(self):
-        for path in ["backend/bikes/ingest.py", "backend/bikes/tests/test_ingest.py", "backend/requirements-bikes.txt"]:
+        for path in ["backend/bikes/ingest.py", "backend/bikes/basemap.py", "backend/bikes/tests/test_ingest.py", "backend/requirements-bikes.txt"]:
             with self.subTest(path=path):
                 plan = ci.select([path], TEST_FILES)
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["bikes"])

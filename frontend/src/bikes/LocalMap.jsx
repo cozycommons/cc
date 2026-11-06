@@ -1,4 +1,5 @@
 import React from 'react';
+import { useBasemap } from './basemap.js';
 
 const SIZE = 360;
 const RADIUS_M = 800;
@@ -27,10 +28,18 @@ export function countOf(stations, i, need) {
   return stations[need === 'dock' ? 'docks' : need === 'ebike' ? 'ebikes' : 'bikes'][i];
 }
 
-// Live stations within RADIUS_M of you, drawn to scale with you at the center.
+// Drawn bottom to top; widths are in map units (the map is SIZE wide).
+const STREETS = [['water', 'bk-street--water'], ['park', 'bk-street--park'], ['minor', 'bk-street--minor'],
+  ['major', 'bk-street--major'], ['bike', 'bk-street--bike']];
+
+// Live stations within RADIUS_M of you, drawn to scale with you at the center,
+// over OpenStreetMap streets when the basemap tiles are available.
 export default function LocalMap({ stations, center, need, highlight, onSelect }) {
   const k = Math.cos((center.lat * Math.PI) / 180);
   const scale = SIZE / 2 / RADIUS_M;
+  const dLat = (RADIUS_M * 1.1) / M_PER_DEG, dLng = dLat / k;
+  const streets = useBasemap(center.lat - dLat, center.lng - dLng, center.lat + dLat, center.lng + dLng);
+  const toPath = (line) => line.map(([lng, lat], i) => `${i ? 'L' : 'M'}${(SIZE / 2 + (lng - center.lng) * M_PER_DEG * k * scale).toFixed(1)} ${(SIZE / 2 - (lat - center.lat) * M_PER_DEG * scale).toFixed(1)}`).join('');
   const near = [];
   stations.lat.forEach((lat, i) => {
     const dx = (stations.lng[i] - center.lng) * M_PER_DEG * k;
@@ -41,6 +50,9 @@ export default function LocalMap({ stations, center, need, highlight, onSelect }
   return (
     <figure className="bk-local">
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${near.length} stations within ${RADIUS_M} m, colored by ${noun}`}>
+        {streets && STREETS.map(([layer, className]) => streets[layer] && (
+          <path key={layer} className={`bk-street ${className}`} d={streets[layer].map(toPath).join('')} />
+        ))}
         <circle className="bk-local__ring" cx={SIZE / 2} cy={SIZE / 2} r={400 * scale} />
         {near.map(([i, x, y]) => {
           const id = stations.id[i];
@@ -68,6 +80,7 @@ export default function LocalMap({ stations, center, need, highlight, onSelect }
           ))}
           <li><i className="bk-legend__you" />You · ring 400 m</li>
         </ul>
+        {streets && <p className="bk-local__credit">Map data {streets.attribution}</p>}
       </figcaption>
     </figure>
   );

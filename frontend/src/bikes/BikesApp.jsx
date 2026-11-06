@@ -3,7 +3,7 @@ import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import Explore from './Explore.jsx';
 import NearMe from './NearMe.jsx';
-import LocateButton from './LocateButton.jsx';
+import ModeSwitch, { modeOf, useNeed } from './Mode.jsx';
 import Plan from './Plan.jsx';
 import { useGeo, usePolling } from './live.js';
 import '../../../design/cozy-wabi/components.css';
@@ -32,12 +32,12 @@ function Siri() {
 
 export default function BikesApp() {
   const [tab, setTab] = useState(initialTab);
-  const [need, setNeed] = useState('bike');
+  const [need, setNeed] = useNeed();
   const [geo, locate] = useGeo();
   // One live feed for the map and station search; Explore does not need it.
   const live = usePolling('live', {}, tab !== 'explore');
   return (
-    <div className="bk-page">
+    <div className="bk-page" data-mode={modeOf(need)}>
       <SiteHeader product="Bikes" to="/bikes" icon="🚲" onSignIn={null} />
       <main className="bk-main">
         <nav className="cc-segmented bk-tabs" role="tablist" aria-label="Cozy Bikes">
@@ -50,9 +50,9 @@ export default function BikesApp() {
           <NearMe geo={geo} locate={locate} need={need} setNeed={setNeed} live={live} />
         ) : (
           <section className="bk-pane bk-start" aria-label="Near me">
-            <h1 className="cc-h1">Bikes near you</h1>
-            <p className="cc-body">Live bikes, e-bikes and docks at the closest Citi Bike stations, and the odds they are still there when you arrive.</p>
-            <LocateButton geo={geo} locate={locate} label="Use my location" variant="primary" />
+            <h1 className="cc-h1">Citi Bike near you</h1>
+            <ModeSwitch need={need} setNeed={setNeed} onPick={locate} large />
+            <p className="cc-caption">{geo.status === 'locating' ? 'Finding you…' : 'Uses your location. Live stations, and the odds one is still there when you arrive.'}</p>
             {geo.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{geo.message}</p>}
           </section>
         ))}
