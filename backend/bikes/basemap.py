@@ -29,7 +29,7 @@ import urllib.request
 from .model import SERVICE_AREA
 
 EXTRACT_URL = 'https://download.bbbike.org/osm/bbbike/NewYork/NewYork.osm.pbf'
-OUT_DIR = Path(__file__).resolve().parents[2] / 'frontend/public/bikes/map'
+OUT_DIR = Path(__file__).with_name('map')
 # About 1.1 km each way at New York's latitude.
 TILE_LAT, TILE_LNG = 0.01, 0.013
 QUANTUM = 1e-5  # degrees, about 1 m

@@ -288,7 +288,8 @@ def test_agents_txt_lists_every_route():
     from bikes.routes import AGENTS_TXT, router
     for route in router.routes:
         path = route.path
-        if path not in ('/agents.txt', '/wait-or-ride'):
+        # /map/{name} serves the page's street tiles; /wait-or-ride is the older Siri route.
+        if path not in ('/agents.txt', '/wait-or-ride', '/map/{name}'):
             assert f'GET {path}' in AGENTS_TXT, path
 
 
@@ -387,3 +388,38 @@ def test_responses_carry_citi_bikes_own_feed_time(monkeypatch):
         body = http.get(path, params=params).json()
         assert body['feed_updated_at'] == expected and isinstance(body['age_s'], int), path
     gbfs.reset_cache()
+
+
+def test_map_tiles_are_served_by_name_only(client):
+    http, _ = client
+    ok = http.get('/bikes/map/index.json')
+    assert ok.status_code == 200 and ok.headers['cache-control'] == 'public, max-age=86400'
+    assert 'tiles' in ok.json()
+    for bad in ('wait_model.json', '..%2Fwait_model.json', 'index.js', '1_2.json.bak', '9999_1.json'):
+        assert http.get(f'/bikes/map/{bad}').status_code == 404, bad
+
+
+def test_answers_link_an_interactive_map_and_a_png(client):
+    http, _ = client
+    waited = http.get('/bikes/wait', params={'lat': PENN.lat, 'lng': PENN.lng, 'need': 'dock'}).json()
+    assert waited['map_url'] == ('https://cozycommons.dev/bikes?lat=40.75020&lng=-73.99160&need=dock&radius=600'
+                                 '&station=6230.04')
+    assert waited['map_image'].startswith('https://api.cozycommons.dev/bikes/map.png?lat=40.75020&lng=-73.99160')
+    assert waited['map_image'].endswith('&station=6230.04&you=1')
+    assert http.get('/bikes/stations/6230.04').json()['map_url'].endswith('&radius=500&station=6230.04')
+
+
+def test_map_png_draws_the_view(client):
+    from io import BytesIO
+    from PIL import Image
+    http, _ = client
+    response = http.get('/bikes/map.png', params={'station': '6230.04', 'radius': 400, 'need': 'dock'})
+    assert response.status_code == 200 and response.headers['content-type'] == 'image/png'
+    image = Image.open(BytesIO(response.content)).convert('RGB')
+    assert image.size == (640, 640)
+    # The marked station is at the center (no lat/lng given), in its status color: 3 docks, green.
+    greens = sum(1 for x in range(308, 333) for y in range(308, 333)
+                 if (lambda p: p[1] > 120 and p[0] < 80 and p[2] < 80)(image.getpixel((x, y))))
+    assert greens > 100
+    assert http.get('/bikes/map.png').status_code == 422
+    assert http.get('/bikes/map.png', params={'lat': PENN.lat, 'lng': PENN.lng, 'radius': 5000}).status_code == 422
