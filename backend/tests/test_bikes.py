@@ -92,9 +92,10 @@ def test_empty_nearest_station_loses_to_a_stocked_one_at_a_quiet_hour():
     result = nearby(MODEL, [STOCKED, EMPTY_PENN], PENN.lat, PENN.lng, WEDNESDAY.replace(hour=3))
     nearest, other = result['stations']
     assert (nearest['station'], nearest['status'], nearest['wait_min']) == ('W 33 St & 7 Ave', 'empty', 60.0)
-    assert (other['status'], other['wait_min'], result['best']['station']) == ('available', 0.0, 'W 37 St & Broadway')
+    # STOCKED has no history, so its 5 bikes are certain to last; PENN refills once an hour.
+    assert (other['status'], other['chance'], result['best']['station']) == ('available', 1.0, 'W 37 St & Broadway')
     assert result['message'] == ('Walk to W 37 St & Broadway, a 10-minute walk: 5 bikes now. '
-                                 'The nearest, W 33 St & 7 Ave, is empty: about 60 minutes with the wait.')
+                                 'The nearest, W 33 St & 7 Ave, is empty: about 60 minutes expected.')
 
 
 def test_busy_empty_station_is_worth_waiting_at():
@@ -102,13 +103,14 @@ def test_busy_empty_station_is_worth_waiting_at():
     assert result['best']['station'] == 'W 33 St & 7 Ave'
     assert result['message'] == ('Walk to W 33 St & 7 Ave, a 1-minute walk. '
                                  'It is empty, but a bike usually comes back in about 1 minute.')
+    assert result['best']['expected_min'] == 1.0
 
 
 def test_need_dock_uses_departures_and_closed_stations_are_out():
     closed = Dock(**{**STOCKED.__dict__, 'returning': False})
     result = nearby(MODEL, [closed, PENN], PENN.lat, PENN.lng, WEDNESDAY.replace(hour=17), need='dock')
     assert [s['status'] for s in result['stations']] == ['full', 'closed']
-    assert result['best']['station'] == 'W 33 St & 7 Ave' and result['best']['wait_min'] == 1.0
+    assert result['best']['station'] == 'W 33 St & 7 Ave' and result['best']['expected_min'] == 1.0
 
 
 def test_arbitrary_time_gives_conditional_waits_without_live_counts():
@@ -161,3 +163,87 @@ def test_stale_feed_is_served_while_one_refresh_runs(monkeypatch):
     with pytest.raises(gbfs.GbfsError):  # too stale to serve: fetch inline, and surface the failure
         gbfs._feed('station_status')
     gbfs.reset_cache()
+
+
+from bikes.forecast import chance, distribution
+from bikes.plan import plan
+from bikes.recorder import Recorder
+
+# Two departures a minute at 17:00 on weekdays, no arrivals.
+DRAIN = {**MODEL, 'stations': {'d': [0] * 17 + [12000] + [0] * 30}, 'arrivals': {'d': [0] * 48}, 'ebike_share': 0.25}
+
+
+def test_forecast_drains_a_busy_station_and_stops_at_empty():
+    five_pm = WEDNESDAY.replace(hour=17)
+    p = distribution(DRAIN, 'd', 3, 10, five_pm, 5)
+    assert abs(sum(p) - 1) < 1e-9 and p[0] > 0.9  # ten expected departures, three bikes
+    one = Dock('d', 'Drain', 40.75, -73.99, 7, True, bikes=3, ebikes=1)
+    assert chance(DRAIN, one, 'bike', five_pm, 0) == 1.0
+    assert chance(DRAIN, one, 'bike', five_pm, 1) > chance(DRAIN, one, 'bike', five_pm, 3)
+    assert chance(DRAIN, one, 'dock', five_pm, 3) == 1.0  # departures only open docks
+    assert chance(DRAIN, one, 'ebike', five_pm, 1) > 0.5  # e-bikes leave at a quarter of the rate
+    assert chance(DRAIN, one, 'bike', five_pm, 61) is None
+    assert chance(DRAIN, Dock(**{**one.__dict__, 'renting': False}), 'bike', five_pm, 1) is None
+
+
+def test_plan_picks_the_pair_with_the_lowest_expected_time():
+    origin, destination = (40.7500, -73.9900), (40.7800, -73.9700)
+    near_empty = Dock('a', 'Near but empty', 40.7502, -73.9902, 9, True, bikes=0)
+    stocked = Dock('b', 'Stocked', 40.7520, -73.9910, 4, True, bikes=6)
+    end = Dock('c', 'Open end', 40.7798, -73.9702, 5, True, bikes=10)
+    model = {**MODEL, 'stations': {}, 'arrivals': {'a': [10] * 48}}  # 'a' refills every ~10 hours
+    result = plan(model, [near_empty, stocked, end], origin, destination,
+                  WEDNESDAY.replace(hour=12), WEDNESDAY.replace(hour=12), live=True)
+    assert (result['best']['start']['station'], result['best']['end']['station']) == ('Stocked', 'Open end')
+    assert result['best']['start']['chance'] == 1.0
+    assert result['walk_only_min'] > result['best']['expected_min']
+    assert result['message'].startswith('Walk 4 minutes to Stocked, ride ')
+    later = plan(model, [near_empty, stocked, end], origin, destination,
+                 WEDNESDAY.replace(hour=12), WEDNESDAY.replace(hour=15), live=False)
+    assert later['best']['start']['chance'] is None and later['best']['expected_min'] == later['best']['minutes']
+
+
+def test_plan_needs_a_station_at_each_end(client):
+    http, _ = client
+    response = http.get('/bikes/plan', params={'from_lat': PENN.lat, 'from_lng': PENN.lng,
+                                              'to_lat': PENN.lat + 0.0005, 'to_lng': PENN.lng, 'format': 'text'})
+    assert response.status_code == 200 and response.text == 'No Citi Bike stations near both ends of this trip.'
+
+
+def test_live_route_is_columnar(client):
+    http, _ = client
+    body = http.get('/bikes/live').json()
+    assert body['stations']['id'] == [PENN.short_name] and body['stations']['flags'] == [2]  # returning, not renting
+
+
+def test_recorder_writes_only_changed_reports(tmp_path, monkeypatch):
+    import csv, gzip
+    feeds = {
+        'station_information': [{'station_id': 'u1', 'short_name': '6230.04'}, {'station_id': 'u2', 'short_name': '1.01'}],
+        'station_status': [
+            {'station_id': 'u1', 'is_installed': 1, 'is_renting': 1, 'is_returning': 1, 'last_reported': 100,
+             'num_bikes_available': 3, 'num_ebikes_available': 1, 'num_docks_available': 7},
+            {'station_id': 'u2', 'is_installed': 1, 'is_renting': 1, 'is_returning': 1, 'last_reported': 100,
+             'num_bikes_available': 0, 'num_docks_available': 9}],
+    }
+    monkeypatch.setattr(gbfs, '_fetch', lambda feed: feeds[feed])
+    recorder = Recorder(tmp_path)
+    assert recorder.poll(now=1_783_000_000) == 2
+    feeds['station_status'][0] = {**feeds['station_status'][0], 'last_reported': 160, 'num_bikes_available': 2}
+    assert recorder.poll(now=1_783_000_060) == 1
+    path, = tmp_path.iterdir()
+    with gzip.open(path, 'rt') as f:
+        rows = list(csv.DictReader(f))
+    assert [(r['station_id'], r['bikes']) for r in rows] == [('6230.04', '3'), ('1.01', '0'), ('6230.04', '2')]
+
+
+def test_low_odds_are_spelled_out_and_a_rarely_refilled_station_still_counts():
+    five_pm = WEDNESDAY.replace(hour=17)
+    one_left = Dock('d', 'Drain', 40.7500, -73.9900, 9, True, bikes=1)
+    far = Dock('f', 'Far', 40.7590, -73.9900, 9, True, bikes=8)
+    # Two departures a minute and no returns: its one bike rarely survives the walk, so walk on.
+    result = nearby(DRAIN, [one_left, far], 40.7495, -73.9900, five_pm)
+    assert result['stations'][0]['chance'] < 0.2 and result['best']['station'] == 'Far'
+    assert result['message'].endswith('The nearest, Drain, has 1, 9% likely to last until you arrive.')
+    quiet = nearby(DRAIN, [one_left, far], 40.7495, -73.9900, WEDNESDAY.replace(hour=3))
+    assert quiet['best']['station'] == 'Drain' and quiet['message'] == 'Walk to Drain, a 1-minute walk: 1 bike now.'

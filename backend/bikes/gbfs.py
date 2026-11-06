@@ -88,6 +88,13 @@ def _feed(feed):
         return _store(feed)
 
 
+def status_age_s():
+    """Seconds since station_status was fetched (0 before the first fetch)."""
+    with _lock:
+        cached = _cache.get('station_status')
+    return time.monotonic() - cached[0] if cached else 0.0
+
+
 def reset_cache():
     """Forget cached feeds (tests only)."""
     global _joined
@@ -109,7 +116,8 @@ def docks():
             continue
         found.append(Dock(info['short_name'], info['name'], float(info['lat']), float(info['lon']),
                           int(live.get('num_docks_available', 0)), bool(live.get('is_returning')),
-                          int(live.get('num_bikes_available', 0)), bool(live.get('is_renting'))))
+                          int(live.get('num_bikes_available', 0)), bool(live.get('is_renting')),
+                          int(live.get('num_ebikes_available', 0))))
     if not found:
         raise GbfsError('no installed stations')
     _joined = (info_feed, status_feed, found)

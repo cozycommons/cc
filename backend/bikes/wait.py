@@ -15,6 +15,7 @@ from functools import cache
 import json
 import math
 
+from .forecast import chance
 from .model import MODEL_PATH
 
 # Crow-flies walking speed: about 1.3 m/s on the street grid with a 1.3x detour.
@@ -34,6 +35,7 @@ class Dock:
     returning: bool
     bikes: int = 0
     renting: bool = True
+    ebikes: int = 0
 
 
 @dataclass(frozen=True)
@@ -92,49 +94,94 @@ def describe_when(when):
     return f"{when.hour % 12 or 12} {'AM' if when.hour < 12 else 'PM'} on a {'weekend' if when.weekday() >= 5 else 'weekday'}"
 
 
+NEEDS = {
+    # need: (live count attribute, refill rates, what refills it, noun)
+    'bike': ('bikes', 'arrivals', 'a bike usually comes back', 'bike'),
+    'ebike': ('ebikes', 'arrivals', 'an e-bike usually comes back', 'e-bike'),
+    'dock': ('docks', 'stations', 'a dock usually opens', 'open dock'),
+}
+
+
+def station_entry(model, dock, lat, lng, when):
+    away_m = distance_m(lat, lng, dock.lat, dock.lng)
+    walk = away_m / WALK_MPS / 60
+    arrive = when + timedelta(minutes=walk)
+    return {
+        'station': dock.name, 'station_id': dock.short_name, 'lat': dock.lat, 'lng': dock.lng,
+        'distance_m': round(away_m), 'walk_min': round(walk, 1),
+        'wait_if_empty_min': minutes_or_none(expected_wait_min(model, dock.short_name, arrive, 'arrivals')),
+        'wait_if_full_min': minutes_or_none(expected_wait_min(model, dock.short_name, arrive, 'stations')),
+    }, walk, arrive
+
+
+def refill_wait(model, dock, need, when):
+    wait = expected_wait_min(model, dock.short_name, when, NEEDS[need][1])
+    if wait is not None and need == 'ebike':
+        share = model.get('ebike_share', 0.0)
+        wait = wait / share if share else None
+    return wait
+
+
+# A station that never refills at this hour costs an hour in the case it is gone.
+NO_REFILL_MIN = 60.0
+
+
+def refill_cost(wait):
+    return NO_REFILL_MIN if wait is None else wait
+
+
+# Below this, a message says how likely the bike or dock is to still be there.
+MENTION_BELOW = 0.95
+
+
+def live_fields(model, dock, need, now, walk, arrive):
+    """Live counts, the chance it has what you need on arrival, and the expected minutes to have it."""
+    attribute = NEEDS[need][0]
+    count = getattr(dock, attribute)
+    serving = dock.returning if need == 'dock' else dock.renting
+    status = 'closed' if not serving else 'available' if count > 0 else ('full' if need == 'dock' else 'empty')
+    p = chance(model, dock, need, now, walk)
+    wait = refill_wait(model, dock, need, arrive) if serving else None
+    # Walk, plus the refill wait in the case it is gone (or still gone) when you arrive.
+    expected = None if p is None else walk + (1 - p) * refill_cost(wait)
+    return {
+        'bikes': dock.bikes, 'ebikes': dock.ebikes, 'open_docks': dock.docks, 'status': status,
+        'chance': None if p is None else round(p, 3),
+        'wait_min': minutes_or_none(wait),
+        'expected_min': minutes_or_none(expected),
+    }
+
+
 def nearby(model, docks, lat, lng, when: datetime, need='bike', live=True, limit=3):
     """The `limit` nearest stations, each with its walk and expected waits, and the best one.
 
-    Waits are read at arrival time (now plus the walk). With live data, a station
-    that has what you need costs only the walk; an empty (or full) one adds the
-    expected wait for an arrival (or departure); one not renting (or returning)
-    is out. Without live data (an arbitrary time), both conditional waits are
-    given and there is no recommendation.
+    Waits are read at arrival time (now plus the walk). With live data, each
+    station also gets the chance it has what you need when you arrive (from its
+    live count; see forecast.py) and the expected minutes until you have it: the
+    walk, plus the refill wait weighted by the chance it is gone. `best` has the
+    lowest expected minutes. Without live data (an arbitrary time), both
+    conditional waits are given and there is no recommendation.
     """
-    rates, have = ('arrivals', 'bikes') if need == 'bike' else ('stations', 'docks')
     stations = []
     for dock in sorted(docks, key=lambda d: distance_m(lat, lng, d.lat, d.lng))[:limit]:
-        away_m = distance_m(lat, lng, dock.lat, dock.lng)
-        walk = away_m / WALK_MPS / 60
-        arrive = when + timedelta(minutes=walk)
-        entry = {
-            'station': dock.name, 'station_id': dock.short_name, 'lat': dock.lat, 'lng': dock.lng,
-            'distance_m': round(away_m), 'walk_min': round(walk, 1),
-            'wait_if_empty_min': minutes_or_none(expected_wait_min(model, dock.short_name, arrive, 'arrivals')),
-            'wait_if_full_min': minutes_or_none(expected_wait_min(model, dock.short_name, arrive, 'stations')),
-        }
+        entry, walk, arrive = station_entry(model, dock, lat, lng, when)
         if live:
-            count, serving = (dock.bikes, dock.renting) if need == 'bike' else (dock.docks, dock.returning)
-            wait = 0.0 if serving and count > 0 else (
-                expected_wait_min(model, dock.short_name, arrive, rates) if serving else None)
-            entry.update({
-                'bikes': dock.bikes, 'open_docks': dock.docks,
-                'status': 'closed' if not serving else 'available' if count > 0 else (
-                    'empty' if need == 'bike' else 'full'),
-                'wait_min': minutes_or_none(wait),
-                'total_min': None if wait is None else round(walk + wait, 1),
-            })
+            entry.update(live_fields(model, dock, need, when, walk, arrive))
         stations.append(entry)
-    best = min((s for s in stations if live and s['total_min'] is not None),
-               key=lambda s: s['total_min'], default=None)
+    best = min((s for s in stations if live and s['expected_min'] is not None),
+               key=lambda s: s['expected_min'], default=None)
     return {'need': need, 'at': when.isoformat(timespec='minutes'), 'live': live,
             'best': best, 'stations': stations, 'message': nearby_message(stations, best, need, live, when)}
+
+
+def percent(p):
+    return f'{min(99, round(p * 100))}%' if p < 0.995 else 'over 99%'
 
 
 def nearby_message(stations, best, need, live, when):
     if not stations:
         return 'No Citi Bike stations found.'
-    item = 'a bike' if need == 'bike' else 'a dock'
+    attribute, _, refill, noun = NEEDS[need]
     nearest = stations[0]
     if not live:
         empty, full = nearest['wait_if_empty_min'], nearest['wait_if_full_min']
@@ -143,23 +190,28 @@ def nearby_message(stations, best, need, live, when):
         return (f"At {describe_when(when)}, the nearest station is {nearest['station']}, "
                 f"{minutes(nearest['walk_min'], True)} walk. If it is empty, {bike}; if it is full, {dock}.")
     if best is None:
-        return f'No station nearby has {item}, and none usually gets one at this hour.'
+        return f'No station nearby has {"an" if noun[0] in "aeo" else "a"} {noun}, and none usually gets one at this hour.'
+    key = {'bikes': 'bikes', 'ebikes': 'ebikes', 'docks': 'open_docks'}[attribute]
+    count = best[key]
     walk = f"Walk to {best['station']}, {minutes(best['walk_min'], True)} walk"
-    if best['wait_min'] == 0:
-        count = best['bikes'] if need == 'bike' else best['open_docks']
-        noun = ('bike' if need == 'bike' else 'open dock') + ('' if count == 1 else 's')
-        message = f'{walk}: {count} {noun} now.'
+    if count > 0:
+        message = f"{walk}: {count} {noun}{'' if count == 1 else 's'} now."
+        if best['chance'] < MENTION_BELOW:
+            message = message[:-1] + f", {percent(best['chance'])} likely one is left when you arrive."
+
     else:
-        verb = 'a bike usually comes back' if need == 'bike' else 'a dock usually opens'
-        message = f"{walk}. It is {best['status']}, but {verb} in {duration(best['wait_min'])}."
-    # An available nearest station is always best, so here it is closed, empty or full.
+        message = f"{walk}. It is {best['status']}, but {refill} in {duration(best['wait_min'])}."
+        if best['chance'] >= 0.05:
+            message += f" {percent(best['chance']).capitalize()} chance one is back by the time you arrive."
     if best is not nearest:
         if nearest['status'] == 'closed':
             reason = 'is closed'
-        elif nearest['total_min'] is None:
-            reason = f"is {nearest['status']} and rarely gets {item} at this hour"
+        elif nearest[key] > 0:
+            reason = f"has {nearest[key]}, {percent(nearest['chance'])} likely to last until you arrive"
+        elif nearest['wait_min'] is None:
+            reason = f"is {nearest['status']} and rarely refills at this hour"
         else:
-            reason = f"is {nearest['status']}: {duration(nearest['total_min'])} with the wait"
+            reason = f"is {nearest['status']}: {duration(nearest['expected_min'])} expected"
         message += f" The nearest, {nearest['station']}, {reason}."
     return message
 

@@ -62,6 +62,7 @@ def start_aggregates(con):
     con.execute('CREATE OR REPLACE TEMP TABLE hourly (station VARCHAR, kind VARCHAR, day DATE, hour TINYINT, n INTEGER)')
     # Ride speeds in 0.01 m/s bins: an exact-enough median that sums across files.
     con.execute('CREATE OR REPLACE TEMP TABLE speeds (mps DOUBLE, n INTEGER)')
+    con.execute('CREATE OR REPLACE TEMP TABLE bike_types (kind VARCHAR, n INTEGER)')
     # Latest name and mean departure coordinates, summed so files combine.
     con.execute('''CREATE OR REPLACE TEMP TABLE places (station VARCHAR, name VARCHAR, seen TIMESTAMP,
                    lat DOUBLE, lng DOUBLE, n INTEGER)''')
@@ -83,6 +84,7 @@ def aggregate(con, trips_sql, window):
                     WHERE end_station_id IS NOT NULL AND end_station_id <> start_station_id AND end_lat IS NOT NULL
                       AND epoch(ended_at - started_at) BETWEEN 120 AND 3600
                     GROUP BY ALL""")
+    con.execute(f"INSERT INTO bike_types SELECT rideable_type, count(*) FROM ({recent}) GROUP BY ALL")
     con.execute(f"""INSERT INTO places SELECT start_station_id, arg_max(start_station_name, started_at),
                     max(started_at), sum(start_lat), sum(start_lng), count(start_lat)
                     FROM ({recent}) GROUP BY ALL""")
@@ -123,6 +125,9 @@ def finalize(con, window):
              running AS (SELECT mps, sum(n) OVER (ORDER BY mps) AS below, sum(n) OVER () AS total FROM bins)
         SELECT min(mps) FROM running WHERE below * 2 >= total
     ''').fetchone()[0]
+    ebike_share = con.execute('''
+        SELECT sum(n) FILTER (WHERE kind = 'electric_bike') / sum(n) FROM bike_types
+    ''').fetchone()[0] or 0.0
     south, north, west, east = SERVICE_AREA
     places = {station: (name, round(lat / n, 5), round(lng / n, 5)) for station, name, lat, lng, n in con.execute('''
         SELECT station, arg_max(name, seen), sum(lat), sum(lng), sum(n) FROM places GROUP BY station HAVING sum(n) > 0
@@ -134,6 +139,8 @@ def finalize(con, window):
         'window': [f'{window[0] // 100}-{window[0] % 100:02d}', f'{window[-1] // 100}-{window[-1] % 100:02d}'],
         'ride_mps': round(ride_mps, 2),
         'month_factor': month_factor,
+        # Share of trips on e-bikes, to split station rates for e-bike forecasts.
+        'ebike_share': round(ebike_share, 3),
         'stations': dict(sorted(stations.items())),
         'arrivals': dict(sorted(arrivals.items())),
     }, places

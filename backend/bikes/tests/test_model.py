@@ -10,6 +10,9 @@ def trips(con, rows):
         start_station_id VARCHAR, start_station_name VARCHAR, end_station_id VARCHAR, start_lat DOUBLE, start_lng DOUBLE,
         end_lat DOUBLE, end_lng DOUBLE, member_casual VARCHAR, system VARCHAR, year INTEGER, month INTEGER)""")
     con.executemany('INSERT INTO trips VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', rows)
+    # Every third trip is on an e-bike.
+    con.execute("ALTER TABLE trips ADD COLUMN rideable_type VARCHAR")
+    con.execute("UPDATE trips SET rideable_type = CASE WHEN hash(started_at, start_station_id) % 3 = 0 THEN 'electric_bike' ELSE 'classic_bike' END")
 
 
 def test_rates_count_only_days_a_station_existed():
@@ -26,8 +29,8 @@ def test_rates_count_only_days_a_station_existed():
                  2026, 7) for station, start in rows])
     # A Lyft test station in Los Angeles appears in the NYC files.
     con.execute("INSERT INTO trips SELECT 'r', TIMESTAMP '2026-07-01 12:00', TIMESTAMP '2026-07-01 12:10', 'LA Metro Demo 2', "
-                "'LA Metro Demo 2', 'end', 34.026, -118.25, 34.04, -118.25, 'member', 'nyc', 2026, 7")
-    con.execute("UPDATE trips SET ended_at = started_at + INTERVAL 10 MINUTE")
+                "'LA Metro Demo 2', 'end', 34.026, -118.25, 34.04, -118.25, 'member', 'nyc', 2026, 7, 'classic_bike'")
+    con.execute("UPDATE trips SET ended_at = started_at + INTERVAL 10 MINUTE, rideable_type = coalesce(rideable_type, 'classic_bike')")
 
     model, places, monthly = build(con, months=1)
     assert model['window'] == ['2026-07', '2026-07']
@@ -37,6 +40,7 @@ def test_rates_count_only_days_a_station_existed():
     assert model['ride_mps'] == 3.0
     assert model['month_factor'][6] == 1.0
     assert 'LA Metro Demo 2' not in model['stations']
+    assert 0.2 < model['ebike_share'] < 0.5
     # Every trip ends at 'end', which has no departures, so no place: only a and b keep arrival rows.
     assert set(model['arrivals']) == {'a', 'b'} and model['arrivals']['a'] == [0] * 48
     assert monthly == {'month': ['2026-07'], 'nyc': [57], 'jc': [0]}
