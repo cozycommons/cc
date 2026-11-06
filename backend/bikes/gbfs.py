@@ -33,6 +33,7 @@ _cache = {}  # feed -> (fetched at, stations)
 _refreshing = set()
 _fetching = {feed: threading.Lock() for feed in TTL_S}
 _failed = {}  # feed -> when its last inline fetch failed
+_updated = {}  # feed -> Citi Bike's own last_updated (epoch seconds) for the copy fetched last
 _joined = (None, None, None)  # (info, status, docks): rebuilt only when a feed changes
 
 
@@ -49,9 +50,13 @@ def _fetch(feed):
     if len(body) > MAX_BYTES:
         raise GbfsError(f'{feed}: response too large')
     try:
-        return json.loads(body)['data']['stations']
+        payload = json.loads(body)
+        stations = payload['data']['stations']
     except (ValueError, KeyError, TypeError):
         raise GbfsError(f'{feed}: unexpected response') from None
+    if isinstance(payload.get('last_updated'), (int, float)):
+        _updated[feed] = int(payload['last_updated'])
+    return stations
 
 
 def _store(feed):
@@ -108,6 +113,11 @@ def _fail_fast(feed):
         raise GbfsError(f'{feed}: failed recently')
 
 
+def feed_updated_at():
+    """When Citi Bike built the station_status copy we hold (epoch seconds), or None."""
+    return _updated.get('station_status')
+
+
 def status_age_s():
     """Seconds since station_status was fetched (0 before the first fetch)."""
     with _lock:
@@ -121,6 +131,7 @@ def reset_cache():
     _cache.clear()
     _refreshing.clear()
     _failed.clear()
+    _updated.clear()
     _joined = (None, None, None)
 
 

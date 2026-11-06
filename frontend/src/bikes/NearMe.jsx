@@ -1,5 +1,6 @@
 import React from 'react';
 import LocalMap from './LocalMap.jsx';
+import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
 import { mins, percent, usePolling } from './live.js';
 
@@ -68,10 +69,11 @@ export default function NearMe({ geo, locate, need, setNeed, live }) {
         </div>
         <LocateButton geo={geo} locate={locate} compact />
       </div>
-      {wait.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{wait.message}</p>}
+      {wait.status === 'error' && !result && <p className="cc-notice cc-notice--error" role="alert">{wait.message}</p>}
       {!result && wait.status === 'loading' && <p className="cc-caption">Checking stations…</p>}
       {result && (
-        <>
+        <div className={`bk-results${wait.status === 'error' ? ' is-stale' : ''}`}>
+          <Freshness state={wait} />
           <p className="bk-answer-line" aria-live="polite">{result.message}</p>
           {live.data && (
             <LocalMap stations={live.data.stations} center={geo} need={need}
@@ -82,10 +84,8 @@ export default function NearMe({ geo, locate, need, setNeed, live }) {
               <StationCard key={s.station_id} station={s} best={result.best?.station_id === s.station_id} />
             ))}
           </ol>
-          <p className="cc-caption bk-source">
-            Live from Citi Bike{live.data ? `, ${Math.round(live.data.age_s)} s old` : ''}. Odds use a year of trips.
-          </p>
-        </>
+          <p className="cc-caption bk-source">Odds use a year of Citi Bike trips.</p>
+        </div>
       )}
     </section>
   );

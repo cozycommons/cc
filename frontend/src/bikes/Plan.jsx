@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
 import { mins, percent, usePolling } from './live.js';
 
@@ -105,9 +106,10 @@ export default function Plan({ geo, locate, live }) {
         </div>
         <label className="bk-check"><input type="checkbox" checked={ebike} onChange={(e) => setEbike(e.target.checked)} /> E-bike</label>
       </div>
-      {plan.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{plan.message}</p>}
+      {plan.status === 'error' && !result && <p className="cc-notice cc-notice--error" role="alert">{plan.message}</p>}
+      {result?.live && <Freshness state={plan} />}
       {result?.best && (
-        <article className="cc-card bk-plan" aria-live="polite">
+        <article className={`cc-card bk-plan${plan.status === 'error' ? ' is-stale' : ''}`} aria-live="polite">
           <p className="bk-plan__total"><b>{mins(result.best.expected_min)}</b> by bike · {mins(result.walk_only_min)} walking</p>
           <p className="cc-body">{result.message}</p>
           <Route option={result.best} ebike={ebike} />

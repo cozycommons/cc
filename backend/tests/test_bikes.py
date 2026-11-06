@@ -358,3 +358,32 @@ def test_review_fixes_fail_fast_skip_bad_stations_and_bound_times(client, monkey
     # The 404 does not echo the caller's input.
     missing = http.get('/bikes/stations/%3Cb%3Ex')
     assert missing.status_code == 404 and '<b>' not in missing.text
+
+
+
+def test_responses_carry_citi_bikes_own_feed_time(monkeypatch):
+    import io
+    import json as js
+    feeds = {
+        'station_information': [{'station_id': 'a', 'short_name': PENN.short_name, 'name': PENN.name,
+                                 'lat': PENN.lat, 'lon': PENN.lng}],
+        'station_status': [{'station_id': 'a', 'is_installed': 1, 'is_renting': 1, 'is_returning': 1,
+                            'num_bikes_available': 2, 'num_docks_available': 3}],
+    }
+
+    def urlopen(url, timeout):  # the real _fetch parses this body
+        feed = url.rsplit('/', 1)[1].removesuffix('.json')
+        return io.BytesIO(js.dumps({'last_updated': 1_783_000_000, 'data': {'stations': feeds[feed]}}).encode())
+    monkeypatch.setattr(gbfs.urllib.request, 'urlopen', urlopen)
+    monkeypatch.setattr(routes, 'load_model', lambda: MODEL)
+    gbfs.reset_cache()
+    app = FastAPI()
+    app.include_router(routes.router, prefix='/bikes')
+    http = TestClient(app)
+    expected = datetime.fromtimestamp(1_783_000_000, routes.NEW_YORK).isoformat(timespec='seconds')
+    for path, params in [('/bikes/live', {}), ('/bikes/stations', {}), ('/bikes/stations/6230.04', {}),
+                         ('/bikes/wait', {'lat': PENN.lat, 'lng': PENN.lng}),
+                         ('/bikes/plan', {'from_lat': PENN.lat, 'from_lng': PENN.lng, 'to_lat': 40.7295, 'to_lng': -73.9965})]:
+        body = http.get(path, params=params).json()
+        assert body['feed_updated_at'] == expected and isinstance(body['age_s'], int), path
+    gbfs.reset_cache()

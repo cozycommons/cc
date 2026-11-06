@@ -114,6 +114,15 @@ age of each station's report. A station silent for 15 minutes (`STALE_S`) is
 map. In November 2026 about two dozen stations had not reported for over an hour,
 and a few send report times near 1970, which read as "over a day".
 
+Every live JSON response carries `feed_updated_at` (Citi Bike's own
+`last_updated` for the status copy we hold, New York time) and `age_s` (seconds
+since this server fetched it). The page shows one line above Near me results and
+Plan: "Citi Bike data from 10:57 PM · checked 10 s ago", counting every 5 s,
+with Refresh. If Citi Bike's own time is over 5 minutes old it says Citi Bike
+has not updated since then; if a refresh fails, the last results stay, dimmed,
+with "Couldn't refresh. Showing Citi Bike data from 10:39 PM, 3 min ago" and
+Retry.
+
 The locate button (lucide `LocateFixed` on the Cozy Wabi key) sits beside the
 Bike/E-bike/Dock toggle and in the Plan tab's From row, so a moved phone can
 re-center without reloading.

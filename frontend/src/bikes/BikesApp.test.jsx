@@ -25,7 +25,7 @@ const station = (over) => ({
   status: 'empty', chance: 0.2, wait_min: 8, expected_min: 7.4, reported_s: 140, docks_disabled: 0, ...over,
 });
 const WAIT = {
-  need: 'bike', live: true,
+  need: 'bike', live: true, feed_updated_at: new Date(Date.now() - 30000).toISOString(), age_s: 10,
   message: 'Walk to W 37 St & Broadway, a 7-minute walk: 6 bikes now. The nearest, W 31 St & 7 Ave, is empty: about 7 minutes expected.',
   stations: [station(), station({ station: 'W 37 St & Broadway', station_id: '6364.07', walk_min: 7, bikes: 6, ebikes: 4,
     open_docks: 2, status: 'available', chance: 0.97, wait_min: 12, expected_min: 7.3 })],
@@ -75,6 +75,17 @@ describe('Cozy Bikes', () => {
     locate({ latitude: 40.7359, longitude: -73.9911 });
     fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.7359&lng=-73.9911&need=bike&limit=5'));
+
+    expect(screen.getByRole('status').textContent).toMatch(/^Citi Bike data from \d+:\d\d [AP]M · checked just now/);
+
+    // A failed refresh keeps the stations, dimmed, and says so.
+    const working = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ detail: 'Live Citi Bike dock data is unavailable.' }) })));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByText(/^Couldn't refresh\. Showing Citi Bike data from/)).toBeTruthy();
+    expect(document.querySelector('.bk-results.is-stale')).toBeTruthy();
+    expect(screen.getByText(WAIT.message)).toBeTruthy();
+    vi.stubGlobal('fetch', working);
 
     fireEvent.click(screen.getByRole('tab', { name: 'Dock' }));
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.7359&lng=-73.9911&need=dock&limit=5'));
