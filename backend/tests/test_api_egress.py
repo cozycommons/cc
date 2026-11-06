@@ -27,6 +27,7 @@ NON_EGRESS = {
     'localhost': {'main.py', 'dice/notifications.py'},
     '127.0.0.1': {'main.py', 'runtime_policy.py', 'trips/local.py'},
     's3.amazonaws.com': {'bikes/ingest.py'},
+    'download.bbbike.org': {'bikes/basemap.py'},
 }
 
 
