@@ -1,28 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import Conditions from './Conditions.jsx';
 import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
-import { mins, percent, usePolling } from './live.js';
+import { mins, odds, usePolling } from './live.js';
+import { usePlaceResults } from './PlaceSearch.jsx';
 
 const LEAVE = [{ label: 'Now', minutes: 0 }, { label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }];
 
-// Same folding as the API's /bikes/stations search: "west 31st street" finds "W 31 St".
-const WORDS = { street: 'st', avenue: 'ave', av: 'ave', east: 'e', west: 'w', north: 'n', south: 's',
-  place: 'pl', boulevard: 'blvd', road: 'rd', square: 'sq', and: '&' };
-export const searchWords = (text) => (text.toLowerCase().match(/[a-z0-9&]+/g) || [])
-  .map((w) => WORDS[w] ?? w.replace(/^(\d+)(st|nd|rd|th)$/, '$1'));
-export function matches(name, words) {
-  const tokens = searchWords(name);
-  return words.every((w) => (/^\d+$/.test(w) ? tokens.includes(w) : tokens.some((t) => t.startsWith(w))));
-}
-
-function StationSearch({ id, label, stations, value, onPick, mine, action }) {
+function StationSearch({ id, label, stations, value, onPick, mine, action, near }) {
   const [text, setText] = useState('');
-  const found = useMemo(() => {
-    const words = searchWords(text);
-    if (!words.length || !stations) return [];
-    return stations.name.map((name, i) => [name, i]).filter(([name]) => matches(name, words)).slice(0, 6);
-  }, [text, stations]);
+  const found = usePlaceResults(text, stations, near);
   return (
     <div className="bk-search">
       <label className="cc-label" htmlFor={id}>{label}</label>
@@ -36,13 +23,15 @@ function StationSearch({ id, label, stations, value, onPick, mine, action }) {
         </div>
       ) : (
         <>
-          <input id={id} className="cc-input" type="search" placeholder="Station or street" autoComplete="off"
+          <input id={id} className="cc-input" type="search" placeholder="Address, place or station" autoComplete="off"
             value={text} onChange={(e) => setText(e.target.value)} />
           <ul className="bk-search__results">
             {mine && !text && <li><button type="button" onClick={() => onPick(mine)}>My location</button></li>}
-            {found.map(([name, i]) => (
-              <li key={stations.id[i]}>
-                <button type="button" onClick={() => onPick({ name, lat: stations.lat[i], lng: stations.lng[i] })}>{name}</button>
+            {found.map((r) => (
+              <li key={`${r.station ?? ''}${r.name}${r.lat}`}>
+                <button type="button" onClick={() => onPick({ name: r.name, lat: r.lat, lng: r.lng })}>
+                  <span>{r.name}</span>{r.detail && <small>{r.detail}</small>}
+                </button>
               </li>
             ))}
           </ul>
@@ -58,7 +47,7 @@ function Leg({ kind, station, noun }) {
   return (
     <li className={`bk-step bk-step--${kind}`}>
       <b>{station.station}</b>
-      <span>{count} {what} now{station.chance != null ? ` · ${percent(station.chance)} likely on arrival` : ''}</span>
+      <span>{count} {what} now{station.chance != null ? ` · odds on arrival ${odds(station.chance)}` : ''}</span>
     </li>
   );
 }
@@ -97,8 +86,8 @@ export default function Plan({ geo, locate, live, seed }) {
       {geo.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{geo.message}</p>}
       <StationSearch id="bk-from" label="From" stations={stations} value={from ?? mine}
         onPick={(v) => setFrom(v && v.name === 'My location' ? null : v)} mine={mine}
-        action={!from && mine ? <LocateButton geo={geo} locate={locate} compact /> : null} />
-      <StationSearch id="bk-to" label="To" stations={stations} value={to} onPick={setTo} />
+        action={!from && mine ? <LocateButton geo={geo} locate={locate} compact /> : null} near={mine} />
+      <StationSearch id="bk-to" label="To" stations={stations} value={to} onPick={setTo} near={origin} />
       <div className="bk-row">
         <div className="cc-segmented" role="tablist" aria-label="Leave">
           {LEAVE.map((l) => (

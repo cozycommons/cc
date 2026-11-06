@@ -73,5 +73,7 @@ export function useNow(ms = 5000) {
   return now;
 }
 
-export const percent = (p) => (p == null ? null : p >= 0.995 ? '>99%' : `${Math.round(p * 100)}%`);
+// A chance as people say it, matching the API's wording: "about 7 in 10".
+export const odds = (p) => (p == null ? null : p >= 0.95 ? 'very likely' : p < 0.05 ? 'very unlikely'
+  : `about ${Math.min(9, Math.max(1, Math.round(p * 10)))} in 10`);
 export const mins = (m) => (m == null ? '—' : `${Math.max(1, Math.round(m))} min`);

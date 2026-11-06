@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Minus, Plus, LocateFixed, X } from 'lucide-react';
+import { Minus, Plus, LocateFixed, MapPin } from 'lucide-react';
 import { useBasemap } from './basemap.js';
-import { getJson, percent } from './live.js';
-import { matches, searchWords } from './Plan.jsx';
 
 const W = 360;
 const H = 420;
@@ -48,46 +46,15 @@ export function unproject(view, x, y) {
 const STREETS = [['sea', 'bk-street--sea', 0], ['water', 'bk-street--water', 0], ['park', 'bk-street--park', 0],
   ['minor', 'bk-street--minor', 1500], ['major', 'bk-street--major', 0], ['bike', 'bk-street--bike', 1500]];
 
-function Popup({ stations, index, need, view, transform, onPlan, onClose }) {
-  const [odds, setOdds] = useState(null);
-  const id = stations.id[index];
-  useEffect(() => {
-    let live = true;
-    setOdds(null);
-    getJson(`stations/${encodeURIComponent(id)}`).then((body) => { if (live) setOdds(body); }, () => {});
-    return () => { live = false; };
-  }, [id]);
-  const [x0, y0] = project(view, stations.lng[index], stations.lat[index]);
-  const x = transform.s * x0 + transform.tx, y = transform.s * y0 + transform.ty;
-  const station = { name: stations.name[index], lat: stations.lat[index], lng: stations.lng[index] };
-  const classic = stations.bikes[index] - stations.ebikes[index];
-  const chance = odds?.chance?.[need];
-  return (
-    <div className={`bk-pop${y < 170 ? ' is-below' : ''}`} role="dialog" aria-label={station.name}
-      style={{ left: `${(Math.min(W - 20, Math.max(20, x)) / W) * 100}%`, top: `${(y / H) * 100}%` }}>
-      <div className="bk-pop__head">
-        <b>{station.name}</b>
-        <button type="button" className="bk-pop__close" onClick={onClose} aria-label="Close"><X size={16} aria-hidden="true" /></button>
-      </div>
-      <p className="bk-pop__counts">
-        <span><b>{classic}</b> classic</span><span><b>{stations.ebikes[index]}</b> e-bike</span><span><b>{stations.docks[index]}</b> docks</span>
-      </p>
-      {chance && chance['15_min'] != null && (
-        <p className="bk-pop__odds">{need === 'dock' ? 'A dock' : need === 'ebike' ? 'An e-bike' : 'A bike'} here in 15 min: <b>{percent(chance['15_min'])}</b> · 30 min: <b>{percent(chance['30_min'])}</b></p>
-      )}
-      {level(stations, index, need) === 'unknown' && <p className="bk-pop__odds is-stale">No recent report from this station.</p>}
-      <div className="bk-pop__actions">
-        <button type="button" className="cc-button cc-button--small cc-button--secondary" onClick={() => onPlan('from', station)}>Plan from here</button>
-        <button type="button" className="cc-button cc-button--small cc-button--secondary" onClick={() => onPlan('to', station)}>Plan to here</button>
-      </div>
-    </div>
-  );
-}
-
 // A map you can drag, pinch, scroll and tap: live stations over the street tiles.
 // While a gesture runs, the drawing moves by a CSS transform; it is redrawn for the
 // new view when the gesture ends, so phones stay smooth.
-export default function BikeMap({ stations, need, home, focus, highlight = [], onPlan }) {
+//
+// `home` is the point answers are from (you, a searched place, a dropped pin);
+// `you` is your own location when known. Tapping a station selects it
+// (`onSelect`); the page answers it below the map. Tapping anywhere else drops a
+// pin with "Check from here" (`onPin`).
+export default function BikeMap({ stations, need, home, you = null, focus, highlight = [], selected = null, onSelect, onPin }) {
   const [view, setView] = useState(() => ({ lat: focus?.lat ?? home.lat, lng: focus?.lng ?? home.lng, r: clampR(focus?.radius ?? 700) }));
   const [transform, setTransformState] = useState({ tx: 0, ty: 0, s: 1 });
   // The live transform is also kept in a ref so commits read it without side effects in updaters.
@@ -96,8 +63,7 @@ export default function BikeMap({ stations, need, home, focus, highlight = [], o
     live.current = typeof next === 'function' ? next(live.current) : next;
     setTransformState(live.current);
   }, []);
-  const [selected, setSelected] = useState(() => focus?.station ?? null);
-  const [query, setQuery] = useState('');
+  const [pin, setPin] = useState(null);
   const svg = useRef(null);
   const gesture = useRef(null);
   const pointers = useRef(new Map());
@@ -186,7 +152,13 @@ export default function BikeMap({ stations, need, home, focus, highlight = [], o
         const d = (x - qx) ** 2 + (y - qy) ** 2;
         if (d < bestD) { best = i; bestD = d; }
       }
-      setSelected(best == null ? null : stations.id[best]);
+      if (best != null) {
+        setPin(null);
+        onSelect?.(stations.id[best]);
+      } else if (onPin) {
+        const v = view;
+        setPin(unproject(v, qx, qy));
+      }
     }
     commit();
   };
@@ -221,43 +193,33 @@ export default function BikeMap({ stations, need, home, focus, highlight = [], o
     } else if (event.key === '+' || event.key === '=') button(1.5);
     else if (event.key === '-') button(1 / 1.5);
   };
-  const flyTo = (lat, lng, r, id = null) => {
+  const flyTo = (lat, lng, r) => {
     setTransform({ tx: 0, ty: 0, s: 1 });
     setView({ lat, lng, r: clampR(r) });
-    setSelected(id);
   };
+  // A new starting point (search, pin, locate) recenters the map on it.
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    setPin(null);
+    setTransform({ tx: 0, ty: 0, s: 1 });
+    setView((v) => ({ ...v, lat: home.lat, lng: home.lng }));
+  }, [home.lat, home.lng, setTransform]);
 
-  const found = useMemo(() => {
-    const words = searchWords(query);
-    if (!words.length) return [];
-    return stations.name.map((name, i) => [name, i]).filter(([name]) => matches(name, words)).slice(0, 6);
-  }, [query, stations]);
-
-  const selectedIndex = selected == null ? -1 : stations.id.indexOf(selected);
   const marked = new Set(highlight);
   const dot = Math.min(9, Math.max(3.5, 9 * (700 / view.r)));
   const width = Math.min(1.6, Math.max(0.45, 700 / view.r));
   const noun = need === 'dock' ? 'open docks' : need === 'ebike' ? 'e-bikes' : 'bikes';
   const [hx, hy] = project(view, home.lng, home.lat);
+  const [yx, yy] = you ? project(view, you.lng, you.lat) : [null, null];
+  const [px, py] = pin ? project(view, pin.lng, pin.lat) : [null, null];
+  const away = you && (Math.abs(you.lat - home.lat) > 1e-5 || Math.abs(you.lng - home.lng) > 1e-5);
 
   return (
     <figure className="bk-map2">
-      <div className="bk-map2__search">
-        <input className="cc-input" type="search" placeholder="Find a station or street" aria-label="Find a station on the map"
-          value={query} onChange={(e) => setQuery(e.target.value)} />
-        {found.length > 0 && (
-          <ul className="bk-search__results">
-            {found.map(([name, i]) => (
-              <li key={stations.id[i]}>
-                <button type="button" onClick={() => { flyTo(stations.lat[i], stations.lng[i], 400, stations.id[i]); setQuery(''); }}>{name}</button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
       <div className="bk-map2__frame">
         <svg ref={svg} viewBox={`0 0 ${W} ${H}`} role="img" tabIndex={0} onKeyDown={onKeyDown}
-          aria-label={`Map of Citi Bike stations colored by ${noun}. Drag to move, pinch or scroll to zoom, tap a station for details.`}
+          aria-label={`Map of Citi Bike stations colored by ${noun}. Drag to move, pinch or scroll to zoom, tap a station to check it, or anywhere else to check from there.`}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
           <g transform={`translate(${transform.tx} ${transform.ty}) scale(${transform.s})`} style={{ '--w': width }}>
             {paths.map(([layer, className, d]) => (
@@ -277,17 +239,25 @@ export default function BikeMap({ stations, need, home, focus, highlight = [], o
                 </g>
               );
             })}
-            <circle className="bk-local__you" cx={hx} cy={hy} r="7" />
+            {away && <circle className="bk-local__you" cx={yx} cy={yy} r="7" />}
+            {away || !you
+              ? <path className="bk-local__from" d={`M${hx} ${hy}l-7 -14a8 8 0 1 1 14 0z`} />
+              : <circle className="bk-local__you" cx={hx} cy={hy} r="7" />}
+            {pin && <path className="bk-local__pin" d={`M${px} ${py}l-7 -14a8 8 0 1 1 14 0z`} />}
           </g>
         </svg>
         <div className="bk-map2__controls">
           <button type="button" onClick={() => button(1.5)} aria-label="Zoom in"><Plus size={18} aria-hidden="true" /></button>
           <button type="button" onClick={() => button(1 / 1.5)} aria-label="Zoom out"><Minus size={18} aria-hidden="true" /></button>
-          <button type="button" onClick={() => flyTo(home.lat, home.lng, 700)} aria-label="Back to you"><LocateFixed size={18} aria-hidden="true" /></button>
+          <button type="button" onClick={() => flyTo(home.lat, home.lng, 700)} aria-label="Back to the starting point"><LocateFixed size={18} aria-hidden="true" /></button>
         </div>
-        {selectedIndex >= 0 && (
-          <Popup stations={stations} index={selectedIndex} need={need} view={view} transform={transform}
-            onPlan={onPlan} onClose={() => setSelected(null)} />
+        {pin && (
+          <button type="button" className="cc-button cc-button--small bk-pin-action"
+            style={{ left: `${(Math.min(W - 70, Math.max(70, transform.s * px + transform.tx)) / W) * 100}%`,
+              top: `${((transform.s * py + transform.ty) / H) * 100}%` }}
+            onClick={() => { onPin({ lat: Number(pin.lat.toFixed(5)), lng: Number(pin.lng.toFixed(5)) }); setPin(null); }}>
+            <MapPin size={16} aria-hidden="true" /> Check from here
+          </button>
         )}
       </div>
       <figcaption>
@@ -299,7 +269,8 @@ export default function BikeMap({ stations, need, home, focus, highlight = [], o
               {['closed', 'unknown'].includes(l.key) ? l.label : `${l.label} ${noun}`}
             </li>
           ))}
-          <li><i className="bk-legend__you" />You</li>
+          {you && <li><i className="bk-legend__you" />You</li>}
+          {(away || !you) && <li><i className="bk-legend__from" />From here</li>}
         </ul>
         {streets && <p className="bk-local__credit">Map data {streets.attribution}</p>}
       </figcaption>

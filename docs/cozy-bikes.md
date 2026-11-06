@@ -145,17 +145,25 @@ choice is remembered on the device, and `?need=bike|ebike|dock` sets it in a lin
 
 Three tabs:
 
-- **Near me**: Bike, E-bike or Dock. The answer sentence, a live map of stations
-  within 800 m (colored 3+, 1–2, none or closed, with the five listed stations
-  labeled by count), and a card per station with live classic, e-bike and dock
-  counts, the chance it still has one when you arrive, the wait if it is gone
-  and the expected minutes. Refreshes every minute while visible.
-  `?lat=&lng=` sets the location, for shared links.
-- **Plan**: from your location (or a station) to a searched station, leaving
-  now or in 15, 30 or 60 minutes, optionally on an e-bike. Shows walk, start
-  station, ride, end station and walk with live odds at each end, against
-  walking the whole way. There is no address search: it would need a geocoder,
-  a new outbound host.
+- **Near me**: Bike, E-bike or Dock, from you or from anywhere: search an
+  address, place or station (the box under the mode keys), or tap an empty spot
+  on the map and "Check from here". The answer sentence, a live map of stations
+  (colored 3+, 1–2, none or closed, the five listed stations labeled by count),
+  and a card per station. A card leads with a verdict, then one line of data:
+
+      Probably gone by the time you arrive
+      2 min walk · 1 classic, 0 e-bikes, 97 docks · about 4 in 10 it lasts
+
+  Verdicts come from the API (`verdict`: go, likely, risky, skip, unknown) and
+  odds are said as "about N in 10", never percents. Tapping a station on the map
+  answers it as a card from the same starting point, at the top of the list,
+  with Plan from here / Plan to here. Refreshes every minute while visible.
+  `?lat=&lng=` sets the starting point and `&station=` selects a station, for
+  shared links.
+- **Plan**: from your location (or any address, place or station) to any
+  address, place or station, leaving now or in 15, 30 or 60 minutes, optionally
+  on an e-bike. Shows walk, start station, ride, end station and walk with live
+  odds at each end, against walking the whole way.
 - **Explore**: every dock by hour and trips per month (below).
 
 `?tab=plan` or `?tab=explore` opens a tab.
@@ -189,13 +197,29 @@ re-center without reloading.
 
 Near me's map moves: drag to pan, pinch or scroll to zoom (200 m to 3 km from
 the center to each side), arrow keys and +/- when focused, and the corner keys
-zoom or return to you. Tap a station for its live counts, the chance a bike or
-dock is still there in 15 and 30 minutes, and Plan from here / Plan to here,
-which opens Plan with that end filled in. The search box above flies to a
-station by cross streets. During a gesture the drawing moves by a CSS transform
-and is redrawn for the new view when the gesture ends, so phones stay smooth.
-Minor streets drop out past 1.5 km. `/bikes?lat=&lng=&radius=&station=` opens
-that view with the station's popup: answers link it as `map_url`.
+zoom or return to the starting point. Tap a station to answer it below the map
+(`/bikes/wait?include=`); tap anywhere else to drop a pin with "Check from here".
+A searched or pinned starting point is a dark marker; you stay a blue dot. During
+a gesture the drawing moves by a CSS transform and is redrawn for the new view
+when the gesture ends, so phones stay smooth. Minor streets drop out past 1.5 km.
+`/bikes?lat=&lng=&radius=&station=` opens that view with the station selected:
+answers link it as `map_url`.
+
+### Address and place search
+
+`/bikes/places?q=` finds addresses ("123 w 14th st", "37-10 30th st queens"),
+streets and named places ("barclays center", "moma") without a geocoding
+service: what people type stays on our server, and there is no new outbound
+host. `backend/bikes/places.tsv.gz` (2.9 MB) holds 460,000 OpenStreetMap
+addresses on 4,600 streets and 50,000 places within about a kilometer of a
+station, built by `python -m bikes.places` (bikes venv, about 4 minutes) from
+the basemap's BBBike extract. The API loads it on first search (about 40 MB, a
+fifth of a second) and answers from a word index in a few milliseconds. A missing
+house number falls back to the nearest on the same side of the street; borough
+words narrow results; equally good matches come nearest `lat`/`lng` first;
+landmarks (transit, parks, museums) outrank shops. Entries without a city or
+postcode take the most common borough of their kilometer cell. Rebuild with the
+basemap.
 
 ### Street basemap
 

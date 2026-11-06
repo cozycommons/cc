@@ -4,6 +4,7 @@ import { getUrl } from '../api.js';
 import Explore from './Explore.jsx';
 import NearMe from './NearMe.jsx';
 import ModeSwitch, { modeOf, useNeed } from './Mode.jsx';
+import PlaceSearch from './PlaceSearch.jsx';
 import Plan from './Plan.jsx';
 import { useGeo, usePolling } from './live.js';
 import '../../../design/cozy-wabi/components.css';
@@ -46,6 +47,11 @@ export default function BikesApp() {
   const planFrom = (end, station) => { setPlanSeed({ [end]: station }); setTab('plan'); };
   const [need, setNeed] = useNeed();
   const [geo, locate] = useGeo();
+  // Where Near me answers from: a searched place, station or dropped pin, else you.
+  const [place, setPlace] = useState(null);
+  const you = geo.status === 'ready' ? { kind: 'you', name: 'You', lat: geo.lat, lng: geo.lng } : null;
+  const origin = place ?? you;
+  const locateHere = () => { setPlace(null); locate(); };
   // One live feed for the map and station search; Explore does not need it.
   const live = usePolling('live', {}, tab !== 'explore');
   return (
@@ -58,14 +64,18 @@ export default function BikesApp() {
               aria-selected={tab === t.key} onClick={() => setTab(t.key)}>{t.label}</button>
           ))}
         </nav>
-        {tab === 'near' && (geo.status === 'ready' ? (
-          <NearMe geo={geo} locate={locate} need={need} setNeed={setNeed} live={live} focus={focus} onPlan={planFrom} />
+        {tab === 'near' && (origin ? (
+          <NearMe origin={origin} you={you} geo={geo} locate={locateHere} onOrigin={setPlace} need={need} setNeed={setNeed}
+            live={live} focus={focus} onPlan={planFrom} />
         ) : (
           <section className="bk-pane bk-start" aria-label="Near me">
             <h1 className="cc-h1">Citi Bike near you</h1>
             <ModeSwitch need={need} setNeed={setNeed} onPick={locate} large />
-            <p className="cc-caption">{geo.status === 'locating' ? 'Finding you…' : 'Uses your location. Live stations, and the odds one is still there when you arrive.'}</p>
+            <p className="cc-caption">{geo.status === 'locating' ? 'Finding you…' : 'Uses your location. Live stations, and whether one will still be there when you arrive.'}</p>
             {geo.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{geo.message}</p>}
+            <p className="cc-caption bk-start__or">Or start from anywhere:</p>
+            <PlaceSearch stations={live.data?.stations} origin={null}
+              onPick={(p) => setPlace({ kind: p.station ? 'station' : 'place', name: p.name, lat: p.lat, lng: p.lng, station: p.station })} />
           </section>
         ))}
         {tab === 'plan' && <Plan geo={geo} locate={locate} live={live} seed={planSeed} />}

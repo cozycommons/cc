@@ -161,3 +161,29 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-conditions svg{flex:none;margin-top:1px;color:#2a5f99}
 .bk-conditions p.is-alert{background:#f6e2dc}
 .bk-conditions p.is-alert svg{color:#a3302f}
+
+/* Starting anywhere: the "From" bar, a dropped pin, and the starting-point marker. */
+.bk-from{display:flex;align-items:center;gap:8px;min-height:48px;padding:4px 6px 4px 12px;border:1px solid var(--line,#e4d6bd);border-radius:10px;background:#fffaf2;color:var(--ink,#3d2f29);font-size:15px}
+.bk-from__label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk-from__clear{display:grid;place-items:center;flex:none;width:36px;height:36px;border:0;background:none;color:var(--ink-soft,#6f6256);cursor:pointer}
+.bk-from-search{position:relative}
+.bk-from-search__box{position:relative;display:flex;align-items:center}
+.bk-from-search__box svg{position:absolute;left:12px;color:var(--ink-soft,#6f6256);pointer-events:none}
+.bk-from-search__box .cc-input{padding-left:38px}
+.bk-search__results button{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.bk-search__results small{flex:none;color:var(--ink-soft,#6f6256);font-size:12px}
+.bk-start__or{margin:8px 0 0}
+.bk-local__from{fill:#3d2f29;stroke:#fffaf2;stroke-width:2}
+.bk-local__pin{fill:#d03b3b;stroke:#fffaf2;stroke-width:2}
+.bk-legend__from{background:#3d2f29;width:10px!important;height:10px!important;border-radius:50% 50% 50% 0;transform:rotate(-45deg)}
+.bk-pin-action{position:absolute;transform:translate(-50%,8px);z-index:2;box-shadow:var(--paper-shadow,0 6px 18px rgba(106,69,47,.18))}
+/* A station card leads with its verdict; the data line backs it up. */
+.bk-station.is-selected{outline:2px solid var(--ink,#3d2f29);outline-offset:-2px}
+.bk-station__tag{color:var(--ink-soft,#6f6256);font-weight:600}
+.bk-verdict{margin:0;font-size:17px;font-weight:700;line-height:1.3}
+.bk-verdict--go{color:#2f6b2f}
+.bk-verdict--likely{color:#4d6a2a}
+.bk-verdict--risky{color:#8a5a00}
+.bk-verdict--skip{color:#a3302f}
+.bk-verdict--unknown{color:var(--ink-soft,#6f6256)}
+.bk-data{margin:0;font-size:14px;color:var(--ink-soft,#6f6256);font-variant-numeric:tabular-nums}
