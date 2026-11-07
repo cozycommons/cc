@@ -252,12 +252,21 @@ def single_worker(root):
 
 def serve(root, ffmpeg, ffprobe, encoder, stop=None):
     stop = stop or threading.Event()
+    try:
+        from compute.reservation import pause_requested
+    except ModuleNotFoundError as exc:
+        if exc.name not in {'compute', 'compute.reservation'}:
+            raise
+        while not stop.is_set():
+            write_json(root / 'status.json', {'state': 'idle', 'updated_at': time.time(), 'pid': os.getpid(), 'encoder': encoder})
+            stop.wait(1)
+        return
     with single_worker(root):
         for abandoned in (root / 'running').glob('*.json'):
             write_json(root / 'failed' / abandoned.name, {'error': 'Interrupted job; source manifest and work retained'})
             abandoned.replace(root / 'failed' / f'{abandoned.stem}.manifest.json')
         while not stop.is_set():
-            if (root / 'update-requested').exists():
+            if pause_requested(root) or (root / 'update-requested').exists():
                 write_json(root / 'status.json', {'state': 'paused', 'updated_at': time.time(), 'pid': os.getpid(), 'encoder': encoder})
                 stop.wait(1)
                 continue

@@ -11,7 +11,7 @@ for worker_module in audio video progress limits config storage blobs r2 worker 
     scp "$worker_repo/backend/crowdset/$worker_module.py" "$worker_host:.local/share/crowdset-worker/crowdset/"
 done
 ssh "$worker_host" 'mkdir -p ~/.local/share/crowdset-worker/compute'
-for worker_module in __init__ jobs queue client runner execute worker example process; do
+for worker_module in __init__ jobs queue client runner execute worker example process reservation gpu_session; do
     scp "$worker_repo/backend/compute/$worker_module.py" "$worker_host:.local/share/crowdset-worker/compute/"
 done
 for worker_unit in crowdset-gpu-worker.service crowdset-gpu-update.service crowdset-gpu-update.timer; do

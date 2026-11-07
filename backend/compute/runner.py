@@ -6,6 +6,13 @@ from pathlib import Path
 import time
 from uuid import uuid4
 
+try:
+    from .reservation import pause_requested
+except ModuleNotFoundError as exc:
+    if exc.name != 'compute.reservation':
+        raise
+    pause_requested = None
+
 
 def write_status(root, state, job=None):
     value = {'state': state, 'pid': os.getpid(), 'updated_at': time.time(), 'job': job}
@@ -28,12 +35,20 @@ def serve(root, sources, stop):
         write_status(root, 'idle')
         cursor = 0
         while not stop.is_set():
-            if (root / 'update-requested').exists():
+            if pause_requested is None:
+                # Never claim work from an incomplete updater release bundle.
+                write_status(root, 'idle')
+                stop.wait(1)
+                continue
+            if pause_requested(root) or (root / 'update-requested').exists():
                 write_status(root, 'paused')
                 stop.wait(1)
                 continue
             offline = False
             for offset in range(len(sources)):
+                if pause_requested(root) or (root / 'update-requested').exists():
+                    write_status(root, 'paused')
+                    break
                 index = (cursor + offset) % len(sources)
                 source = sources[index]
                 try:

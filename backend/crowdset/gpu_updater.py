@@ -30,7 +30,7 @@ for module in ('audio', 'video', 'progress', 'limits', 'config', 'storage', 'blo
                'worker', 'composition', 'previews', 'timestamps', 'gpu_worker', 'remote_agent', 'youtube', 'compute_jobs'):
     FILES['crowdset/' + module + '.py'] = 'backend/crowdset/' + module + '.py'
 
-for module in ('__init__', 'jobs', 'queue', 'client', 'runner', 'execute', 'worker', 'example', 'process'):
+for module in ('__init__', 'jobs', 'queue', 'client', 'runner', 'execute', 'worker', 'example', 'process', 'reservation', 'gpu_session'):
     FILES['compute/' + module + '.py'] = 'backend/compute/' + module + '.py'
 
 SERVICE = 'crowdset-gpu-worker.service'
@@ -202,6 +202,9 @@ def deploy(root, pending):
 
 
 def update(root):
+    if (root / 'data/gpu-session.json').exists():
+        record(root / 'update-status.json', {'state': 'waiting_for_gpu_session', 'updated_at': time.time()})
+        return
     pending_path = root / 'pending-update.json'
     if pending_path.exists():
         pending = json.loads(pending_path.read_text())

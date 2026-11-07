@@ -170,7 +170,7 @@ def test_new_worker_is_healthy_while_processing_queued_jobs(tmp_path, monkeypatc
     assert updater.healthy(tmp_path, seconds=0.1)
 
 
-@pytest.mark.parametrize('module', ['crowdset/youtube.py', 'compute/runner.py'])
+@pytest.mark.parametrize('module', ['crowdset/youtube.py', 'compute/runner.py', 'compute/reservation.py', 'compute/gpu_session.py'])
 def test_expanded_bundle_adds_new_modules_before_stopping_service(tmp_path, monkeypatch, module):
     pending = prepare(tmp_path, monkeypatch)
     modules = [name for name in updater.FILES if name.startswith(module.split('/')[0] + '/')]
@@ -194,3 +194,23 @@ def test_worker_can_be_healthy_while_waiting_for_control_plane(tmp_path, monkeyp
     updater.record(tmp_path / 'data/status.json', {'state': 'offline', 'pid': 42, 'updated_at': time.time()})
     monkeypatch.setattr(updater, 'running_pid', lambda: 42)
     assert updater.healthy(tmp_path, seconds=0.1)
+
+
+def test_gpu_session_defers_update_and_recovery_without_touching_ownership(tmp_path, monkeypatch):
+    (tmp_path / 'data').mkdir()
+    reservation = tmp_path / 'data/gpu-session.json'
+    reservation.write_text('{"token":"owner","phase":"serving"}')
+    (tmp_path / 'data/update-requested').touch()
+    updater.record(tmp_path / 'pending-update.json', {'sha': SHA, 'phase': 'installing'})
+    monkeypatch.setattr(updater, 'get', lambda *_: pytest.fail('reserved session reached network'))
+    monkeypatch.setattr(updater, 'control', lambda *_: pytest.fail('reserved session changed services'))
+    updater.update(tmp_path)
+    assert reservation.read_text() == '{"token":"owner","phase":"serving"}'
+    assert (tmp_path / 'data/update-requested').exists()
+    assert json.loads((tmp_path / 'pending-update.json').read_text())['phase'] == 'installing'
+    assert json.loads((tmp_path / 'update-status.json').read_text())['state'] == 'waiting_for_gpu_session'
+
+
+def test_reservation_modules_are_in_release_bundle():
+    assert updater.FILES['compute/reservation.py'] == 'backend/compute/reservation.py'
+    assert updater.FILES['compute/gpu_session.py'] == 'backend/compute/gpu_session.py'
