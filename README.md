@@ -14,6 +14,7 @@ A monorepo for community projects amongst our friends.
 - **[Resy](backend/resy/)** — restaurant search, availability, and reservations.
 - **[ESPN Fantasy](backend/espn/)** — league stats, rosters, and opt-in lineup automation.
 - **[Cozy Bikes](docs/cozy-bikes.md)** — wait at a full Citi Bike dock or ride to the next one, from a year of trips and live docks.
+- **[VITAL occupancy](docs/cozy-vital.md)** — record VITAL Brooklyn's live headcount and find its quiet hours.
 
 ## Layout
 
