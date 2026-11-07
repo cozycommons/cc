@@ -1,5 +1,7 @@
 # Apps prototype technical design
 
+Hosted candidate configuration and its separate rollout gates are documented in [HOSTING.md](HOSTING.md). The local workflow below remains unchanged.
+
 ## Context
 
 The approved direction is in [README.md](README.md); observable behavior is in

@@ -732,7 +732,7 @@ def create_agent_app(
 INSTRUCTIONS = (
     "Call list_projects first to discover projects, which are enabled for this user, and setup steps. "
     "Call enable_project(project_id) to add a project's tools; refresh your tool list if they do not appear. "
-    "Use exact IDs and integer cents. Preview every write with dry_run=true, review it with the user, "
+    "Use exact IDs and integer cents. For tools that accept dry_run, preview with dry_run=true, review it with the user, "
     "then repeat with dry_run=false and the same idempotency_key. Never infer an ID from a name. "
     "Errors name the fix: follow them (enable a project, link an account or reconnect)."
 )

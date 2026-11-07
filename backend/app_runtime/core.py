@@ -9,6 +9,7 @@ from pathlib import Path
 
 RESERVED = {
     "admin",
+    "apps",
     "api",
     "auth",
     "www",
@@ -43,10 +44,10 @@ def service_name(value: str) -> str:
     return value if value == "default" else slug(value)
 
 
-def hostname(app: str, service: str) -> str:
+def hostname(app: str, service: str, settings=None) -> str:
     slug(app)
     service_name(service)
-    return app + ("" if service == "default" else "--" + service) + ".localhost"
+    return app + ("" if service == "default" else "--" + service) + "." + (settings.domain if settings else "localhost")
 
 
 def digest(token: str) -> str:
@@ -109,7 +110,9 @@ def allowed(record, identity, required="viewer"):
     return ROLES.get(role_for(record, identity), 0) >= ROLES[required]
 
 
-def proxy_config(records):
+def proxy_config(records, settings=None):
+    if settings and settings.hosted:
+        return hosted_proxy_config(records, settings)
     lines = [
         "{",
         " auto_https off",
@@ -157,3 +160,34 @@ def proxy_config(records):
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def hosted_proxy_config(records, settings):
+    lines = ['{', ' admin localhost:2019', '}',
+             f'{settings.portal} {{', ' reverse_proxy manager:9000', '}']
+    for record in sorted(records, key=lambda x: x['name']):
+        app = slug(record['name'])
+        for name, route in sorted(record['routes'].items()):
+            host = hostname(app, name, settings)
+            port = int(route['port'])
+            if not 1024 <= port <= 65535:
+                raise ValueError('Port must be between 1024 and 65535')
+            lines.extend([
+                f'{host} {{',
+                ' route {',
+                '  handle /_commons/* {', '   reverse_proxy manager:9000', '  }',
+                '  handle {',
+                '   request_header -X-Commons-App-Cookie',
+                '   forward_auth manager:9000 {',
+                f'    uri /authorize/{app}/{name}',
+                '    header_up -Upgrade', '    header_up -Connection',
+                '    copy_headers X-Commons-App-Cookie>Cookie', '   }',
+                f'   reverse_proxy {settings.prefix}{app}:{port} {{',
+                '    header_up -X-Commons-App-Cookie',
+                '    header_up -Authorization', '    header_up -Proxy-Authorization',
+                '    header_up -X-Forwarded-User', '   }', '  }', ' }', '}',
+            ])
+    lines.extend(['http://proxy {', ' handle_path /api-control/* {',
+                  '  reverse_proxy manager:9000', ' }', ' respond 404', '}',
+                  ':80 {', ' respond 404', '}'])
+    return '\n'.join(lines) + '\n'

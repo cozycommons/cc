@@ -4,16 +4,20 @@ import json
 
 import docker
 
+from .settings import Settings
+
 PREFIX = "cc-apps-local-"
 IMAGE = "cc-apps-runtime:local"
 
 
 class Runtime:
     def __init__(self):
+        settings = Settings.load()
+        self.prefix, self.image = settings.prefix, settings.image
         self.client = docker.from_env()
 
     def container(self, name):
-        return self.client.containers.get(PREFIX + name)
+        return self.client.containers.get(self.prefix + name)
 
     def status(self, name):
         try:
@@ -25,11 +29,11 @@ class Runtime:
     def create(self, record, token):
         name = record["name"]
         network = self.client.networks.create(
-            PREFIX + name, driver="bridge", labels={"cc.apps": name}
+            self.prefix + name, driver="bridge", labels={"cc.apps": name, "cc.apps.instance": self.prefix}
         )
-        network.connect(PREFIX + "proxy", aliases=["proxy"])
+        network.connect(self.prefix + "proxy", aliases=["proxy"])
         self.client.volumes.create(
-            PREFIX + name + "-workspace", labels={"cc.apps": name}
+            self.prefix + name + "-workspace", labels={"cc.apps": name, "cc.apps.instance": self.prefix}
         )
         self.create_container(record, token)
         initialized = self.container(name).exec_run(
@@ -44,10 +48,10 @@ class Runtime:
     def create_container(self, record, token):
         name = record["name"]
         self.client.containers.run(
-            IMAGE,
-            name=PREFIX + name,
+            self.image,
+            name=self.prefix + name,
             detach=True,
-            network=PREFIX + name,
+            network=self.prefix + name,
             hostname=name,
             init=True,
             mem_limit="512m",
@@ -57,18 +61,18 @@ class Runtime:
             security_opt=["no-new-privileges:true"],
             cap_drop=["NET_RAW"],
             volumes={
-                PREFIX + name + "-workspace": {"bind": "/workspace", "mode": "rw"}
+                self.prefix + name + "-workspace": {"bind": "/workspace", "mode": "rw"}
             },
             environment={
                 "COMMONS_APP": name,
                 "COMMONS_APP_TOKEN": token,
                 "COMMONS_CONTROL_URL": "http://proxy/api-control",
             },
-            labels={"cc.apps": name},
+            labels={"cc.apps": name, "cc.apps.instance": self.prefix},
         )
 
     def reload_proxy(self):
-        result = self.client.containers.get(PREFIX + "proxy").exec_run(
+        result = self.client.containers.get(self.prefix + "proxy").exec_run(
             [
                 "caddy",
                 "reload",
@@ -130,21 +134,21 @@ else:
             else f"tar czf /state/backups/{backup_id}/workspace.tgz -C /workspace ."
         )
         volumes = {
-            PREFIX + name + "-workspace": {
+            self.prefix + name + "-workspace": {
                 "bind": "/workspace",
                 "mode": "rw" if restore else "ro",
             }
         }
         if restore:
             # Mount platform state read-only; helper is never available to app commands.
-            volumes[PREFIX + "state"] = {"bind": "/state", "mode": "ro"}
+            volumes[self.prefix + "state"] = {"bind": "/state", "mode": "ro"}
             command = command.replace(
                 "/backup/workspace.tgz", f"/state/backups/{backup_id}/workspace.tgz"
             )
         else:
-            volumes[PREFIX + "state"] = {"bind": "/state", "mode": "rw"}
+            volumes[self.prefix + "state"] = {"bind": "/state", "mode": "rw"}
         self.client.containers.run(
-            IMAGE,
+            self.image,
             ["bash", "-ec", command],
             entrypoint="",
             remove=True,
