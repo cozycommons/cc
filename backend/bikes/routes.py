@@ -19,7 +19,7 @@ from . import conditions, gbfs, places, render
 from .forecast import HORIZON_MIN, chance
 from .model import SERVICE_AREA
 from .plan import plan
-from .wait import decide, distance_m, expected_wait_min, load_model, minutes_or_none, nearby
+from .wait import decide, distance_m, expected_wait_min, load_model, minutes_or_none, nearby, options_at
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -257,6 +257,26 @@ def wait(
     best = result['best']
     links = map_links(lat, lng, 600, need, [best['station_id']] if best else [], you=station is None)
     return {**result, **freshness(), **links, 'conditions': about, 'model_window': model['window']}
+
+
+@router.get('/options')
+def station_options(
+    station: str = Query(..., description='The station you are at'),
+    need: Literal['bike', 'ebike', 'dock'] = 'bike',
+    format: Literal['json', 'text'] = 'json',
+):
+    """At a station: wait there, or walk (for a bike) or ride (for a dock) to the next one?"""
+    docks = live_docks()
+    here = find_station(docks, station)
+    now = datetime.now(NEW_YORK)
+    model, about = live_model(now)
+    result = options_at(model, docks, here, now, need)
+    result['answer'] = result['message']
+    result['message'] = with_note(result['message'], about)
+    if format == 'text':
+        return PlainTextResponse(result['message'])
+    marks = [o['station_id'] for o in result['options']]
+    return {**result, **freshness(), **map_links(here.lat, here.lng, 600, need, marks), 'conditions': about}
 
 
 @router.get('/wait-or-ride')

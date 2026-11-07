@@ -6,16 +6,11 @@ import Freshness from './Freshness.jsx';
 import LocateButton from './LocateButton.jsx';
 import ModeSwitch from './Mode.jsx';
 import PlaceSearch from './PlaceSearch.jsx';
-import { mins, odds, usePolling } from './live.js';
+import StationSheet from './StationSheet.jsx';
+import { mins, odds, reportedLabel, usePolling } from './live.js';
 
-// Some stations send report times near 1970, so long silences read as "over a day".
-export function reportedLabel(s) {
-  if (s == null) return null;
-  if (s < 90) return 'Reported just now';
-  if (s < 5400) return `Reported ${Math.round(s / 60)} min ago`;
-  if (s < 172800) return `Reported ${Math.round(s / 3600)} hours ago`;
-  return 'No report in over a day';
-}
+export { reportedLabel };
+
 const plural = (n, word) => `${word}${n === 1 ? '' : 's'}`;
 
 // The data behind the verdict, in one line: walk, what is there now, and the odds.
@@ -33,28 +28,17 @@ export function dataLine(station, need, fromStation) {
   return parts.join(' · ');
 }
 
-function StationCard({ station, need, best, selected, fromStation, onPlan, onClose }) {
+function StationCard({ station, need, best, fromStation }) {
   const verdict = station.verdict ?? { tone: 'unknown', text: 'No live answer' };
   return (
-    <li className={`cc-card bk-station${best ? ' is-best' : ''}${selected ? ' is-selected' : ''}`}>
+    <li className={`cc-card bk-station${best ? ' is-best' : ''}`}>
       <div className="bk-station__head">
-        <h3>{selected && <span className="bk-station__tag">Selected · </span>}{best && <span className="bk-station__tag">Best · </span>}{station.station}</h3>
-        {onClose && (
-          <button type="button" className="bk-from__clear" onClick={onClose} aria-label="Close selected station"><X size={16} aria-hidden="true" /></button>
-        )}
+        <h3>{best && <span className="bk-station__tag">Best · </span>}{station.station}</h3>
       </div>
       <p className={`bk-verdict bk-verdict--${verdict.tone}`}>{verdict.text}</p>
       <p className="bk-data">{dataLine(station, need, fromStation)}</p>
       {station.reported_s != null && (
         <p className={`bk-station__age${station.status === 'unknown' ? ' is-stale' : ''}`}>{reportedLabel(station.reported_s)}</p>
-      )}
-      {selected && onPlan && (
-        <div className="bk-pop__actions">
-          <button type="button" className="cc-button cc-button--small cc-button--secondary"
-            onClick={() => onPlan('from', { name: station.station, lat: station.lat, lng: station.lng })}>Plan from here</button>
-          <button type="button" className="cc-button cc-button--small cc-button--secondary"
-            onClick={() => onPlan('to', { name: station.station, lat: station.lat, lng: station.lng })}>Plan to here</button>
-        </div>
       )}
     </li>
   );
@@ -63,7 +47,7 @@ function StationCard({ station, need, best, selected, fromStation, onPlan, onClo
 // `origin` is where answers are from: { kind: 'you' | 'place' | 'pin' | 'station', name, lat, lng }.
 export default function NearMe({ origin, you, geo, locate, onOrigin, need, setNeed, live, focus, onPlan }) {
   const [selected, setSelected] = useState(() => focus?.station ?? origin.station ?? null);
-  const params = { lat: origin.lat, lng: origin.lng, need, limit: 5, include: selected };
+  const params = { lat: origin.lat, lng: origin.lng, need, limit: 5 };
   const wait = usePolling('wait', params, true);
   const result = wait.data;
   const pick = (place) => {
@@ -71,9 +55,6 @@ export default function NearMe({ origin, you, geo, locate, onOrigin, need, setNe
     setSelected(place.station ?? null);
   };
   const fromStation = origin.kind === 'station';
-  // The selected card leads; it is left out of the list below when it is also one of the nearest.
-  const shown = result?.selected && result.selected.station_id === selected ? result.selected : null;
-  const nearest = result ? result.stations.filter((s) => s.station_id !== shown?.station_id) : [];
   return (
     <section className="bk-pane" aria-label="Near me">
       <div className="bk-near-head">
@@ -95,17 +76,17 @@ export default function NearMe({ origin, you, geo, locate, onOrigin, need, setNe
               onPin={(p) => { onOrigin({ kind: 'pin', name: 'Dropped pin', ...p }); setSelected(null); }} />
           )}
           <ol className="bk-stations">
-            {shown && (
-              <StationCard station={shown} need={need} selected fromStation={fromStation}
-                best={result.best?.station_id === shown.station_id} onPlan={onPlan} onClose={() => setSelected(null)} />
-            )}
-            {nearest.map((s) => (
+            {result.stations.map((s) => (
               <StationCard key={s.station_id} station={s} need={need} fromStation={fromStation}
                 best={result.best?.station_id === s.station_id} />
             ))}
           </ol>
           <p className="cc-caption bk-source">Odds use a year of Citi Bike trips. Map and places © OpenStreetMap contributors.</p>
         </div>
+      )}
+      {selected && (
+        <StationSheet stationId={selected} need={need} onClose={() => setSelected(null)} onPlan={onPlan}
+          onStartHere={(place) => { onOrigin({ kind: 'station', ...place }); setSelected(null); }} />
       )}
     </section>
   );

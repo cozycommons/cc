@@ -58,6 +58,14 @@ text ("Go: it will be there", "Toss-up: have a backup", "Empty: a bike in about
 6 minutes")}. Relay the verdict with a number or two (count now, walk), not the
 raw chance.
 
+## At a station: wait, or move on?
+
+GET /options?station=6331.01&need=bike     empty here: wait, or walk to the next?
+GET /options?station=6331.01&need=dock     full here (on a bike): wait, or ride on and walk back?
+-> station (here), options: [{station, station_id, how (here|walk|ride), travel_min,
+   walk_back_min, bikes, ebikes, open_docks, status, chance (on arrival), wait_min,
+   expected_min (until you have it, plus the walk back), verdict}], best, message
+
 ## Plan a trip
 
 GET /plan?from_lat=40.7497&from_lng=-73.9915&to_station=5492.05

@@ -47,6 +47,20 @@ const PLAN = {
 // A search result's button. (findByRole with a name is very slow on this page.)
 const result = async (name) => (await screen.findByText(name, { selector: '.bk-search__results span' })).closest('button');
 
+const HERE = station({ station: 'W 37 St & Broadway', station_id: '6364.07', how: 'here', travel_min: 0, walk_back_min: 0,
+  wait_min: 13, expected_min: 13, chance: 0, lat: 40.7546, lng: -73.9876 });
+const OPTIONS = {
+  need: 'bike',
+  station: HERE,
+  options: [
+    HERE,
+    station({ how: 'walk', travel_min: 3.5, walk_back_min: 0, bikes: 6, ebikes: 4, status: 'available', chance: 0.83,
+      wait_min: 17, expected_min: 6.4, verdict: { tone: 'likely', text: 'Likely there when you arrive' } }),
+  ],
+  message: 'Walk 4 minutes to W 31 St & 7 Ave: 6 bikes there now, about 8 in 10 one is left. About 6 minutes in all. Waiting here is about 13 minutes.',
+};
+OPTIONS.best = OPTIONS.options[1];
+
 const PLACES = { places: [{ label: '350 5th Avenue', area: 'Manhattan', kind: 'address', lat: 40.74844, lng: -73.98566 }] };
 
 function api() {
@@ -54,9 +68,8 @@ function api() {
   vi.stubGlobal('fetch', vi.fn(async (url) => {
     calls.push(url);
     const path = new URL(url).pathname;
-    const include = new URL(url).searchParams.get('include');
-    const wait = include ? { ...WAIT, selected: WAIT.stations.find((s) => s.station_id === include) ?? null } : WAIT;
-    const body = { '/bikes/live': LIVE, '/bikes/wait': wait, '/bikes/plan': PLAN, '/bikes/places': PLACES }[path];
+    const body = { '/bikes/live': LIVE, '/bikes/wait': WAIT, '/bikes/plan': PLAN, '/bikes/places': PLACES,
+      '/bikes/options': { ...OPTIONS, answer: OPTIONS.message } }[path];
     return body ? { ok: true, status: 200, json: async () => body } : { ok: false, status: 404, json: async () => ({}) };
   }));
   return calls;
@@ -132,7 +145,7 @@ describe('Cozy Bikes', () => {
     expect(screen.getByText('9 docks now · odds on arrival about 8 in 10')).toBeTruthy();
   });
 
-  it('answers from a searched address without your location, and answers a tapped station', async () => {
+  it('answers from a searched address without your location, and a tapped station asks wait or move on', async () => {
     const calls = api();
     view();
     fireEvent.change(screen.getByLabelText('Search an address, place or station'), { target: { value: '350 5th' } });
@@ -145,16 +158,21 @@ describe('Cozy Bikes', () => {
     const [x, y] = project({ lat: 40.74844, lng: -73.98566, r: 700 }, -73.9876, 40.7546);
     fireEvent.pointerDown(svg, { pointerId: 1, clientX: x, clientY: y });
     fireEvent.pointerUp(svg, { pointerId: 1, clientX: x, clientY: y });
-    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.74844&lng=-73.98566&need=bike&limit=5&include=6364.07'));
-    const selected = await waitFor(() => {
-      const card = document.querySelector('.bk-station.is-selected');
-      if (!card) throw new Error('no selected card');
-      return card;
-    });
-    expect(within(selected).getByText('Go: it will be there')).toBeTruthy();
-    expect(within(selected).getByRole('button', { name: 'Plan to here' })).toBeTruthy();
-    // It leads the list and is not repeated below.
-    expect(screen.getAllByText('Go: it will be there')).toHaveLength(1);
+    // Tapping a station asks what to do standing there: wait, or walk on.
+    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/options?station=6364.07&need=bike'));
+    const sheet = await screen.findByRole('dialog');
+    expect(await within(sheet).findByText('Walk to W 31 St & 7 Ave')).toBeTruthy();
+    expect(within(sheet).getByText('Need a bike here?')).toBeTruthy();
+    expect(within(sheet).getByText('About 6 min in all, vs about 13 min waiting here.')).toBeTruthy();
+    const rows = sheet.querySelectorAll('.bk-option');
+    expect([...rows].map((r) => r.textContent)).toEqual([
+      'Wait here0 bikes now · next in about 13 min13 min',
+      'W 31 St & 7 AveWalk 4 min · 6 bikes now · about 8 in 10 one is left6 min',
+    ]);
+    expect(rows[1].classList.contains('is-best')).toBe(true);
+    fireEvent.click(within(sheet).getByText('Start from here'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByText('W 37 St & Broadway', { selector: '.bk-from b' })).toBeTruthy();
   });
 
   it('explains a blocked location', async () => {

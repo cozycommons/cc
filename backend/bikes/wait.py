@@ -326,3 +326,66 @@ def decide(model, docks, lat, lng, when: datetime):
     return {**result, 'decision': 'unknown', 'message': (
         f'{prefix}{here.name} is full, there is no open dock within {SEARCH_M / 1000:g} km, '
         'and bikes rarely leave here at this hour.')}
+
+
+# Moving on is worth comparing only within this many stations.
+OPTIONS = 4
+
+
+def options_at(model, docks, here, when: datetime, need='bike', limit=OPTIONS):
+    """Standing at `here`: wait for a bike (or dock), or move to another station?
+
+    For a bike you walk to the others. For a dock you have a bike, so you ride to
+    the others and walk back. Each option has its travel, the chance it has what
+    you need when you get there, the refill wait if not, and the expected minutes
+    until you have it (plus the walk back, for a dock). `best` has the fewest.
+    """
+    riding = need == 'dock'
+    speed = model['ride_mps'] if riding else WALK_MPS
+
+    def option(dock, gap):
+        travel = gap / speed / 60
+        back = gap / WALK_MPS / 60 if riding else 0.0
+        fields = live_fields(model, dock, need, when, travel, when + timedelta(minutes=travel))
+        if fields['expected_min'] is not None:
+            fields['expected_min'] = round(fields['expected_min'] + back, 1)
+        entry = {'station': dock.name, 'station_id': dock.short_name, 'lat': dock.lat, 'lng': dock.lng,
+                 'how': 'here' if dock is here else 'ride' if riding else 'walk',
+                 'travel_min': round(travel, 1), 'walk_back_min': round(back, 1), **fields}
+        entry['verdict'] = verdict(entry, need)
+        return entry
+
+    others = sorted(((distance_m(here.lat, here.lng, d.lat, d.lng), d) for d in docks if d is not here),
+                    key=lambda pair: pair[0])
+    serving = [(gap, d) for gap, d in others if gap <= SEARCH_M and (d.returning if riding else d.renting)]
+    # Here first, then the others by expected minutes (unknown last).
+    others = sorted((option(d, gap) for gap, d in serving[:limit]),
+                    key=lambda o: (o['expected_min'] is None, o['expected_min'] or 0))
+    options = [option(here, 0.0)] + others
+    best = min((o for o in options if o['expected_min'] is not None), key=lambda o: o['expected_min'], default=None)
+    return {'need': need, 'at': when.isoformat(timespec='minutes'), 'station': options[0], 'options': options,
+            'best': best, 'message': options_message(options[0], best, need)}
+
+
+def options_message(here, best, need):
+    noun = NEEDS[need][3]
+    key = {'bike': 'bikes', 'ebike': 'ebikes', 'dock': 'open_docks'}[need]
+    if here['status'] == 'available':
+        count = here[key]
+        return f"{'Dock' if need == 'dock' else 'Take one'} here: {count} {noun}{'' if count == 1 else 's'} now."
+    if best is None:
+        return f'No station within {SEARCH_M / 1000:g} km has {"an" if noun[0] in "aeo" else "a"} {noun} or usually gets one now.'
+    if here['status'] == 'unknown':
+        stay = f"{here['station']} has not reported for {since(here['reported_s'])}."
+    elif here['wait_min'] is None:
+        stay = f"Here, {'docks rarely open' if need == 'dock' else 'bikes rarely come back'} at this hour."
+    else:
+        stay = f"Waiting here is {duration(here['expected_min'])}."
+    if best is here:
+        return f"Wait here: {NEEDS[need][2]} in {duration(here['wait_min'])}."
+    move = (f"Ride {minutes(best['travel_min'])} to {best['station']}, then walk {minutes(best['walk_back_min'])} back"
+            if need == 'dock' else f"Walk {minutes(best['travel_min'])} to {best['station']}")
+    chance_words = odds(best['chance']) if best['chance'] is not None else 'unknown'
+    count = best[key]
+    return (f"{move}: {count} {noun}{'' if count == 1 else 's'} there now, {chance_words} one is left. "
+            f"About {minutes(best['expected_min'])} in all. {stay}")

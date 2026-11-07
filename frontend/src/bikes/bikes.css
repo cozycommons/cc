@@ -178,7 +178,6 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-legend__from{background:#3d2f29;width:10px!important;height:10px!important;border-radius:50% 50% 50% 0;transform:rotate(-45deg)}
 .bk-pin-action{position:absolute;transform:translate(-50%,8px);z-index:2;box-shadow:var(--paper-shadow,0 6px 18px rgba(106,69,47,.18))}
 /* A station card leads with its verdict; the data line backs it up. */
-.bk-station.is-selected{outline:2px solid var(--ink,#3d2f29);outline-offset:-2px}
 .bk-station__tag{color:var(--ink-soft,#6f6256);font-weight:600}
 .bk-verdict{margin:0;font-size:17px;font-weight:700;line-height:1.3}
 .bk-verdict--go{color:#2f6b2f}
@@ -187,3 +186,20 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-verdict--skip{color:#a3302f}
 .bk-verdict--unknown{color:var(--ink-soft,#6f6256)}
 .bk-data{margin:0;font-size:14px;color:var(--ink-soft,#6f6256);font-variant-numeric:tabular-nums}
+
+/* Standing at a station: the options sheet, pinned to the bottom of the screen. */
+.bk-sheet{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;gap:10px;max-height:55vh;overflow-y:auto;padding:14px 16px calc(16px + env(safe-area-inset-bottom));background:#fffaf2;border-top:1px solid var(--line-strong,#d6c5a7);border-radius:16px 16px 0 0;box-shadow:0 -8px 24px rgba(106,69,47,.2);color:var(--ink,#3d2f29)}
+@media (min-width:640px){.bk-sheet{left:50%;right:auto;width:600px;transform:translateX(-50%)}}
+.bk-sheet__head{display:flex;justify-content:space-between;align-items:start;gap:10px}
+.bk-sheet__head h2{margin:2px 0;font-size:18px;line-height:1.25}
+.bk-sheet__kicker{margin:0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft,#6f6256)}
+.bk-sheet p{margin:0}
+.bk-options{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.bk-option{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line,#e4d6bd);border-radius:10px}
+.bk-option.is-best{border-color:var(--ink,#3d2f29);border-width:2px;padding:7px 9px}
+.bk-option__dot{width:10px;height:10px;border-radius:50%;background:currentColor}
+.bk-option__body{display:grid;gap:2px;min-width:0}
+.bk-option__body b{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bk-option__body span{font-size:13px;color:var(--ink-soft,#6f6256)}
+.bk-option__total{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bk-page:has(.bk-sheet) .bk-main{padding-bottom:56vh}

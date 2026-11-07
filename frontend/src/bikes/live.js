@@ -77,3 +77,12 @@ export function useNow(ms = 5000) {
 export const odds = (p) => (p == null ? null : p >= 0.95 ? 'very likely' : p < 0.05 ? 'very unlikely'
   : `about ${Math.min(9, Math.max(1, Math.round(p * 10)))} in 10`);
 export const mins = (m) => (m == null ? '—' : `${Math.max(1, Math.round(m))} min`);
+
+// Some stations send report times near 1970, so long silences read as "over a day".
+export function reportedLabel(s) {
+  if (s == null) return null;
+  if (s < 90) return 'Reported just now';
+  if (s < 5400) return `Reported ${Math.round(s / 60)} min ago`;
+  if (s < 172800) return `Reported ${Math.round(s / 3600)} hours ago`;
+  return 'No report in over a day';
+}

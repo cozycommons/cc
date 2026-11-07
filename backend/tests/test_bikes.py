@@ -553,3 +553,30 @@ def test_places_route(client, place_index):
     assert body['places'][0] == {'label': 'Empire State Building', 'area': 'Manhattan', 'kind': 'attraction',
                                  'lat': 40.7484, 'lng': -73.9857}
     assert http.get('/bikes/places', params={'q': 'x'}).status_code == 422
+
+
+def test_at_an_empty_station_walk_on_when_it_beats_waiting():
+    from bikes.wait import options_at
+    empty = Dock('6230.04', 'W 33 St & 7 Ave', 40.7502, -73.9916, 10, True, bikes=0)
+    stocked = Dock('6364.07', 'W 37 St & Broadway', 40.7546, -73.9876, 4, True, bikes=8)
+    # 03:00: bikes come back here about once an hour, so walking 10 minutes wins.
+    result = options_at(MODEL, [empty, stocked], empty, WEDNESDAY.replace(hour=3), 'bike')
+    assert [o['how'] for o in result['options']] == ['here', 'walk']
+    assert result['best']['station_id'] == '6364.07'
+    assert result['message'].startswith('Walk 10 minutes to W 37 St & Broadway: 8 bikes there now, very likely one is left.')
+    # 17:00: one a minute, so wait.
+    busy = options_at(MODEL, [empty, stocked], empty, WEDNESDAY.replace(hour=17), 'bike')
+    assert busy['best']['how'] == 'here' and busy['message'].startswith('Wait here: a bike usually comes back in about 1 minute')
+
+
+def test_at_a_full_station_ride_on_and_count_the_walk_back(client):
+    from bikes.wait import options_at
+    full = Dock('6230.04', 'W 33 St & 7 Ave', 40.7502, -73.9916, 0, True, bikes=20)
+    result = options_at(MODEL, [full, OPEN], full, WEDNESDAY.replace(hour=3), 'dock')
+    ride = result['options'][1]
+    assert (ride['how'], ride['travel_min'], ride['walk_back_min']) == ('ride', 3.3, 9.9)
+    assert ride['expected_min'] == 13.2  # ride, plus the walk back: the dock is there
+    assert result['message'].startswith('Ride 3 minutes to W 37 St & Broadway, then walk 10 minutes back')
+    http, _ = client
+    body = http.get('/bikes/options', params={'station': PENN.short_name, 'need': 'dock'}).json()
+    assert body['station']['station_id'] == PENN.short_name and body['message'].startswith('Dock here: 3 open docks now.')

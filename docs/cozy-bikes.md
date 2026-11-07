@@ -156,8 +156,12 @@ Three tabs:
 
   Verdicts come from the API (`verdict`: go, likely, risky, skip, unknown) and
   odds are said as "about N in 10", never percents. Tapping a station on the map
-  answers it as a card from the same starting point, at the top of the list,
-  with Plan from here / Plan to here. Refreshes every minute while visible.
+  opens a panel for standing there: wait, or move on? For a bike it compares
+  waiting with walking to the four nearest stations; for a dock (you are on a
+  bike) with riding to them and walking back, each with its odds and minutes in
+  all, best outlined ("Ride to McGuinness Blvd & Eagle St. About 4 min in all,
+  vs about 39 min waiting here."). Start from here makes it the starting point;
+  Plan from here / Plan to here open Plan. Refreshes every minute while visible.
   `?lat=&lng=` sets the starting point and `&station=` selects a station, for
   shared links.
 - **Plan**: from your location (or any address, place or station) to any
@@ -197,8 +201,8 @@ re-center without reloading.
 
 Near me's map moves: drag to pan, pinch or scroll to zoom (200 m to 3 km from
 the center to each side), arrow keys and +/- when focused, and the corner keys
-zoom or return to the starting point. Tap a station to answer it below the map
-(`/bikes/wait?include=`); tap anywhere else to drop a pin with "Check from here".
+zoom or return to the starting point. Tap a station to open its wait-or-move-on panel
+(`/bikes/options`); tap anywhere else to drop a pin with "Check from here".
 A searched or pinned starting point is a dark marker; you stay a blue dot. During
 a gesture the drawing moves by a CSS transform and is redrawn for the new view
 when the gesture ends, so phones stay smooth. Minor streets drop out past 1.5 km.
@@ -362,6 +366,13 @@ Only a cold process, or status older than 5 minutes, fetches inline (about
 p50 2 ms, p99 4 ms warm; 2 ms max during a simulated 3 s refresh.
 
 ## Wait or ride
+
+`/bikes/options?station=&need=bike|ebike|dock` generalizes this to every need and
+several stations: at a station, waiting there against walking (for a bike) or
+riding and walking back (for a dock) to the four nearest that serve you, each
+with the chance on arrival and the expected minutes in all, best first after
+"here". The page's station panel and agents use it; `/bikes/wait-or-ride` stays
+for the Siri shortcut.
 
 At a full dock a slot opens when someone takes a bike out, so the expected wait
 is `60 / departures per hour` for that station, weekday or weekend, hour, and
