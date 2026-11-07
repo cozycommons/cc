@@ -124,18 +124,17 @@ before a provider holds payment methods.
 
 ## Review before merge
 
-Any change in the scope above gets an adversarial review before merge,
-separate from the author:
+For changes in the scope above, an adversarial review before merge is
+recommended, best effort, not a merge requirement. When you do one:
 
-1. At least one independent reviewer, a person or an agent session other than
-   the one that wrote the change, reads it and tries to break it. Pick the
-   reviewer and model yourself; no particular model is required.
+1. Use a reviewer other than the author, a person or a separate agent session
+   on any model, and ask them to try to break the change.
 2. Give the reviewer the diff, what earlier passes already found, and the
    attack surfaces to probe. Ask for blocking versus hardening findings.
-3. Verify a disputed finding by reproducing it before acting. Fix blocking
-   findings as new commits and have the reviewer check the fixes.
-4. Record the review, its findings and the fixes in the PR description. A
-   finding in merged code ships as its own fix PR immediately.
+3. Verify a disputed finding by reproducing it before acting, and fix blocking
+   findings as new commits.
+4. Note the review and its fixes in the PR description. A finding in merged
+   code ships as its own fix PR.
 
 Contributors may hold their own work to a stricter personal bar, such as
 multiple reviewers or a specific model; that bar is theirs, not the repository's.
