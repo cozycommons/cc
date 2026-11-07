@@ -71,6 +71,13 @@ Windows-path syntax to repository scripts or documented developer commands.
   Keep required checks enabled and do not rewrite shared branch history merely
   to avoid CI. Include instruction/documentation edits with the next appropriate
   verified batch rather than triggering a separate run for them.
+- Never queue a PR whose branch contains another open PR's commits. The merge
+  queue ejects it (`invalid_merge_commit`) the moment that parent merges ahead
+  of it, and GitHub turns its auto-merge off, so nothing lands (#245 and #246,
+  November 2026). Add follow-up work to the open PR until it is queued. Once it
+  is queued, build the next change on a branch from it, but enable auto-merge
+  only after the parent merges: watch the parent, merge `main` into the child,
+  then `gh pr merge --auto`.
 
 ## Invariants
 
