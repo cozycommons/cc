@@ -107,7 +107,8 @@ See `docs/dice-sandbox.md`, `docs/dice-data-model-testing.md`, and
 
 Before changing credentials, account linking, auth or OAuth, SQL functions,
 grants or migrations, dependencies or lockfiles, CI workflows, the frontend CSP
-or outbound network calls, read `docs/security.md` and follow its review rules.
+or outbound network calls, read `docs/security.md`; its pre-merge review is a
+best-effort recommendation.
 
 ## UI design
 
