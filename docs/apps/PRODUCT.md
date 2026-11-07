@@ -1,5 +1,7 @@
 # Apps prototype
 
+Hosted candidate configuration and its separate rollout gates are documented in [HOSTING.md](HOSTING.md). The local workflow below remains unchanged.
+
 ## Summary
 
 One purpose-oriented app has one persistent Docker environment. External agents

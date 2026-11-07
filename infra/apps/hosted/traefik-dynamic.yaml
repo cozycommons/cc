@@ -1,0 +1,18 @@
+# Review installed Traefik entrypoint/network names before applying in Coolify's
+# Proxy Dynamic Configurations. Keep existing routes. This rule deliberately
+# excludes every platform slug; re-inventory existing DNS/services before rollout.
+# Caddy issues ordinary per-host certificates via TLS-ALPN-01, not a wildcard
+# certificate. No DNS API credential is needed. DNS wildcard A/AAAA is separate.
+tcp:
+  routers:
+    commons-apps:
+      entryPoints: [https]
+      rule: 'HostSNIRegexp(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?\.cozycommons\.dev$`) && !HostSNI(`admin.cozycommons.dev`) && !HostSNI(`api.cozycommons.dev`) && !HostSNI(`auth.cozycommons.dev`) && !HostSNI(`www.cozycommons.dev`) && !HostSNI(`mail.cozycommons.dev`) && !HostSNI(`smtp.cozycommons.dev`) && !HostSNI(`ftp.cozycommons.dev`) && !HostSNI(`proxy.cozycommons.dev`) && !HostSNI(`status.cozycommons.dev`) && !HostSNI(`static.cozycommons.dev`) && !HostSNI(`assets.cozycommons.dev`) && !HostSNI(`mcp.cozycommons.dev`) && !HostSNI(`localhost.cozycommons.dev`) && !HostSNI(`default.cozycommons.dev`)'
+      service: commons-apps
+      tls:
+        passthrough: true
+  services:
+    commons-apps:
+      loadBalancer:
+        servers:
+          - address: cc-apps-hosted-proxy:443

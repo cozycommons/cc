@@ -261,7 +261,7 @@ async def test_whoami_and_extensible_registry_without_feature_scopes(tools):
     token.scopes.clear()
     assert await call('whoami') == {'id': db.user.id, 'email': db.user.email, 'display_name': 'Sam'}
     projects = {p['id']: p for p in (await call('list_projects'))['projects']}
-    assert {'trips', 'floor-planner', 'dice', 'beli', 'resy', 'partiful', 'espn', 'fantasy', 'crowdset', 'design'} == set(projects)
+    assert {'apps', 'trips', 'floor-planner', 'dice', 'beli', 'resy', 'partiful', 'espn', 'fantasy', 'crowdset', 'design'} == set(projects)
     # Existing users keep their projects without a stored choice.
     assert projects['trips']['enabled'] is True and projects['trips']['status']['trip_count'] == 1
     assert projects['trips']['enabled_reason'] == 'default: you already use it'
@@ -509,7 +509,7 @@ async def test_sdk_streamable_http_all_tools_with_proxy_token_and_synthetic_stor
                     assert not result.isError, result.content
                     return result.structuredContent
 
-                assert len((await call('list_projects'))['projects']) == 10
+                assert len((await call('list_projects'))['projects']) == 11
                 assert (await call('whoami'))['id'] == db.user.id
                 assert (await call('get_trip_overview'))['trips'][0]['id'] == db.row['id']
                 initial = await call('get_trip_overview', trip_id=db.row['id'])
