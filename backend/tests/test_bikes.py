@@ -251,7 +251,7 @@ def test_low_odds_are_spelled_out_and_a_rarely_refilled_station_still_counts():
     # Two departures a minute and no returns: its one bike rarely survives the walk, so walk on.
     result = nearby(DRAIN, [one_left, far], 40.7495, -73.9900, five_pm)
     assert result['stations'][0]['chance'] < 0.2 and result['best']['station'] == 'Far'
-    assert result['message'].endswith('The nearest, Drain, has 1, 9% likely to last until you arrive.')
+    assert result['message'].endswith('The nearest, Drain, has 1, with about 1 in 10 odds it lasts until you arrive.')
     quiet = nearby(DRAIN, [one_left, far], 40.7495, -73.9900, WEDNESDAY.replace(hour=3))
     assert quiet['best']['station'] == 'Drain' and quiet['message'] == 'Walk to Drain, a 1-minute walk: 1 bike now.'
 
@@ -488,3 +488,95 @@ def test_answers_carry_conditions_and_citi_bike_alerts(client, monkeypatch):
     assert [a['summary'] for a in body['conditions']['alerts']] == ['Service paused for the storm.']
     assert body['message'].endswith('Snow, -2°C: about 60% fewer trips than usual, so refills are slower. '
                                     'Service paused for the storm.')
+
+
+def test_each_station_gets_a_verdict_and_a_picked_station_is_answered_from_the_same_place():
+    from bikes.wait import odds, verdict
+    stocked = Dock('6364.07', 'W 37 St & Broadway', 40.7546, -73.9876, 4, True, bikes=8)
+    far = Dock('5492.05', 'Washington Pl & Greene St', 40.7295, -73.9965, 9, True, bikes=5)
+    result = nearby(MODEL, [PENN, stocked, far], PENN.lat, PENN.lng, WEDNESDAY.replace(hour=3), limit=2, include=far)
+    assert [s['station_id'] for s in result['stations']] == ['6230.04', '6364.07']
+    assert result['stations'][1]['verdict'] == {'tone': 'go', 'text': 'Go: it will be there'}
+    assert result['stations'][0]['verdict']['tone'] == 'skip'  # empty, and bikes rarely come back at 3 AM
+    picked = result['selected']
+    assert (picked['station_id'], round(picked['walk_min'])) == ('5492.05', 39)  # 2.3 km at 1 m/s crow-flies
+    assert result['best']['station_id'] == '6364.07'  # picking a station does not change the recommendation
+    assert verdict({'status': 'available', 'chance': 0.55, 'wait_min': 3}, 'bike')['text'] == 'Toss-up: have a backup'
+    assert verdict({'status': 'full', 'chance': 0.1, 'wait_min': 4}, 'dock') == \
+        {'tone': 'risky', 'text': 'Full: an open dock in about 4 minutes'}
+    assert [odds(p) for p in (0.99, 0.71, 0.04)] == ['very likely', 'about 7 in 10', 'very unlikely']
+
+
+def test_wait_route_answers_an_included_station(client):
+    http, _ = client
+    body = http.get('/bikes/wait', params={'lat': 40.7546, 'lng': -73.9876, 'include': PENN.short_name}).json()
+    assert body['selected']['station_id'] == PENN.short_name and 'verdict' in body['selected']
+    assert http.get('/bikes/wait', params={'lat': 40.7546, 'lng': -73.9876, 'include': 'nope'}).status_code == 404
+
+
+@pytest.fixture
+def place_index(tmp_path, monkeypatch):
+    from bikes import places
+    streets = {
+        ('w 14 st', 'Manhattan'): {'labels': {'West 14th Street': 3}, 'houses': {
+            '120': (40.7385, -73.9990), '125': (40.7381, -73.9993), '133': (40.7383, -73.9997)}},
+        ('broadway', 'Manhattan'): {'labels': {'Broadway': 1}, 'houses': {'100': (40.7084, -74.0110)}},
+        ('broadway', 'Brooklyn'): {'labels': {'Broadway': 1}, 'houses': {'100': (40.7101, -73.9637)}},
+        ('30 st', 'Queens'): {'labels': {'30th Street': 1}, 'houses': {'37-10': (40.7547, -73.9330), '37-05': (40.7550, -73.9327)}},
+    }
+    named = {('empire state bank', 'Brooklyn'): ('Empire State Bank', 'bank', 40.69, -73.99),
+             ('empire state building', 'Manhattan'): ('Empire State Building', 'attraction', 40.7484, -73.9857)}
+    path = tmp_path / 'places.tsv.gz'
+    places.write(streets, named, path)
+    monkeypatch.setattr(places, 'PLACES_PATH', path)
+    places.index.cache_clear()
+    yield places
+    places.index.cache_clear()
+
+
+def test_places_find_addresses_streets_and_landmarks(place_index):
+    search = lambda q: [(r['label'], r['area']) for r in place_index.search(q)]
+    assert search('125 west 14th street')[0] == ('125 West 14th Street', 'Manhattan')
+    # No 123: the nearest on the same side of the street (odd numbers), not 120.
+    assert search('123 w 14 st')[0] == ('125 West 14th Street', 'Manhattan')
+    assert search('100 broadway brooklyn') == [('100 Broadway', 'Brooklyn')]
+    assert search('37-10 30th st')[0] == ('37-10 30th Street', 'Queens')
+    # Typing: the last word may be partial; landmarks outrank businesses.
+    assert search('empire sta')[0] == ('Empire State Building', 'Manhattan')
+    assert search('w 14')[0] == ('West 14th Street', 'Manhattan')
+    assert place_index.search('nowhere at all') == []
+
+
+def test_places_route(client, place_index):
+    http, _ = client
+    body = http.get('/bikes/places', params={'q': 'empire state building'}).json()
+    assert body['places'][0] == {'label': 'Empire State Building', 'area': 'Manhattan', 'kind': 'attraction',
+                                 'lat': 40.7484, 'lng': -73.9857}
+    assert http.get('/bikes/places', params={'q': 'x'}).status_code == 422
+
+
+def test_at_an_empty_station_walk_on_when_it_beats_waiting():
+    from bikes.wait import options_at
+    empty = Dock('6230.04', 'W 33 St & 7 Ave', 40.7502, -73.9916, 10, True, bikes=0)
+    stocked = Dock('6364.07', 'W 37 St & Broadway', 40.7546, -73.9876, 4, True, bikes=8)
+    # 03:00: bikes come back here about once an hour, so walking 10 minutes wins.
+    result = options_at(MODEL, [empty, stocked], empty, WEDNESDAY.replace(hour=3), 'bike')
+    assert [o['how'] for o in result['options']] == ['here', 'walk']
+    assert result['best']['station_id'] == '6364.07'
+    assert result['message'].startswith('Walk 10 minutes to W 37 St & Broadway: 8 bikes there now, very likely one is left.')
+    # 17:00: one a minute, so wait.
+    busy = options_at(MODEL, [empty, stocked], empty, WEDNESDAY.replace(hour=17), 'bike')
+    assert busy['best']['how'] == 'here' and busy['message'].startswith('Wait here: a bike usually comes back in about 1 minute')
+
+
+def test_at_a_full_station_ride_on_and_count_the_walk_back(client):
+    from bikes.wait import options_at
+    full = Dock('6230.04', 'W 33 St & 7 Ave', 40.7502, -73.9916, 0, True, bikes=20)
+    result = options_at(MODEL, [full, OPEN], full, WEDNESDAY.replace(hour=3), 'dock')
+    ride = result['options'][1]
+    assert (ride['how'], ride['travel_min'], ride['walk_back_min']) == ('ride', 3.3, 9.9)
+    assert ride['expected_min'] == 13.2  # ride, plus the walk back: the dock is there
+    assert result['message'].startswith('Ride 3 minutes to W 37 St & Broadway, then walk 10 minutes back')
+    http, _ = client
+    body = http.get('/bikes/options', params={'station': PENN.short_name, 'need': 'dock'}).json()
+    assert body['station']['station_id'] == PENN.short_name and body['message'].startswith('Dock here: 3 open docks now.')

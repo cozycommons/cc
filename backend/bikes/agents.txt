@@ -20,9 +20,20 @@ GET /stations?q=broadway&lat=40.7497&lng=-73.9915     (nearest first)
 
 Stations are named by cross streets ("W 31 St & 7 Ave"), not landmarks. Street
 words are normalized (west -> W, 31st -> 31, avenue -> Ave). For a landmark or
-address ("Union Square", "Penn Station"), use its coordinates with lat and lng.
+address, look it up with /places and use its lat and lng.
 
 Use the `station_id` anywhere a station is accepted below.
+
+## Find an address or place
+
+GET /places?q=123 w 14th st
+GET /places?q=barclays center
+GET /places?q=37-10 30th st queens            borough words narrow it
+GET /places?q=350 5th ave&lat=40.75&lng=-73.99  ties nearest the user first
+-> places: [{label, area, kind (address|street|transit|park|...), lat, lng}], best first
+
+From OpenStreetMap, built into the API: only addresses and places within about
+a kilometer of a Citi Bike station.
 
 ## One station now and soon
 
@@ -36,9 +47,24 @@ GET /stations/{station_id}
 GET /wait?lat=40.7497&lng=-73.9915&need=bike        need: bike | ebike | dock
 GET /wait?station=6331.01&need=dock&limit=5         start from a station instead
 GET /wait?lat=...&lng=...&at=2026-07-15T17:00       any time: history only, no live counts
+GET /wait?lat=...&lng=...&include=5492.05           also answer that station from here
 -> best (lowest expected minutes), stations: [{walk_min, bikes, ebikes, open_docks,
    status (available|empty|full|closed|unknown), chance (has it when you arrive),
-   wait_min (refill wait if it does not), expected_min}], message
+   wait_min (refill wait if it does not), expected_min, verdict}], selected (the
+   `include` station, same fields), message
+
+`verdict` is the call for each station: {tone (go|likely|risky|skip|unknown),
+text ("Go: it will be there", "Toss-up: have a backup", "Empty: a bike in about
+6 minutes")}. Relay the verdict with a number or two (count now, walk), not the
+raw chance.
+
+## At a station: wait, or move on?
+
+GET /options?station=6331.01&need=bike     empty here: wait, or walk to the next?
+GET /options?station=6331.01&need=dock     full here (on a bike): wait, or ride on and walk back?
+-> station (here), options: [{station, station_id, how (here|walk|ride), travel_min,
+   walk_back_min, bikes, ebikes, open_docks, status, chance (on arrival), wait_min,
+   expected_min (until you have it, plus the walk back), verdict}], best, message
 
 ## Plan a trip
 

@@ -14,12 +14,11 @@ const STATIONS = {
 const dotX = (name) => Number(screen.getByText(name, { selector: '.bk-dot text' }).getAttribute('x'));
 
 function setup(props = {}) {
-  const onPlan = vi.fn();
-  const utils = render(<BikeMap stations={STATIONS} need="bike" home={HOME} highlight={['a', 'b']} onPlan={onPlan} {...props} />);
+  const utils = render(<BikeMap stations={STATIONS} need="bike" home={HOME} you={HOME} highlight={['a', 'b']} {...props} />);
   const svg = screen.getByRole('img', { name: /^Map of Citi Bike stations/ });
   // jsdom has no layout: the map is 360 x 420 CSS pixels, one per drawing unit.
   svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 360, height: 420, right: 360, bottom: 420 });
-  return { ...utils, svg, onPlan };
+  return { ...utils, svg };
 }
 const pointer = (svg, type, x, y, id = 1) => fireEvent[type](svg, { pointerId: id, clientX: x, clientY: y });
 
@@ -52,27 +51,23 @@ describe('interactive map', () => {
     await waitFor(() => expect(dotX('5') - 180).toBeCloseTo((centerBefore - 180) * 1.5, 0));
   });
 
-  it('opens a station on tap, with odds and plan actions', async () => {
-    const { svg, onPlan } = setup();
+  it('selects a tapped station, and offers to check from a tapped spot', async () => {
+    const onSelect = vi.fn();
+    const onPin = vi.fn();
+    const { svg } = setup({ onSelect, onPin });
     const [x, y] = project({ ...HOME, r: 700 }, STATIONS.lng[1], STATIONS.lat[1]);
     pointer(svg, 'pointerDown', x, y);
     pointer(svg, 'pointerUp', x, y);
-    expect(await screen.findByRole('dialog', { name: 'W 37 St & Broadway' })).toBeTruthy();
-    expect(await screen.findByText('90%')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Plan to here' }));
-    expect(onPlan).toHaveBeenCalledWith('to', { name: 'W 37 St & Broadway', lat: 40.7546, lng: -73.9876 });
+    expect(onSelect).toHaveBeenCalledWith('b');
+    pointer(svg, 'pointerDown', 40, 380);
+    pointer(svg, 'pointerUp', 40, 380);
+    fireEvent.click(await screen.findByRole('button', { name: 'Check from here' }));
+    const spot = unproject({ ...HOME, r: 700 }, 40, 380);
+    expect(onPin).toHaveBeenCalledWith({ lat: Number(spot.lat.toFixed(5)), lng: Number(spot.lng.toFixed(5)) });
   });
 
-  it('flies to a searched station and opens it', async () => {
-    setup();
-    fireEvent.change(screen.getByLabelText('Find a station on the map'), { target: { value: 'west 31st' } });
-    fireEvent.click(screen.getByRole('button', { name: 'W 31 St & 7 Ave' }));
-    expect(await screen.findByRole('dialog', { name: 'W 31 St & 7 Ave' })).toBeTruthy();
-    expect(dotX('5')).toBeCloseTo(180, 0); // centered
-  });
-
-  it('opens on a shared view with its station', async () => {
-    setup({ focus: { lat: 40.7546, lng: -73.9876, radius: 400, station: 'b' } });
-    expect(await screen.findByRole('dialog', { name: 'W 37 St & Broadway' })).toBeTruthy();
+  it('opens on a shared view', async () => {
+    setup({ focus: { lat: 40.7546, lng: -73.9876, radius: 400, station: 'b' }, selected: 'b' });
+    expect(document.querySelector('.bk-dot.is-selected')).toBeTruthy();
   });
 });

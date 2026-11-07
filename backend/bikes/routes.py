@@ -15,11 +15,11 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 
-from . import conditions, gbfs, render
+from . import conditions, gbfs, places, render
 from .forecast import HORIZON_MIN, chance
 from .model import SERVICE_AREA
 from .plan import plan
-from .wait import decide, distance_m, expected_wait_min, load_model, minutes_or_none, nearby
+from .wait import decide, distance_m, expected_wait_min, load_model, minutes_or_none, nearby, options_at
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -141,6 +141,17 @@ def stations(
     return {**freshness(), 'stations': [live_counts(d, now) for d in found[:limit]]}
 
 
+@router.get('/places')
+def find_places(q: str = Query(..., min_length=2, max_length=80,
+                               description='An address, street or place: "123 w 14th st", "barclays center"'),
+                lat: float | None = Query(None, **LAT), lng: float | None = Query(None, **LNG),
+                limit: int = Query(8, ge=1, le=20)):
+    """Addresses and named places near Citi Bike, from OpenStreetMap (no outside service);
+    with lat and lng, equally good matches nearest first. Answer from one with /bikes/wait?lat=&lng=."""
+    near = (lat, lng) if lat is not None and lng is not None else None
+    return {'places': places.search(q, limit, near), 'attribution': '© OpenStreetMap contributors'}
+
+
 @router.get('/stations/{station_id}')
 def station(station_id: str):
     """One station's live counts, and the chance each is still there in 15, 30 and 60 minutes."""
@@ -228,6 +239,7 @@ def wait(
     # Omit for now with live dock counts; any other time answers from history only.
     at: datetime | None = None,
     limit: int = Query(3, ge=1, le=10),
+    include: str | None = Query(None, description='A station id to also answer, as `selected`, from the same place'),
     format: Literal['json', 'text'] = 'json',
 ):
     """The nearest stations, and how long until you have a bike (or dock) at each."""
@@ -235,7 +247,8 @@ def wait(
     lat, lng = point(docks, lat, lng, station, 'the place')
     when = datetime.now(NEW_YORK) if at is None else new_york(at)
     model, about = live_model(when)
-    result = nearby(model, docks, lat, lng, when, need, live=at is None, limit=limit)
+    extra = None if include is None else find_station(docks, include)
+    result = nearby(model, docks, lat, lng, when, need, live=at is None, limit=limit, include=extra)
     # `answer` is the recommendation alone (the page shows conditions apart); `message` adds them for speech.
     result['answer'] = result['message']
     result['message'] = with_note(result['message'], about)
@@ -244,6 +257,26 @@ def wait(
     best = result['best']
     links = map_links(lat, lng, 600, need, [best['station_id']] if best else [], you=station is None)
     return {**result, **freshness(), **links, 'conditions': about, 'model_window': model['window']}
+
+
+@router.get('/options')
+def station_options(
+    station: str = Query(..., description='The station you are at'),
+    need: Literal['bike', 'ebike', 'dock'] = 'bike',
+    format: Literal['json', 'text'] = 'json',
+):
+    """At a station: wait there, or walk (for a bike) or ride (for a dock) to the next one?"""
+    docks = live_docks()
+    here = find_station(docks, station)
+    now = datetime.now(NEW_YORK)
+    model, about = live_model(now)
+    result = options_at(model, docks, here, now, need)
+    result['answer'] = result['message']
+    result['message'] = with_note(result['message'], about)
+    if format == 'text':
+        return PlainTextResponse(result['message'])
+    marks = [o['station_id'] for o in result['options']]
+    return {**result, **freshness(), **map_links(here.lat, here.lng, 600, need, marks), 'conditions': about}
 
 
 @router.get('/wait-or-ride')
