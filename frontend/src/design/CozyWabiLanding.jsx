@@ -63,6 +63,14 @@ export default function CozyWabiLanding() {
               </div>
               <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
             </Link>
+            <Link className="cc-home-project" to="/vital" aria-label="Open VITAL Brooklyn live headcount">
+              <span className="cc-home-project__icon" aria-hidden="true">🧗</span>
+              <div className="cc-home-project__body">
+                <h2>VITAL</h2>
+                <p>How busy the Brooklyn gym is now, and when it's quiet.</p>
+              </div>
+              <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
+            </Link>
             <Link className="cc-home-project" to="/floor-planner" aria-label="Open Cozy Floor Planner">
               <span className="cc-home-project__icon" aria-hidden="true">⌑</span>
               <div className="cc-home-project__body">

@@ -1,0 +1,40 @@
+@import "../../../design/cozy-wabi/spacing.css";
+
+body:has(.vt-page){background:var(--paper,#f7f0e4);margin:0}
+.vt-page{min-height:100vh;box-sizing:border-box;padding:var(--cc-safe-top) var(--cc-safe-right) calc(48px + var(--cc-safe-bottom)) var(--cc-safe-left)}
+.vt-main{width:min(720px,100%);box-sizing:border-box;margin:0 auto;padding:8px 16px 24px;display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+.vt-main h1,.vt-main h2{margin:0}
+.vt-live{display:grid;gap:6px;padding:16px;border:1px solid var(--line,#e4d6bd);border-radius:var(--radius-card,14px);background:#fffaf2}
+.vt-live p{margin:0}
+.vt-live__count{font-size:16px;color:var(--ink-soft,#6f6256)}
+.vt-live__count b{font-size:56px;line-height:1;color:var(--ink,#3d2f29);font-variant-numeric:tabular-nums;margin-right:8px}
+.vt-live__compare{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;font-size:14px;color:var(--ink-soft,#6f6256)}
+.vt-verdict{padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600;color:var(--ink,#3d2f29);border:1px solid var(--line-strong,#d6c5a7)}
+.vt-verdict[data-verdict="Quieter than usual"]{border-color:var(--moss,#69755a)}
+.vt-verdict[data-verdict="Busier than usual"]{border-color:var(--clay,#b5643c)}
+.vt-live__ahead{font-size:15px;color:var(--ink,#3d2f29)}
+.vt-section{display:grid;gap:10px;min-width:0}
+.vt-days{width:100%;box-sizing:border-box}
+.vt-days .cc-segmented__item{flex:1;min-width:0;padding-left:0;padding-right:0}
+.vt-chart{margin:0;display:grid;gap:4px}
+.vt-chart svg{display:block;width:100%;max-width:560px;height:auto;touch-action:pan-y}
+.vt-grid{stroke:var(--line,#e4d6bd);stroke-width:1}
+.vt-axis{fill:var(--ink-soft,#6f6256);font-size:11px;font-family:var(--sans,system-ui)}
+.vt-hit{fill:transparent;cursor:pointer}
+.vt-bar{fill:var(--moss,#69755a);opacity:.55;pointer-events:none}
+.vt-bar.is-now{opacity:1;fill:var(--moss-dark,#4c5641)}
+.vt-bar.is-hover{opacity:.85}
+.vt-now line{stroke:var(--ink,#3d2f29);stroke-width:2}
+.vt-now circle{fill:var(--ink,#3d2f29);stroke:#fffaf2;stroke-width:2}
+.vt-chart__readout{min-height:22px;font-size:14px;color:var(--ink-soft,#6f6256)}
+.vt-chart__readout b{color:var(--ink,#3d2f29)}
+.vt-week{margin:0;overflow:hidden}
+.vt-week__grid{display:grid;grid-template-columns:40px repeat(18,minmax(0,1fr));gap:2px;align-items:center}
+.vt-week__hour{font-size:10px;color:var(--ink-soft,#6f6256);white-space:nowrap;overflow:visible}
+.vt-week__day{font-size:13px;color:var(--ink-soft,#6f6256);cursor:pointer}
+.vt-week__day.is-selected{color:var(--ink,#3d2f29);font-weight:700}
+.vt-week__cell{height:24px;border-radius:3px;cursor:pointer;background:color-mix(in oklab,var(--moss-dark,#4c5641) calc(var(--level) * 1%),var(--paper-light,#f2eadb))}
+.vt-scale{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft,#6f6256)}
+.vt-scale i{flex:1;max-width:160px;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--paper-light,#f2eadb),var(--moss-dark,#4c5641))}
+.vt-table{border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.vt-table th,.vt-table td{padding:4px 16px 4px 0;text-align:left}
