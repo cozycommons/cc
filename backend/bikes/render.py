@@ -55,6 +55,8 @@ def lines_in(south, west, north, east):
                 continue
             ox, oy = lng0 + x * d_lng, lat0 + y * d_lat
             for layer, polylines in tile(f'{x}_{y}').items():
+                if layer == 'names':  # labels, not polylines
+                    continue
                 for flat in polylines:
                     qx = qy = 0
                     points = []
