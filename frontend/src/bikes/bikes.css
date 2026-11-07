@@ -203,3 +203,55 @@ body:has(.bk-page){background:var(--paper,#f7f0e4);margin:0}
 .bk-option__body span{font-size:13px;color:var(--ink-soft,#6f6256)}
 .bk-option__total{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bk-page:has(.bk-sheet) .bk-main{padding-bottom:56vh}
+
+/* Map first (the Map tab): the page is the viewport; the map fills it under the header,
+   search and the bike or dock choice float on top, and a sheet gives the call. */
+.bk-page.is-map{height:100dvh;min-height:0;display:flex;flex-direction:column;padding-bottom:0;overflow:hidden}
+.bk-page.is-map .bk-main{position:relative;flex:1;min-height:0;width:100%;max-width:none;padding:0;display:block}
+.bk-tabs{display:flex;gap:2px;margin-right:6px}
+.bk-tab{min-height:36px;padding:6px 10px;border:0;border-radius:999px;background:none;color:var(--ink-soft,#6f6256);font:600 13px/1 var(--sans,system-ui);cursor:pointer}
+.bk-tab[aria-selected="true"]{background:var(--bk-accent-soft);color:var(--ink,#3d2f29)}
+.bk-mapview{position:absolute;inset:0;overflow:hidden;background:#fffaf2}
+.bk-mapview__loading{position:absolute;top:50%;left:0;right:0;text-align:center}
+.bk-mapview .bk-map2{position:absolute;inset:0;margin:0}
+.bk-mapview .bk-map2__frame{position:absolute;inset:0;border:0;border-radius:0;aspect-ratio:auto;height:auto}
+.bk-mapview .bk-map2__frame svg{width:100%;height:100%;aspect-ratio:auto;display:block;touch-action:none}
+.bk-mapview .bk-map2__controls{top:134px;bottom:auto;right:12px}
+.bk-mapview .bk-map2__controls button{width:40px;height:40px}
+.bk-map2__credit{position:absolute;left:12px;top:132px;margin:0;font-size:10px;color:var(--ink-soft,#6f6256);opacity:.8;pointer-events:none}
+.bk-float{position:absolute;top:10px;left:12px;right:12px;z-index:5;display:grid;gap:8px;pointer-events:none}
+.bk-float>*{pointer-events:auto}
+.bk-float .cc-input,.bk-float .bk-from{box-shadow:0 4px 14px rgba(106,69,47,.18)}
+.bk-float__row{display:flex;align-items:center;gap:8px}
+.bk-float .bk-mode{flex:1;min-width:0}
+.bk-float .bk-mode__choices{box-shadow:0 4px 14px rgba(106,69,47,.18);border-radius:14px}
+.bk-sheet2{position:absolute;left:0;right:0;bottom:0;z-index:6;max-height:42%;overflow-y:auto;display:grid;gap:10px;padding:4px 16px calc(14px + env(safe-area-inset-bottom));background:#fffaf2;border-top:1px solid var(--line-strong,#d6c5a7);border-radius:16px 16px 0 0;box-shadow:0 -8px 24px rgba(106,69,47,.18);transition:max-height .2s ease}
+.bk-sheet2.is-full{max-height:80%}
+@media (min-width:760px){.bk-sheet2{left:16px;right:auto;bottom:16px;width:400px;max-height:calc(100% - 140px);border-radius:16px;border:1px solid var(--line-strong,#d6c5a7)}.bk-sheet2.is-full{max-height:calc(100% - 140px)}}
+.bk-sheet2__handle{justify-self:center;display:grid;place-items:center;width:64px;height:22px;border:0;background:none;color:var(--ink-soft,#6f6256);cursor:pointer}
+.bk-sheet2__intro{display:grid;gap:8px;justify-items:start}
+.bk-sheet2 .bk-legend{margin:0}
+.bk-sheet2 .bk-source{margin:0}
+.bk-sheet__station{display:grid;gap:10px}
+.bk-option button.bk-option__body{border:0;background:none;padding:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
+/* Street names and routes on the map. */
+.bk-street-name{font:600 10.5px/1 var(--sans,system-ui);fill:#7d6d5b;stroke:#fffaf2;stroke-width:3px;paint-order:stroke;pointer-events:none;letter-spacing:.02em}
+.bk-dot .bk-dot__name{font:700 11px/1 var(--sans,system-ui);fill:var(--ink,#3d2f29);stroke:#fffaf2;stroke-width:3.5px;paint-order:stroke;pointer-events:none}
+.has-routes .bk-dot.is-dim{opacity:.35}
+.bk-route{stroke-width:2.5;stroke-dasharray:3 5;stroke-linecap:round;fill:none;opacity:.85}
+.bk-route.is-ride{stroke-dasharray:none}
+.bk-route.is-best{stroke-width:4;opacity:1}
+.bk-pill-time rect{fill:#fffaf2;stroke:var(--ink,#3d2f29);stroke-width:1.2}
+.bk-pill-time text{font:700 11.5px/1 var(--sans,system-ui);fill:var(--ink,#3d2f29)}
+.bk-pill-time.is-best rect{stroke:none}
+.bk-pill-time.is-best text{fill:#fff}
+.bk-float .bk-mode__ebike{justify-self:start;padding:2px 10px;border-radius:999px;background:#fffaf2;box-shadow:0 2px 8px rgba(106,69,47,.15);font-size:13px}
+
+@media (min-width:760px){
+  .bk-float{right:auto;width:400px;left:16px;top:16px}
+  .bk-sheet2{top:196px;bottom:16px;max-height:none}
+  .bk-sheet2.is-full{max-height:none}
+  .bk-sheet2__handle{display:none}
+  .bk-mapview .bk-map2__controls{top:16px}
+  .bk-map2__credit{top:auto;bottom:8px;left:auto;right:12px}
+}

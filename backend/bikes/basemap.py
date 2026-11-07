@@ -15,11 +15,14 @@ Output: index.json (grid origin, tile size, quantum, the tiles that exist) and
 <ix>_<iy>.json per tile. A tile holds each layer's polylines as integer lists,
 [x0, y0, dx1, dy1, ...] in QUANTUM-degree units from the tile's south-west
 corner (y grows north). A way crossing tiles appears in each, whole.
+The `names` layer instead holds street labels, [x, y, degrees, text]: a
+label's point, its turn on screen and the name as Citi Bike writes it ("W 31 St").
 
 Data © OpenStreetMap contributors, ODbL; the page credits it.
 """
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -51,14 +54,14 @@ LAYERS = {
     # Not drawn itself: it bounds the filled 'sea' layer.
     'coast': "\"natural\" = 'coastline'",
 }
-DRAWN = [name for name in LAYERS if name != 'coast'] + ['sea']
+DRAWN = [name for name in LAYERS if name != 'coast'] + ['sea', 'names']
 
 
 def build(con, pbf):
     south, north, west, east = SERVICE_AREA
     con.execute(f"""
         CREATE TEMP TABLE ways AS
-        SELECT id, refs, tags['highway'] AS highway, tags['leisure'] AS leisure, tags['natural'] AS "natural",
+        SELECT id, refs, tags['name'] AS name, tags['highway'] AS highway, tags['leisure'] AS leisure, tags['natural'] AS "natural",
                tags['waterway'] AS waterway, tags['bicycle'] AS bicycle, refs[1] = refs[-1] AS closed,
                tags['bridge'] IS NOT NULL OR tags['tunnel'] IS NOT NULL OR coalesce(tags['man_made'], '') = 'pier' AS crossing,
                coalesce(tags['highway'], '') IN ('primary', 'secondary', 'tertiary', 'residential', 'unclassified') AS street
@@ -67,7 +70,7 @@ def build(con, pbf):
               OR tags['natural'] IN ('coastline', 'water') OR tags['waterway'] = 'riverbank')
     """)
     layer = 'CASE ' + ' '.join(f"WHEN {cond} THEN '{name}'" for name, cond in LAYERS.items()) + ' END'
-    con.execute(f"CREATE TEMP TABLE kept AS SELECT id, refs, crossing, street, {layer} AS layer "
+    con.execute(f"CREATE TEMP TABLE kept AS SELECT id, refs, name, crossing, street, {layer} AS layer "
                 f"FROM ways WHERE ({layer}) IS NOT NULL")
     con.execute(f"""
         CREATE TEMP TABLE nodes AS
@@ -78,11 +81,11 @@ def build(con, pbf):
     con.execute("""
         CREATE TEMP TABLE lines AS
         WITH points AS (
-            SELECT k.id, k.layer, k.crossing, k.street, p.i, n.lat, n.lon
+            SELECT k.id, k.layer, k.name, k.crossing, k.street, p.i, n.lat, n.lon
             FROM kept k, LATERAL (SELECT unnest(k.refs) AS ref, generate_subscripts(k.refs, 1) AS i) p
             JOIN nodes n ON n.id = p.ref
         )
-        SELECT id, any_value(layer) AS layer, any_value(crossing) AS crossing, any_value(street) AS street,
+        SELECT id, any_value(layer) AS layer, any_value(name) AS name, any_value(crossing) AS crossing, any_value(street) AS street,
                ST_MakeLine(list(ST_Point(lon, lat) ORDER BY i)) AS geom
         FROM points GROUP BY id HAVING count(*) >= 2
     """)
@@ -105,7 +108,59 @@ def build(con, pbf):
         UNION ALL
         SELECT x, y, 'sea', coords FROM sea_rings
     """).fetchall()
-    return encode(rows)
+    named = con.execute(f"""
+        SELECT name, [[ST_X(p.geom), ST_Y(p.geom)] FOR p IN ST_Dump(ST_Points(geom))] FROM lines
+        WHERE layer IN ('major', 'minor') AND name IS NOT NULL AND NOT crossing
+          AND ST_Intersects(geom, ST_MakeEnvelope({west}, {south}, {east}, {north}))
+    """).fetchall()
+    tiles = encode(rows)
+    for (x, y), names in street_labels(named).items():
+        tiles.setdefault((x, y), {})['names'] = names
+    return tiles
+
+
+# Street names the way Citi Bike writes them in station names: "W 31 St & 7 Ave".
+SHORT = {'Street': 'St', 'Avenue': 'Ave', 'West': 'W', 'East': 'E', 'North': 'N', 'South': 'S',
+         'Boulevard': 'Blvd', 'Place': 'Pl', 'Road': 'Rd', 'Drive': 'Dr', 'Parkway': 'Pkwy', 'Lane': 'Ln',
+         'Court': 'Ct', 'Terrace': 'Ter', 'Square': 'Sq', 'Highway': 'Hwy', 'Expressway': 'Expy'}
+LABEL_EVERY_M = 250
+
+
+def short_name(name):
+    out = []
+    for word in name.split():
+        word = SHORT.get(word, word)
+        if word[:-2].isdigit() and word[-2:] in ('st', 'nd', 'rd', 'th'):
+            word = word[:-2]
+        out.append(word)
+    return ' '.join(out)
+
+
+def street_labels(named):
+    """{(x, y): [[qx, qy, degrees, text], ...]}: a label every LABEL_EVERY_M or so along each named
+    street in each tile, at a segment's midpoint and turned along it, upright (-90 to 90 degrees)."""
+    south, _, west, _ = SERVICE_AREA
+    k = math.cos(math.radians((SERVICE_AREA[0] + SERVICE_AREA[1]) / 2))
+    since, out = {}, {}
+    for name, coords in named:
+        text = short_name(name)
+        for (lng0, lat0), (lng1, lat1) in zip(coords, coords[1:]):
+            dx, dy = (lng1 - lng0) * k * 111320, (lat1 - lat0) * 111320
+            length = math.hypot(dx, dy)
+            mid_lng, mid_lat = (lng0 + lng1) / 2, (lat0 + lat1) / 2
+            x, y = math.floor((mid_lng - west) / TILE_LNG), math.floor((mid_lat - south) / TILE_LAT)
+            key = (text, x, y)
+            # A label needs room: skip segments shorter than its rough length.
+            since[key] = since.get(key, LABEL_EVERY_M) + length
+            if length < 4 * len(text) or since[key] < LABEL_EVERY_M:
+                continue
+            since[key] = 0.0
+            degrees = math.degrees(math.atan2(-dy, dx))  # screen y grows down
+            degrees = degrees - 180 if degrees > 90 else degrees + 180 if degrees <= -90 else degrees
+            ox, oy = west + x * TILE_LNG, south + y * TILE_LAT
+            out.setdefault((x, y), []).append([round((mid_lng - ox) / QUANTUM), round((mid_lat - oy) / QUANTUM),
+                                               round(degrees), text])
+    return out
 
 
 def sea(con):

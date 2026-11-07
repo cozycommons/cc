@@ -56,7 +56,12 @@ export function useBasemap(south, west, north, east) {
         const ox = index.origin[1] + x * index.tile[1], oy = index.origin[0] + y * index.tile[0];
         for (const [layer, lines] of Object.entries(tile)) {
           const list = (out[layer] ??= []);
-          for (const flat of lines) list.push(decode(flat, ox, oy, index.quantum));
+          if (layer === 'names') {
+            // Street labels: [qx, qy, degrees, text] from the tile's corner.
+            for (const [qx, qy, deg, text] of lines) list.push({ lng: ox + qx * index.quantum, lat: oy + qy * index.quantum, deg, text });
+          } else {
+            for (const flat of lines) list.push(decode(flat, ox, oy, index.quantum));
+          }
         }
       }
       if (live) setLayers(out);

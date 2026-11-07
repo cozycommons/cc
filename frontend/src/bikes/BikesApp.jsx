@@ -3,14 +3,13 @@ import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import Explore from './Explore.jsx';
 import NearMe from './NearMe.jsx';
-import ModeSwitch, { modeOf, useNeed } from './Mode.jsx';
-import PlaceSearch from './PlaceSearch.jsx';
+import { modeOf, useNeed } from './Mode.jsx';
 import Plan from './Plan.jsx';
 import { useGeo, usePolling } from './live.js';
 import '../../../design/cozy-wabi/components.css';
 import './bikes.css';
 
-const TABS = [{ key: 'near', label: 'Near me' }, { key: 'plan', label: 'Plan' }, { key: 'explore', label: 'Explore' }];
+const TABS = [{ key: 'near', label: 'Map' }, { key: 'plan', label: 'Plan' }, { key: 'explore', label: 'Explore' }];
 
 // A shared map link: /bikes?lat=&lng=&radius=&station= opens the map on that view.
 function initialFocus() {
@@ -55,32 +54,23 @@ export default function BikesApp() {
   // One live feed for the map and station search; Explore does not need it.
   const live = usePolling('live', {}, tab !== 'explore');
   return (
-    <div className="bk-page" data-mode={modeOf(need)}>
-      <SiteHeader product="Bikes" to="/bikes" icon="🚲" onSignIn={null} />
-      <main className="bk-main">
-        <nav className="cc-segmented bk-tabs" role="tablist" aria-label="Cozy Bikes">
+    <div className={`bk-page${tab === 'near' ? ' is-map' : ''}`} data-mode={modeOf(need)}>
+      <SiteHeader product="Bikes" to="/bikes" icon="🚲" onSignIn={null}>
+        <nav className="bk-tabs" role="tablist" aria-label="Cozy Bikes">
           {TABS.map((t) => (
-            <button key={t.key} type="button" role="tab" className="cc-segmented__item"
+            <button key={t.key} type="button" role="tab" className="bk-tab"
               aria-selected={tab === t.key} onClick={() => setTab(t.key)}>{t.label}</button>
           ))}
         </nav>
-        {tab === 'near' && (origin ? (
+      </SiteHeader>
+      <main className="bk-main">
+        {tab === 'near' && (
           <NearMe origin={origin} you={you} geo={geo} locate={locateHere} onOrigin={setPlace} need={need} setNeed={setNeed}
             live={live} focus={focus} onPlan={planFrom} />
-        ) : (
-          <section className="bk-pane bk-start" aria-label="Near me">
-            <h1 className="cc-h1">Citi Bike near you</h1>
-            <ModeSwitch need={need} setNeed={setNeed} onPick={locate} large />
-            <p className="cc-caption">{geo.status === 'locating' ? 'Finding you…' : 'Uses your location. Live stations, and whether one will still be there when you arrive.'}</p>
-            {geo.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{geo.message}</p>}
-            <p className="cc-caption bk-start__or">Or start from anywhere:</p>
-            <PlaceSearch stations={live.data?.stations} origin={null}
-              onPick={(p) => setPlace({ kind: p.station ? 'station' : 'place', name: p.name, lat: p.lat, lng: p.lng, station: p.station })} />
-          </section>
-        ))}
+        )}
         {tab === 'plan' && <Plan geo={geo} locate={locate} live={live} seed={planSeed} />}
         {tab === 'explore' && <Explore />}
-        {tab !== 'explore' && <Siri />}
+        {tab === 'plan' && <Siri />}
       </main>
     </div>
   );

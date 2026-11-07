@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import BikeMap, { project, unproject } from './BikeMap.jsx';
+import BikeMap, { fitView, project, unproject } from './BikeMap.jsx';
 
 vi.mock('../api.js', () => ({ getUrl: () => 'https://api.example.test' }));
 
@@ -36,6 +36,21 @@ describe('interactive map', () => {
     const back = unproject(view, x, y);
     expect(back.lat).toBeCloseTo(40.76, 9);
     expect(back.lng).toBeCloseTo(-73.98, 9);
+  });
+
+  it('fits points between the floating controls and the sheet', () => {
+    const points = [{ lat: 40.74, lng: -73.99 }, { lat: 40.75, lng: -73.98 }];
+    const view = { ...fitView(points, 390, 700, { top: 120, bottom: 0.4 }), w: 390, h: 700 };
+    for (const p of points) {
+      const [x, y] = project(view, p.lng, p.lat);
+      expect(x).toBeGreaterThan(0);
+      expect(x).toBeLessThan(390);
+      expect(y).toBeGreaterThan(120);       // below the search bar
+      expect(y).toBeLessThan(700 * 0.6);    // above the sheet
+    }
+    // On a wide screen the list is a column on the left.
+    const wide = { ...fitView(points, 1280, 800, { top: 16, left: 432 }), w: 1280, h: 800 };
+    for (const p of points) expect(project(wide, p.lng, p.lat)[0]).toBeGreaterThan(432);
   });
 
   it('pans with a drag and zooms with the buttons', async () => {
