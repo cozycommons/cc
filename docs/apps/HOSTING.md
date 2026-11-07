@@ -132,12 +132,15 @@ Preserve all explicit existing DNS records. Do not add AAAA unless IPv6 reaches
 this VPS and its ingress. Re-inventory custom subdomains before adding wildcard
 routing; an unrelated custom subdomain must be excluded and reserved first.
 
-Use `infra/apps/hosted/traefik-dynamic.yaml` as a **reviewed additive dynamic
-configuration**, not a replacement for the existing proxy configuration. It
+The hosted Compose supplies additive Traefik TCP labels on Caddy and attaches
+only Caddy to the existing `coolify` network (`APPS_PROXY_NETWORK` can select
+another inspected network). Enable Coolify raw Compose deployment to preserve
+these labels, names and networks. Do not add a separate dynamic router too.
+`infra/apps/hosted/traefik-dynamic.yaml` is an alternative template for hosts
+without the Docker provider; it is not needed for this VPS. It
 matches one subdomain label and explicitly excludes reserved platform hosts.
-The apex and `www.api.cozycommons.dev` are not matched. Add the file using
-Coolify's Proxy Dynamic Configurations or an authorized server operation;
-do not restart or replace the whole production proxy unnecessarily.
+The apex and `www.api.cozycommons.dev` are not matched. The Docker provider discovers these labels without replacing the existing
+proxy configuration or restarting Traefik.
 
 Traefik passes TLS through to Caddy. Caddy obtains individual certificates for
 registered app routes and the portal using TLS-ALPN-01; it does not enable
@@ -205,3 +208,16 @@ Local verification on 2026-11-06 (America/New_York):
 No production resource, DNS record or Supabase configuration was changed during
 this verification. A requested local-browser DNS delegation could not proceed:
 the cloud execution surface exposed no local-browser or local-agent dispatch tool.
+
+## Coolify 4.6 rollout settings
+
+Use raw Compose (`is_raw_compose_deployment_enabled=true`) with automatic
+deployment and predefined-network attachment disabled. The Compose attaches only
+Caddy to ingress. Custom build command: `docker compose --parallel 1 build manager proxy
+runtime-image`. Explicit targets build the runtime image as well as manager/Caddy,
+one build at a time. Start normally with the build profile disabled. The public
+interpolation variables must be available at build and runtime. Inspect the
+rendered definition before starting.
+
+For this rollout the repository owner explicitly waived the Fable/Opus review
+requirement in chat. CI and live rollout checks remain enabled.

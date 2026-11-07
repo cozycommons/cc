@@ -3,6 +3,7 @@
 # Do not assign Coolify HTTPS domains or publish manager/proxy host ports.
 services:
   manager:
+    image: cc-apps-manager:hosted
     build:
       context: .
       dockerfile: infra/apps/Dockerfile
@@ -34,6 +35,7 @@ services:
       timeout: 5s
       retries: 3
   proxy:
+    image: cc-apps-proxy:hosted
     depends_on:
       manager:
         condition: service_healthy
@@ -52,9 +54,15 @@ services:
       - proxy-config:/proxy
       - caddy-data:/data
       - caddy-config:/config
-    networks: [control]
-    # Attach only this service to the actual Coolify proxy network during setup.
-    # Generated Compose must retain all fixed names and manager DNS alias.
+    networks: [control, ingress]
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.docker.network=${APPS_PROXY_NETWORK:-coolify}'
+      - 'traefik.tcp.routers.commons-apps.entrypoints=https'
+      - 'traefik.tcp.routers.commons-apps.rule=HostSNIRegexp(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?\.cozycommons\.dev$`) && !HostSNI(`admin.cozycommons.dev`) && !HostSNI(`api.cozycommons.dev`) && !HostSNI(`auth.cozycommons.dev`) && !HostSNI(`www.cozycommons.dev`) && !HostSNI(`mail.cozycommons.dev`) && !HostSNI(`smtp.cozycommons.dev`) && !HostSNI(`ftp.cozycommons.dev`) && !HostSNI(`proxy.cozycommons.dev`) && !HostSNI(`status.cozycommons.dev`) && !HostSNI(`static.cozycommons.dev`) && !HostSNI(`assets.cozycommons.dev`) && !HostSNI(`mcp.cozycommons.dev`) && !HostSNI(`localhost.cozycommons.dev`) && !HostSNI(`default.cozycommons.dev`)'
+      - 'traefik.tcp.routers.commons-apps.tls.passthrough=true'
+      - 'traefik.tcp.routers.commons-apps.service=commons-apps'
+      - 'traefik.tcp.services.commons-apps.loadbalancer.server.port=443'
   runtime-image:
     image: ${APPS_RUNTIME_IMAGE:?required}
     build:
@@ -62,6 +70,9 @@ services:
       dockerfile: infra/apps/runtime/Dockerfile
     profiles: [build]
 networks:
+  ingress:
+    external: true
+    name: ${APPS_PROXY_NETWORK:-coolify}
   control:
     name: cc-apps-hosted-control
 volumes:
