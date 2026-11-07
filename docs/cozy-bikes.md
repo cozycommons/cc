@@ -136,40 +136,35 @@ fifth day held out:
 
 ## The /bikes page
 
-Linked from the home shelf. Mobile first. The first decision is renting or
-returning: the start screen is two large keys, **Find a bike** and **Find a
-dock**, and one tap picks the mode and asks for your location. After that the
-same two keys stay at the top of Near me (with "E-bikes only" under Find a
-bike), and the page takes the mode's accent: moss for bikes, clay for docks. The
-choice is remembered on the device, and `?need=bike|ebike|dock` sets it in a link.
+Linked from the home shelf. Mobile first and map first: the Map tab is the whole
+screen. Search (address, place or station) and the **Find a bike** / **Find a
+dock** keys (with E-bikes only) float on the map; a sheet at the bottom gives the
+call and lifts to show more. Plan and Explore sit in the header. The mode is
+remembered on the device, and `?need=bike|ebike|dock` sets it in a link; the page
+takes the mode's accent, moss for bikes and clay for docks.
 
-Three tabs:
-
-- **Near me**: Bike, E-bike or Dock, from you or from anywhere: search an
-  address, place or station (the box under the mode keys), or tap an empty spot
-  on the map and "Check from here". The answer sentence, a live map of stations
-  (colored 3+, 1–2, none or closed, the five listed stations labeled by count),
-  and a card per station. A card leads with a verdict, then one line of data:
+- **Map**: start from your location, a searched place, a station, or a pin dropped
+  by tapping an empty spot ("Check from here"). Lines run from there to the five
+  nearest stations, each with its minutes until you have a bike (or dock), the
+  best one bold; the sheet lists them, each with a verdict and one line of data:
 
       Probably gone by the time you arrive
       2 min walk · 1 classic, 0 e-bikes, 97 docks · about 4 in 10 it lasts
 
-  Verdicts come from the API (`verdict`: go, likely, risky, skip, unknown) and
-  odds are said as "about N in 10", never percents. Tapping a station on the map
-  opens a panel for standing there: wait, or move on? For a bike it compares
-  waiting with walking to the four nearest stations; for a dock (you are on a
-  bike) with riding to them and walking back, each with its odds and minutes in
-  all, best outlined ("Ride to McGuinness Blvd & Eagle St. About 4 min in all,
-  vs about 39 min waiting here."). Start from here makes it the starting point;
-  Plan from here / Plan to here open Plan. Refreshes every minute while visible.
-  `?lat=&lng=` sets the starting point and `&station=` selects a station, for
-  shared links.
+  Tap a station, on the map or in the list, to stand there: lines go from it to
+  its options (walking for a bike, riding on with the walk back for a dock), with
+  station names, and the sheet compares waiting with moving on ("Ride to McGuinness
+  Blvd & Eagle St. About 4 min in all, vs about 39 min waiting here."). The map
+  fits the lines into the part the sheet and controls leave uncovered. Start from
+  here, Plan from here and Plan to here act on that station. Verdicts come from
+  the API (`verdict`), and odds are said as "about N in 10", never percents.
+  `?lat=&lng=` sets the starting point and `&station=` selects a station.
 - **Plan**: from your location (or any address, place or station) to any
   address, place or station, leaving now or in 15, 30 or 60 minutes, optionally
-  on an e-bike. Shows walk, start station, ride, end station and walk with live
-  odds at each end, against walking the whole way.
+  on an e-bike, with live odds at each end against walking the whole way.
 - **Explore**: every dock by hour and trips per month (below).
 
+On a wide screen the search, keys and sheet form a 400 px column on the left.
 `?tab=plan` or `?tab=explore` opens a tab.
 
 ### Live dock status and freshness
@@ -199,15 +194,15 @@ re-center without reloading.
 
 ### Interactive map
 
-Near me's map moves: drag to pan, pinch or scroll to zoom (200 m to 3 km from
-the center to each side), arrow keys and +/- when focused, and the corner keys
-zoom or return to the starting point. Tap a station to open its wait-or-move-on panel
-(`/bikes/options`); tap anywhere else to drop a pin with "Check from here".
-A searched or pinned starting point is a dark marker; you stay a blue dot. During
-a gesture the drawing moves by a CSS transform and is redrawn for the new view
-when the gesture ends, so phones stay smooth. Minor streets drop out past 1.5 km.
-`/bikes?lat=&lng=&radius=&station=` opens that view with the station selected:
-answers link it as `map_url`.
+Drag to pan, pinch or scroll to zoom (150 m to 3 km from the center to each
+side), arrow keys and +/- when focused; the corner keys zoom or return to the
+starting point. Street names show below about 1.3 km, written like Citi Bike's
+station names ("W 31 St", "7 Ave") so a station's cross streets can be found by
+eye; station names show for the selected station, and for its options when zoomed
+in. During a gesture the drawing moves by a CSS transform and is redrawn for the
+new view when the gesture ends, so phones stay smooth. Minor streets drop out past
+1.5 km. `/bikes?lat=&lng=&radius=&station=` opens that view with the station
+selected: answers link it as `map_url`.
 
 ### Address and place search
 
@@ -228,8 +223,8 @@ basemap.
 ### Street basemap
 
 The map draws OpenStreetMap streets, bike lanes, parks and filled water (harbor,
-Hudson, East River, lakes) from tiles in `backend/bikes/map/` (2,022 tiles,
-6.0 MB). The API serves them at `/bikes/map/{name}.json` (gzipped, cached a day)
+Hudson, East River, lakes) and street names from tiles in `backend/bikes/map/`
+(2,074 tiles, 8.1 MB). The API serves them at `/bikes/map/{name}.json` (gzipped, cached a day)
 to the page, and draws the same tiles into `/bikes/map.png`; only our own
 origins see where you look. There is no map library or CSP change.
 `python -m bikes.basemap` (bikes venv) rebuilds them from BBBike's New York

@@ -1,13 +1,13 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import { mins, odds, reportedLabel, usePolling } from './live.js';
+import { mins, odds, reportedLabel } from './live.js';
 
 const KEY = { bike: 'bikes', ebike: 'ebikes', dock: 'open_docks' };
 const NOUN = { bike: 'bike', ebike: 'e-bike', dock: 'dock' };
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function how(option) {
-  if (option.how === 'here') return 'Wait here';
+function how(option, need) {
+  if (option.how === 'here') return option.status !== 'available' ? 'Wait here' : need === 'dock' ? 'Dock here' : 'Take one here';
   if (option.how === 'ride') return `Ride ${mins(option.travel_min)}, walk ${mins(option.walk_back_min)} back`;
   return `Walk ${mins(option.travel_min)}`;
 }
@@ -31,8 +31,8 @@ function Option({ option, need, best }) {
     <li className={`bk-option${best ? ' is-best' : ''}`}>
       <i className={`bk-option__dot bk-verdict--${option.verdict?.tone ?? 'unknown'}`} aria-hidden="true" />
       <div className="bk-option__body">
-        <b>{option.how === 'here' ? how(option) : option.station}</b>
-        <span>{option.how === 'here' ? facts.join(' · ') : `${how(option)} · ${facts.join(' · ')}`}</span>
+        <b>{option.how === 'here' ? how(option, need) : option.station}</b>
+        <span>{option.how === 'here' ? facts.join(' · ') : `${how(option, need)} · ${facts.join(' · ')}`}</span>
       </div>
       <span className="bk-option__total" aria-label={`about ${mins(option.expected_min)} in all`}>
         {option.expected_min == null ? '—' : mins(option.expected_min)}
@@ -52,41 +52,35 @@ export function comparison(result) {
 }
 
 // Standing at a station: wait for a bike (or dock), or walk (ride) to the next one?
-export default function StationSheet({ stationId, need, onClose, onStartHere, onPlan }) {
-  const options = usePolling('options', { station: stationId, need }, true);
-  const result = options.data?.station?.station_id === stationId ? options.data : null;
-  const here = result?.station;
-  const counts = here && (need === 'dock'
+// `result` is /bikes/options for that station; the map draws the same options as routes.
+export default function StationSheet({ result, need, onClose, onStartHere, onPlan }) {
+  const here = result.station;
+  const counts = need === 'dock'
     ? `${plural(here.open_docks, 'open dock')} · ${plural(here.bikes, 'bike')}`
-    : `${here.bikes - here.ebikes} classic · ${plural(here.ebikes, 'e-bike')} · ${plural(here.open_docks, 'dock')}`);
-  const place = here && { name: here.station, lat: here.lat, lng: here.lng };
+    : `${here.bikes - here.ebikes} classic · ${plural(here.ebikes, 'e-bike')} · ${plural(here.open_docks, 'dock')}`;
+  const place = { name: here.station, lat: here.lat, lng: here.lng };
   return (
-    <aside className="bk-sheet" role="dialog" aria-label={here ? `At ${here.station}` : 'Station'}>
+    <div className="bk-sheet__station" role="region" aria-label={`At ${here.station}`}>
       <div className="bk-sheet__head">
         <div>
           <p className="bk-sheet__kicker">{need === 'dock' ? 'Need a dock here?' : 'Need a bike here?'}</p>
-          <h2>{here?.station ?? 'Checking…'}</h2>
-          {here && <p className="bk-data">{counts}{here.reported_s != null ? ` · ${reportedLabel(here.reported_s).toLowerCase()}` : ''}</p>}
+          <h2>{here.station}</h2>
+          <p className="bk-data">{counts}{here.reported_s != null ? ` · ${reportedLabel(here.reported_s).toLowerCase()}` : ''}</p>
         </div>
         <button type="button" className="bk-from__clear" onClick={onClose} aria-label="Close"><X size={18} aria-hidden="true" /></button>
       </div>
-      {options.status === 'error' && !result && <p className="cc-notice cc-notice--error" role="alert">{options.message}</p>}
-      {result && (
-        <>
-          <p className="bk-verdict">{headline(result)}</p>
-          {comparison(result) && <p className="bk-data">{comparison(result)}</p>}
-          <ol className="bk-options">
-            {result.options.map((o) => (
-              <Option key={o.station_id} option={o} need={need} best={o.station_id === result.best?.station_id} />
-            ))}
-          </ol>
-          <div className="bk-pop__actions">
-            <button type="button" className="cc-button cc-button--small" onClick={() => onStartHere(place)}>Start from here</button>
-            <button type="button" className="cc-button cc-button--small cc-button--secondary" onClick={() => onPlan('from', place)}>Plan from here</button>
-            <button type="button" className="cc-button cc-button--small cc-button--secondary" onClick={() => onPlan('to', place)}>Plan to here</button>
-          </div>
-        </>
-      )}
-    </aside>
+      <p className="bk-verdict">{headline(result)}</p>
+      {comparison(result) && <p className="bk-data">{comparison(result)}</p>}
+      <ol className="bk-options">
+        {result.options.map((o) => (
+          <Option key={o.station_id} option={o} need={need} best={o.station_id === result.best?.station_id} />
+        ))}
+      </ol>
+      <div className="bk-pop__actions">
+        <button type="button" className="cc-button cc-button--small" onClick={() => onStartHere(place)}>Start from here</button>
+        <button type="button" className="cc-button cc-button--small cc-button--secondary" onClick={() => onPlan('from', place)}>Plan from here</button>
+        <button type="button" className="cc-button cc-button--small cc-button--secondary" onClick={() => onPlan('to', place)}>Plan to here</button>
+      </div>
+    </div>
   );
 }

@@ -78,55 +78,56 @@ function api() {
 describe('Cozy Bikes', () => {
   afterEach(() => { vi.unstubAllGlobals(); window.localStorage.clear(); });
 
-  it('starts in the mode you picked last, and one tap on the start screen picks a mode and locates', async () => {
+  it('starts on the map in the mode you picked last, and locates from the sheet', async () => {
     const calls = api();
     window.localStorage.setItem('cozy-bikes.need', 'dock');
     locate({ latitude: 40.750212, longitude: -73.991612 });
     view();
-    expect(screen.getByRole('radio', { name: 'Find a dock' }).getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(screen.getByRole('radio', { name: 'Find a bike' }));
+    expect(document.querySelector('.bk-page.is-map')).toBeTruthy();
+    expect(document.querySelector('.bk-mode__choice--dock').getAttribute('aria-checked')).toBe('true');
+    expect(await screen.findByText('Where are you starting?')).toBeTruthy();
+    fireEvent.click(screen.getByText('Use my location').closest('button'));
+    await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=dock&limit=5'));
+    fireEvent.click(document.querySelector('.bk-mode__choice--bike'));
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=bike&limit=5'));
     expect(window.localStorage.getItem('cozy-bikes.need')).toBe('bike');
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'E-bikes only' }));
+    fireEvent.click(screen.getByText('E-bikes only'));
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=ebike&limit=5'));
   });
 
-  it('finds stations near you, ranks them, and asks again for docks', async () => {
+  it('draws a route to each nearby station, ranks them in the sheet, and asks again for docks', async () => {
     const calls = api();
     locate({ latitude: 40.750212, longitude: -73.991612 });
     view();
-    fireEvent.click(screen.getByRole('radio', { name: 'Find a bike' }));
+    fireEvent.click(screen.getByText('Use my location').closest('button'));
     expect(await screen.findByText(WAIT.message)).toBeTruthy();
-    expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.75021&lng=-73.99161&need=bike&limit=5');
-    const cards = screen.getAllByRole('listitem').filter((li) => li.classList.contains('bk-station'));
-    expect(cards.map((c) => within(c).getByRole('heading').textContent)).toEqual(['W 31 St & 7 Ave', 'Best · W 37 St & Broadway']);
-    expect(within(cards[1]).getByText('Best ·')).toBeTruthy();
-    // A verdict first, then the data behind it, in words rather than percents.
-    expect(within(cards[1]).getByText('Go: it will be there').className).toBe('bk-verdict bk-verdict--go');
-    expect(within(cards[1]).getByText('7 min walk · 2 classic, 4 e-bikes, 2 docks')).toBeTruthy();
-    expect(within(cards[0]).getByText('Empty: a bike in about 8 minutes')).toBeTruthy();
-    expect(within(cards[0]).getByText('1 min walk · 0 classic, 0 e-bikes, 40 docks · about 2 in 10 it refills in time')).toBeTruthy();
+    const rows = [...document.querySelectorAll('.bk-sheet2 .bk-station')];
+    expect(rows.map((r) => r.querySelector('b').textContent)).toEqual(['W 31 St & 7 Ave', 'Best · W 37 St & Broadway']);
+    // A verdict, then the data behind it, in words rather than percents.
+    expect(within(rows[1]).getByText('Go: it will be there')).toBeTruthy();
+    expect(within(rows[1]).getByText('7 min walk · 2 classic, 4 e-bikes, 2 docks')).toBeTruthy();
+    expect(within(rows[0]).getByText('1 min walk · 0 classic, 0 e-bikes, 40 docks · about 2 in 10 it refills in time')).toBeTruthy();
+    // On the map: a line from you to each, the best one bold, with its minutes.
+    await waitFor(() => expect(document.querySelectorAll('.bk-route')).toHaveLength(2));
+    expect(document.querySelectorAll('.bk-route.is-best')).toHaveLength(1);
+    expect([...document.querySelectorAll('.bk-pill-time text')].map((t) => t.textContent)).toEqual(['7 min', '7 min']);
     expect(document.querySelectorAll('.bk-local__unknown')).toHaveLength(1);  // the stale one, drawn hollow
-    expect(screen.getByRole('img', { name: /^Map of Citi Bike stations colored by bikes/ })).toBeTruthy();
-    expect(within(cards[0]).getByText('Reported 2 min ago')).toBeTruthy();
 
     // Relocating asks again from the new position.
     locate({ latitude: 40.7359, longitude: -73.9911 });
-    fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+    fireEvent.click(document.querySelector('.bk-float .bk-locate'));
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.7359&lng=-73.9911&need=bike&limit=5'));
-
     expect(screen.getByRole('status').textContent).toMatch(/^Citi Bike data from \d+:\d\d [AP]M · checked just now/);
 
     // A failed refresh keeps the stations, dimmed, and says so.
     const working = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ detail: 'Live Citi Bike dock data is unavailable.' }) })));
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    fireEvent.click(screen.getByText('Refresh').closest('button'));
     expect(await screen.findByText(/^Couldn't refresh\. Showing Citi Bike data from/)).toBeTruthy();
     expect(document.querySelector('.bk-results.is-stale')).toBeTruthy();
-    expect(screen.getByText(WAIT.message)).toBeTruthy();
     vi.stubGlobal('fetch', working);
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Find a dock' }));
+    fireEvent.click(document.querySelector('.bk-mode__choice--dock'));
     expect(document.querySelector('.bk-page').dataset.mode).toBe('dock');
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.7359&lng=-73.9911&need=dock&limit=5'));
   });
@@ -135,7 +136,7 @@ describe('Cozy Bikes', () => {
     const calls = api();
     locate({ latitude: 40.750212, longitude: -73.991612 });
     view();
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    fireEvent.click(screen.getByText('Plan', { selector: '.bk-tab' }));
     fireEvent.click(screen.getByRole('button', { name: 'Use my location' }));
     fireEvent.change(await screen.findByLabelText('To'), { target: { value: '37 broad' } });
     fireEvent.click(await result('W 37 St & Broadway'));
@@ -145,24 +146,22 @@ describe('Cozy Bikes', () => {
     expect(screen.getByText('9 docks now · odds on arrival about 8 in 10')).toBeTruthy();
   });
 
-  it('answers from a searched address without your location, and a tapped station asks wait or move on', async () => {
+  it('answers from a searched address without your location; a tapped station draws its options', async () => {
     const calls = api();
     view();
-    fireEvent.change(screen.getByLabelText('Search an address, place or station'), { target: { value: '350 5th' } });
+    fireEvent.change(await screen.findByLabelText('Search an address, place or station'), { target: { value: '350 5th' } });
     fireEvent.click(await result('350 5th Avenue'));
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/wait?lat=40.74844&lng=-73.98566&need=bike&limit=5'));
-    expect(await screen.findByText('350 5th Avenue')).toBeTruthy();
-    const svg = await screen.findByRole('img', { name: /^Map of Citi Bike stations/ });
-    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 360, height: 420, right: 360, bottom: 420 });
-    const { project } = await import('./BikeMap.jsx');
-    const [x, y] = project({ lat: 40.74844, lng: -73.98566, r: 700 }, -73.9876, 40.7546);
-    fireEvent.pointerDown(svg, { pointerId: 1, clientX: x, clientY: y });
-    fireEvent.pointerUp(svg, { pointerId: 1, clientX: x, clientY: y });
-    // Tapping a station asks what to do standing there: wait, or walk on.
+    expect(await screen.findByText('350 5th Avenue', { selector: '.bk-from b' })).toBeTruthy();
+    // Tapping a station's row (or its dot) stands you there: wait, or walk on?
+    fireEvent.click(await screen.findByText('W 37 St & Broadway', { selector: '.bk-station b' }));
     await waitFor(() => expect(calls).toContain('https://api.example.test/bikes/options?station=6364.07&need=bike'));
-    const sheet = await screen.findByRole('dialog');
-    expect(await within(sheet).findByText('Walk to W 31 St & 7 Ave')).toBeTruthy();
-    expect(within(sheet).getByText('Need a bike here?')).toBeTruthy();
+    const sheet = await waitFor(() => {
+      const node = document.querySelector('.bk-sheet__station');
+      if (!node) throw new Error('no station sheet');
+      return node;
+    });
+    expect(within(sheet).getByText('Walk to W 31 St & 7 Ave')).toBeTruthy();
     expect(within(sheet).getByText('About 6 min in all, vs about 13 min waiting here.')).toBeTruthy();
     const rows = sheet.querySelectorAll('.bk-option');
     expect([...rows].map((r) => r.textContent)).toEqual([
@@ -170,8 +169,11 @@ describe('Cozy Bikes', () => {
       'W 31 St & 7 AveWalk 4 min · 6 bikes now · about 8 in 10 one is left6 min',
     ]);
     expect(rows[1].classList.contains('is-best')).toBe(true);
+    // The map draws the same options: waiting here, and the walk to the other.
+    await waitFor(() => expect([...document.querySelectorAll('.bk-pill-time text')].map((t) => t.textContent)).toEqual(['Wait 13 min', '6 min']));
+    expect(document.querySelector('.bk-dot.is-selected .bk-dot__name').textContent).toBe('W 37 St & Broadway');
     fireEvent.click(within(sheet).getByText('Start from here'));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.querySelector('.bk-sheet__station')).toBeNull());
     expect(screen.getByText('W 37 St & Broadway', { selector: '.bk-from b' })).toBeTruthy();
   });
 
@@ -179,7 +181,7 @@ describe('Cozy Bikes', () => {
     api();
     locate(null);
     view();
-    fireEvent.click(screen.getByRole('radio', { name: 'Find a dock' }));
+    fireEvent.click(screen.getByText('Use my location').closest('button'));
     expect((await screen.findByRole('alert')).textContent).toBe('Allow location to find stations near you.');
   });
 });
