@@ -47,7 +47,14 @@ PY
     docker compose --env-file /dev/null -f infra/apps/compose.yaml stop manager
     # Stop only containers labelled as this prototype's apps.
     docker ps -q --filter label=cc.apps | while IFS= read -r container; do
-      if [ -n "$container" ]; then docker stop "$container"; fi
+      if [ -n "$container" ]; then
+        instance="$(docker inspect --format '{{index .Config.Labels "cc.apps.instance"}}' "$container")"
+        # Unlabelled instances are pre-hosted local prototypes. Never stop a
+        # hosted app merely because it shares this Docker daemon.
+        case "$instance" in
+          ''|'<no value>'|cc-apps-local-) docker stop "$container" ;;
+        esac
+      fi
     done
     docker compose --env-file /dev/null -f infra/apps/compose.yaml stop
     ;;

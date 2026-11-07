@@ -89,7 +89,21 @@ ESPN_PROPOSE = {'kind': 'roster_edit', 'add_player_id': espn_fakes.FREE_AGENT, '
 RESY_BOOK = {'venue_id': resy_fakes.VENUE_ID, 'date': resy_fakes.day(), 'desired_time': '19:00',
              'idempotency_key': 'book-1'}
 
+def apps_foreign(db, monkeypatch):
+    # The HTTP transport reaches the real manager authorization code; see the
+    # fixture below. No app belongs to this caller.
+    return {'set_app_member': {'app': 'foreign', 'user': str(uuid4()), 'role': 'viewer'},
+            'exec_command': {'app': 'foreign', 'command': 'echo synthetic'}}
+
+
 FIXTURES = {
+    'apps': Fixture(
+        args=lambda db: {'list_apps': {}, 'create_app': {'name': 'fresh'},
+                         'set_app_member': {'app': 'foreign', 'user': str(uuid4()), 'role': 'viewer'},
+                         'exec_command': {'app': 'foreign', 'command': 'echo synthetic'}},
+        foreign=apps_foreign, foreign_error='App or job not found',
+        no_resource={'list_apps': 'lists only caller memberships',
+                     'create_app': 'allocates new unique slug, subject to creator permission'}),
     COMMONS: Fixture(
         args=lambda db: {'whoami': {}, 'list_projects': {}, 'enable_project': {'project_id': 'trips'},
                          'disable_project': {'project_id': 'trips'}},
@@ -143,7 +157,7 @@ PROJECTS = [provider for provider in PROVIDERS if provider.name != COMMONS]
 
 
 @pytest.fixture
-def server(monkeypatch):
+def server(monkeypatch, tmp_path):
     db = Database()
     db.user.email_confirmed_at = '2026-01-01T00:00:00Z'
     beli_fakes.install(db, monkeypatch)
@@ -152,6 +166,34 @@ def server(monkeypatch):
     espn_fakes.install(db, monkeypatch)
     for provider in PROJECTS:
         db.settings[(db.user.id, provider.name)] = {'user_id': db.user.id, 'project_id': provider.name, 'enabled': True}
+    # In-process HTTP to the actual manager: prove authorization across the
+    # OAuth bridge, rather than mocking the ownership decision.
+    import importlib
+    import sys
+    import httpx
+    from app_runtime.tests.test_api import FakeRuntime
+    # Shared backend intentionally has no Docker SDK dependency/socket. Stub
+    # only the driver module; use the real manager API and authorization code.
+    monkeypatch.setitem(sys.modules, 'app_runtime.docker_runtime', SimpleNamespace(Runtime=FakeRuntime))
+    for key, value in {'APPS_MODE': 'hosted', 'APPS_DOMAIN': 'example.test',
+                       'APPS_SUPABASE_URL': 'https://project.supabase.co',
+                       'APPS_SUPABASE_PUBLISHABLE_KEY': 'sb_publishable_test',
+                       'APPS_MCP_OAUTH_CLIENT_ID': '20000000-0000-4000-8000-000000000001',
+                       'APPS_RUNTIME_IMAGE': 'runtime:test', 'APPS_CREATORS': db.user.id,
+                       'APPS_STATE': str(tmp_path), 'APPS_PROXY_CONFIG': str(tmp_path / 'Caddyfile'),
+                       'APPS_MANAGER_URL': 'https://apps.example.test'}.items():
+        monkeypatch.setenv(key, value)
+    sys.modules.pop('app_runtime.api', None)
+    manager = importlib.import_module('app_runtime.api')
+    monkeypatch.setattr(manager.hosted_auth, 'user', lambda token: db.user.id if token == 'synthetic' else None)
+    monkeypatch.setattr(manager.hosted_auth, 'can_create', lambda token, user_id: user_id == db.user.id)
+    from app_runtime.core import digest
+    manager.store.put({'name': 'foreign', 'status': 'running', 'members': {str(uuid4()): 'owner'},
+                       'routes': {}, 'app_token_hash': digest('private')})
+    real_client = httpx.AsyncClient
+    def manager_client(**kwargs):
+        return real_client(**kwargs, transport=httpx.ASGITransport(app=manager.app))
+    monkeypatch.setattr('app_runtime.agent_tools.httpx.AsyncClient', manager_client)
     holder = SimpleNamespace(token=AccessToken(token='synthetic', client_id='test', scopes=[READ_SCOPE, EDIT_SCOPE]))
     monkeypatch.setattr('cc_mcp.server.get_access_token', lambda: holder.token)
     mcp = build_server(db, PROVIDERS)

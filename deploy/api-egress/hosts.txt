@@ -16,3 +16,4 @@ api.twilio.com
 account.venmo.com
 pics-v3.venmo.com
 gist.githubusercontent.com
+apps.cozycommons.dev

@@ -23,6 +23,7 @@ fixed-target TCP 5432 relay because libpq/psql do not use HTTP proxies.
 | `lm-api-reads.fantasy.espn.com`, `lm-api-writes.fantasy.espn.com` | `backend/espn/espn_client.py:89`, `backend/espn/espn_client.py:90`, urllib at lines 366 and 431. |
 | `registerdisney.go.com`, `fan.api.espn.com` | `backend/espn/disney_login.py:60`, `backend/espn/disney_login.py:62`, urllib at line 110. These are the MyDisney login and ESPN cookie bootstrap hosts used by this implementation. No other Disney login origin is called. |
 | `site.api.espn.com` | `backend/espn/scoreboard.py:50`, `backend/espn/scoreboard.py:210`, public NBA scoreboard. |
+| `apps.cozycommons.dev` | `backend/app_runtime/agent_tools.py` forwards the authenticated Commons OAuth caller to the separate Apps manager. No wildcard app destinations are allowed. |
 | `gist.githubusercontent.com` | `backend/espn/team_claims.py:31`, `backend/espn/team_claims.py:56`, public predictions fallback. Overriding `ESPN_PUBLIC_PREDICTIONS_FALLBACK_URL` requires explicitly reviewing and adding its exact hostname. |
 | `api.open-meteo.com` | `backend/bikes/conditions.py`: Central Park hourly forecast (no key), cached 30 min, 4 s timeout, 1 MB cap; failure leaves Cozy Bikes rates unadjusted. |
 | `gbfs.lyft.com` | `backend/bikes/gbfs.py:15`, `backend/bikes/gbfs.py:30`, Citi Bike's public GBFS station feeds via urllib, cached 60 s (status) and 1 h (locations). |

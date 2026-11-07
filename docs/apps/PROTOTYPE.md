@@ -1,5 +1,7 @@
 # Run the local apps prototype
 
+Hosted candidate configuration and its separate rollout gates are documented in [HOSTING.md](HOSTING.md). The local workflow below remains unchanged.
+
 This runs separate local Docker services. It does not deploy to the VPS, modify
 DNS, read production dotenv files, or migrate current Cozy Commons apps.
 Docker Engine/Compose and Python 3.12 or 3.13 are required. Scripts work on macOS and

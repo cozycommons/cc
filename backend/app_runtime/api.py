@@ -1,4 +1,4 @@
-"""Local-only app manager. Hosted identity and deployment are intentionally separate."""
+"""App manager with separate loopback and explicitly configured hosted modes."""
 
 import asyncio
 import base64
@@ -21,13 +21,21 @@ from pydantic import BaseModel, Field
 from .backups import Backups, INTERVAL
 from .core import Store, allowed, digest, hostname, proxy_config, service_name, slug
 from .docker_runtime import Runtime
+from .settings import Settings
+from request_validation import install as install_validation
+from .hosted_auth import HostedAuth, BROWSER_HEADERS, clean_cookie
+from fastapi.responses import RedirectResponse
+from uuid import UUID
+
+settings = Settings.load()
 
 state = Path(os.environ.get("APPS_STATE", "/state"))
 state.mkdir(parents=True, exist_ok=True)
 store = Store(state / "registry.sqlite3")
-users = json.loads(Path(os.environ.get("APPS_USERS", "/run/users.json")).read_text())
+users = {} if settings.hosted else json.loads(Path(os.environ.get("APPS_USERS", "/run/users.json")).read_text())
+hosted_auth = HostedAuth(settings, store) if settings.hosted else None
 config_path = Path(os.environ.get("APPS_PROXY_CONFIG", "/proxy/Caddyfile"))
-creators = set(os.environ.get("APPS_CREATORS", "owner").split(","))
+creators = set(filter(None, os.environ.get("APPS_CREATORS", "" if settings.hosted else "owner").split(",")))
 runtime = Runtime()
 backups = Backups(store, runtime, state)
 proxy_lock = threading.RLock()
@@ -35,6 +43,13 @@ proxy_lock = threading.RLock()
 
 @asynccontextmanager
 async def lifespan(app):
+    if settings.hosted:
+        # Proxy waits for manager health on first boot. Never expose a stale
+        # public route without the manager's per-request authorization.
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = config_path.with_suffix('.tmp')
+        temp.write_text(proxy_config(store.all(), settings))
+        temp.replace(config_path)
     stop = threading.Event()
     worker = threading.Thread(target=backups.run, args=(stop,), daemon=True)
     worker.start()
@@ -45,7 +60,10 @@ async def lifespan(app):
         await asyncio.to_thread(worker.join)
 
 
-app = FastAPI(title="Cozy Commons apps — local prototype", lifespan=lifespan)
+app = FastAPI(title="Cozy Commons apps", lifespan=lifespan)
+install_validation(app)
+if hosted_auth:
+    hosted_auth.install(app)
 # A restarted manager cannot reliably continue monitoring an old Docker exec.
 for old_job in store.all("jobs"):
     if old_job["status"] == "running":
@@ -59,16 +77,35 @@ for old_job in store.all("jobs"):
 @app.middleware("http")
 async def reject_cross_origin_mutations(request: Request, call_next):
     origin = request.headers.get("origin")
-    if (
-        request.method not in {"GET", "HEAD", "OPTIONS"}
-        and origin
-        and origin not in {"http://admin.localhost:8090", "http://127.0.0.1:8091"}
-    ):
+    if settings.hosted:
+        # Cookies only authorize browser reads. Even bearer-authenticated writes
+        # from browsers must originate on the central portal, except per-host
+        # session/logout endpoints with their own exact Origin check.
+        allowed_origins = {settings.url(settings.portal)}
+        auth_path = request.url.path in {"/_commons/session", "/_commons/logout"}
+    else:
+        allowed_origins = {"http://admin.localhost:8090", "http://127.0.0.1:8091"}
+        auth_path = False
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and origin and origin not in allowed_origins and not auth_path:
         return Response("Cross-origin platform mutation denied", status_code=403)
-    return await call_next(request)
+    response = await call_next(request)
+    if settings.hosted:
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('Content-Security-Policy', BROWSER_HEADERS['Content-Security-Policy'] + "; style-src 'unsafe-inline'")
+    return response
 
 
 def identify(request: Request):
+    # Only request-local memoization: browser routes consult Auth once while
+    # every subsequent HTTP request still revalidates identity and membership.
+    if not hasattr(request.state, 'apps_identity'):
+        request.state.apps_identity = _identify(request)
+    return request.state.apps_identity
+
+
+def _identify(request: Request):
     header = request.headers.get("authorization", "")
     token = ""
     user = None
@@ -82,13 +119,15 @@ def identify(request: Request):
         except (ValueError, UnicodeDecodeError):
             pass
     if token:
-        for name, expected in users.items():
-            if (user is None or user == name) and hmac.compare_digest(token, expected):
-                return name
         if user is None:
             for record in store.all():
                 if hmac.compare_digest(digest(token), record["app_token_hash"]):
                     return "app:" + record["name"]
+        for name, expected in users.items():
+            if (user is None or user == name) and hmac.compare_digest(token, expected):
+                return name
+    if hosted_auth:
+        return hosted_auth.identify(request)
     return None
 
 
@@ -97,8 +136,8 @@ def identity(request: Request):
     if result is None:
         raise HTTPException(
             401,
-            "Sign in with a local username and its token",
-            headers={"WWW-Authenticate": 'Basic realm="Cozy Commons local"'},
+            "Sign in to Cozy Commons Apps" if settings.hosted else "Sign in with a local username and its token",
+            headers={"WWW-Authenticate": "Bearer" if settings.hosted else 'Basic realm="Cozy Commons local"'},
         )
     if result.startswith("app:"):
         expected = "/api/apps/" + result[4:] + "/routes/"
@@ -134,7 +173,7 @@ def public_record(record, who):
         else record["status"],
         "role": record["members"].get(who, "contributor"),
         "routes": {
-            name: {**route, "url": f"http://{hostname(record['name'], name)}:8090"}
+            name: {**route, "url": settings.url(hostname(record["name"], name, settings))}
             for name, route in record["routes"].items()
         },
     }
@@ -144,7 +183,7 @@ def sync_proxy():
     with proxy_lock:
         config_path.parent.mkdir(parents=True, exist_ok=True)
         temp = config_path.with_suffix(".tmp")
-        temp.write_text(proxy_config(store.all()))
+        temp.write_text(proxy_config(store.all(), settings))
         temp.replace(config_path)
         runtime.reload_proxy()
 
@@ -158,11 +197,14 @@ async def invalid(request, exc):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "mode": "local-prototype"}
+    return {"status": "ok", "mode": "hosted" if settings.hosted else "local-prototype"}
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(who=Depends(identity)):
+def index(request: Request):
+    if hosted_auth and not identify(request):
+        return RedirectResponse("/_commons/login", headers=BROWSER_HEADERS)
+    who = identity(request)
     rows = []
     for record in store.all():
         if not allowed(record, who):
@@ -178,7 +220,9 @@ def index(who=Depends(identity)):
     return (
         '<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Apps</title><style>body{font:16px system-ui;max-width:900px;margin:48px auto;padding:0 24px;color:#292b26;background:#f7f6f1}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:16px 8px;border-bottom:1px solid #ddd}a{color:#375c49}</style></head><body><h1>Apps</h1><table><tr><th>App</th><th>Status</th><th>Role</th><th>Services</th></tr>'
         + "".join(rows)
-        + "</table></body></html>"
+        + "</table>"
+        + (f'<p>Your Commons user ID: <code>{html.escape(who)}</code></p><p>Synthetic-data pilot. Agent tools are on the Cozy Commons connector.</p><form action="/_commons/logout" method="post"><button>Sign out of Apps</button></form>' if settings.hosted else "")
+        + "</body></html>"
     )
 
 
@@ -194,11 +238,12 @@ class Create(BaseModel):
 
 
 @app.post("/api/apps", status_code=201)
-def create(body: Create, who=Depends(identity)):
+def create(body: Create, request: Request, who=Depends(identity)):
     if who.startswith("app:"):
         raise HTTPException(403, "An app cannot create other apps")
-    if who not in creators:
-        raise HTTPException(403, "App creation is not enabled for this identity")
+    can_create = hosted_auth.can_create(request.headers.get('authorization', '')[7:], who) if hosted_auth else who in creators
+    if not can_create:
+        raise HTTPException(403, "Only Commons admins may create hosted apps" if hosted_auth else "App creation is not enabled for this identity")
     name = slug(body.name)
     with store.app_lock(name):
         if store.get(name):
@@ -238,9 +283,13 @@ class Member(BaseModel):
 def member(name: str, user: str, body: Member, who=Depends(identity)):
     with store.app_lock(name):
         record = authorized(name, who, "owner")
-        if user not in users or body.role not in {"viewer", "contributor", "none"}:
+        try:
+            known = str(UUID(user)) == user if settings.hosted else user in users
+        except ValueError:
+            known = False
+        if not known or body.role not in {"viewer", "contributor", "none"}:
             raise HTTPException(
-                422, "Choose a known local user and viewer, contributor, or none"
+                422, "Choose a user UUID and viewer, contributor, or none" if settings.hosted else "Choose a known local user and viewer, contributor, or none"
             )
         if record["members"].get(user) == "owner":
             raise HTTPException(409, "Owner transfer is not supported in the prototype")
@@ -270,7 +319,7 @@ def expose(name: str, service: str, body: Route, who=Depends(identity)):
         except Exception:
             record["routes"] = previous
             store.put(record)
-            config_path.write_text(proxy_config(store.all()))
+            config_path.write_text(proxy_config(store.all(), settings))
             raise HTTPException(503, "Proxy reload failed; route change was not saved")
     return public_record(record, who)
 
@@ -294,9 +343,15 @@ def authorize_route(name: str, service: str, request: Request):
         raise HTTPException(404, "Route not found")
     if record["status"] != "running":
         raise HTTPException(503, "App is unavailable")
+    if hosted_auth:
+        if hosted_auth.host(request) != hostname(name, service, settings):
+            raise HTTPException(400, "Route host mismatch")
     if not route["public"]:
+        if hosted_auth and not identify(request):
+            return RedirectResponse("/_commons/login", status_code=303, headers=BROWSER_HEADERS)
         authorized(name, identity(request))
-    return Response(status_code=204)
+    headers = {"X-Commons-App-Cookie": clean_cookie(request.headers.get("cookie", ""))} if hosted_auth else {}
+    return Response(status_code=204, headers=headers)
 
 
 class Command(BaseModel):
