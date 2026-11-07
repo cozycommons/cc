@@ -44,7 +44,7 @@ fail startup. The local Compose and stdio client retain their loopback guards.
   behind TCP passthrough, not per-client fairness; overload temporarily rejects
   authentication. No successful identity cache delays membership checks.
 - The existing `/mcp` connector adds exactly `list_apps`, `create_app`,
-  `set_app_member`, and `exec_command`. Enable the Apps project in the connector.
+  `set_app_member`, `exec_command`, `transfer_file`, and `app_backups`. Enable the Apps project in the connector.
   Every call passes project enablement and scope checks. Shell requires
   `commons:edit`, even for a read-only command. The bridge forwards the validated
   upstream token over HTTPS; no tool accepts a token argument. Manager app
@@ -161,7 +161,7 @@ networks, mounts, labels and image digests without dumping environments. Check
 existing backend/frontend/Crowdset and admin HTTPS before and after each change.
 
 Use a new synthetic app. Verify Google/PKCE login, portal directory, two users'
-viewer/contributor/owner permissions, current Commons admin creation permission, all four OAuth MCP
+viewer/contributor/owner permissions, current Commons admin creation permission, the OAuth MCP
 tools, private/public HTTP and WebSockets, `commons expose/unexpose`, header and
 cookie stripping, membership revocation, central logout, shell timeouts and
 bounded output. Verify local Git, SQLite persistence, restart/recreate, manual

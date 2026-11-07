@@ -65,6 +65,7 @@ class Store:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL)"
         )
+        self.db.execute("CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         self.db.commit()
 
     def app_lock(self, name):
@@ -73,7 +74,7 @@ class Store:
             return self._app_locks.setdefault(name, threading.RLock())
 
     def all(self, table="apps"):
-        assert table in {"apps", "jobs"}
+        assert table in {"apps", "jobs", "operations"}
         with self.lock:
             return [
                 json.loads(row[0])
@@ -81,7 +82,7 @@ class Store:
             ]
 
     def get(self, name, table="apps"):
-        assert table in {"apps", "jobs"}
+        assert table in {"apps", "jobs", "operations"}
         key = "name" if table == "apps" else "id"
         with self.lock:
             row = self.db.execute(
@@ -90,7 +91,7 @@ class Store:
             return json.loads(row[0]) if row else None
 
     def put(self, record, table="apps"):
-        assert table in {"apps", "jobs"}
+        assert table in {"apps", "jobs", "operations"}
         key = "name" if table == "apps" else "id"
         with self.lock:
             self.db.execute(

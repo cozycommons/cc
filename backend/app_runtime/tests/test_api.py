@@ -214,7 +214,7 @@ def test_cross_origin_mutation_denied(client):
 def test_unicode_output_is_bounded_in_bytes(client):
     _, api, fake = client
 
-    def run(name, command, timeout, on_output):
+    def run(name, command, timeout, on_output, job_id=None):
         on_output("🌿" * 40000)
         return 0
 
@@ -227,6 +227,7 @@ def test_unicode_output_is_bounded_in_bytes(client):
         "bytes_seen": 0,
         "truncated": False,
     }
+    api.store.put(job, "jobs")
     api.execute_job(job, "test", 10)
     saved = api.store.get("unicode", "jobs")
     assert saved["truncated"]
@@ -280,7 +281,7 @@ def test_legacy_database_restore_and_recreate_fail_before_mutation(client):
     folder.mkdir(parents=True)
     (folder / "manifest.json").write_text(json.dumps({"id": backup_id, "app": "trip", "created": 1}))
     response = c.post(f"/api/apps/trip/backups/{backup_id}/restore",
-                      json={"confirm_replace_data": True}, headers=headers("owner"))
+                      json={"confirm_replace_data": True, "idempotency_key": "restore-key"}, headers=headers("owner"))
     assert response.status_code == 409
     assert api.store.get("trip")["status"] == "running"
     record = api.store.get("trip")
@@ -306,7 +307,7 @@ def test_restore_selects_owned_directory_and_rejects_symlinks(client, tmp_path):
     fake.archive = MagicMock()
     fake.container = MagicMock()
     path = f"/api/apps/trip/backups/{backup_id}/restore"
-    args = {"json": {"confirm_replace_data": True}, "headers": headers("owner")}
+    args = {"json": {"confirm_replace_data": True, "idempotency_key": "restore-key"}, "headers": headers("owner")}
     assert c.post(path, **args).status_code == 404
     fake.archive.assert_not_called()
     fake.container.assert_not_called()
@@ -315,6 +316,7 @@ def test_restore_selects_owned_directory_and_rejects_symlinks(client, tmp_path):
     (folder / "manifest.json").symlink_to(outside / "manifest.json")
     assert c.post(path, **args).status_code == 404
     fake.archive.assert_not_called()
+    args["json"]["idempotency_key"] = "valid-restore"
     (folder / "manifest.json").unlink()
     (folder / "manifest.json").write_text(json.dumps(manifest))
     assert c.post(path, **args).status_code == 200
@@ -348,7 +350,7 @@ def test_backup_does_not_block_other_apps_or_lose_same_app_updates(client, autom
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         snapshot = pool.submit(api.backups.tick) if automatic else pool.submit(
-            c.post, '/api/apps/trip/backups', headers=headers('owner'))
+            c.post, '/api/apps/trip/backups', json={'idempotency_key': 'backup-key'}, headers=headers('owner'))
         try:
             assert entered.wait(2)
             authorization = pool.submit(c.get, '/authorize/other/default')

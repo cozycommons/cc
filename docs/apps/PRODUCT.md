@@ -22,8 +22,9 @@ release or a migration of existing projects.
    The agent chooses its layout within persistent storage. Contributors are
    trusted with all app files, processes and data.
    They cannot administer the platform or another app through platform tools.
-3. External agents use four MCP tools: list_apps, create_app, set_app_member,
-   and exec_command. Execution waits and returns a bounded result; agents use
+3. External agents use six MCP tools: list_apps, create_app, set_app_member,
+   exec_command, transfer_file and app_backups. Execution returns a bounded job
+   result after a short wait and can reconnect by ID; agents use
    shell commands for file operations and `commons expose/unexpose` for routing.
    Shell is not a per-file permission model.
 4. Owners can add known local users as contributors or viewers. Contributors
@@ -66,3 +67,35 @@ release or a migration of existing projects.
     directories or automatic Git checkpoints. Remote Git can be added later.
 14. Existing CC projects stay in place. The prototype hosts newly created apps;
     a consolidated shared app may hold several simpler projects when appropriate.
+
+## Agent transport ergonomics
+
+The platform remains a programmable sandbox. Builds, unpacking archives, logs,
+previews, databases and release conventions remain shell operations.
+
+- `list_apps(details=false)` preserves the compact response. Opting in reports
+  platform lifecycle/exit/OOM state, restart count, CPU/memory/PID limits and
+  sampled usage. Unavailable samples are null with an explicit diagnostic;
+  no container environment, host paths or credentials are exposed.
+- `exec_command` starts or reconnects to a job. A caller-supplied idempotency key
+  identifies a start request; reuse with different command/timeout fails. A
+  bounded wait returns a running job ID rather than losing access to execution.
+  Reconnect accepts a byte cursor; results include next cursor and explicitly
+  report dropped output. Cancellation terminates the command process group.
+  Manager restart marks jobs interrupted; retry never silently reruns them.
+- `transfer_file` uploads/downloads binary files, including opaque archives,
+  under /workspace. Transfers are bounded to 16 MiB with a SHA-256 checksum;
+  uploads atomically replace one file. Raw authenticated HTTP endpoints support
+  binary clients without base64. MCP uses base64 because tool arguments are JSON.
+  No archive extraction, public transfer URLs or platform credentials are added.
+- `app_backups` lists, creates or restores owner-controlled platform snapshots.
+  Create/restore require idempotency keys. Restore additionally requires explicit
+  confirmation that current workspace data will be replaced. A repeated request
+  cannot run a second restore and erase intervening writes. Unknown outcomes are
+  reported for inspection rather than automatically retried.
+
+All file/job access requires contributor membership and edit scope, including
+reads. Inventory requires read scope; snapshot mutations require edit scope and
+ownership. Every reconnect/retry rechecks authorization. Results are structured;
+size limits, output loss and missing metrics are explicit. Existing private port
+routing and app-scoped publishing tokens retain their boundaries.

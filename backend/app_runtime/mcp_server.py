@@ -5,14 +5,15 @@ import time
 from mcp.server.fastmcp import FastMCP
 
 from .client import call, segment
+from .tool_helpers import transfer_request, snapshot_request, validate_exec
 
 mcp = FastMCP("Cozy Commons apps (local)")
 
 
 @mcp.tool()
-def list_apps() -> list:
+def list_apps(details: bool = False) -> list:
     """List apps this person can access and their published services."""
-    return call("GET", "/api/apps")
+    return call("GET", "/api/apps?details=true" if details else "/api/apps")
 
 
 @mcp.tool()
@@ -34,30 +35,59 @@ def set_app_member(app: str, user: str, role: str) -> dict:
 
 
 @mcp.tool()
-def exec_command(app: str, command: str, timeout: int = 120) -> dict:
-    """Run a shell command in /workspace and return status, exit_code and output.
+def exec_command(app: str, command: str | None = None, timeout: int = 120,
+                 idempotency_key: str | None = None, job_id: str | None = None,
+                 after: int = 0, wait_ms: int = 1000, cancel: bool = False) -> dict:
+    """Start shell or reconnect to job_id. Use a unique idempotency_key for safe start retries.
 
-    Waits for completion; timeout is 1–300 seconds. Retains the last 64 KiB of
-    output with a truncated flag. Use shell commands to read/write files and
-    `commons expose PORT --default` / `commons unexpose default` to publish or
-    remove HTTP/WebSocket routes. Publishing is private unless --public is set.
-    Use supervisor for persistent services; a command timeout terminates the shell.
+    Returns within wait_ms (0–10000) with job ID, incremental output and next_cursor.
+    Reconnect with after=next_cursor. Retains 64 KiB and explicitly reports dropped output.
+    cancel stops the command process group. Jobs continue after disconnect; manager restart
+    marks them interrupted without rerunning. Timeout is 1–300 seconds. Requires contributor.
+    Use supervisor for services; commons expose/unexpose publishes ports, private by default.
     """
+    validate_exec(command, job_id, cancel, after, wait_ms)
     base = f"/api/apps/{segment(app)}"
-    job = call("POST", base + "/exec", {"command": command, "timeout": timeout})
-    # The manager owns execution, timeout enforcement and output bounds. Poll
-    # here so agents need only one tool call, without giving containers job access.
-    deadline = time.monotonic() + timeout + 15
+    if command is not None:
+        data = {"command": command, "timeout": timeout}
+        if idempotency_key is not None:
+            data['idempotency_key'] = idempotency_key
+        job = call("POST", base + "/exec", data)
+        job_id = job['id']
+    path = base + '/jobs/' + segment(job_id)
+    if cancel:
+        call('POST', path + '/cancel')
+    deadline = time.monotonic() + wait_ms / 1000
     while True:
-        result = call("GET", base + "/jobs/" + segment(job["id"]))
-        if result["status"] != "running":
+        result = call('GET', path + '?after=' + str(after))
+        if result['status'] != 'running' or time.monotonic() >= deadline:
             return result
-        if time.monotonic() >= deadline:
-            raise TimeoutError(
-                f"Manager did not finish reporting job {job['id']}; "
-                "inspect it through the platform CLI before retrying the command"
-            )
-        time.sleep(0.2)
+        time.sleep(.2)
+
+
+@mcp.tool()
+def transfer_file(app: str, path: str, direction: str,
+                  content_base64: str | None = None, sha256: str | None = None) -> dict:
+    """Transfer one binary file/opaque archive up to 16 MiB under /workspace.
+
+    Upload requires base64 content and SHA-256; atomically replaces the file. Download returns
+    base64 and SHA-256. Use shell to pack/unpack directories. Contributor access required.
+    """
+    method, query, content = transfer_request(path, direction, content_base64, sha256)
+    return call(method, f'/api/apps/{segment(app)}/transfer' + query, content=content)
+
+
+@mcp.tool()
+def app_backups(app: str, action: str = 'list', idempotency_key: str | None = None,
+                backup_id: str | None = None, confirm_replace_data: bool = False) -> dict:
+    """Owner-only snapshot list/create/restore. Create/restore require an idempotency key.
+
+    Create briefly stops the app; retains three snapshots. Restore replaces current workspace,
+    data and Git history: obtain explicit user approval before confirm_replace_data=true.
+    Retry the same request/key after disconnect; inspect unknown outcomes before any new key.
+    """
+    method, path, data = snapshot_request(action, idempotency_key, backup_id, confirm_replace_data)
+    return call(method, f'/api/apps/{segment(app)}' + path, data)
 
 
 if __name__ == "__main__":

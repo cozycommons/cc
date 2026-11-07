@@ -26,7 +26,11 @@ Bind web services to 0.0.0.0. Use `commons expose PORT --default` or
 `commons expose PORT --name NAME`; add --public only for intentional public access.
 `commons unexpose NAME` removes a route; use default for the main route.
 Publishing does not start your server. External agents run these same commands
-through the MCP exec_command tool, which waits and returns command output.
+through MCP exec_command. Long commands return a job ID: reconnect with job_id,
+after=next_cursor, or cancel=true. Use a unique idempotency_key on starts so retries
+return the original job. A running result is not completion. Use transfer_file for
+binary files/opaque archives up to 16 MiB; unpack archives using shell. Platform
+snapshots are owner-only through app_backups; restore replaces workspace data.
 
 For persistent processes, write /workspace/services/NAME.conf:
 

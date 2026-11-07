@@ -6,7 +6,7 @@ import urllib.parse
 import httpx
 
 
-def call(method, path, data=None):
+def call(method, path, data=None, *, content=None):
     token = os.environ.get("COMMONS_TOKEN")
     if not token:
         raise ValueError("Set COMMONS_TOKEN to a local user's token")
@@ -20,9 +20,12 @@ def call(method, path, data=None):
         raise ValueError("This prototype client only connects to loopback HTTP")
     with httpx.Client(timeout=180, trust_env=False) as client:
         result = client.request(
-            method, base + path, json=data, headers={"Authorization": "Bearer " + token}
+            method, base + path, json=data, content=content, headers={"Authorization": "Bearer " + token}
         )
         result.raise_for_status()
+        if method == 'GET' and '/transfer?' in path:
+            from .tool_helpers import transfer_response
+            return transfer_response(result)
         return result.json()
 
 

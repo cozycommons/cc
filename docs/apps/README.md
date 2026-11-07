@@ -161,7 +161,8 @@ Each app is stewarded by a person or community; people may belong to several.
 ### Agent access
 
 - **Chat agents** (ChatGPT, Claude) connect through one generic MCP connector
-  with a shell tool (`exec_command`) for commands and file operations,
+  with shell execution (`exec_command`), file transfer (`transfer_file`) and owner
+  snapshot access (`app_backups`),
   protected by OAuth and limited to the apps and operations the user is
   authorized to access. Apps get no app-specific MCP tools; agents work with
   files, code and SQL directly.
@@ -319,3 +320,5 @@ New apps keep source and local Git history in their own persistent environments.
 Existing CC projects stay where they are until separately scoped migration work.
 Smaller future projects can share a consolidated app and sandbox when they do not
 need separate permissions, dependencies, resource limits or process lifecycles.
+
+Agent transport usage and limits: [TRANSPORT.md](TRANSPORT.md).
