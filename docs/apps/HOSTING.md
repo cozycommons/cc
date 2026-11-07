@@ -213,8 +213,8 @@ the cloud execution surface exposed no local-browser or local-agent dispatch too
 
 Use raw Compose (`is_raw_compose_deployment_enabled=true`) with automatic
 deployment and predefined-network attachment disabled. The Compose attaches only
-Caddy to ingress. Custom build command: `docker compose --parallel 1 --profile
-build build`. This builds the profiled runtime image as well as manager/Caddy,
+Caddy to ingress. Custom build command: `docker compose --parallel 1 build manager proxy
+runtime-image`. Explicit targets build the runtime image as well as manager/Caddy,
 one build at a time. Start normally with the build profile disabled. The public
 interpolation variables must be available at build and runtime. Inspect the
 rendered definition before starting.
