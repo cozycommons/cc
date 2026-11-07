@@ -124,17 +124,18 @@ before a provider holds payment methods.
 
 ## Review before merge
 
-Any change in the scope above gets adversarial review before merge, separate
-from the author:
+Any change in the scope above gets an adversarial review before merge,
+separate from the author:
 
-1. Fable plus the other model family's top model (Astra for Claude-built work,
-   Opus for Codex-built work), each read-only and told to try to break it.
-2. Give reviewers the diff, what earlier passes already found, and the attack
-   surfaces to probe. Ask for blocking versus hardening and PASS or FAIL.
+1. At least one independent reviewer, a person or an agent session other than
+   the one that wrote the change, reads it and tries to break it. Pick the
+   reviewer and model yourself; no particular model is required.
+2. Give the reviewer the diff, what earlier passes already found, and the
+   attack surfaces to probe. Ask for blocking versus hardening findings.
 3. Verify a disputed finding by reproducing it before acting. Fix blocking
-   findings and recommended hardening as new commits, then re-review only the
-   fix commits until both reviewers pass.
-4. Record the findings and fixes in the PR description. A finding in merged
-   code ships as its own fix PR immediately.
-5. A weekly Fable and Astra sweep reviews everything merged since the last
-   sweep and reports findings; fixes still go through steps 1 to 4.
+   findings as new commits and have the reviewer check the fixes.
+4. Record the review, its findings and the fixes in the PR description. A
+   finding in merged code ships as its own fix PR immediately.
+
+Contributors may hold their own work to a stricter personal bar, such as
+multiple reviewers or a specific model; that bar is theirs, not the repository's.

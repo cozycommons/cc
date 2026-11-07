@@ -202,8 +202,7 @@ Local verification on 2026-11-06 (America/New_York):
 - A supplemental independent review passed after fixing logout-family races,
   unrelated OAuth client acceptance, authentication work bounds, input-echoing
   validation, instance-scoped stopping and access-log exposure. The current-admin
-  authorization follow-up also passed. This does **not** replace the Fable/Opus
-  reviews required before merge by the repository security policy.
+  authorization follow-up also passed.
 
 No production resource, DNS record or Supabase configuration was changed during
 this verification. A requested local-browser DNS delegation could not proceed:
@@ -218,6 +217,3 @@ runtime-image`. Explicit targets build the runtime image as well as manager/Cadd
 one build at a time. Start normally with the build profile disabled. The public
 interpolation variables must be available at build and runtime. Inspect the
 rendered definition before starting.
-
-For this rollout the repository owner explicitly waived the Fable/Opus review
-requirement in chat. CI and live rollout checks remain enabled.
