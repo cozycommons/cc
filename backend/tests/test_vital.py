@@ -28,3 +28,44 @@ def test_quietest_hour_ignores_closed_hours():
     medians = busy.hourly(friday + [(datetime(2025, 1, 3, 12), 999)], since=date(2026, 1, 1))
     assert medians[4, 12] == 40
     assert 'Fri: busiest 19:00 (300), quietest open hour 12:00 (40)' in busy.report(medians)
+
+
+def vital_client(monkeypatch, fetch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from vital import feed, routes
+    monkeypatch.setattr(feed, 'fetch', fetch)
+    monkeypatch.setattr(routes, '_live', None)
+    monkeypatch.setattr(routes, '_failed_at', 0.0)
+    app = FastAPI()
+    app.include_router(routes.router, prefix='/vital')
+    return TestClient(app), routes
+
+
+def test_now_caches_the_count_and_adds_the_typical_hour(monkeypatch):
+    calls = []
+    client, routes = vital_client(monkeypatch, lambda: calls.append(1) or 191)
+    friday_8pm = datetime.fromisoformat('2026-11-06T20:05:00-05:00').timestamp()
+    monkeypatch.setattr(routes.time, 'time', lambda: friday_8pm)
+    first, second = client.get('/vital/now').json(), client.get('/vital/now').json()
+    assert first == second == {'people': 191, 'at': '2026-11-06T20:05:00-05:00',
+                               'typical': routes.typical_week()['hours'][4][20]}
+    assert len(calls) == 1
+
+
+def test_now_fails_fast_after_an_outage(monkeypatch):
+    from vital import feed
+    calls = []
+
+    def down():
+        calls.append(1)
+        raise feed.FeedError('TimeoutError')
+    client, _ = vital_client(monkeypatch, down)
+    assert [client.get('/vital/now').status_code for _ in range(3)] == [503, 503, 503]
+    assert len(calls) == 1
+
+
+def test_committed_week_has_every_weekday_hour():
+    from vital import routes
+    week = routes.typical_week()
+    assert len(week['hours']) == 7 and all(len(day) == 24 for day in week['hours'])
