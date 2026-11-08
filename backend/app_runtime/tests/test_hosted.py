@@ -1,6 +1,7 @@
 import importlib
 import json
 import sys
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import pytest
@@ -32,7 +33,9 @@ def hosted(tmp_path, monkeypatch):
         monkeypatch.setenv(key, value)
     sys.modules.pop('app_runtime.api', None)
     api = importlib.import_module('app_runtime.api')
-    api.store.put({'name': 'trip', 'status': 'running', 'members': {OWNER: 'owner', VIEWER: 'viewer'},
+    # Keep the manager's backup worker from racing tests that edit this record.
+    api.store.put({'name': 'trip', 'status': 'running', 'next_backup_at': api.time.time() + api.INTERVAL,
+                   'members': {OWNER: 'owner', VIEWER: 'viewer'},
                    'routes': {'default': {'port': 3000, 'public': False, 'viewers': True}},
                    'app_token_hash': digest('app-key')})
     monkeypatch.setattr(api.hosted_auth, 'user', lambda token: {'owner-token': OWNER, 'viewer-token': VIEWER, 'other-token': OTHER}.get(token))
@@ -99,6 +102,7 @@ def test_browser_ticket_host_state_origin_and_replay(hosted):
     state = started.cookies[LOGIN]
     assert 'Secure' in started.headers['set-cookie'] and 'HttpOnly' in started.headers['set-cookie']
     assert 'Domain=' not in started.headers['set-cookie']
+    assert c.get(f'/_commons/authorize?target=evil.test&state={state}').status_code == 400
     session = api.hosted_auth.new_session('apps.example.test', 'owner-token')
     response = c.get(f'/_commons/authorize?target={host}&state={state}', headers={'Cookie': f'{SESSION}={session}'})
     assert response.status_code == 307
@@ -113,7 +117,77 @@ def test_browser_ticket_host_state_origin_and_replay(hosted):
     assert c.get('/', headers={'Cookie': f'{SESSION}={app_session}'}).status_code == 307
     assert c.get('/authorize/trip/default', headers={'Host': host, 'Cookie': f'{SESSION}={app_session}'}).status_code == 204
     assert c.get('/_commons/login', headers={'Host': 'evil.test', 'X-Forwarded-Host': host}).status_code == 400
-    assert c.get('/_commons/authorize?target=evil.test&state=' + state).status_code == 400
+
+
+def test_fresh_app_sign_in_returns_to_requested_app(hosted, monkeypatch):
+    c, api = hosted
+    host = 'trip.example.test'
+    app_login = c.get('/_commons/login', headers={'Host': host})
+    app_state = app_login.cookies[LOGIN]
+    central_authorize = c.get(urlsplit(app_login.headers['location']).path + '?' +
+                               urlsplit(app_login.headers['location']).query,
+                               headers={'Host': 'apps.example.test'})
+    central_login = c.get(central_authorize.headers['location'], headers={'Host': 'apps.example.test'})
+    oauth_state = central_login.cookies[LOGIN]
+
+    class AuthResponse:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {'access_token': 'owner-token'}
+
+    with monkeypatch.context() as patch:
+        patch.setattr('httpx.Client.post', lambda self, url, **kwargs: AuthResponse())
+        callback = c.get('/_commons/callback?code=code',
+                         headers={'Host': 'apps.example.test', 'Cookie': f'{LOGIN}={oauth_state}'})
+    assert callback.status_code == 303
+    assert urlsplit(callback.headers['location']).path == '/_commons/authorize'
+    central_session = callback.cookies[SESSION]
+
+    resumed = c.get(callback.headers['location'],
+                    headers={'Host': 'apps.example.test', 'Cookie': f'{SESSION}={central_session}'})
+    assert resumed.status_code == 307
+    assert resumed.headers['location'].startswith(f'https://{host}/_commons/finish#')
+    ticket = urlsplit(resumed.headers['location']).fragment
+    app_session = c.post('/_commons/session', json={'ticket': ticket}, headers={
+        'Host': host, 'Origin': f'https://{host}', 'Cookie': f'{LOGIN}={app_state}',
+    })
+    assert app_session.status_code == 204
+    assert c.get('/authorize/trip/default', headers={
+        'Host': host, 'Cookie': f'{SESSION}={app_session.cookies[SESSION]}',
+    }).status_code == 204
+    assert api.hosted_auth.pending.get(app_state) is None
+
+
+@pytest.mark.parametrize('app_state', ['unknown', 'a' * 129])
+def test_app_sign_in_rejects_invalid_continuation(hosted, app_state):
+    c, _ = hosted
+    response = c.get(f'/_commons/login?app_state={app_state}', headers={'Host': 'apps.example.test'})
+    assert response.status_code == 400
+
+
+def test_expired_app_continuation_falls_back_to_directory(hosted, monkeypatch):
+    c, api = hosted
+    app_login = c.get('/_commons/login', headers={'Host': 'trip.example.test'})
+    app_state = app_login.cookies[LOGIN]
+    central_authorize = c.get(urlsplit(app_login.headers['location']).path + '?' +
+                               urlsplit(app_login.headers['location']).query,
+                               headers={'Host': 'apps.example.test'})
+    central_login = c.get(central_authorize.headers['location'], headers={'Host': 'apps.example.test'})
+    api.hosted_auth.pending.get(app_state, consume=True)
+
+    class AuthResponse:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {'access_token': 'owner-token'}
+
+    monkeypatch.setattr('httpx.Client.post', lambda self, url, **kwargs: AuthResponse())
+    callback = c.get('/_commons/callback?code=code', headers={
+        'Host': 'apps.example.test', 'Cookie': f'{LOGIN}={central_login.cookies[LOGIN]}',
+    })
+    assert callback.status_code == 303
+    assert callback.headers['location'] == '/'
 
 
 def test_ticket_requires_browser_nonce(hosted):
@@ -140,6 +214,7 @@ def test_pkce_callback_requires_matching_browser_and_discards_refresh(hosted, mo
     monkeypatch.setattr('httpx.Client.post', post)
     result = c.get('/_commons/callback?code=code')
     assert result.status_code == 303
+    assert result.headers['location'] == '/'
     assert 'never-retain' not in str(api.hosted_auth.sessions.entries)
     assert c.get('/_commons/callback?code=code').status_code == 400
 
