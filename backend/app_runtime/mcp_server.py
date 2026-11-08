@@ -68,10 +68,10 @@ def exec_command(app: str, command: str | None = None, timeout: int = 120,
 @mcp.tool()
 def transfer_file(app: str, path: str, direction: str,
                   content_base64: str | None = None, sha256: str | None = None) -> dict:
-    """Transfer one binary file/opaque archive up to 16 MiB under /workspace.
+    """Transfer one binary file/opaque archive up to 2 MiB over MCP under /workspace.
 
     Upload requires base64 content and SHA-256; atomically replaces the file. Download returns
-    base64 and SHA-256. Use shell to pack/unpack directories. Contributor access required.
+    base64 and SHA-256. Use shell to pack/unpack or split directories; HTTP/CLI supports 16 MiB. Contributor access required.
     """
     method, query, content = transfer_request(path, direction, content_base64, sha256)
     return call(method, f'/api/apps/{segment(app)}/transfer' + query, content=content)

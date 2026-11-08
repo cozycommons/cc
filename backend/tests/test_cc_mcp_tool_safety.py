@@ -427,3 +427,14 @@ async def test_apps_reconnect_and_cancel_recheck_resource_and_scope(server):
     server.holder.token.scopes[:] = [READ_SCOPE]
     with pytest.raises(ToolError, match=EDIT_SCOPE):
         await server.call('exec_command', {'app': 'foreign', 'job_id': 'a'*32, 'cancel': True})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action',['create','restore'])
+async def test_apps_snapshot_mutations_require_their_own_legacy_read_and_edit_grants(server,action):
+    args={'app':'foreign','action':action,'idempotency_key':'once'}
+    if action=='restore': args.update(backup_id='a'*32,confirm_replace_data=True)
+    for grants in [{'apps':['read'],'trips':['edit']},{'apps':['edit'],'trips':['read']}]:
+        server.holder.token.claims={'_legacy_grants':grants}
+        with pytest.raises(ToolError,match='Reconnect your agent once'):
+            await server.call('app_backups',args)

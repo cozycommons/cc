@@ -84,7 +84,8 @@ previews, databases and release conventions remain shell operations.
   report dropped output. Cancellation terminates the command process group.
   Manager restart marks jobs interrupted; retry never silently reruns them.
 - `transfer_file` uploads/downloads binary files, including opaque archives,
-  under /workspace. Transfers are bounded to 16 MiB with a SHA-256 checksum;
+  under /workspace. MCP transfers are bounded to 2 MiB to fit the existing hosted
+  transport body cap; binary HTTP/CLI transfers support 16 MiB with a SHA-256 checksum;
   uploads atomically replace one file. Raw authenticated HTTP endpoints support
   binary clients without base64. MCP uses base64 because tool arguments are JSON.
   No archive extraction, public transfer URLs or platform credentials are added.

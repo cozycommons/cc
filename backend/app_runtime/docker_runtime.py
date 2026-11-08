@@ -6,6 +6,11 @@ import io
 import tarfile
 import uuid
 import codecs
+import socket
+import threading
+import time
+
+from docker.utils.socket import frames_iter
 
 import docker
 
@@ -93,23 +98,56 @@ class Runtime:
                 "Proxy configuration rejected: " + result.output.decode()[-2000:]
             )
 
+    def _exec(self, name, command, seconds, on_output):
+        execution = self.client.api.exec_create(self.container(name).id, command, workdir="/workspace")
+        connection = self.client.api.exec_start(execution["Id"], socket=True)
+        expired = threading.Event()
+
+        def close_stream():
+            expired.set()
+            try:
+                getattr(connection, "_sock", connection).shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            finally:
+                connection.close()
+
+        watchdog = threading.Timer(seconds, close_stream)
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            for _, chunk in frames_iter(connection, tty=False):
+                on_output(chunk)
+        except (OSError, ValueError):
+            if not expired.is_set():
+                raise
+        finally:
+            watchdog.cancel()
+            connection.close()
+        result = self.client.api.exec_inspect(execution["Id"])
+        if result["Running"]:
+            raise RuntimeError("Exec stream ended before process completion; inspect app state")
+        return result["ExitCode"]
+
     def run(self, name, command, seconds, on_output, job_id=None):
-        execution = self.client.api.exec_create(
-            self.container(name).id,
-            ["python", "-c", JOB_SCRIPT, job_id or uuid.uuid4().hex, str(seconds), command],
-            workdir="/workspace",
-        )
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
-        for chunk in self.client.api.exec_start(execution["Id"], stream=True):
-            on_output(decoder.decode(chunk))
+        code = self._exec(name,
+            ["python", "-c", JOB_SCRIPT, job_id or uuid.uuid4().hex, str(seconds), command],
+            seconds + 7, lambda chunk: on_output(decoder.decode(chunk)))
         on_output(decoder.decode(b"", final=True))
-        return self.client.api.exec_inspect(execution["Id"])["ExitCode"]
+        return code
 
     def cancel(self, name, job_id):
         # The marker also handles cancellation before the exec begins.
-        result = self.container(name).exec_run([
-            "python", "-c", "import pathlib,sys; pathlib.Path('/tmp/cc-job-'+sys.argv[1]+'.cancel').touch()", job_id])
-        if result.exit_code:
+        size = 0
+        def discard(chunk):
+            nonlocal size
+            size += len(chunk)
+            if size > 1024:
+                raise ValueError("Cancellation helper exceeded output limit")
+        code = self._exec(name, [
+            "python", "-c", "import pathlib,sys; pathlib.Path('/tmp/cc-job-'+sys.argv[1]+'.cancel').touch()", job_id], 5, discard)
+        if code:
             raise RuntimeError("Could not signal command cancellation")
 
     def inspect(self, name):
@@ -127,24 +165,26 @@ class Runtime:
             "limits": {"cpu_cores": (host.get("NanoCpus") or 0) / 1e9 or None,
                        "memory_bytes": host.get("Memory") or None,
                        "pids": host.get("PidsLimit") or None},
-            "usage": None, "diagnostic": None,
+            "usage": None, "diagnostic": None, "sampled_at": time.time(),
         }
         if state.get("Running"):
             try:
-                stats = container.stats(stream=False)
+                stats = container.stats(stream=False, one_shot=True)
                 cpu, previous = stats.get("cpu_stats", {}), stats.get("precpu_stats", {})
                 delta = cpu.get("cpu_usage", {}).get("total_usage", 0) - previous.get("cpu_usage", {}).get("total_usage", 0)
                 system = cpu.get("system_cpu_usage", 0) - previous.get("system_cpu_usage", 0)
                 result["usage"] = {"memory_bytes": stats.get("memory_stats", {}).get("usage"),
                     "pids": stats.get("pids_stats", {}).get("current"),
-                    "cpu_percent": delta / system * cpu.get("online_cpus", 1) * 100 if system > 0 and delta >= 0 else None}
+                    "cpu_percent": delta / system * cpu.get("online_cpus", 1) * 100 if previous.get("system_cpu_usage") and system > 0 and delta >= 0 else None}
+                if result["usage"]["cpu_percent"] is None:
+                    result["diagnostic"] = "CPU sample unavailable; single-shot stats had no prior sample"
             except docker.errors.DockerException:
                 result["diagnostic"] = "Usage sample unavailable"
         else:
             result["diagnostic"] = "Usage requires a running container"
         return result
 
-    def transfer(self, name, path, content=None):
+    def transfer(self, name, path, content=None, max_bytes=TRANSFER_LIMIT):
         if not path.startswith("/workspace/") or "\x00" in path:
             raise ValueError("Transfer requires an absolute /workspace/ file path")
         container = self.container(name)
@@ -160,24 +200,39 @@ class Runtime:
             if not container.put_archive("/tmp", archive.getvalue()):
                 raise RuntimeError("Upload staging failed")
         payload = json.dumps({"path": path, "temporary": temporary if content is not None else None,
-                              "limit": TRANSFER_LIMIT})
-        result = container.exec_run(["python", "-c", FILE_SCRIPT, payload])
-        if result.exit_code:
-            raise ValueError("Transfer failed: path must be a regular file inside /workspace, within 16 MiB")
-        metadata = json.loads(result.output)
+                              "limit": min(max_bytes, TRANSFER_LIMIT)})
+        metadata_bytes = bytearray()
+        def collect(chunk):
+            if len(metadata_bytes) + len(chunk) > 8192:
+                raise ValueError("Transfer metadata exceeded its output limit")
+            metadata_bytes.extend(chunk)
+        try:
+            code = self._exec(name, ["python", "-c", FILE_SCRIPT, payload], 30, collect)
+            if code:
+                raise ValueError("Transfer failed: path must be a regular file inside /workspace and within the requested byte limit")
+            metadata = json.loads(metadata_bytes)
+        finally:
+            if content is not None:
+                try:
+                    container.exec_run(["/bin/rm", "-f", "/tmp/" + temporary], detach=True)
+                except docker.errors.DockerException:
+                    pass
         if content is not None:
-            return metadata
-        chunks, _ = container.get_archive(metadata["path"])
+            return {"path": path, "size_bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}
+        resolved = metadata.get("path") if isinstance(metadata, dict) else None
+        if not isinstance(resolved, str) or not resolved.startswith('/workspace/'):
+            raise ValueError("Invalid transfer metadata")
+        chunks, _ = container.get_archive(resolved)
         data = bytearray()
         for chunk in chunks:
             data.extend(chunk)
-            if len(data) > TRANSFER_LIMIT + 1024 * 1024:
+            if len(data) > max_bytes + 1024 * 1024:
                 raise ValueError("Download archive exceeds transfer limit")
         with tarfile.open(fileobj=io.BytesIO(data)) as tar:
             members = tar.getmembers()
-            if len(members) != 1 or not members[0].isfile() or members[0].size > TRANSFER_LIMIT:
+            if len(members) != 1 or not members[0].isfile() or members[0].size > max_bytes:
                 raise ValueError("Download requires one regular file within 16 MiB")
-            content = tar.extractfile(members[0]).read(TRANSFER_LIMIT + 1)
+            content = tar.extractfile(members[0]).read(max_bytes + 1)
         return {"content": content, "size_bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()}
 
     def file(self, name, path, content=None):

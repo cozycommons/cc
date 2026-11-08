@@ -12,7 +12,7 @@ from app_runtime.tool_helpers import transfer_request, snapshot_request
 
 
 def test_details_are_opt_in_and_do_not_leak_runtime_config(client):
-    c, _, fake = client
+    c, api, fake = client
     fake.inspect = MagicMock(return_value={'state': 'running', 'usage': {'memory_bytes': 23}})
     assert 'runtime' not in c.get('/api/apps', headers=headers('owner')).json()[0]
     fake.inspect.assert_not_called()
@@ -21,6 +21,7 @@ def test_details_are_opt_in_and_do_not_leak_runtime_config(client):
     fake.inspect.reset_mock()
     assert c.get('/api/apps?details=true', headers=headers('outsider')).json() == []
     fake.inspect.assert_not_called()
+    api.inspection_cache.clear()
     fake.inspect.side_effect = RuntimeError('secret environment')
     result = c.get('/api/apps?details=true', headers=headers('owner'))
     assert 'secret' not in result.text
@@ -187,3 +188,94 @@ def test_backup_known_rejection_replays_without_unknown_outcome(client):
     assert first.status_code == second.status_code == 422
     assert first.json() == second.json()
     assert 'legacy-never-return' not in second.text
+
+
+def test_mcp_binary_limit_fits_hosted_transport_body_protection():
+    from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE
+    from app_runtime.tool_helpers import MCP_TRANSFER_LIMIT
+    data = b'a' * MCP_TRANSFER_LIMIT
+    checksum = hashlib.sha256(data).hexdigest()
+    encoded = base64.b64encode(data).decode()
+    envelope = {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {
+        'name': 'transfer_file', 'arguments': {'app': 'trip', 'path': '/workspace/source.tgz',
+            'direction': 'upload', 'content_base64': encoded, 'sha256': checksum}}}
+    assert len(json.dumps(envelope).encode()) < DEFAULT_MAX_REQUEST_BODY_SIZE
+    assert transfer_request('/workspace/a', 'upload', encoded, checksum)[2] == data
+    oversized = base64.b64encode(data+b'x').decode()
+    with pytest.raises(ValueError, match='2 MiB'):
+        transfer_request('/workspace/a', 'upload', oversized, hashlib.sha256(data+b'x').hexdigest())
+    method, query, _ = transfer_request('/workspace/a','download',None,None)
+    assert method == 'GET' and 'max_bytes=2097152' in query
+
+
+def test_details_samples_are_cached_and_concurrency_bounded(client):
+    c, api, fake = client
+    fake.inspect = MagicMock(return_value={'state': 'running'})
+    for _ in range(3):
+        assert c.get('/api/apps?details=true',headers=headers('viewer')).json()[0]['runtime']['state']=='running'
+    assert fake.inspect.call_count == 1
+    api.inspection_cache.clear()
+    api.inspection_slots.acquire()
+    api.inspection_slots.acquire()
+    try:
+        result=c.get('/api/apps?details=true',headers=headers('viewer')).json()[0]
+        assert result['runtime']['usage'] is None and 'busy' in result['runtime']['diagnostic']
+    finally:
+        api.inspection_slots.release()
+        api.inspection_slots.release()
+
+
+def test_transfer_busy_app_does_not_hold_global_slots(client):
+    c, api, fake = client
+    fake.transfer = MagicMock()
+    with api.store.app_lock('trip'):
+        response=c.get('/api/apps/trip/transfer?path=/workspace/a',headers=headers('friend'))
+        assert response.status_code==409
+    assert api.transfer_slots.acquire(False)
+    assert api.transfer_slots.acquire(False)
+    api.transfer_slots.release()
+    api.transfer_slots.release()
+    fake.transfer.assert_not_called()
+
+
+def test_transfer_per_caller_limit_and_upload_deadline(client,monkeypatch):
+    import asyncio
+    c,api,fake=client
+    fake.transfer=MagicMock()
+    with api.transfer_slot('friend'):
+        assert c.get('/api/apps/trip/transfer?path=/workspace/a',headers=headers('friend')).status_code==429
+    async def slow_stream(self):
+        await asyncio.sleep(.1)
+        yield b''
+    monkeypatch.setattr(api.Request,'stream',slow_stream)
+    monkeypatch.setattr(api,'UPLOAD_BODY_TIMEOUT',.01)
+    response=c.put('/api/apps/trip/transfer?path=/workspace/a&sha256='+hashlib.sha256(b'').hexdigest(),
+                   content=b'',headers=headers('friend'))
+    assert response.status_code==408
+    fake.transfer.assert_not_called()
+    assert api.transfer_user_slots['friend'].acquire(False)
+    api.transfer_user_slots['friend'].release()
+
+
+def test_invalid_snapshot_manifest_is_a_repeatable_rejection(client):
+    c,api,fake=client
+    backup_id='d'*32
+    folder=api.state/'backups'/backup_id
+    folder.mkdir(parents=True)
+    (folder/'manifest.json').write_text('not json')
+    fake.archive=MagicMock()
+    url=f'/api/apps/trip/backups/{backup_id}/restore'
+    args={'json':{'idempotency_key':'corrupt','confirm_replace_data':True},'headers':headers('owner')}
+    assert c.post(url,**args).status_code==422
+    assert c.post(url,**args).status_code==422
+    fake.archive.assert_not_called()
+    assert api.store.get('trip')['status']=='running'
+
+
+def test_only_known_manager_errors_cross_the_oauth_bridge():
+    import httpx
+    from app_runtime.tool_helpers import manager_error
+    response=httpx.Response(409,json={'detail':'Operation outcome is unknown; inspect snapshots and app before a new request'})
+    assert 'unknown' in manager_error(response)
+    assert manager_error(httpx.Response(422,json={'detail':'unexpected upstream secret'})) is None
+    assert manager_error(httpx.Response(422,json={'detail':{'secret':'unexpected'}})) is None

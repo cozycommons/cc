@@ -53,18 +53,22 @@ shared FastAPI API and does not mount Docker access into that existing service.
   The manager persists a request fingerprint before execution; caller keys deduplicate
   starts. MCP returns within a bounded wait, then reconnects by job ID and UTF-8 byte
   cursor. The last 64 KiB is retained with explicit output-gap reporting. Cancellation
-  signals only the job's container process group; timeout kills descendants too.
+  signals only the job's container process group; timeout terminates descendants
+  that remain in that group. A socket watchdog closes streams after timeout plus
+  seven seconds even when session-escaped children keep inherited stdout open.
   Manager restart reports interrupted jobs and never silently replays a start.
 - Binary transfers use bounded authenticated raw HTTP (16 MiB), SHA-256 verification,
   Docker archive transport and an in-container atomic replace. MCP translates JSON
-  base64 to raw HTTP; CLI upload/download use local files. Archives remain opaque:
+  base64 to raw HTTP and caps files at 2 MiB to fit the hosted 4 MiB request
+  body protection; CLI upload/download use local files at the 16 MiB binary limit. Archives remain opaque:
   agents pack/unpack with shell. No archive extraction or bearer links are introduced.
 - Owner snapshot operations are available through one action-based MCP tool. Persisted
   idempotency records live in the manager registry, outside restored workspaces. Repeated
   requests return the prior result; unknown outcomes fail closed instead of replaying.
 - Optional list_apps details select Docker state, restart/OOM/exit information and
   CPU/memory/PID limits and samples. Raw inspect output, environment, host paths and
-  daemon error bodies are never returned. Unavailable samples carry diagnostics.
+  daemon error bodies are never returned. One-shot samples are cached five seconds
+  with two concurrent inspections; unavailable CPU counters remain null.
 - A lifespan-managed thread checks persisted per-app backup deadlines every 30
   seconds. Successful snapshots set the next deadline 24 hours later; failures
   retry in five minutes. Only the newest three completed manifests per app are

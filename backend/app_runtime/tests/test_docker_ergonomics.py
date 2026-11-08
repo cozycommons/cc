@@ -37,10 +37,12 @@ def sandbox():
 
 
 def test_real_binary_transfer_cancel_timeout_and_inspection(sandbox):
-    data = bytes(range(256)) * 8192  # 2 MiB, larger than shell argument and old file limits.
+    data = bytes(range(256)) * 8193  # Above 2 MiB, larger than shell argument and old file limits.
     metadata = sandbox.transfer('trip', '/workspace/nested/archive.tgz', data)
     assert metadata['sha256'] == hashlib.sha256(data).hexdigest()
     assert sandbox.transfer('trip', '/workspace/nested/archive.tgz')['content'] == data
+    with pytest.raises(ValueError):
+        sandbox.transfer('trip', '/workspace/nested/archive.tgz', max_bytes=2*1024*1024)
     sandbox.container('trip').exec_run(['ln','-s','/etc/hosts','/workspace/escape'])
     with pytest.raises(ValueError): sandbox.transfer('trip','/workspace/escape')
     with pytest.raises(ValueError): sandbox.transfer('trip','/workspace/../etc/passwd')
@@ -149,3 +151,53 @@ def test_stdio_protocol_reconnect_transfer_and_inventory(client, sandbox):
         server.should_exit = True
         thread.join(timeout=5)
         listener.close()
+
+
+def test_escaped_child_cannot_hold_shell_job_stream_forever(sandbox):
+    started=time.monotonic()
+    output=[]
+    code=sandbox.run('trip', "setsid bash -c 'sleep 30' & sleep .2; printf wrapper-finished",1,output.append)
+    assert code==0 and ''.join(output)=='wrapper-finished'
+    assert time.monotonic()-started<12
+
+
+def test_transfer_and_cancel_bound_untrusted_helper_output(sandbox):
+    wrapper = """#!/bin/sh
+exec /usr/local/bin/python3 -c 'print("x"*10000000)'
+"""
+    script = f"import pathlib; p=pathlib.Path('/tmp/fake-python'); p.write_text({wrapper!r}); p.chmod(0o755); p.replace('/usr/local/bin/python')"
+    result=sandbox.container('trip').exec_run(['/usr/local/bin/python3','-c',script])
+    assert result.exit_code==0
+    with pytest.raises(ValueError,match='metadata exceeded'):
+        sandbox.transfer('trip','/workspace/target',b'bytes')
+    with pytest.raises(ValueError,match='helper exceeded'):
+        sandbox.cancel('trip',uuid.uuid4().hex)
+
+
+def test_upload_metadata_is_computed_by_manager(sandbox,monkeypatch):
+    def fake_exec(name,command,seconds,output):
+        output(b'{"path":"/state","size_bytes":999,"sha256":"wrong","unexpected":"never return"}')
+        return 0
+    monkeypatch.setattr(sandbox,'_exec',fake_exec)
+    result=sandbox.transfer('trip','/workspace/target',b'bytes')
+    assert result=={'path':'/workspace/target','size_bytes':5,'sha256':hashlib.sha256(b'bytes').hexdigest()}
+
+
+def test_archive_symlink_swap_stays_in_container_namespace(sandbox,monkeypatch):
+    name='cc-archive-swap-'+uuid.uuid4().hex
+    container=sandbox.container('trip')
+    container.exec_run(['mkdir','-p','/workspace/swap'])
+    container.exec_run(['/usr/local/bin/python3','-c',
+        "import pathlib,sys; pathlib.Path('/workspace/swap/'+sys.argv[1]).write_bytes(b'workspace'); pathlib.Path('/tmp/'+sys.argv[1]).write_bytes(b'container namespace')",name])
+    original_get=container.get_archive
+    def swapped(path):
+        container.exec_run(['mv','/workspace/swap','/workspace/original'])
+        container.exec_run(['ln','-s','/tmp','/workspace/swap'])
+        return original_get(path)
+    monkeypatch.setattr(container,'get_archive',swapped)
+    monkeypatch.setattr(sandbox,'container',lambda _:container)
+    try:
+        result=sandbox.transfer('trip','/workspace/swap/'+name)
+        assert result['content']==b'container namespace'
+    except ValueError:
+        pass  # Engines may refuse the raced symlink instead.

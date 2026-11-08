@@ -10,7 +10,9 @@ Both the local stdio adapter and the hosted Cozy Commons connector expose them.
 state, last exit code, OOM flag, timestamps, restart count, CPU/memory/PID limits
 and sampled usage. CPU percent is relative to one core (100% = one full core).
 Missing/unlimited limits and unavailable usage fields are null. Diagnostics
-explain missing samples. Disk usage, process logs and health checks remain shell
+explain missing samples. Viewers may inspect these same platform metrics. Samples
+are cached for up to five seconds; at most two inspections run concurrently.
+CPU usage is null when a one-shot sample has no previous counters. Disk usage, process logs and health checks remain shell
 operations; this view never executes app code or returns Docker environment or
 host mounts. Published routes remain in the normal app inventory.
 
@@ -43,9 +45,17 @@ be safely resubmitted after an unknown outcome. Commands are never automatically
 replayed. Jobs remain in the manager registry; no automatic expiration is imposed.
 
 `exec_command(app, job_id=..., cancel=true)` requests termination of the job's
-container process group, including children. Cancellation can reconnect to an
+container process group, including children that remain in that group. Cancellation
+is best-effort: a wedged container or exhausted PID limit can prevent the helper
+from starting; an owner may need to restart the app. Cancellation can reconnect to an
 interrupted job too. Timeout terminates the group and reports exit code 124;
-observed cancellation reports cancelled/130. Use supervisor for persistent services.
+observed cancellation reports cancelled/130. Normal completion also terminates
+remaining members of the command's group, including ordinary background jobs.
+Use supervisor for persistent services. New-session/double-fork processes escape
+that group; redirect their stdio or use supervisor. A manager watchdog closes an
+exec stream after the command timeout plus seven seconds, so escaped children
+cannot leave a job permanently running. If the root exec still runs, the result
+is failed/unknown; closing the stream does not claim to have killed escaped children.
 Manager restart marks monitored jobs interrupted: output collection does not
 resume, and the container command may still run until its timeout or cancellation.
 An interrupted status is not proof that the command stopped or had no effect.
@@ -60,14 +70,26 @@ writes a temporary file beside the destination and atomically replaces it with
 mode 0600. Set executable permissions through shell when needed. Retrying an
 identical upload replaces the file with the same bytes; it does not append.
 
-Each file is limited to **16 MiB**. Pack directories into an archive and transfer
+MCP files are limited to **2 MiB**, leaving base64 and JSON overhead below the
+existing hosted MCP 4 MiB request-body protection. Binary HTTP/CLI files support
+**16 MiB**. Pack directories into an archive and transfer
 that file; split larger files using shell. Archives remain opaque and are never
 extracted by the platform. Reads and writes require contributor membership and
-edit scope. No public or credential-bearing transfer URLs are created.
+edit scope. No public or credential-bearing transfer URLs are created. One transfer per caller
+and two globally may run concurrently. Upload bodies have a 30-second deadline;
+requests fail promptly when the app is locked for maintenance. Helper metadata
+has an 8 KiB output cap and a 30-second deadline. Upload acknowledgements are
+computed by the manager rather than returned from container-controlled output.
+
+Archive operations require a security-supported, patched Docker Engine. File
+paths are resolved inside the container; contributors already control the entire
+container as root. Workspace path checks are a file-tool convenience, not a
+security boundary against hostile container-root contributors.
 
 For binary clients, use authenticated `GET /api/apps/APP/transfer?path=...` and
 `PUT /api/apps/APP/transfer?path=...&sha256=...` with a raw binary request body.
-Downloads include `X-Content-SHA256`. This avoids base64 expansion in JSON MCP
+Downloads include `X-Content-SHA256`; optional `max_bytes` rejects files above a
+caller-selected limit before returning content. This avoids base64 expansion in JSON MCP
 transports. The local CLI handles local files directly:
 
 ```bash
@@ -95,7 +117,10 @@ retrieve the recorded outcome without restoring again. Outcomes live in the
 manager registry, outside restored workspaces. A manager interruption or execution
 failure can leave an unknown outcome: the same key returns a conflict instead of
 repeating the operation. Inspect inventory and actual app state before deciding
-whether to issue a new key. These records have no automatic expiration.
+whether to issue a new key. Known precondition rejections are also recorded: after resolving the cause, use
+a new key. Corrupt manifests reject before any workspace mutation. Only exact,
+platform-authored diagnostics cross the hosted OAuth bridge; arbitrary upstream
+error bodies are suppressed. These records have no automatic expiration.
 
 Local CLI examples:
 

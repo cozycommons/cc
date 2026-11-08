@@ -10,7 +10,7 @@ import httpx
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 from cc_mcp.server import ToolProvider, check_access
-from .tool_helpers import transfer_request, transfer_response, snapshot_request, validate_exec
+from .tool_helpers import MCP_TRANSFER_LIMIT, transfer_request, transfer_response, snapshot_request, validate_exec, manager_error
 
 
 def manager_url():
@@ -30,12 +30,12 @@ async def request(token, method, path, data=None, *, content=None):
         if result.status_code >= 300:
             # Never echo arbitrary upstream error bodies, URLs, or headers.
             messages = {401: 'Sign-in expired; reconnect your agent.', 403: 'Insufficient app permissions.',
-                        404: 'App or job not found.', 409: 'Conflict: key reused, app unavailable, or operation outcome unknown; inspect before using a new key.',
-                        413: 'Transfer exceeds 16 MiB; split using shell.',
-                        422: 'Invalid app name, member UUID, role, or command.', 429: 'Command, transfer or sign-in concurrency limit reached; wait before retrying.'}
-            raise ToolError(messages.get(result.status_code, 'Apps manager is unavailable; inspect effects before retrying a write.'))
+                        404: 'App or job not found; snapshot may also be unavailable.', 409: 'Conflict: key reused, app unavailable, or operation outcome unknown; inspect before using a new key.',
+                        413: 'Transfer exceeds the size limit (2 MiB MCP; 16 MiB binary HTTP/CLI); split using shell.',
+                        422: 'Invalid app name, member UUID, role, command, output cursor, file transfer, or snapshot parameters.', 429: 'Command, transfer or sign-in concurrency limit reached; wait before retrying.'}
+            raise ToolError(manager_error(result) or messages.get(result.status_code, 'Apps manager is unavailable; inspect effects before retrying a write.'))
         if method == 'GET' and '/transfer?' in path:
-            return transfer_response(result)
+            return transfer_response(result, max_bytes=MCP_TRANSFER_LIMIT)
         return result.json()
     except (httpx.HTTPError, ValueError):
         raise ToolError('Apps manager is unavailable; inspect effects before retrying a write.') from None
@@ -103,16 +103,16 @@ def register_tools(mcp, context):
             result = await request(token, 'GET', path + '?after=' + str(after))
             if result['status'] != 'running' or time.monotonic() >= deadline:
                 return result
-            await asyncio.sleep(.2)
+            await asyncio.sleep(.5)
 
     @mcp.tool(annotations={'readOnlyHint': False, 'destructiveHint': True, 'openWorldHint': False})
     async def transfer_file(app: str, path: str, direction: Literal['upload', 'download'],
                             content_base64: str | None = None, sha256: str | None = None) -> dict:
-        """Transfer a binary file or opaque archive under /workspace, at most 16 MiB.
+        """Transfer a binary file or opaque archive under /workspace, at most 2 MiB over MCP.
 
         Upload requires base64 content and SHA-256; atomically replaces the file. Repeating
         the same upload has the same effect. Download returns base64 and checksum. Use shell
-        to pack/unpack directories. Requires contributor and edit scope for both directions.
+        to pack/unpack or split directories; binary HTTP/CLI supports 16 MiB. Requires contributor and edit scope for both directions.
         """
         token = await access('edit')
         method, query, content = transfer_request(path, direction, content_base64, sha256)

@@ -41,6 +41,10 @@ runtime = Runtime()
 backups = Backups(store, runtime, state)
 proxy_lock = threading.RLock()
 transfer_slots = threading.BoundedSemaphore(2)
+transfer_user_slots = {}
+inspection_slots = threading.BoundedSemaphore(2)
+inspection_cache = {}
+UPLOAD_BODY_TIMEOUT = 30
 
 
 @asynccontextmanager
@@ -228,6 +232,24 @@ def index(request: Request):
     )
 
 
+def runtime_details(name):
+    with store.lock:
+        cached = inspection_cache.get(name)
+        if cached and time.monotonic() - cached[0] < 5:
+            return cached[1]
+    if not inspection_slots.acquire(blocking=False):
+        return {"usage": None, "diagnostic": "Runtime inspection busy; retry shortly"}
+    try:
+        details = runtime.inspect(name)
+        with store.lock:
+            inspection_cache[name] = (time.monotonic(), details)
+        return details
+    except Exception:
+        return {"usage": None, "diagnostic": "Runtime inspection unavailable"}
+    finally:
+        inspection_slots.release()
+
+
 @app.get("/api/apps")
 def list_apps(details: bool = False, who=Depends(identity)):
     result = []
@@ -235,10 +257,7 @@ def list_apps(details: bool = False, who=Depends(identity)):
         if allowed(record, who):
             view = public_record(record, who)
             if details:
-                try:
-                    view["runtime"] = runtime.inspect(record["name"])
-                except Exception:
-                    view["runtime"] = {"usage": None, "diagnostic": "Runtime inspection unavailable"}
+                view["runtime"] = runtime_details(record["name"])
             result.append(view)
     return result
 
@@ -459,21 +478,40 @@ def cancel_job(name: str, job_id: str, who=Depends(identity)):
 
 
 @contextmanager
-def transfer_slot():
+def transfer_slot(who):
+    with store.lock:
+        user_slot = transfer_user_slots.setdefault(who, threading.BoundedSemaphore(1))
+    if not user_slot.acquire(blocking=False):
+        raise HTTPException(429, "A file transfer is already active for this caller; retry shortly")
     if not transfer_slots.acquire(blocking=False):
+        user_slot.release()
         raise HTTPException(429, "Two file transfers are already active; retry shortly")
     try:
         yield
     finally:
         transfer_slots.release()
+        user_slot.release()
+
+
+@contextmanager
+def transfer_app(name, who):
+    with transfer_slot(who):
+        lock = store.app_lock(name)
+        if not lock.acquire(blocking=False):
+            raise HTTPException(409, "App is busy; retry this transfer after maintenance")
+        try:
+            yield
+        finally:
+            lock.release()
 
 
 @app.get("/api/apps/{name}/transfer")
-def download_file(name: str, path: str = Query(max_length=2000), who=Depends(identity)):
+def download_file(name: str, path: str = Query(max_length=2000),
+                  max_bytes: int = Query(default=TRANSFER_LIMIT, ge=1, le=TRANSFER_LIMIT), who=Depends(identity)):
     authorized(name, who, "contributor")
-    with transfer_slot(), store.app_lock(name):
+    with transfer_app(name, who):
         ready(authorized(name, who, "contributor"))
-        result = runtime.transfer(name, path)
+        result = runtime.transfer(name, path, max_bytes=max_bytes)
     return Response(result["content"], media_type="application/octet-stream",
                     headers={"X-Content-SHA256": result["sha256"], "Cache-Control": "no-store"})
 
@@ -483,19 +521,33 @@ async def upload_file(name: str, request: Request, path: str = Query(max_length=
                       sha256: str = Query(pattern="^[a-f0-9]{64}$"), who=Depends(identity)):
     # Bound bytes before buffering a potentially untrusted request body.
     authorized(name, who, "contributor")
-    with transfer_slot():
+    with transfer_slot(who):
         content = bytearray()
-        async for chunk in request.stream():
-            if len(content) + len(chunk) > TRANSFER_LIMIT:
-                raise HTTPException(413, "Transfer exceeds 16 MiB; split using shell")
-            content.extend(chunk)
+        try:
+            async with asyncio.timeout(UPLOAD_BODY_TIMEOUT):
+                async for chunk in request.stream():
+                    if len(content) + len(chunk) > TRANSFER_LIMIT:
+                        raise HTTPException(413, "Transfer exceeds 16 MiB; split using shell")
+                    content.extend(chunk)
+        except TimeoutError:
+            raise HTTPException(408, "Upload body timed out; file was not changed") from None
         if hashlib.sha256(content).hexdigest() != sha256:
             raise HTTPException(422, "SHA-256 mismatch; file was not changed")
         def write():
-            with store.app_lock(name):
+            lock = store.app_lock(name)
+            if not lock.acquire(blocking=False):
+                raise HTTPException(409, "App is busy; retry this transfer after maintenance")
+            try:
                 ready(authorized(name, who, "contributor"))
                 return runtime.transfer(name, path, bytes(content))
-        return await asyncio.to_thread(write)
+            finally:
+                lock.release()
+        task = asyncio.create_task(asyncio.to_thread(write))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
 
 
 class FileWrite(BaseModel):
@@ -626,7 +678,12 @@ def restore_workspace(name, backup_id, record, who):
     ) if (state / "backups").is_dir() else None
     if folder is None or not (folder / "manifest.json").is_file() or (folder / "manifest.json").is_symlink():
         raise HTTPException(404, "Backup not found")
-    manifest = json.loads((folder / "manifest.json").read_text())
+    try:
+        manifest = json.loads((folder / "manifest.json").read_text())
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("app"), str):
+            raise ValueError("Invalid snapshot manifest")
+    except (OSError, ValueError):
+        raise HTTPException(422, "Snapshot manifest is invalid; no workspace data was changed") from None
     if manifest["app"] != name:
         raise HTTPException(404, "Backup not found")
     if "db_password" in record or manifest.get("format") != "workspace-v1":

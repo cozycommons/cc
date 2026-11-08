@@ -28,8 +28,10 @@ Bind web services to 0.0.0.0. Use `commons expose PORT --default` or
 Publishing does not start your server. External agents run these same commands
 through MCP exec_command. Long commands return a job ID: reconnect with job_id,
 after=next_cursor, or cancel=true. Use a unique idempotency_key on starts so retries
-return the original job. A running result is not completion. Use transfer_file for
-binary files/opaque archives up to 16 MiB; unpack archives using shell. Platform
+return the original job. A running result is not completion. Completion terminates remaining command-group
+processes; use supervisor for services. New sessions can escape that group, so
+redirect their stdio. Cancellation is best-effort if the container is wedged. Use transfer_file for
+binary files/opaque archives up to 2 MiB over MCP (16 MiB via binary HTTP/CLI); unpack archives using shell. Platform
 snapshots are owner-only through app_backups; restore replaces workspace data.
 
 For persistent processes, write /workspace/services/NAME.conf:
