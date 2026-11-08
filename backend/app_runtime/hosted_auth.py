@@ -23,7 +23,7 @@ CALLER_REJECTED = 'Apps caller not recognized'
 BROWSER_HEADERS = {
     'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
-    'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'none'; img-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 }
 
 
