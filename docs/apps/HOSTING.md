@@ -43,9 +43,12 @@ fail startup. The local Compose and stdio client retain their loopback guards.
   it is published with `--viewers`, because an app server can return source or
   `.git` contents. App hosts share one site, so `SameSite=Lax` does not stop one
   app's page from sending a member's cookie to another app. Route authorization
-  refuses requests whose `Origin` is a different app, and, without `Origin`,
-  non-navigation requests that `Sec-Fetch-Site` marks as cross-origin.
-  Services of the same app (`trip` and `trip--api`) may call each other.
+  refuses requests whose `Origin` is a different app. Without `Origin`, it
+  admits same-origin requests and top-level navigations; cross-origin
+  subresources and frames need a `Referer` on the same app. Browsers without
+  Fetch Metadata (Safari before 16.4, Firefox before 90) therefore need that
+  `Referer` even to navigate. Services of the same app (`trip` and
+  `trip--api`) may call each other.
 - Bearer requests must also carry `X-Commons-Apps-Caller`, a secret only the
   shared backend and the manager hold. A user's Supabase token alone, such as
   a frontend session token, cannot reach shell or membership APIs. App

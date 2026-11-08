@@ -389,7 +389,7 @@ def authorize_route(name: str, service: str, request: Request):
     if not route["public"]:
         if hosted_auth:
             if not hosted_auth.same_app(request, name):
-                raise HTTPException(403, "Requests from another app cannot use this app's sign-in")
+                raise HTTPException(403, "Open this app directly; requests from another app or an outdated browser cannot use its sign-in")
             if not identify(request):
                 return RedirectResponse("/_commons/login", status_code=303, headers=BROWSER_HEADERS)
         authorized(name, identity(request), "viewer" if route.get("viewers") else "contributor")

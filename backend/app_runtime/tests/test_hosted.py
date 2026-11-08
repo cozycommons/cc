@@ -37,7 +37,10 @@ def hosted(tmp_path, monkeypatch):
                    'app_token_hash': digest('app-key')})
     monkeypatch.setattr(api.hosted_auth, 'user', lambda token: {'owner-token': OWNER, 'viewer-token': VIEWER, 'other-token': OTHER}.get(token))
     monkeypatch.setattr(api.hosted_auth, 'can_create', lambda token, user_id: token == 'owner-token' and user_id == OWNER)
-    with TestClient(api.app, base_url='https://apps.example.test', follow_redirects=False) as c:
+    # A current browser opening the app directly; tests override these to
+    # model requests another page started.
+    navigation = {'Sec-Fetch-Site': 'none', 'Sec-Fetch-Mode': 'navigate'}
+    with TestClient(api.app, base_url='https://apps.example.test', follow_redirects=False, headers=navigation) as c:
         yield c, api
     sys.modules.pop('app_runtime.api', None)
 
@@ -303,7 +306,8 @@ def test_bearer_needs_backend_caller_secret(hosted):
     c, api = hosted
     assert c.get('/api/apps', headers=bearer()).status_code == 200
     missing = {'Authorization': 'Bearer owner-token'}
-    assert c.get('/api/apps', headers=missing).status_code == 401
+    rejected = c.get('/api/apps', headers=missing)
+    assert rejected.status_code == 401 and rejected.json()['detail'] == 'Apps caller not recognized'
     assert c.get('/api/apps', headers={**missing, 'X-Commons-Apps-Caller': 'c' * 63 + 'd'}).status_code == 401
     # The in-container capability is not a user bearer and needs no secret.
     assert c.put('/api/apps/trip/routes/web', json={'port': 3001},
@@ -330,6 +334,8 @@ def test_another_apps_page_cannot_use_a_members_cookie(hosted):
     host = 'trip.example.test'
     key = api.hosted_auth.new_session(host, 'viewer-token')
     base = {'Host': host, 'Cookie': f'{SESSION}={key}'}
+    for name in ('sec-fetch-site', 'sec-fetch-mode'):
+        c.headers.pop(name)
     def status(**headers):
         return c.get('/authorize/trip/default', headers={**base, **headers}).status_code
     assert status(Origin='https://evil.example.test') == 403
@@ -339,12 +345,20 @@ def test_another_apps_page_cannot_use_a_members_cookie(hosted):
     assert status(Origin='null') == 403
     assert status(**{'Sec-Fetch-Site': 'same-site', 'Sec-Fetch-Mode': 'no-cors', 'Sec-Fetch-Dest': 'script'}) == 403
     assert status(**{'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors'}) == 403
+    framed = {'Sec-Fetch-Site': 'same-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'iframe'}
+    assert status(**framed, Referer='https://evil.example.test/') == 403
+    assert status(**framed) == 403
+    assert status(**framed, Referer='https://trip--api.example.test/') == 204
+    # Without Fetch Metadata (older browsers), only this app's Referer vouches.
+    assert status() == 403
+    assert status(Referer='https://evil.example.test/page') == 403
+    assert status(Referer='https://trip.example.test/page') == 204
     # Same app, own services, same-origin requests and plain navigations work.
     assert status(Origin='https://trip.example.test') == 204
     assert status(Origin='https://trip--api.example.test') == 204
     assert status(**{'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'cors'}) == 204
     assert status(**{'Sec-Fetch-Site': 'same-site', 'Sec-Fetch-Mode': 'navigate'}) == 204
-    assert status() == 204
+    assert status(**{'Sec-Fetch-Site': 'none', 'Sec-Fetch-Mode': 'navigate'}) == 204
     # Public routes carry no member identity, so they need no origin check.
     record = api.store.get('trip'); record['routes']['default']['public'] = True; api.store.put(record)
     assert status(Origin='https://evil.example.test') == 204
