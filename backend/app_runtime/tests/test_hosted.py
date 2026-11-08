@@ -51,6 +51,60 @@ def hosted(tmp_path, monkeypatch):
 def bearer(token='owner-token'):
     return {'Authorization': 'Bearer ' + token, 'X-Commons-Apps-Caller': CALLER}
 
+def test_public_portal_pages_leave_apps_api_protected(hosted):
+    c, _ = hosted
+    landing = c.get('/')
+    assert landing.status_code == 200
+    assert 'Cozy Commons Apps' in landing.text
+    assert 'href="/connect"' in landing.text
+    assert 'href="/_commons/login"' in landing.text
+    assert 'href="/favicon.svg"' in landing.text
+    assert 'Your Commons user ID' not in landing.text
+    assert "img-src 'self'" in landing.headers['content-security-policy']
+    assert "default-src 'none'" in landing.headers['content-security-policy']
+    assert landing.headers['cache-control'] == 'no-store'
+
+    connect = c.get('/connect')
+    assert connect.status_code == 200
+    assert 'https://api.cozycommons.dev/mcp' in connect.text
+    assert 'sign in to Cozy Commons with Google' in connect.text
+    assert 'commons:read' in connect.text
+    assert 'commons:edit' in connect.text
+    assert 'href="/favicon.svg"' in connect.text
+    assert "img-src 'self'" in connect.headers['content-security-policy']
+    for post_connection in ('list_projects', 'enable_project', 'create_app', 'invite'):
+        assert post_connection not in connect.text
+
+    setup = c.get('/agent-setup.txt')
+    assert setup.status_code == 200
+    assert setup.headers['content-type'].startswith('text/plain')
+    assert 'OAuth server metadata: https://api.cozycommons.dev/.well-known/oauth-authorization-server' in setup.text
+    assert 'claude mcp add --transport http cozy-commons' in setup.text
+    assert '/mcp, select cozy-commons, and choose Authenticate' in setup.text
+    assert 'codex mcp login cozy-commons' in setup.text
+    assert 'review and approve the requested permissions' in setup.text
+    assert 'client secrets in agent' in setup.text
+    assert 'create_app' not in setup.text
+    assert 'enable_project' not in setup.text
+
+    discovery = c.get('/llms.txt')
+    assert discovery.status_code == 200
+    assert discovery.headers['content-type'].startswith('text/plain')
+    assert 'https://apps.cozycommons.dev/connect' in discovery.text
+    assert 'https://apps.cozycommons.dev/agent-setup.txt' in discovery.text
+    assert 'https://api.cozycommons.dev/mcp' in discovery.text
+
+    favicon = c.get('/favicon.svg')
+    assert favicon.status_code == 200
+    assert favicon.headers['content-type'] == 'image/svg+xml'
+    assert "img-src 'self'" in favicon.headers['content-security-policy']
+
+    assert c.get('/api/apps').status_code == 401
+    assert c.post('/api/apps', json={'name': 'unauthorized'}).status_code == 401
+    assert c.get('/', headers=bearer('app-key')).status_code == 403
+    assert c.post('/api/apps', json={'name': 'unauthorized'}, headers=bearer('viewer-token')).status_code == 403
+    assert c.post('/api/apps/trip/exec', json={'command': 'id'}, headers=bearer('viewer-token')).status_code == 403
+
 
 def test_mode_validation_and_no_local_fallback(monkeypatch):
     monkeypatch.setenv('APPS_MODE', 'typo')
@@ -71,7 +125,12 @@ def test_creator_roles_and_cookie_cannot_execute(hosted):
     assert c.post('/api/apps', json={'name': 'oops'}, headers={'Authorization': 'Basic b3duZXI6b3duZXItdG9rZW4='}).status_code == 401
     key = api.hosted_auth.new_session('apps.example.test', 'owner-token')
     c.cookies.set(SESSION, key, domain='apps.example.test', path='/')
-    assert c.get('/').status_code == 200
+    directory = c.get('/')
+    assert directory.status_code == 200
+    assert 'Your Commons user ID' in directory.text
+    assert '<tr><td>trip</td>' in directory.text
+    assert 'Connect an agent' not in directory.text
+    assert 'href="/favicon.svg"' in directory.text
     assert c.post('/api/apps', json={'name': 'oops'}).status_code == 401
     assert c.post('/api/apps', json={'name': 'oops'}, headers={**bearer(), 'Origin': 'https://trip.example.test'}).status_code == 403
 
@@ -114,7 +173,9 @@ def test_browser_ticket_host_state_origin_and_replay(hosted):
     assert installed.status_code == 204
     assert c.post('/_commons/session', json={'ticket': ticket}, headers=headers).status_code == 401
     app_session = installed.cookies[SESSION]
-    assert c.get('/', headers={'Cookie': f'{SESSION}={app_session}'}).status_code == 307
+    anonymous_portal = c.get('/', headers={'Cookie': f'{SESSION}={app_session}'})
+    assert anonymous_portal.status_code == 200
+    assert 'Connect an agent' in anonymous_portal.text
     assert c.get('/authorize/trip/default', headers={'Host': host, 'Cookie': f'{SESSION}={app_session}'}).status_code == 204
     assert c.get('/_commons/login', headers={'Host': 'evil.test', 'X-Forwarded-Host': host}).status_code == 400
 

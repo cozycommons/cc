@@ -25,6 +25,8 @@ from .docker_runtime import Runtime, TRANSFER_LIMIT
 from .settings import Settings
 from request_validation import install as install_validation
 from .hosted_auth import HostedAuth, BROWSER_HEADERS, clean_cookie
+from .portal_assets import router as portal_assets_router
+from .portal_content import landing_page, router as portal_content_router
 from fastapi.responses import RedirectResponse
 from uuid import UUID
 
@@ -68,6 +70,8 @@ async def lifespan(app):
 
 app = FastAPI(title="Cozy Commons apps", lifespan=lifespan)
 install_validation(app)
+app.include_router(portal_assets_router)
+app.include_router(portal_content_router)
 if hosted_auth:
     hosted_auth.install(app)
 # A restarted manager cannot reliably continue monitoring an old Docker exec.
@@ -217,7 +221,7 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     if hosted_auth and not identify(request):
-        return RedirectResponse("/_commons/login", headers=BROWSER_HEADERS)
+        return HTMLResponse(landing_page())
     who = identity(request)
     rows = []
     for record in store.all():
@@ -232,7 +236,7 @@ def index(request: Request):
             f"<tr><td>{html.escape(view['name'])}</td><td>{view['status']}</td><td>{view['role']}</td><td>{links or 'No published ports'}</td></tr>"
         )
     return (
-        '<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Apps</title><style>body{font:16px system-ui;max-width:900px;margin:48px auto;padding:0 24px;color:#292b26;background:#f7f6f1}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:16px 8px;border-bottom:1px solid #ddd}a{color:#375c49}</style></head><body><h1>Apps</h1><table><tr><th>App</th><th>Status</th><th>Role</th><th>Services</th></tr>'
+        '<!doctype html><html><head><meta name="viewport" content="width=device-width"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Apps</title><style>body{font:16px system-ui;max-width:900px;margin:48px auto;padding:0 24px;color:#292b26;background:#f7f6f1}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:16px 8px;border-bottom:1px solid #ddd}a{color:#375c49}</style></head><body><h1>Apps</h1><table><tr><th>App</th><th>Status</th><th>Role</th><th>Services</th></tr>'
         + "".join(rows)
         + "</table>"
         + (f'<p>Your Commons user ID: <code>{html.escape(who)}</code></p><p>Synthetic-data pilot. Agent tools are on the Cozy Commons connector.</p><form action="/_commons/logout" method="post"><button>Sign out of Apps</button></form>' if settings.hosted else "")
