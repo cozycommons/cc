@@ -263,9 +263,11 @@ handler was configured. Recheck these facts at rollout time.
    Confirm no wildcard app callback is added and no production auth secrets change.
 8. Set backend runtime `APPS_MANAGER_URL=https://apps.cozycommons.dev` and the
    same `APPS_MANAGER_CALLER_SECRET`, then deploy the reviewed backend through
-   its existing workflow. Without the secret, Apps tools report that hosting is
-   not configured. Set it on the backend before restarting a manager that
-   requires it. The exact Apps
+   its existing workflow. The backend's `/ready` returns 503
+   (`apps_caller_secret_missing`) while the URL is set without the secret, so
+   Coolify keeps the previous container until both are set. To turn Apps off
+   instead, unset `APPS_MANAGER_URL`. Set the secret on the backend before
+   restarting a manager that requires it. The exact Apps
    host is included in `deploy/api-egress/hosts.txt` for the egress topology;
    do not weaken its policy or independently migrate the backend topology.
 
