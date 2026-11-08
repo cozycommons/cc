@@ -29,6 +29,13 @@ from .portal_assets import router as portal_assets_router
 from .portal_content import landing_page, router as portal_content_router
 from fastapi.responses import RedirectResponse
 from uuid import UUID
+from .supabase_backups import (
+    RemoteBackupWorker,
+    RemoteBackups,
+    StorageBackupError,
+    StorageBackupSettings,
+    SupabaseStorage,
+)
 
 settings = Settings.load()
 
@@ -41,6 +48,13 @@ config_path = Path(os.environ.get("APPS_PROXY_CONFIG", "/proxy/Caddyfile"))
 creators = set(filter(None, os.environ.get("APPS_CREATORS", "" if settings.hosted else "owner").split(",")))
 runtime = Runtime()
 backups = Backups(store, runtime, state)
+offsite_settings = StorageBackupSettings.load()
+offsite = (
+    RemoteBackups(SupabaseStorage(offsite_settings), state, store)
+    if offsite_settings
+    else None
+)
+remote_backup_worker = RemoteBackupWorker(offsite, store) if offsite else None
 proxy_lock = threading.RLock()
 transfer_slots = threading.BoundedSemaphore(2)
 transfer_users = set()
@@ -61,11 +75,17 @@ async def lifespan(app):
     stop = threading.Event()
     worker = threading.Thread(target=backups.run, args=(stop,), daemon=True)
     worker.start()
+    remote_worker = None
+    if remote_backup_worker:
+        remote_worker = threading.Thread(target=remote_backup_worker.run, args=(stop,), daemon=True)
+        remote_worker.start()
     try:
         yield
     finally:
         stop.set()
         await asyncio.to_thread(worker.join)
+        if remote_worker:
+            await asyncio.to_thread(remote_worker.join)
 
 
 app = FastAPI(title="Cozy Commons apps", lifespan=lifespan)
@@ -631,10 +651,47 @@ def lifecycle(name: str, action: str, who=Depends(identity)):
 def list_backups(name: str, who=Depends(identity)):
     with store.app_lock(name):
         record = authorized(name, who, "owner")
+        local = backups.list(name)
+        remote_error = None
+        remote = []
+        if offsite:
+            try:
+                remote = offsite.list(name)
+            except StorageBackupError:
+                remote_error = "Remote backup inventory is unavailable; local snapshots are still listed"
+        remote_by_id = {item["id"]: item for item in remote}
+        merged = []
+        local_ids = set()
+        for item in local:
+            entry = dict(item)
+            local_ids.add(item["id"])
+            sidecar = state / "backups" / item["id"] / "remote.json"
+            try:
+                remote_state = json.loads(sidecar.read_text()) if sidecar.is_file() else {}
+            except (OSError, ValueError):
+                remote_state = {}
+            if not offsite:
+                entry["remote_status"] = "not_configured"
+            elif item["id"] in remote_by_id:
+                entry["remote_status"] = "complete"
+            else:
+                entry["remote_status"] = remote_state.get("status", "pending")
+                if remote_state.get("status") == "error":
+                    entry["remote_error"] = remote_state.get(
+                        "error", "Off-host backup failed; local snapshot retained and retry scheduled"
+                    )
+            merged.append(entry)
+        for item in remote:
+            if item["id"] not in local_ids:
+                merged.append({**item, "remote_status": "complete", "remote_only": True})
+        merged.sort(key=lambda item: (item["created"], item["id"]), reverse=True)
         return {
-            "backups": backups.list(name),
+            "backups": merged,
             "next_backup_at": record.get("next_backup_at"),
             "error": record.get("backup_error"),
+            "remote_error": remote_error,
+            "remote_retain": offsite_settings.remote_retain if offsite_settings else None,
+            "remote_prune_enabled": offsite_settings.prune_enabled if offsite_settings else False,
         }
 
 
@@ -703,6 +760,17 @@ def restore_workspace(name, backup_id, record, who):
          if candidate.name == backup_id and candidate.is_dir() and not candidate.is_symlink()),
         None,
     ) if (state / "backups").is_dir() else None
+    downloaded = False
+    if folder is None and offsite:
+        try:
+            folder = state / "backups" / backup_id
+            offsite.download(name, backup_id, folder)
+            downloaded = True
+        except StorageBackupError:
+            raise HTTPException(
+                422,
+                "Remote snapshot could not be verified; no workspace data was changed",
+            ) from None
     if folder is None or not (folder / "manifest.json").is_file() or (folder / "manifest.json").is_symlink():
         raise HTTPException(404, "Backup not found")
     try:
@@ -728,4 +796,6 @@ def restore_workspace(name, backup_id, record, who):
         raise
     finally:
         store.put(record)
+    if downloaded:
+        backups.prune(name)
     return public_record(record, who)

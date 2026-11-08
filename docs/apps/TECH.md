@@ -80,8 +80,14 @@ shared FastAPI API and does not mount Docker access into that existing service.
 - Backups stop the app and archive its entire workspace using a helper
   container. Restore is explicit and occurs while stopped. It stages extraction on the
   workspace volume before replacement, with rollback on ordinary rename failures. Platform routes and
-  membership are not restored from app-owned files. Local backups are not disaster
-  recovery; off-server copies and hosted restore drills remain a hosted gate.
+  membership are not restored from app-owned files. Optional Supabase Storage
+  copies use an Auth identity scoped by Storage RLS, chunked immutable objects,
+  checksums and a manifest-last completion marker. The remote worker starts only
+  after the local backup has resumed the app; it retries failures without
+  deleting the local copy. A sanitized registry export preserves ownership,
+  membership and routes, but no automated fresh-host registry import exists.
+  Remote copies are not active until bucket/identity/RLS configuration and a
+  synthetic restore pass; fresh-host recovery remains a separate hosted gate.
 
 ## Testing and validation
 
