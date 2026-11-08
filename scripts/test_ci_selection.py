@@ -28,6 +28,16 @@ TEST_FILES = [
 
 
 class SelectionTests(unittest.TestCase):
+    def test_apps_runtime_paths_select_the_docker_suite(self):
+        for path in ["infra/apps/runtime/commons.py", "infra/apps/hosted/compose.yaml", "scripts/apps-dev.sh"]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], ["apps"])
+        plan = ci.select(["backend/app_runtime/api.py"], TEST_FILES)
+        self.assertTrue(plan["apps"] and plan["backend-tests"])
+        self.assertEqual(plan["backend_projects"], sorted(ci.BACKEND_PROJECTS))
+        self.assertFalse(ci.select(["backend/bikes/wait.py"], TEST_FILES)["apps"])
+
     def test_compute_dependencies_and_test_only_changes(self):
         for path in ["backend/compute/worker.py", "backend/requirements-compute.in", "backend/requirements-compute.txt"]:
             with self.subTest(path=path):
