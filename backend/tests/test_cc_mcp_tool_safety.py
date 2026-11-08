@@ -185,7 +185,8 @@ def server(monkeypatch, tmp_path):
                        'APPS_MCP_OAUTH_CLIENT_ID': '20000000-0000-4000-8000-000000000001',
                        'APPS_RUNTIME_IMAGE': 'runtime:test', 'APPS_CREATORS': db.user.id,
                        'APPS_STATE': str(tmp_path), 'APPS_PROXY_CONFIG': str(tmp_path / 'Caddyfile'),
-                       'APPS_MANAGER_URL': 'https://apps.example.test'}.items():
+                       'APPS_MANAGER_URL': 'https://apps.example.test',
+                       'APPS_MANAGER_CALLER_SECRET': 'c' * 64}.items():
         monkeypatch.setenv(key, value)
     sys.modules.pop('app_runtime.api', None)
     manager = importlib.import_module('app_runtime.api')

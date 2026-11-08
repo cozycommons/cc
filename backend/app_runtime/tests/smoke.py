@@ -256,6 +256,10 @@ def main():
     )
     wait_site()
     check(site().status_code == 401, "Default route is private")
+    check(site(user="friend").status_code == 200, "Contributor can use private website")
+    check(site(user="viewer").status_code == 403, "Private route admits contributors by default")
+    result = command("commons expose 3000 --default --viewers", user="friend")
+    check(result["exit_code"] == 0, "Agent publishes the private website for viewers")
     check(site(user="viewer").status_code == 200, "Viewer can use private website")
     check(
         site(user="outsider").status_code == 404, "Nonmember cannot use private website"
@@ -275,6 +279,15 @@ def main():
         status=404,
     )
     check(True, "Viewer shell and cross-app publishing denied")
+    result = command(
+        "python -c \"import urllib.request, urllib.error\n"
+        "try: urllib.request.urlopen('http://proxy/api-control/api/apps', timeout=5)\n"
+        "except urllib.error.HTTPError as e: print(e.code)\""
+    )
+    check(
+        result["output"].strip() == "404",
+        "Container control route reaches only route publication",
+    )
     result = command("commons expose 8080 --name experiment --public", user="friend")
     check(
         result["exit_code"] == 0,

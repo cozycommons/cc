@@ -22,11 +22,20 @@ def manager_url():
     return value.rstrip('/')
 
 
+def caller_secret():
+    # Proves to the manager that the request came from this backend, not just
+    # from someone holding the user's Supabase token.
+    value = os.environ.get('APPS_MANAGER_CALLER_SECRET', '')
+    if len(value) < 32:
+        raise ToolError('Apps hosting is not configured. Ask the platform owner to finish setup.')
+    return value
+
+
 async def request(token, method, path, data=None, *, content=None):
     try:
         async with httpx.AsyncClient(timeout=180, follow_redirects=False) as client:
-            result = await client.request(method, manager_url() + path,
-                headers={'Authorization': 'Bearer ' + token}, json=data, content=content)
+            result = await client.request(method, manager_url() + path, json=data, content=content,
+                headers={'Authorization': 'Bearer ' + token, 'X-Commons-Apps-Caller': caller_secret()})
         if result.status_code >= 300:
             # Never echo arbitrary upstream error bodies, URLs, or headers.
             messages = {401: 'Sign-in expired; reconnect your agent.', 403: 'Insufficient app permissions.',

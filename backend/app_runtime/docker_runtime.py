@@ -39,8 +39,12 @@ class Runtime:
 
     def create(self, record, token):
         name = record["name"]
+        # A predictable bridge prefix lets one host firewall rule (ccapp+) drop
+        # app traffic addressed to the host itself; see docs/apps/HOSTING.md.
+        bridge = "ccapp" + hashlib.sha256((self.prefix + name).encode()).hexdigest()[:10]
         network = self.client.networks.create(
-            self.prefix + name, driver="bridge", labels={"cc.apps": name, "cc.apps.instance": self.prefix}
+            self.prefix + name, driver="bridge", options={"com.docker.network.bridge.name": bridge},
+            labels={"cc.apps": name, "cc.apps.instance": self.prefix},
         )
         network.connect(self.prefix + "proxy", aliases=["proxy"])
         self.client.volumes.create(

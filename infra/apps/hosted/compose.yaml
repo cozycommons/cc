@@ -20,6 +20,7 @@ services:
       APPS_SUPABASE_PUBLISHABLE_KEY: ${APPS_SUPABASE_PUBLISHABLE_KEY:?required}
       APPS_MCP_OAUTH_CLIENT_ID: ${APPS_MCP_OAUTH_CLIENT_ID:?required official Commons OAuth client UUID}
       APPS_RUNTIME_IMAGE: ${APPS_RUNTIME_IMAGE:?required}
+      APPS_MANAGER_CALLER_SECRET: ${APPS_MANAGER_CALLER_SECRET:?required secret shared only with the Commons backend}
       APPS_STATE: /state
       APPS_PROXY_CONFIG: /proxy/Caddyfile
     volumes:

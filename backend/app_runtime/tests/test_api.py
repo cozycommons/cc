@@ -84,6 +84,17 @@ def test_membership_and_private_public_transitions(client):
         c.put(path, json={"port": 3000}, headers=headers("friend")).status_code == 200
     )
     assert c.get("/authorize/trip/default").status_code == 401
+    # A private route admits contributors until it is published for viewers.
+    assert (
+        c.get("/authorize/trip/default", headers=headers("viewer")).status_code == 403
+    )
+    assert (
+        c.get("/authorize/trip/default", headers=headers("friend")).status_code == 204
+    )
+    assert (
+        c.put(path, json={"port": 3000, "viewers": True}, headers=headers("friend")).status_code
+        == 200
+    )
     assert (
         c.get("/authorize/trip/default", headers=headers("viewer")).status_code == 204
     )

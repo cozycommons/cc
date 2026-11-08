@@ -14,6 +14,7 @@ class Settings:
     supabase_url: str = ''
     publishable_key: str = ''
     mcp_client_id: str = ''
+    caller_secret: str = ''
 
     @classmethod
     def load(cls):
@@ -40,7 +41,10 @@ class Settings:
                 raise ValueError()
         except ValueError:
             raise ValueError('APPS_MCP_OAUTH_CLIENT_ID must identify the official Commons OAuth client') from None
-        return cls(True, domain, 'cc-apps-hosted-', image, url, key, client_id)
+        caller = os.environ.get('APPS_MANAGER_CALLER_SECRET', '')
+        if not re.fullmatch(r'[A-Za-z0-9+/=_-]{32,256}', caller):
+            raise ValueError('APPS_MANAGER_CALLER_SECRET must be a random secret of at least 32 characters')
+        return cls(True, domain, 'cc-apps-hosted-', image, url, key, client_id, caller)
 
     @property
     def portal(self):
