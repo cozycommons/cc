@@ -32,7 +32,10 @@ def hosted(tmp_path, monkeypatch):
         monkeypatch.setenv(key, value)
     sys.modules.pop('app_runtime.api', None)
     api = importlib.import_module('app_runtime.api')
-    api.store.put({'name': 'trip', 'status': 'running', 'members': {OWNER: 'owner', VIEWER: 'viewer'},
+    # A future backup deadline keeps the manager's backup thread from writing
+    # a stale copy of this record while tests edit the store directly.
+    api.store.put({'name': 'trip', 'status': 'running', 'next_backup_at': api.time.time() + api.INTERVAL,
+                   'members': {OWNER: 'owner', VIEWER: 'viewer'},
                    'routes': {'default': {'port': 3000, 'public': False, 'viewers': True}},
                    'app_token_hash': digest('app-key')})
     monkeypatch.setattr(api.hosted_auth, 'user', lambda token: {'owner-token': OWNER, 'viewer-token': VIEWER, 'other-token': OTHER}.get(token))
