@@ -280,8 +280,7 @@ def test_only_known_manager_errors_cross_the_oauth_bridge():
     assert manager_error(httpx.Response(422,json={'detail':{'secret':'unexpected'}})) is None
 
 
-@pytest.mark.asyncio
-async def test_repeated_upload_cancellation_holds_quota_until_writer_finishes(client):
+def test_repeated_upload_cancellation_holds_quota_until_writer_finishes(client):
     import asyncio
     c,api,fake=client
     entered,release=threading.Event(),threading.Event()
@@ -294,20 +293,22 @@ async def test_repeated_upload_cancellation_holds_quota_until_writer_finishes(cl
     class Incoming:
         async def stream(self):
             yield data
-    task=asyncio.create_task(api.upload_file('trip',Incoming(),'/workspace/a',hashlib.sha256(data).hexdigest(),'friend'))
-    try:
-        started = await asyncio.to_thread(entered.wait,2)
-        assert started, task.exception() if task.done() else "writer did not start"
-        task.cancel()
-        await asyncio.sleep(.01)
-        task.cancel()
-        await asyncio.sleep(.01)
-        assert 'friend' in api.transfer_users and not task.done()
-    finally:
-        release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert 'friend' not in api.transfer_users
+    async def exercise():
+        task=asyncio.create_task(api.upload_file('trip',Incoming(),'/workspace/a',hashlib.sha256(data).hexdigest(),'friend'))
+        try:
+            started = await asyncio.to_thread(entered.wait,2)
+            assert started, task.exception() if task.done() else "writer did not start"
+            task.cancel()
+            await asyncio.sleep(.01)
+            task.cancel()
+            await asyncio.sleep(.01)
+            assert 'friend' in api.transfer_users and not task.done()
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert 'friend' not in api.transfer_users
+    asyncio.run(exercise())
 
 
 def test_inspection_cache_has_a_fixed_entry_bound(client):
