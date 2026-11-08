@@ -1,6 +1,11 @@
 from unittest.mock import MagicMock
 
 from app_runtime.docker_runtime import Runtime
+from app_runtime.git_inspection import (
+    GIT_INSPECTION_SCRIPT,
+    INSPECTION_TIMEOUT,
+    INSPECTION_WALL_TIMEOUT,
+)
 
 
 def test_provisioning_only_connects_proxy_and_injects_no_database(monkeypatch):
@@ -31,3 +36,33 @@ def test_inspection_uses_one_shot_and_does_not_invent_cpu_sample(monkeypatch):
     container.stats.assert_called_once_with(stream=False,one_shot=True)
     assert result['usage']['cpu_percent'] is None
     assert result['usage']['memory_bytes']==10
+
+
+def test_changes_uses_fixed_helper_and_workspace(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr('app_runtime.docker_runtime.docker.from_env', lambda: client)
+    runtime = Runtime()
+    calls = []
+    expected = b'{"repositories":[],"truncated":false}'
+
+    def fake_exec(name, command, seconds, on_output):
+        calls.append((name, command, seconds))
+        on_output(expected)
+        return 0
+
+    monkeypatch.setattr(runtime, '_exec', fake_exec)
+    assert runtime.changes('trip') == {'repositories': [], 'truncated': False}
+    assert calls == [(
+        'trip',
+        [
+            '/usr/bin/timeout',
+            '--signal=TERM',
+            '--kill-after=1s',
+            INSPECTION_WALL_TIMEOUT,
+            'python',
+            '-c',
+            GIT_INSPECTION_SCRIPT,
+            '/workspace',
+        ],
+        INSPECTION_TIMEOUT,
+    )]

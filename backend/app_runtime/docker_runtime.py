@@ -16,6 +16,12 @@ import docker
 
 from .settings import Settings
 from .tool_helpers import TRANSFER_LIMIT
+from .git_inspection import (
+    GIT_INSPECTION_SCRIPT,
+    INSPECTION_WALL_TIMEOUT,
+    INSPECTION_TIMEOUT,
+    MAX_RESPONSE_BYTES,
+)
 
 PREFIX = "cc-apps-local-"
 IMAGE = "cc-apps-runtime:local"
@@ -184,6 +190,42 @@ class Runtime:
                 result["diagnostic"] = "Usage sample unavailable"
         else:
             result["diagnostic"] = "Usage requires a running container"
+        return result
+
+    def changes(self, name):
+        output = bytearray()
+        overflow = False
+
+        def collect(chunk):
+            nonlocal overflow
+            if len(output) + len(chunk) > MAX_RESPONSE_BYTES + 1024:
+                overflow = True
+            elif not overflow:
+                output.extend(chunk)
+
+        code = self._exec(
+            name,
+            [
+                "/usr/bin/timeout",
+                "--signal=TERM",
+                "--kill-after=1s",
+                INSPECTION_WALL_TIMEOUT,
+                "python",
+                "-c",
+                GIT_INSPECTION_SCRIPT,
+                "/workspace",
+            ],
+            INSPECTION_TIMEOUT,
+            collect,
+        )
+        if overflow or code:
+            raise RuntimeError("Git inspection failed or exceeded its output limit")
+        try:
+            result = json.loads(output)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise RuntimeError("Git inspection returned invalid data") from None
+        if not isinstance(result, dict) or not isinstance(result.get("repositories"), list):
+            raise RuntimeError("Git inspection returned invalid data")
         return result
 
     def transfer(self, name, path, content=None, max_bytes=TRANSFER_LIMIT):
