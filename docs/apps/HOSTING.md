@@ -1,9 +1,10 @@
 # Hosted synthetic-data pilot
 
-This is a deployment candidate, not a claim that the platform is live. The first
-hosted pilot is restricted to synthetic data. Daily snapshots on the VPS are not
-off-server backups. Choose durable external storage and complete a fresh-host
-restore drill before storing important data or moving an existing app.
+The hosted Apps manager is deployed, but this document's Storage integration is
+not active until its private bucket, RLS identity and manager-only settings are
+configured and a synthetic remote restore succeeds. The first hosted pilot is
+restricted to synthetic data. Complete a fresh-host recovery drill before
+storing important data or moving an existing app.
 
 The existing shared frontend, backend, Crowdset and Coolify dashboard keep their
 resources and domains. Only the backend needs a normal reviewed release to add
@@ -75,13 +76,130 @@ fail startup. The local Compose and stdio client retain their loopback guards.
 Contributors remain trusted with all code/data in their app. Revocation does not
 remove backdoors, kill existing WebSockets, or rotate copied app capabilities;
 recreation rotates the publication capability. This is not hostile-tenant hosting.
+## Off-server workspace backups
+
+The manager can optionally copy completed local workspace snapshots to Supabase
+Storage through its S3-compatible API. It runs only in the trusted manager, after
+the local archive is complete and the app has resumed; network transfer does not
+extend the sandbox pause. The existing three local snapshots and their schedule
+remain unchanged. Failed remote uploads keep the local snapshot, record a generic
+failure, and retry after five minutes; the separate worker checks every 30 seconds.
+
+The supported setup uses S3 session-token authentication with a dedicated
+Supabase Auth user and Storage RLS, not project S3 access keys or the service-role
+key. Session-token S3 requests are scoped by RLS. The session JWT is re-authenticated
+server-side before expiry; the email/password are read only by the manager and
+are never copied into app containers, logs, or snapshot metadata. Set the values
+only in the Coolify manager service's environment, never in app code or shell
+arguments:
+
+- `APPS_BACKUP_SUPABASE_URL`: exact HTTPS URL for the selected Supabase project.
+- `APPS_BACKUP_SUPABASE_ANON_KEY`: that project's legacy JWT `anon` API key;
+  S3 session auth does not yet accept the `sb_publishable_` key.
+- `APPS_BACKUP_SUPABASE_USER_ID`: canonical UUID of the backup-only Auth user.
+- `APPS_BACKUP_SUPABASE_EMAIL` and `APPS_BACKUP_SUPABASE_PASSWORD`: that user's
+  login. Do not use a human's personal account.
+- `APPS_BACKUP_BUCKET`: private bucket name; defaults to `cc-apps-backups`.
+- `APPS_BACKUP_REGION`: project Storage region; defaults to `us-west-2`.
+- `APPS_BACKUP_CHUNK_MB`: workspace object chunk size, 1–40 MiB; defaults to 32.
+- `APPS_BACKUP_MAX_ARCHIVE_MB`: maximum workspace archive size; defaults to 64
+  MiB and can be configured from 1–512 MiB after checking the Storage quota.
+- `APPS_BACKUP_REMOTE_RETAIN`: intended successful restore points per app;
+  defaults to seven.
+- `APPS_BACKUP_PRUNE_ENABLED`: defaults to `false`; leave it off until a
+  synthetic remote restore has been verified and remote deletion is approved.
+
+With the current FREE project, the global maximum object size is 50 MB and
+included Storage quota is 1 GB. Each workspace archive is split into 32 MiB
+objects by default, with an upper configured chunk size of 40 MiB; the small
+registry metadata and manifest are uploaded as separate objects and each is
+limited to 1 MiB. Remote workspace archives default to a 64 MiB ceiling,
+configurable up to 512 MiB; exceeding the ceiling leaves the local backup intact
+and creates no new remote objects. Chunking bypasses the per-object limit, not
+the total Storage quota. The inventory reads at most 20 snapshots per app per
+request; beyond that it reports the remote inventory as unavailable instead of
+scanning without bound. Monitor actual archive sizes, app count, retained
+snapshots and quota before relying on the service. Multipart upload does not
+raise Supabase's global per-object cap.
+
+Create a private bucket with a 50 MB file limit and allowed content types
+`application/octet-stream` and `application/json`. Create the Auth user and record
+its UUID. In the SQL editor, replace `BACKUP_USER_UUID` with that UUID and apply
+the following policies. The restrictive policy prevents this identity from
+using RLS-authorized operations in other buckets even if a different permissive
+policy applies; the public Dice image buckets remain public by their existing
+design and are not made private by this policy.
+
+```sql
+create policy apps_backup_identity_scope on storage.objects as restrictive
+for all to authenticated
+using (
+  auth.uid() <> 'BACKUP_USER_UUID'::uuid
+  or (bucket_id = 'cc-apps-backups' and (storage.foldername(name))[1] = 'apps')
+)
+with check (
+  auth.uid() <> 'BACKUP_USER_UUID'::uuid
+  or (bucket_id = 'cc-apps-backups' and (storage.foldername(name))[1] = 'apps')
+);
+
+create policy apps_backup_read on storage.objects
+for select to authenticated
+using (
+  auth.uid() = 'BACKUP_USER_UUID'::uuid
+  and bucket_id = 'cc-apps-backups'
+  and (storage.foldername(name))[1] = 'apps'
+);
+
+create policy apps_backup_insert on storage.objects
+for insert to authenticated
+with check (
+  auth.uid() = 'BACKUP_USER_UUID'::uuid
+  and bucket_id = 'cc-apps-backups'
+  and (storage.foldername(name))[1] = 'apps'
+);
+```
+
+No `UPDATE` policy is needed: before each object write, the single manager worker
+checks whether the key exists, skips it only if its bytes match exactly, and
+rejects mismatches. This lets a retry resume after a partial or ambiguously
+successful upload without overwriting an object. No `DELETE` policy is needed
+while pruning is off.
+After the remote upload and restore path are verified, decide the remote retention
+policy and storage budget. Only then add a similarly scoped `DELETE` policy and
+set `APPS_BACKUP_PRUNE_ENABLED=true` if you want automated pruning. Supabase
+Storage does not support S3 versioning, object lock or lifecycle rules. The
+default seven-snapshot setting is a target, **not an enforced cap while pruning
+is disabled**; objects accumulate until manual cleanup or explicitly enabled
+pruning. Do not enable deletion before the restore verification.
+
+Each remote snapshot uses unique `apps/<app>/<backup-id>/...` keys, workspace
+chunks, and a sanitized `registry.json` containing app names, owners, members and
+routes. The checksum-bearing `manifest.json` is uploaded last as the completion
+marker. The registry export excludes legacy managed-database records, job output,
+operation records, app token hashes and in-memory auth sessions/tokens. Workspace
+archives still contain all app data under `/workspace`, as local snapshots do.
+External databases, host state, and installed OS packages outside the workspace
+are not covered.
+
+Owners see local and remote snapshots in the existing backup inventory. Restore
+downloads a missing local snapshot to manager staging, checks object sizes and
+SHA-256 values, verifies app/backup ownership, then invokes the existing stopped,
+staged workspace replacement. Only owners can list or restore; explicit
+`confirm_replace_data` and idempotency-key requirements remain. The per-snapshot
+registry JSON is metadata for future recovery, not an automated registry import
+or fresh-host rebuild. No full disaster-recovery claim is made until that
+end-to-end restore is separately implemented and drilled. Supabase database
+backups do not include Storage object bytes; deleting objects is permanent.
 
 ## Coolify preparation
 
 Read-only inventory on 2026-11-06 (America/New_York): Coolify 4.6.0, Production VPS
 `8isyiuhtt8pgsi2l2tn47e8y`, Cozy Commons project
-`myslnzrcuucdffkthj0tswam`. Backend, frontend and Crowdset were healthy; no Apps
-resource, service or database existed. Traefik was v3.6, with `https` on 443,
+`myslnzrcuucdffkthj0tswam`. At that inspection, backend, frontend and Crowdset
+were healthy and no Apps resource, service or database existed. A pilot Apps
+resource has since been created; recheck its source branch, deployed commit,
+Compose path, health, networks and environment before treating it as the
+deployment for this change. Traefik was v3.6, with `https` on 443,
 HTTP-01 ACME, and a watched `/traefik/dynamic/` file provider. No TLS-ALPN challenge
 handler was configured. Recheck these facts at rollout time.
 
@@ -206,8 +324,11 @@ images. Unset the backend's Apps URL to make the provider unavailable if needed;
 other projects remain independent. Never run `docker compose down -v`, prune
 shared resources, or use a blanket `cc.apps` stop command.
 
-The off-server destination and fresh-host recovery drill remain outstanding.
-No important or existing application data may enter this pilot until complete.
+The Storage integration is not active until the bucket, scoped Auth identity,
+RLS policies and manager-only `APPS_BACKUP_*` variables are configured and a
+synthetic remote backup/restore is verified. A fresh-host recovery drill remains
+outstanding. No important or existing application data may enter this pilot
+until complete.
 
 ## Candidate verification
 

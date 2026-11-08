@@ -99,6 +99,50 @@ class Store:
                 (record[key], json.dumps(record)),
             )
             self.db.commit()
+    def backup_registry(self, created):
+        """Return a consistent, allow-listed registry export without secrets or job data."""
+        with self.lock:
+            rows = self.db.execute("SELECT body FROM apps ORDER BY name").fetchall()
+        apps = []
+        for (body,) in rows:
+            try:
+                record = json.loads(body)
+                if "db_password" in record:
+                    # Legacy externally managed databases are not covered by workspace backups.
+                    continue
+                name = slug(record["name"])
+                members = {
+                    user: role
+                    for user, role in record.get("members", {}).items()
+                    if isinstance(user, str) and role in ROLES
+                }
+                owners = [user for user, role in members.items() if role == "owner"]
+                routes = {}
+                for service, route in record.get("routes", {}).items():
+                    service_name(service)
+                    port = route.get("port")
+                    if (
+                        type(port) is int
+                        and 1024 <= port <= 65535
+                        and type(route.get("public")) is bool
+                        and type(route.get("viewers", False)) is bool
+                    ):
+                        routes[service] = {
+                            "port": port,
+                            "public": route["public"],
+                            "viewers": route.get("viewers", False),
+                        }
+                apps.append(
+                    {
+                        "name": name,
+                        "owner": owners[0] if len(owners) == 1 else None,
+                        "members": members,
+                        "routes": routes,
+                    }
+                )
+            except (KeyError, TypeError, ValueError, AttributeError):
+                continue
+        return {"format": "apps-registry-v1", "created": created, "apps": apps}
 
 
 def role_for(record, identity):

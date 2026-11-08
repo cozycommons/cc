@@ -1,10 +1,11 @@
 # Cozy Commons apps: software shaped by its community
 
-Status: **local prototype; hosted platform remains proposed.** See
-[the local walkthrough](PROTOTYPE.md), [product contract](PRODUCT.md) and
-[technical design](TECH.md). Existing deployed projects still follow
-`docs/deployment.md#project-placement-policy` and the current Coolify/Supabase
-setup. No existing app migration or VPS deployment is part of this prototype.
+Status: **local prototype plus a deployed hosted Apps pilot.** Optional
+Supabase Storage backups are inactive until their private bucket, scoped
+identity, manager settings and synthetic restore are verified. See [the local
+walkthrough](PROTOTYPE.md), [product contract](PRODUCT.md), [technical
+design](TECH.md) and [hosted setup](HOSTING.md). The hosted pilot is for
+synthetic data; moving existing apps or production data remains out of scope.
 
 ## Vision
 
@@ -101,7 +102,8 @@ internet ─► platform proxy (route access policy) ─┬─► /mcp    shell 
           └───────────────────────────────────────────────────────────────┘
                      │ daily stopped-workspace archives
                      ▼
-              manager volume (off-server copies planned)
+              manager volume ──► optional Supabase Storage copy
+                                  (requires separate setup; not active by default)
 ```
 
 ### Platform

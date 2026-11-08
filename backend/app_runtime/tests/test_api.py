@@ -283,6 +283,7 @@ def test_backup_inventory_is_owner_only(client):
     assert result.status_code == 200
     assert result.json()["backups"] == []
     assert result.json()["next_backup_at"] is not None
+    assert result.json()["remote_prune_enabled"] is False
 
 
 def test_legacy_database_restore_and_recreate_fail_before_mutation(client):
@@ -378,3 +379,58 @@ def test_backup_does_not_block_other_apps_or_lose_same_app_updates(client, autom
         assert membership.result(timeout=2).status_code == 200
     assert api.store.get('trip')['members']['viewer'] == 'contributor'
     assert api.store.get('trip')['status'] == 'running'
+
+
+def test_remote_backup_inventory_and_restore_remain_owner_only(client, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    c, api, fake = client
+    backup_id = "c" * 32
+    manifest = {
+        "id": backup_id,
+        "app": "trip",
+        "created": 100.0,
+        "kind": "automatic",
+        "format": "workspace-v1",
+    }
+
+    class Offsite:
+        settings = SimpleNamespace(remote_retain=7, prune_enabled=False)
+
+        def __init__(self):
+            self.downloads = []
+
+        def list(self, name):
+            assert name == "trip"
+            return [manifest]
+
+        def download(self, name, remote_id, destination):
+            self.downloads.append((name, remote_id))
+            destination.mkdir(parents=True)
+            (destination / "workspace.tgz").write_bytes(b"verified-synthetic-archive")
+            (destination / "registry.json").write_text('{"format":"apps-registry-v1","apps":[]}')
+            (destination / "manifest.json").write_text(json.dumps(manifest))
+            return manifest
+
+    offsite = Offsite()
+    monkeypatch.setattr(api, "offsite", offsite)
+    monkeypatch.setattr(api, "offsite_settings", offsite.settings)
+    assert c.get("/api/apps/trip/backups", headers=headers("friend")).status_code == 403
+    owner_inventory = c.get("/api/apps/trip/backups", headers=headers("owner"))
+    assert owner_inventory.status_code == 200
+    assert owner_inventory.json()["backups"] == [
+        {**manifest, "remote_status": "complete", "remote_only": True}
+    ]
+
+    restore_url = f"/api/apps/trip/backups/{backup_id}/restore"
+    payload = {"confirm_replace_data": True, "idempotency_key": "remote-restore"}
+    assert c.post(restore_url, json=payload, headers=headers("friend")).status_code == 403
+    fake.archive = MagicMock()
+    fake.container = MagicMock()
+    result = c.post(restore_url, json=payload, headers=headers("owner"))
+    assert result.status_code == 200
+    assert offsite.downloads == [("trip", backup_id)]
+    fake.archive.assert_called_once_with("trip", backup_id, restore=True)
+    fake.container.return_value.stop.assert_called_once_with(timeout=10)
+    fake.container.return_value.start.assert_called_once()

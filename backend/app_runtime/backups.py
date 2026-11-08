@@ -86,7 +86,12 @@ class Backups:
             if was_running:
                 self.runtime.container(name).stop(timeout=10)
             self.runtime.archive(name, backup_id)
-            manifest = {"id": backup_id, "app": name, "created": self.clock(), "kind": kind, "format": "workspace-v1"}
+            created = self.clock()
+            registry = self.store.backup_registry(created)
+            registry_temporary = folder / "registry.tmp"
+            registry_temporary.write_text(json.dumps(registry, sort_keys=True))
+            registry_temporary.replace(folder / "registry.json")
+            manifest = {"id": backup_id, "app": name, "created": created, "kind": kind, "format": "workspace-v1"}
             temporary = folder / "manifest.tmp"
             temporary.write_text(json.dumps(manifest))
             temporary.replace(folder / "manifest.json")

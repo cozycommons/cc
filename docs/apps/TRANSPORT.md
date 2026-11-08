@@ -99,8 +99,9 @@ scripts/apps-dev.sh cli download weekend /workspace/results.tgz ./results.tgz
 
 ## Platform snapshots
 
-`app_backups(app, action=list)` returns owner-only inventory, next scheduled time
-and any backup error. Create and restore require ownership and edit scope:
+`app_backups(app, action=list)` returns owner-only local and (when configured)
+remote inventory, remote-copy status, next scheduled time and backup errors.
+Create and restore require ownership and edit scope:
 
 ```json
 {"app":"weekend","action":"create","idempotency_key":"before-edit-1"}
@@ -111,6 +112,10 @@ Git history, resumes it and retains the newest three successful snapshots.
 Restore needs an exact listed `backup_id`, a new `idempotency_key`, and
 `confirm_replace_data=true` after explicit user approval. It replaces all current
 workspace data. Membership and platform routes are not restored from app files.
+When an off-host copy is configured and the local archive is absent, restore
+downloads it to staging and verifies its manifest and SHA-256 checksums before
+replacing the workspace. Remote retention and the remaining fresh-host recovery
+limits are documented in [HOSTING.md](HOSTING.md).
 
 API and CLI snapshot mutations require keys too. Repeat the same request/key to
 retrieve the recorded outcome without restoring again. Outcomes live in the
