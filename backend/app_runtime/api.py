@@ -14,20 +14,21 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from .backups import BackupRejected, Backups, INTERVAL
 from .core import Store, allowed, digest, hostname, proxy_config, service_name, slug
 from .docker_runtime import Runtime, TRANSFER_LIMIT
+from .changes_page import render_changes_page
+from .portal_assets import router as portal_assets_router
+from .portal_content import landing_page, router as portal_content_router
 from .settings import Settings
 from request_validation import install as install_validation
 from .hosted_auth import HostedAuth, BROWSER_HEADERS, clean_cookie
-from .portal_assets import router as portal_assets_router
-from .portal_content import landing_page, router as portal_content_router
-from fastapi.responses import RedirectResponse
 from uuid import UUID
 from .supabase_backups import (
     RemoteBackupWorker,
@@ -60,6 +61,7 @@ transfer_slots = threading.BoundedSemaphore(2)
 transfer_users = set()
 inspection_slots = threading.BoundedSemaphore(2)
 inspection_cache = {}
+changes_slots = threading.BoundedSemaphore(2)
 UPLOAD_BODY_TIMEOUT = 30
 
 
@@ -180,6 +182,19 @@ def identity(request: Request):
     return result
 
 
+def portal_identity(request: Request):
+    if not hosted_auth:
+        return identity(request)
+    if request.headers.get("host") != settings.portal:
+        raise HTTPException(404, "Changes are available only in the Apps portal")
+    session = hosted_auth.session(request)
+    if not session:
+        raise HTTPException(401, "Sign in to Cozy Commons Apps")
+    who = hosted_auth.user(session["token"])
+    if not who:
+        raise HTTPException(401, "Sign in to Cozy Commons Apps")
+    return who
+
 def authorized(name, who, required="viewer"):
     record = store.get(name)
     if not record or not allowed(record, who, "viewer"):
@@ -252,16 +267,57 @@ def index(request: Request):
             f'<a href="{html.escape(route["url"])}">{html.escape(name)}</a> ({route_audience(route)})'
             for name, route in view["routes"].items()
         )
+        changes = (
+            f'<a href="/apps/{quote(view["name"], safe="")}/changes">Changes</a>'
+            if view["role"] in {"owner", "contributor"} else ""
+        )
         rows.append(
-            f"<tr><td>{html.escape(view['name'])}</td><td>{view['status']}</td><td>{view['role']}</td><td>{links or 'No published ports'}</td></tr>"
+            f"<tr><td>{html.escape(view['name'])}</td><td>{view['status']}</td><td>{view['role']}</td><td>{links or 'No published ports'}</td><td>{changes}</td></tr>"
         )
     return (
-        '<!doctype html><html><head><meta name="viewport" content="width=device-width"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Apps</title><style>body{font:16px system-ui;max-width:900px;margin:48px auto;padding:0 24px;color:#292b26;background:#f7f6f1}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:16px 8px;border-bottom:1px solid #ddd}a{color:#375c49}</style></head><body><h1>Apps</h1><table><tr><th>App</th><th>Status</th><th>Role</th><th>Services</th></tr>'
+        '<!doctype html><html><head><meta name="viewport" content="width=device-width"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><title>Apps</title><style>body{font:16px system-ui;max-width:900px;margin:48px auto;padding:0 24px;color:#292b26;background:#f7f6f1}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:16px 8px;border-bottom:1px solid #ddd}a{color:#375c49}</style></head><body><h1>Apps</h1><table><tr><th>App</th><th>Status</th><th>Role</th><th>Services</th><th>Changes</th></tr>'
         + "".join(rows)
         + "</table>"
         + (f'<p>Your Commons user ID: <code>{html.escape(who)}</code></p><p>Synthetic-data pilot. Agent tools are on the Cozy Commons connector.</p><form action="/_commons/logout" method="post"><button>Sign out of Apps</button></form>' if settings.hosted else "")
         + "</body></html>"
     )
+
+
+@app.get("/apps/{name}/changes", response_class=HTMLResponse)
+def app_changes(name: str, who=Depends(portal_identity)):
+    authorized(name, who, "contributor")
+    lock = store.app_lock(name)
+    if not lock.acquire(blocking=False):
+        return render_changes_page(
+            name, error="App is busy; retry after maintenance.", status_code=409
+        )
+    try:
+        record = authorized(name, who, "contributor")
+        try:
+            ready(record)
+        except HTTPException as exc:
+            if exc.status_code != 409:
+                raise
+            return render_changes_page(
+                name,
+                error="App is stopped or unavailable. Start it to inspect Git changes.",
+                status_code=409,
+            )
+        if not changes_slots.acquire(blocking=False):
+            return render_changes_page(
+                name, error="Git inspection is busy; retry shortly.", status_code=429
+            )
+        try:
+            result = runtime.changes(name)
+        except Exception:
+            return render_changes_page(
+                name, error="Git inspection is unavailable; retry shortly.", status_code=503
+            )
+        finally:
+            changes_slots.release()
+        return render_changes_page(name, result=result)
+    finally:
+        lock.release()
 
 
 def runtime_details(name):

@@ -201,3 +201,28 @@ def test_archive_symlink_swap_stays_in_container_namespace(sandbox,monkeypatch):
         assert result['content']==b'container namespace'
     except ValueError:
         pass  # Engines may refuse the raced symlink instead.
+
+
+def test_real_git_changes_helper_omits_untracked_contents(sandbox):
+    container = sandbox.container('trip')
+
+    def run(arguments):
+        result = container.exec_run(arguments)
+        assert result.exit_code == 0, result.output.decode(errors='replace')
+
+    run(['/usr/bin/git', 'init', '--quiet', '/workspace/repo'])
+    run(['python', '-c',
+         "from pathlib import Path; Path('/workspace/repo/tracked.txt').write_text('before\\n')"])
+    run(['/usr/bin/git', '-C', '/workspace/repo', 'add', '--', 'tracked.txt'])
+    run(['/usr/bin/git', '-C', '/workspace/repo', '-c', 'user.name=Inspection Test',
+         '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'initial'])
+    run(['python', '-c',
+         "from pathlib import Path; Path('/workspace/repo/tracked.txt').write_text('before\\nafter\\n'); "
+         "Path('/workspace/repo/untracked.txt').write_text('untracked-secret-marker\\n')"])
+
+    report = sandbox.changes('trip')
+    result = report['repositories'][0]
+    assert result['error'] is None
+    assert any('after' in diff['text'] for diff in result['diffs'])
+    assert any(change['untracked'] for change in result['changes'])
+    assert 'untracked-secret-marker' not in str(report)

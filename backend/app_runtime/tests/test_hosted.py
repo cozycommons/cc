@@ -83,6 +83,7 @@ def test_public_portal_pages_leave_apps_api_protected(hosted):
     assert '/mcp, select cozy-commons, and choose Authenticate' in setup.text
     assert 'codex mcp login cozy-commons' in setup.text
     assert 'review and approve the requested permissions' in setup.text
+    assert 'commons:edit allows tools to make changes.' in setup.text
     assert 'client secrets in agent' in setup.text
     assert 'create_app' not in setup.text
     assert 'enable_project' not in setup.text
@@ -129,10 +130,136 @@ def test_creator_roles_and_cookie_cannot_execute(hosted):
     assert directory.status_code == 200
     assert 'Your Commons user ID' in directory.text
     assert '<tr><td>trip</td>' in directory.text
+    assert 'href="/apps/trip/changes"' in directory.text
     assert 'Connect an agent' not in directory.text
     assert 'href="/favicon.svg"' in directory.text
     assert c.post('/api/apps', json={'name': 'oops'}).status_code == 401
     assert c.post('/api/apps', json={'name': 'oops'}, headers={**bearer(), 'Origin': 'https://trip.example.test'}).status_code == 403
+
+def test_changes_page_requires_portal_owner_or_contributor_session(hosted):
+    c, api = hosted
+    called = []
+    api.runtime.changes = lambda name: called.append(name) or {
+        'repositories': [{
+            'path': '.', 'branch': 'main', 'detached': False,
+            'commit': {'sha': '0123456789ab', 'subject': 'initial'},
+            'changes': [], 'diffs': [], 'omitted_diffs': 0, 'truncated': False,
+            'error': None,
+        }],
+        'truncated': False,
+    }
+    owner = api.hosted_auth.new_session('apps.example.test', 'owner-token')
+    owner_response = c.get('/apps/trip/changes', headers={'Cookie': f'{SESSION}={owner}'})
+    assert owner_response.status_code == 200
+    assert 'Branch: <code>main</code>' in owner_response.text
+    assert '0123456789ab' in owner_response.text
+    assert 'History and recovery' in owner_response.text
+    assert owner_response.headers['cache-control'] == 'no-store'
+    app_bound = api.hosted_auth.new_session('trip.example.test', 'owner-token')
+    assert c.get(
+        '/apps/trip/changes', headers={'Cookie': f'{SESSION}={app_bound}'}
+    ).status_code == 401
+    stale = api.hosted_auth.new_session('apps.example.test', 'owner-token')
+    api.hosted_auth.families.delete_where(lambda _: True)
+    assert c.get(
+        '/apps/trip/changes', headers={'Cookie': f'{SESSION}={stale}'}
+    ).status_code == 401
+
+    record = api.store.get('trip')
+    record['members'][OTHER] = 'contributor'
+    api.store.put(record)
+    contributor = api.hosted_auth.new_session('apps.example.test', 'other-token')
+    assert c.get(
+        '/apps/trip/changes', headers={'Cookie': f'{SESSION}={contributor}'}
+    ).status_code == 200
+    assert called == ['trip', 'trip']
+
+    viewer = api.hosted_auth.new_session('apps.example.test', 'viewer-token')
+    assert c.get(
+        '/apps/trip/changes', headers={'Cookie': f'{SESSION}={viewer}'}
+    ).status_code == 403
+    outsider = api.hosted_auth.new_session('apps.example.test', 'other-token')
+    record['members'].pop(OTHER)
+    api.store.put(record)
+    assert c.get(
+        '/apps/trip/changes', headers={'Cookie': f'{SESSION}={outsider}'}
+    ).status_code == 404
+    assert c.get('/apps/trip/changes').status_code == 401
+    assert c.get(
+        '/apps/trip/changes', headers={'Authorization': 'Bearer app-key'}
+    ).status_code == 401
+    assert c.get(
+        '/apps/trip/changes',
+        headers={
+            'Host': 'trip.example.test',
+            'Cookie': f'{SESSION}={owner}',
+        },
+    ).status_code == 404
+    assert called == ['trip', 'trip']
+
+
+def test_changes_page_keeps_api_caller_secret_boundary(hosted):
+    c, _ = hosted
+    assert c.get('/api/apps').status_code == 401
+    assert c.get(
+        '/api/apps', headers={'Authorization': 'Bearer owner-token'}
+    ).status_code == 401
+    assert c.post(
+        '/api/apps/trip/exec',
+        json={'command': 'id'},
+        headers={'Authorization': 'Bearer owner-token'},
+    ).status_code == 401
+
+
+def test_changes_page_has_no_repo_stopped_busy_and_escaped_states(hosted):
+    c, api = hosted
+    owner = api.hosted_auth.new_session('apps.example.test', 'owner-token')
+    headers = {'Cookie': f'{SESSION}={owner}'}
+    called = []
+    api.runtime.changes = lambda name: called.append(name) or {
+        'repositories': [], 'truncated': False,
+    }
+    no_repo = c.get('/apps/trip/changes', headers=headers)
+    assert no_repo.status_code == 200
+    assert 'No Git repositories were found' in no_repo.text
+    assert called == ['trip']
+
+    record = api.store.get('trip')
+    record['status'] = 'stopped'
+    api.store.put(record)
+    stopped = c.get('/apps/trip/changes', headers=headers)
+    assert stopped.status_code == 409
+    assert 'Start it to inspect Git changes' in stopped.text
+    assert called == ['trip']
+    record['status'] = 'running'
+    api.store.put(record)
+
+    assert api.changes_slots.acquire(blocking=False)
+    assert api.changes_slots.acquire(blocking=False)
+    try:
+        busy = c.get('/apps/trip/changes', headers=headers)
+        assert busy.status_code == 429
+        assert 'Git inspection is busy' in busy.text
+    finally:
+        api.changes_slots.release()
+        api.changes_slots.release()
+
+    api.runtime.changes = lambda name: {
+        'repositories': [{
+            'path': 'repo</code><script>alert(1)</script>',
+            'branch': 'main', 'detached': False, 'commit': None,
+            'changes': [], 'diffs': [{
+                'path': 'x</code><script>alert(2)</script>',
+                'text': '+<script>alert(3)</script>',
+            }],
+            'omitted_diffs': 0, 'truncated': False, 'error': None,
+        }],
+        'truncated': False,
+    }
+    escaped = c.get('/apps/trip/changes', headers=headers)
+    assert escaped.status_code == 200
+    assert '<script>' not in escaped.text
+    assert '&lt;script&gt;' in escaped.text
 
 
 def test_private_routes_revalidate_membership_and_host(hosted):

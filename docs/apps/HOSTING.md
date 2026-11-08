@@ -40,6 +40,19 @@ fail startup. The local Compose and stdio client retain their loopback guards.
   require bearer authentication. Mutating browser requests have an exact Origin
   check. Caddy strips platform Authorization, proxy credentials and platform
   cookies before forwarding, preserving application-owned cookies.
+- The Apps portal's `/apps/<name>/changes` page is a separate, read-only browser
+  exception: it requires a validated Apps session on the exact portal host and
+  current owner/contributor membership. Viewers, public requests, app-host
+  requests and app-container tokens cannot read it. It runs a fixed Git
+  inspection helper inside an already-running app; no browser input is treated
+  as a command or filesystem path, and the page never starts a stopped app.
+- Git inspection discovers repositories only below `/workspace`, bounds
+  traversal, subprocess time and output, and omits untracked contents,
+  sensitive-looking paths, binary/large diffs and unsupported Git metadata.
+  It disables hooks, filters, external diff/textconv, pagers and lazy object
+  fetches; linked-worktree config that can enable external helpers is rejected.
+  Rendered HTML is escaped and not cacheable. This view is not a secret scanner
+  or a record of automatic workspace history.
 - Private routes admit contributors by default. Viewers reach a route only when
   it is published with `--viewers`, because an app server can return source or
   `.git` contents. App hosts share one site, so `SameSite=Lax` does not stop one
