@@ -253,8 +253,7 @@ def test_transfer_per_caller_limit_and_upload_deadline(client,monkeypatch):
                    content=b'',headers=headers('friend'))
     assert response.status_code==408
     fake.transfer.assert_not_called()
-    assert api.transfer_user_slots['friend'].acquire(False)
-    api.transfer_user_slots['friend'].release()
+    assert 'friend' not in api.transfer_users
 
 
 def test_invalid_snapshot_manifest_is_a_repeatable_rejection(client):
@@ -279,3 +278,42 @@ def test_only_known_manager_errors_cross_the_oauth_bridge():
     assert 'unknown' in manager_error(response)
     assert manager_error(httpx.Response(422,json={'detail':'unexpected upstream secret'})) is None
     assert manager_error(httpx.Response(422,json={'detail':{'secret':'unexpected'}})) is None
+
+
+@pytest.mark.asyncio
+async def test_repeated_upload_cancellation_holds_quota_until_writer_finishes(client):
+    import asyncio
+    c,api,fake=client
+    entered,release=threading.Event(),threading.Event()
+    data=b'bytes'
+    def write(*args):
+        entered.set()
+        assert release.wait(5)
+        return {'written':True}
+    fake.transfer=write
+    class Incoming:
+        async def stream(self):
+            yield data
+    task=asyncio.create_task(api.upload_file('trip',Incoming(),'/workspace/a',hashlib.sha256(data).hexdigest(),'friend'))
+    try:
+        started = await asyncio.to_thread(entered.wait,2)
+        assert started, task.exception() if task.done() else "writer did not start"
+        task.cancel()
+        await asyncio.sleep(.01)
+        task.cancel()
+        await asyncio.sleep(.01)
+        assert 'friend' in api.transfer_users and not task.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert 'friend' not in api.transfer_users
+
+
+def test_inspection_cache_has_a_fixed_entry_bound(client):
+    _,api,fake=client
+    fake.inspect=MagicMock(return_value={'state':'running'})
+    for i in range(128):
+        api.inspection_cache[str(i)]=(api.time.monotonic(),{'state':'cached'})
+    assert api.runtime_details('trip')['state']=='running'
+    assert len(api.inspection_cache)==128

@@ -176,7 +176,7 @@ exec /usr/local/bin/python3 -c 'print("x"*10000000)'
 
 def test_upload_metadata_is_computed_by_manager(sandbox,monkeypatch):
     def fake_exec(name,command,seconds,output):
-        output(b'{"path":"/state","size_bytes":999,"sha256":"wrong","unexpected":"never return"}')
+        output(b'exit-zero helper metadata is deliberately malformed')
         return 0
     monkeypatch.setattr(sandbox,'_exec',fake_exec)
     result=sandbox.transfer('trip','/workspace/target',b'bytes')

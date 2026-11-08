@@ -41,7 +41,7 @@ runtime = Runtime()
 backups = Backups(store, runtime, state)
 proxy_lock = threading.RLock()
 transfer_slots = threading.BoundedSemaphore(2)
-transfer_user_slots = {}
+transfer_users = set()
 inspection_slots = threading.BoundedSemaphore(2)
 inspection_cache = {}
 UPLOAD_BODY_TIMEOUT = 30
@@ -242,6 +242,8 @@ def runtime_details(name):
     try:
         details = runtime.inspect(name)
         with store.lock:
+            if len(inspection_cache) >= 128 and name not in inspection_cache:
+                inspection_cache.pop(next(iter(inspection_cache)))
             inspection_cache[name] = (time.monotonic(), details)
         return details
     except Exception:
@@ -480,17 +482,19 @@ def cancel_job(name: str, job_id: str, who=Depends(identity)):
 @contextmanager
 def transfer_slot(who):
     with store.lock:
-        user_slot = transfer_user_slots.setdefault(who, threading.BoundedSemaphore(1))
-    if not user_slot.acquire(blocking=False):
-        raise HTTPException(429, "A file transfer is already active for this caller; retry shortly")
-    if not transfer_slots.acquire(blocking=False):
-        user_slot.release()
-        raise HTTPException(429, "Two file transfers are already active; retry shortly")
+        if who in transfer_users:
+            raise HTTPException(429, "A file transfer is already active for this caller; retry shortly")
+        transfer_users.add(who)
+    acquired = transfer_slots.acquire(blocking=False)
     try:
+        if not acquired:
+            raise HTTPException(429, "Two file transfers are already active; retry shortly")
         yield
     finally:
-        transfer_slots.release()
-        user_slot.release()
+        if acquired:
+            transfer_slots.release()
+        with store.lock:
+            transfer_users.remove(who)
 
 
 @contextmanager
@@ -543,11 +547,18 @@ async def upload_file(name: str, request: Request, path: str = Query(max_length=
             finally:
                 lock.release()
         task = asyncio.create_task(asyncio.to_thread(write))
-        try:
-            return await asyncio.shield(task)
-        except asyncio.CancelledError:
-            await task
-            raise
+        cancelled = False
+        while True:
+            try:
+                result = await asyncio.shield(task)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+                if task.cancelled():
+                    raise
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
 
 
 class FileWrite(BaseModel):

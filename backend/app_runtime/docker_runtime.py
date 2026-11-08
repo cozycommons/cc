@@ -109,8 +109,6 @@ class Runtime:
                 getattr(connection, "_sock", connection).shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
-            finally:
-                connection.close()
 
         watchdog = threading.Timer(seconds, close_stream)
         watchdog.daemon = True
@@ -210,7 +208,8 @@ class Runtime:
             code = self._exec(name, ["python", "-c", FILE_SCRIPT, payload], 30, collect)
             if code:
                 raise ValueError("Transfer failed: path must be a regular file inside /workspace and within the requested byte limit")
-            metadata = json.loads(metadata_bytes)
+            if content is None:
+                metadata = json.loads(metadata_bytes)
         finally:
             if content is not None:
                 try:
