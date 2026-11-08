@@ -23,7 +23,12 @@ Data outside /workspace, external databases, and installed OS packages are not
 included in workspace backups.
 
 Bind web services to 0.0.0.0. Use `commons expose PORT --default` or
-`commons expose PORT --name NAME`; add --public only for intentional public access.
+`commons expose PORT --name NAME`. Routes admit contributors only; add
+--viewers when viewers should use it, or --public only for intentional public
+access. Anything a server returns is readable by its audience: never serve
+/workspace itself, .git or source files on a viewer or public route. Serve a
+built directory (such as dist/ or public/) and keep dev servers, which expose
+source and source maps, on contributor-only routes.
 `commons unexpose NAME` removes a route; use default for the main route.
 Publishing does not start your server. External agents run these same commands
 through MCP exec_command. Long commands return a job ID: reconnect with job_id,

@@ -9,7 +9,7 @@ import json
 import secrets
 import threading
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 import httpx
@@ -18,6 +18,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 SESSION = '__Host-commons-session'
 LOGIN = '__Host-commons-login'
+CALLER = 'x-commons-apps-caller'
+CALLER_REJECTED = 'Apps caller not recognized'
 BROWSER_HEADERS = {
     'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
@@ -156,6 +158,36 @@ class HostedAuth:
                     return host
         raise HTTPException(400, 'Unknown app host')
 
+    def app_of(self, url):
+        """The app whose host serves url, or None for any other origin."""
+        parsed, suffix = urlsplit(url), '.' + self.settings.domain
+        host = parsed.hostname or ''
+        label = host[:-len(suffix)] if host.endswith(suffix) else ''
+        if parsed.scheme != 'https' or not label or '.' in label:
+            return None
+        return label.split('--')[0]
+
+    def same_app(self, request, app):
+        """Refuse requests another app's page started with this app's cookie.
+
+        Sibling app hosts are one site, so SameSite=Lax still attaches a member's
+        session to fetches, WebSockets, subresources and frames they trigger.
+        Top-level navigations stay allowed: the other page cannot read them.
+        """
+        origin = request.headers.get('origin')
+        if origin is not None:
+            return self.app_of(origin) == app
+        site = request.headers.get('sec-fetch-site')
+        if site in {'same-origin', 'none'}:
+            return True
+        framed = request.headers.get('sec-fetch-dest') in {'iframe', 'frame', 'embed', 'object'}
+        if site is not None and request.headers.get('sec-fetch-mode') == 'navigate' and not framed:
+            return True
+        # Cross-origin subresources and frames, or a browser without Fetch
+        # Metadata: only a referring page on this app can vouch for them.
+        referer = request.headers.get('referer')
+        return referer is not None and self.app_of(referer) == app
+
     def session(self, request):
         host = self.host(request)
         entry = self.sessions.get(request.cookies.get(SESSION, ''))
@@ -164,6 +196,12 @@ class HostedAuth:
     def identify(self, request):
         header = request.headers.get('authorization', '')
         if header.startswith('Bearer '):
+            # Agent bearers arrive only through the Commons backend. Requiring
+            # its shared secret keeps a user token leaked elsewhere (such as a
+            # frontend session) from reaching shell or membership APIs.
+            caller = request.headers.get(CALLER, '').encode()
+            if not secrets.compare_digest(caller, self.settings.caller_secret.encode()):
+                raise HTTPException(401, CALLER_REJECTED)
             return self.user(header[7:])
         # Browser cookies never authorize shell, membership or lifecycle APIs.
         if request.url.path == '/' or request.url.path.startswith('/authorize/'):

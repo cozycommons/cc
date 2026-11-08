@@ -39,6 +39,20 @@ fail startup. The local Compose and stdio client retain their loopback guards.
   require bearer authentication. Mutating browser requests have an exact Origin
   check. Caddy strips platform Authorization, proxy credentials and platform
   cookies before forwarding, preserving application-owned cookies.
+- Private routes admit contributors by default. Viewers reach a route only when
+  it is published with `--viewers`, because an app server can return source or
+  `.git` contents. App hosts share one site, so `SameSite=Lax` does not stop one
+  app's page from sending a member's cookie to another app. Route authorization
+  refuses requests whose `Origin` is a different app. Without `Origin`, it
+  admits same-origin requests and top-level navigations; cross-origin
+  subresources and frames need a `Referer` on the same app. Browsers without
+  Fetch Metadata (Safari before 16.4, Firefox before 90) therefore need that
+  `Referer` even to navigate. Services of the same app (`trip` and
+  `trip--api`) may call each other.
+- Bearer requests must also carry `X-Commons-Apps-Caller`, a secret only the
+  shared backend and the manager hold. A user's Supabase token alone, such as
+  a frontend session token, cannot reach shell or membership APIs. App
+  container capabilities do not use this header.
 - Login allocation is globally limited to 60/minute. Auth validation is limited
   to 600/minute and four concurrent requests. These protective budgets are global
   behind TCP passthrough, not per-client fairness; overload temporarily rejects
@@ -84,7 +98,7 @@ handler was configured. Recheck these facts at rollout time.
    base directory `/`, Compose path `/infra/apps/hosted/compose.yaml`.
    Disable automatic deployments. Coolify invokes Compose with the repository
    root as its project directory; build contexts are consequently `.`.
-4. Configure only these public values on the new resource:
+4. Configure these values on the new resource. All but the last are public:
 
    ```dotenv
    APPS_DOMAIN=cozycommons.dev
@@ -92,11 +106,13 @@ handler was configured. Recheck these facts at rollout time.
    APPS_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
    APPS_MCP_OAUTH_CLIENT_ID=cf9b18d4-f3e8-44cb-8d13-0f23e591ce3b
    APPS_RUNTIME_IMAGE=cc-apps-runtime:<reviewed-commit>
+   APPS_MANAGER_CALLER_SECRET=<openssl rand -hex 32, generated for Apps only>
    ```
 
-   Use the existing frontend's publishable key. Do not copy shared backend
-   secrets, the service-role key, OAuth client secret or any production dotenv
-   into this resource. There are no secret host-file mounts. Coolify can append
+   Use the existing frontend's publishable key. The caller secret is new and
+   shared only with the backend (step 8). Do not copy shared backend secrets,
+   the service-role key, OAuth client secret or any production dotenv into
+   this resource. There are no secret host-file mounts. Coolify can append
    resource environment values to every service: verify no inherited secrets.
 5. Build the runtime image on the target daemon **before creating an app**:
    use the `build` profile's `runtime-image` service, or build the runtime
@@ -114,8 +130,11 @@ handler was configured. Recheck these facts at rollout time.
 7. Add the central callback above to the Supabase Auth redirect allowlist,
    retaining all existing entries. Google sign-in must already be enabled.
    Confirm no wildcard app callback is added and no production auth secrets change.
-8. Set backend runtime `APPS_MANAGER_URL=https://apps.cozycommons.dev`, then
-   deploy the reviewed backend through its existing workflow. The exact Apps
+8. Set backend runtime `APPS_MANAGER_URL=https://apps.cozycommons.dev` and the
+   same `APPS_MANAGER_CALLER_SECRET`, then deploy the reviewed backend through
+   its existing workflow. Without the secret, Apps tools report that hosting is
+   not configured. Set it on the backend before restarting a manager that
+   requires it. The exact Apps
    host is included in `deploy/api-egress/hosts.txt` for the egress topology;
    do not weaken its policy or independently migrate the backend topology.
 
@@ -153,6 +172,17 @@ handshakes. Certificate state is durable in `cc-apps-hosted-caddy-data`.
 Caddy's admin API stays on container loopback. Unpublished app ports have no host
 bindings. App-host `/_commons/*` belongs to the platform. Internal app publication
 uses only the `http://proxy/api-control` route and its app-scoped capability.
+That route forwards only `PUT`/`DELETE` on `/api/apps/<app>/routes/<name>`;
+other manager paths are not reachable through it from the proxy's networks.
+
+App bridges are named `ccapp<hash>`. Before admitting contributors you would
+not trust with the host, drop app traffic addressed to the host itself (the
+Coolify dashboard, SSH and anything else bound on all interfaces):
+`iptables -I INPUT -i ccapp+ -j DROP`, persisted with the host's firewall
+tooling. Forwarded egress and container-to-container traffic should be
+unaffected; confirm DNS, package installs and published routes still work.
+Apps created before this naming keep Docker's default bridge names until
+recreated with a new network. This rule has not been applied to the VPS yet.
 
 ## Acceptance and rollback
 

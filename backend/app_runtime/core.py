@@ -111,6 +111,21 @@ def allowed(record, identity, required="viewer"):
     return ROLES.get(role_for(record, identity), 0) >= ROLES[required]
 
 
+# App containers reach the manager only to publish their own ports. Every other
+# manager path stays off this listener, which other containers on the proxy's
+# networks can also reach.
+CAPABILITY_ROUTE = [
+    " @capability {",
+    "  method PUT DELETE",
+    "  path_regexp ^/api-control/api/apps/[a-z0-9-]+/routes/[a-z0-9-]+$",
+    " }",
+    " handle @capability {",
+    "  uri strip_prefix /api-control",
+    "  reverse_proxy manager:9000",
+    " }",
+]
+
+
 def proxy_config(records, settings=None):
     if settings and settings.hosted:
         return hosted_proxy_config(records, settings)
@@ -151,9 +166,7 @@ def proxy_config(records, settings=None):
     lines.extend(
         [
             ":80 {",
-            " handle_path /api-control/* {",
-            "  reverse_proxy manager:9000",
-            " }",
+            *CAPABILITY_ROUTE,
             " handle {",
             '  respond "No published route" 404',
             " }",
@@ -188,7 +201,6 @@ def hosted_proxy_config(records, settings):
                 '    header_up -Authorization', '    header_up -Proxy-Authorization',
                 '    header_up -X-Forwarded-User', '   }', '  }', ' }', '}',
             ])
-    lines.extend(['http://proxy {', ' handle_path /api-control/* {',
-                  '  reverse_proxy manager:9000', ' }', ' respond 404', '}',
+    lines.extend(['http://proxy {', *CAPABILITY_ROUTE, ' respond 404', '}',
                   ':80 {', ' respond 404', '}'])
     return '\n'.join(lines) + '\n'

@@ -185,6 +185,14 @@ def public_record(record, who):
     }
 
 
+def route_audience(route):
+    # Private routes default to contributors: whatever the server returns may
+    # include source, so viewers see a route only when it was published for them.
+    if route["public"]:
+        return "public"
+    return "members" if route.get("viewers") else "contributors"
+
+
 def sync_proxy():
     with proxy_lock:
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,7 +225,7 @@ def index(request: Request):
             continue
         view = public_record(record, who)
         links = " · ".join(
-            f'<a href="{html.escape(route["url"])}">{html.escape(name)}</a> ({"public" if route["public"] else "private"})'
+            f'<a href="{html.escape(route["url"])}">{html.escape(name)}</a> ({route_audience(route)})'
             for name, route in view["routes"].items()
         )
         rows.append(
@@ -335,6 +343,7 @@ def member(name: str, user: str, body: Member, who=Depends(identity)):
 class Route(BaseModel):
     port: int = Field(ge=1024, le=65535)
     public: bool = False
+    viewers: bool = False
 
 
 @app.put("/api/apps/{name}/routes/{service}")
@@ -378,9 +387,12 @@ def authorize_route(name: str, service: str, request: Request):
         if hosted_auth.host(request) != hostname(name, service, settings):
             raise HTTPException(400, "Route host mismatch")
     if not route["public"]:
-        if hosted_auth and not identify(request):
-            return RedirectResponse("/_commons/login", status_code=303, headers=BROWSER_HEADERS)
-        authorized(name, identity(request))
+        if hosted_auth:
+            if not hosted_auth.same_app(request, name):
+                raise HTTPException(403, "Open this app directly; requests from another app or an outdated browser cannot use its sign-in")
+            if not identify(request):
+                return RedirectResponse("/_commons/login", status_code=303, headers=BROWSER_HEADERS)
+        authorized(name, identity(request), "viewer" if route.get("viewers") else "contributor")
     headers = {"X-Commons-App-Cookie": clean_cookie(request.headers.get("cookie", ""))} if hosted_auth else {}
     return Response(status_code=204, headers=headers)
 

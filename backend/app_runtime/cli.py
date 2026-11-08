@@ -29,7 +29,9 @@ def main():
     expose.add_argument("app")
     expose.add_argument("port", type=int)
     expose.add_argument("--name", default="default")
-    expose.add_argument("--public", action="store_true")
+    audience = expose.add_mutually_exclusive_group()
+    audience.add_argument("--viewers", action="store_true")
+    audience.add_argument("--public", action="store_true")
     unexpose = commands.add_parser("unexpose")
     unexpose.add_argument("app")
     unexpose.add_argument("name", default="default", nargs="?")
@@ -69,7 +71,7 @@ def main():
         result = call(
             "PUT",
             base + "/routes/" + segment(args.name),
-            {"port": args.port, "public": args.public},
+            {"port": args.port, "public": args.public, "viewers": args.viewers},
         )
     elif args.command == "unexpose":
         result = call("DELETE", base + "/routes/" + segment(args.name))

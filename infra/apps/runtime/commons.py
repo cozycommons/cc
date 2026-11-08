@@ -13,7 +13,9 @@ expose.add_argument("port", type=int)
 names = expose.add_mutually_exclusive_group(required=True)
 names.add_argument("--default", action="store_true")
 names.add_argument("--name")
-expose.add_argument("--public", action="store_true")
+audience = expose.add_mutually_exclusive_group()
+audience.add_argument("--viewers", action="store_true")
+audience.add_argument("--public", action="store_true")
 unexpose = commands.add_parser("unexpose")
 unexpose.add_argument("name")
 args = parser.parse_args()
@@ -26,7 +28,7 @@ url = (
     + name
 )
 payload = (
-    json.dumps({"port": args.port, "public": args.public}).encode()
+    json.dumps({"port": args.port, "public": args.public, "viewers": args.viewers}).encode()
     if args.command == "expose"
     else None
 )

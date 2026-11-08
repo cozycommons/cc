@@ -37,7 +37,9 @@ release or a migration of existing projects.
    address is `<app>.localhost`; named addresses are `<app>--<service>.localhost`.
    All use the prototype proxy port. Hosted addresses will use cozycommons.dev.
 6. Published routes are private unless explicitly made public. Private routes
-   require app membership; public routes need no sign-in. Platform credentials
+   admit contributors and owners; publishing with `--viewers` also admits
+   viewers, and public routes need no sign-in. Another app's page cannot use a
+   member's sign-in to call a private route. Platform credentials
    are removed before forwarding requests to app servers. HTTP and WebSockets
    are supported. Unpublished ports have no host port bindings.
 7. Publishing updates or removes a route without imposing live/preview semantics.

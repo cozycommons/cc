@@ -73,6 +73,7 @@ def validate_exec(command, job_id, cancel, after, wait_ms):
 
 # Only exact platform-authored messages may cross the OAuth bridge.
 SAFE_MANAGER_ERRORS = {
+    'Apps caller not recognized': 'Apps manager rejected this Commons backend. Ask the platform owner to set the same APPS_MANAGER_CALLER_SECRET on both services.',
     'Idempotency key already used for a different command': 'Command retry key conflicts with another command or timeout. Use a new key only for new work.',
     'Idempotency key already used for different parameters': 'Snapshot retry key conflicts with different parameters. Recover the original request before starting new work.',
     'Operation outcome is unknown; inspect snapshots and app before a new request': 'Snapshot outcome is unknown. Inspect inventory and actual app state before choosing a new key.',
