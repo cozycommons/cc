@@ -93,14 +93,18 @@ def apps_foreign(db, monkeypatch):
     # The HTTP transport reaches the real manager authorization code; see the
     # fixture below. No app belongs to this caller.
     return {'set_app_member': {'app': 'foreign', 'user': str(uuid4()), 'role': 'viewer'},
-            'exec_command': {'app': 'foreign', 'command': 'echo synthetic'}}
+            'exec_command': {'app': 'foreign', 'command': 'echo synthetic'},
+            'transfer_file': {'app': 'foreign', 'path': '/workspace/file', 'direction': 'download'},
+            'app_backups': {'app': 'foreign', 'action': 'list'}}
 
 
 FIXTURES = {
     'apps': Fixture(
         args=lambda db: {'list_apps': {}, 'create_app': {'name': 'fresh'},
                          'set_app_member': {'app': 'foreign', 'user': str(uuid4()), 'role': 'viewer'},
-                         'exec_command': {'app': 'foreign', 'command': 'echo synthetic'}},
+                         'exec_command': {'app': 'foreign', 'command': 'echo synthetic'},
+            'transfer_file': {'app': 'foreign', 'path': '/workspace/file', 'direction': 'download'},
+            'app_backups': {'app': 'foreign', 'action': 'list'}},
         foreign=apps_foreign, foreign_error='App or job not found',
         no_resource={'list_apps': 'lists only caller memberships',
                      'create_app': 'allocates new unique slug, subject to creator permission'}),
@@ -174,7 +178,7 @@ def server(monkeypatch, tmp_path):
     from app_runtime.tests.test_api import FakeRuntime
     # Shared backend intentionally has no Docker SDK dependency/socket. Stub
     # only the driver module; use the real manager API and authorization code.
-    monkeypatch.setitem(sys.modules, 'app_runtime.docker_runtime', SimpleNamespace(Runtime=FakeRuntime))
+    monkeypatch.setitem(sys.modules, 'app_runtime.docker_runtime', SimpleNamespace(Runtime=FakeRuntime, TRANSFER_LIMIT=16 * 1024 * 1024))
     for key, value in {'APPS_MODE': 'hosted', 'APPS_DOMAIN': 'example.test',
                        'APPS_SUPABASE_URL': 'https://project.supabase.co',
                        'APPS_SUPABASE_PUBLISHABLE_KEY': 'sb_publishable_test',
@@ -403,3 +407,34 @@ def test_mounted_servers_are_rejected():
     rogue = ToolProvider('rogue', mount, tools={})
     with pytest.raises(AgentConfigError, match='mounted'):
         build_server(SimpleNamespace(), (*PROVIDERS, rogue))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['create', 'restore'])
+async def test_apps_snapshot_mutations_require_edit_scope(server, action):
+    server.holder.token.scopes[:] = [READ_SCOPE]
+    with pytest.raises(ToolError, match=EDIT_SCOPE):
+        await server.call('app_backups', {'app': 'foreign', 'action': action,
+            'idempotency_key': 'once', 'backup_id': 'a'*32 if action == 'restore' else None,
+            'confirm_replace_data': action == 'restore'})
+
+
+@pytest.mark.asyncio
+async def test_apps_reconnect_and_cancel_recheck_resource_and_scope(server):
+    for cancel in [False, True]:
+        with pytest.raises(ToolError, match='App or job not found'):
+            await server.call('exec_command', {'app': 'foreign', 'job_id': 'a'*32, 'cancel': cancel})
+    server.holder.token.scopes[:] = [READ_SCOPE]
+    with pytest.raises(ToolError, match=EDIT_SCOPE):
+        await server.call('exec_command', {'app': 'foreign', 'job_id': 'a'*32, 'cancel': True})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action',['create','restore'])
+async def test_apps_snapshot_mutations_require_their_own_legacy_read_and_edit_grants(server,action):
+    args={'app':'foreign','action':action,'idempotency_key':'once'}
+    if action=='restore': args.update(backup_id='a'*32,confirm_replace_data=True)
+    for grants in [{'apps':['read'],'trips':['edit']},{'apps':['edit'],'trips':['read']}]:
+        server.holder.token.claims={'_legacy_grants':grants}
+        with pytest.raises(ToolError,match='Reconnect your agent once'):
+            await server.call('app_backups',args)

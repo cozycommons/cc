@@ -99,8 +99,8 @@ async def mcp_edit():
             tools = await session.list_tools()
             check(
                 {tool.name for tool in tools.tools}
-                == {"list_apps", "create_app", "set_app_member", "exec_command"},
-                "MCP exposes exactly four platform and shell tools",
+                == {"list_apps", "create_app", "set_app_member", "exec_command", "transfer_file", "app_backups"},
+                "MCP exposes exactly six generic sandbox tools",
             )
 
             async def shell(command):
@@ -109,6 +109,10 @@ async def mcp_edit():
                 )
                 check(not result.isError, "MCP shell call completes")
                 job = json.loads(result.content[0].text)
+                while job['status'] == 'running':
+                    result = await session.call_tool('exec_command', {'app': NAME, 'job_id': job['id'], 'wait_ms': 1000})
+                    check(not result.isError, 'MCP reconnect succeeds')
+                    job = json.loads(result.content[0].text)
                 check(job["exit_code"] == 0, "MCP shell command succeeds")
                 return job
 
@@ -398,7 +402,7 @@ def main():
         command("git rev-parse HEAD")["output"].strip() == main_commit,
         "Local Git history survives container replacement",
     )
-    backup = request("POST", f"/api/apps/{NAME}/backups", status=201)
+    backup = request("POST", f"/api/apps/{NAME}/backups", {"idempotency_key": uuid.uuid4().hex}, status=201)
     check(backup["format"] == "workspace-v1" and subprocess.run(
         ["docker", "exec", "cc-apps-local-manager", "test", "!", "-e",
          "/state/backups/" + backup["id"] + "/database.dump"]
@@ -424,7 +428,7 @@ def main():
     request(
         "POST",
         f"/api/apps/{NAME}/backups/{backup['id']}/restore",
-        {"confirm_replace_data": True},
+        {"confirm_replace_data": True, "idempotency_key": uuid.uuid4().hex},
     )
     check(
         command("python -c " + shlex.quote(

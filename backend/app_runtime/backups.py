@@ -13,6 +13,10 @@ RETRY = 5 * 60
 log = logging.getLogger(__name__)
 
 
+class BackupRejected(ValueError):
+    """A known rejection before snapshot mutation starts."""
+
+
 class Backups:
     def __init__(self, store, runtime, state, clock=time.time):
         self.store = store
@@ -68,10 +72,10 @@ class Backups:
         # Caller holds store.app_lock(name), also used by app mutations.
         name = record["name"]
         if "db_password" in record:
-            raise ValueError("Export the legacy managed database into a new sandbox before backup")
+            raise BackupRejected("Export the legacy managed database into a new sandbox before backup")
         actual = self.runtime.status(name)
         if record["status"] not in {"running", "stopped"} or actual not in {"running", "stopped"}:
-            raise ValueError("App is unavailable for backup")
+            raise BackupRejected("App is unavailable for backup")
         backup_id = uuid.uuid4().hex
         folder = self.root / backup_id
         was_running = actual == "running"

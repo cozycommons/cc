@@ -2,6 +2,10 @@
 
 import argparse
 import json
+import base64
+import hashlib
+from pathlib import Path
+from urllib.parse import urlencode
 
 from .client import call, segment
 
@@ -9,11 +13,14 @@ from .client import call, segment
 def main():
     parser = argparse.ArgumentParser(prog="commons")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("list")
+    commands.add_parser("list").add_argument("--details", action="store_true")
     create = commands.add_parser("create")
     create.add_argument("app")
-    for name in ["start", "stop", "restart", "recreate", "backup", "backups"]:
+    for name in ["start", "stop", "restart", "recreate", "backups"]:
         commands.add_parser(name).add_argument("app")
+    backup = commands.add_parser("backup")
+    backup.add_argument("app")
+    backup.add_argument("--idempotency-key", required=True)
     grant = commands.add_parser("grant")
     grant.add_argument("app")
     grant.add_argument("user")
@@ -30,17 +37,26 @@ def main():
     execute.add_argument("app")
     execute.add_argument("shell_command")
     execute.add_argument("--timeout", type=int, default=120)
+    execute.add_argument("--idempotency-key")
     job = commands.add_parser("job")
     job.add_argument("app")
     job.add_argument("id")
+    job.add_argument("--after", type=int, default=0)
+    job.add_argument("--cancel", action="store_true")
+    for name in ['upload', 'download']:
+        transfer = commands.add_parser(name)
+        transfer.add_argument('app')
+        transfer.add_argument('source')
+        transfer.add_argument('destination')
     restore = commands.add_parser("restore")
     restore.add_argument("app")
     restore.add_argument("id")
+    restore.add_argument("--idempotency-key", required=True)
     restore.add_argument("--confirm-replace-data", action="store_true", required=True)
     args = parser.parse_args()
     base = "/api/apps/" + segment(getattr(args, "app", ""))
     if args.command == "list":
-        result = call("GET", "/api/apps")
+        result = call("GET", "/api/apps?details=true" if args.details else "/api/apps")
     elif args.command == "create":
         result = call("POST", "/api/apps", {"name": args.app})
     elif args.command in {"start", "stop", "restart", "recreate"}:
@@ -61,19 +77,34 @@ def main():
         result = call(
             "POST",
             base + "/exec",
-            {"command": args.shell_command, "timeout": args.timeout},
+            {"command": args.shell_command, "timeout": args.timeout, "idempotency_key": args.idempotency_key},
         )
     elif args.command == "job":
-        result = call("GET", base + "/jobs/" + segment(args.id))
+        path = base + "/jobs/" + segment(args.id)
+        if args.cancel:
+            call('POST', path + '/cancel')
+        result = call("GET", path + '?after=' + str(args.after))
+    elif args.command in {'upload', 'download'}:
+        if args.command == 'upload':
+            source = Path(args.source)
+            if source.stat().st_size > 16 * 1024 * 1024:
+                parser.error('Transfer exceeds 16 MiB; split using shell')
+            content = source.read_bytes()
+            path = base + '/transfer?' + urlencode({'path': args.destination, 'sha256': hashlib.sha256(content).hexdigest()})
+            result = call('PUT', path, content=content)
+        else:
+            result = call('GET', base + '/transfer?' + urlencode({'path': args.source}))
+            content = base64.b64decode(result.pop('content_base64'))
+            Path(args.destination).write_bytes(content)
     elif args.command == "backups":
         result = call("GET", base + "/backups")
     elif args.command == "backup":
-        result = call("POST", base + "/backups")
+        result = call("POST", base + "/backups", {"idempotency_key": args.idempotency_key})
     else:
         result = call(
             "POST",
             base + "/backups/" + segment(args.id) + "/restore",
-            {"confirm_replace_data": True},
+            {"confirm_replace_data": True, "idempotency_key": args.idempotency_key},
         )
     print(json.dumps(result, indent=2))
 

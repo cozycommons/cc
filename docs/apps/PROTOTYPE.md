@@ -41,14 +41,13 @@ scripts/apps-dev.sh mcp
 Use the script's absolute path in the client's server configuration. Set
 `COMMONS_USER=friend` to connect as the second local identity; the default is
 `owner`. The wrapper reads only the generated local credential file. Tools:
-`list_apps`, `create_app`, `set_app_member`, and `exec_command`.
+`list_apps`, `create_app`, `set_app_member`, `exec_command`, `transfer_file`, and `app_backups`.
 
-`exec_command(app, command, timeout=120)` waits for completion and returns the
-status, exit code, last 64 KiB of output, and truncation flag. The timeout is
-1–300 seconds; configure the MCP client's tool deadline to allow that timeout
-plus reporting overhead. Execution jobs remain internal to the manager; agents
-do not need a polling tool. If the connection is interrupted, a command may
-still be running: inspect its effects or use the platform CLI before retrying.
+`exec_command` returns within a short bounded wait. Long commands return a job
+ID; reconnect using the same tool with `job_id` and `after=next_cursor`. Supply a
+unique `idempotency_key` when starting so disconnected retries cannot run it twice.
+The manager retains 64 KiB of output with explicit truncation. See
+[transport usage and limits](TRANSPORT.md) for cancellation and transfer examples.
 
 Use shell commands for file operations and `commons expose` / `commons unexpose`
 for publishing. Start persistent services through supervisor. App discovery,
@@ -133,9 +132,9 @@ when membership changes; authorization applies when a connection is established.
 ```bash
 scripts/apps-dev.sh cli restart weekend
 scripts/apps-dev.sh cli recreate weekend
-scripts/apps-dev.sh cli backup weekend
+scripts/apps-dev.sh cli backup weekend --idempotency-key before-edit-1
 scripts/apps-dev.sh cli backups weekend
-scripts/apps-dev.sh cli restore weekend BACKUP_ID --confirm-replace-data
+scripts/apps-dev.sh cli restore weekend BACKUP_ID --confirm-replace-data --idempotency-key restore-1
 scripts/apps-dev.sh cli stop weekend
 scripts/apps-dev.sh cli start weekend
 ```
@@ -158,7 +157,7 @@ so retention means three restore points rather than expiring the only good copy.
 
 `cli backups APP` lists retained IDs, timestamps, manual/automatic kind, next
 scheduled time (Unix timestamp), and any backup error. Listing and restoring
-backups remain owner-only. The MCP contract remains four tools.
+backups remain owner-only. The MCP contract has six tools; see [transport ergonomics](TRANSPORT.md).
 
 Backup briefly stops a running app and archives its entire workspace;
 a stopped app stays stopped. Daily snapshots can interrupt active requests and

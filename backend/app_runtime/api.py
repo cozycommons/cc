@@ -2,9 +2,10 @@
 
 import asyncio
 import base64
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import hmac
+import hashlib
 import html
 import json
 import os
@@ -14,13 +15,13 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
-from .backups import Backups, INTERVAL
+from .backups import BackupRejected, Backups, INTERVAL
 from .core import Store, allowed, digest, hostname, proxy_config, service_name, slug
-from .docker_runtime import Runtime
+from .docker_runtime import Runtime, TRANSFER_LIMIT
 from .settings import Settings
 from request_validation import install as install_validation
 from .hosted_auth import HostedAuth, BROWSER_HEADERS, clean_cookie
@@ -39,6 +40,11 @@ creators = set(filter(None, os.environ.get("APPS_CREATORS", "" if settings.hoste
 runtime = Runtime()
 backups = Backups(store, runtime, state)
 proxy_lock = threading.RLock()
+transfer_slots = threading.BoundedSemaphore(2)
+transfer_users = set()
+inspection_slots = threading.BoundedSemaphore(2)
+inspection_cache = {}
+UPLOAD_BODY_TIMEOUT = 30
 
 
 @asynccontextmanager
@@ -226,11 +232,36 @@ def index(request: Request):
     )
 
 
+def runtime_details(name):
+    with store.lock:
+        cached = inspection_cache.get(name)
+        if cached and time.monotonic() - cached[0] < 5:
+            return cached[1]
+    if not inspection_slots.acquire(blocking=False):
+        return {"usage": None, "diagnostic": "Runtime inspection busy; retry shortly"}
+    try:
+        details = runtime.inspect(name)
+        with store.lock:
+            if len(inspection_cache) >= 128 and name not in inspection_cache:
+                inspection_cache.pop(next(iter(inspection_cache)))
+            inspection_cache[name] = (time.monotonic(), details)
+        return details
+    except Exception:
+        return {"usage": None, "diagnostic": "Runtime inspection unavailable"}
+    finally:
+        inspection_slots.release()
+
+
 @app.get("/api/apps")
-def list_apps(who=Depends(identity)):
-    return [
-        public_record(record, who) for record in store.all() if allowed(record, who)
-    ]
+def list_apps(details: bool = False, who=Depends(identity)):
+    result = []
+    for record in store.all():
+        if allowed(record, who):
+            view = public_record(record, who)
+            if details:
+                view["runtime"] = runtime_details(record["name"])
+            result.append(view)
+    return result
 
 
 class Create(BaseModel):
@@ -357,63 +388,177 @@ def authorize_route(name: str, service: str, request: Request):
 class Command(BaseModel):
     command: str = Field(min_length=1, max_length=16000)
     timeout: int = Field(default=120, ge=1, le=300)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 def execute_job(job, command, timeout):
     def output(chunk):
         with store.lock:
+            current = store.get(job["id"], "jobs")
             size = len(chunk.encode())
-            job["output"] = (
-                (job["output"] + chunk).encode()[-65536:].decode(errors="ignore")
-            )
-            job["truncated"] = job["truncated"] or job["bytes_seen"] + size > 65536
-            job["bytes_seen"] += size
-            store.put(job, "jobs")
-
+            current["output"] = (current["output"] + chunk).encode()[-65536:].decode(errors="ignore")
+            current["truncated"] = current["truncated"] or current["bytes_seen"] + size > 65536
+            current["bytes_seen"] += size
+            store.put(current, "jobs")
     try:
-        code = runtime.run(job["app"], command, timeout, output)
-        job.update(status="finished", exit_code=code)
-    except Exception as exc:
-        job.update(status="failed", error=str(exc)[:1000])
+        code = runtime.run(job["app"], command, timeout, output, job_id=job["id"])
+        changes = {"status": "finished", "exit_code": code}
+    except Exception:
+        changes = {"status": "failed", "error": "Command execution failed; inspect app state before retrying"}
     with store.lock:
-        store.put(job, "jobs")
+        current = store.get(job["id"], "jobs")
+        if current.get("cancel_requested") and changes.get("exit_code") == 130:
+            changes["status"] = "cancelled"
+        current.update(changes, finished_at=time.time())
+        store.put(current, "jobs")
+
+
+def job_view(job, after=None):
+    result = {key: value for key, value in job.items()
+              if key not in {"request_hash", "caller", "idempotency_key"}}
+    end = job["bytes_seen"]
+    raw = job["output"].encode()
+    start = end - len(raw)
+    result.update(output_start=start, next_cursor=end)
+    if after is not None:
+        if after > end:
+            raise HTTPException(422, "Output cursor is ahead of this job")
+        result["output"] = raw[max(0, after-start):].decode(errors="ignore")
+        result["truncated"] = after < start
+    return result
 
 
 @app.post("/api/apps/{name}/exec", status_code=202)
 def execute(name: str, body: Command, who=Depends(identity)):
     with store.app_lock(name):
         record = authorized(name, who, "contributor")
+        job_id = digest(json.dumps([name, who, body.idempotency_key]))[:32] if body.idempotency_key else uuid.uuid4().hex
+        request_hash = digest(json.dumps([body.command, body.timeout]))
+        previous = store.get(job_id, "jobs")
+        if previous:
+            if previous.get("request_hash") != request_hash:
+                raise HTTPException(409, "Idempotency key already used for a different command")
+            return job_view(previous)
         ready(record)
-        if (
-            sum(
-                j["status"] == "running" and j["app"] == name for j in store.all("jobs")
-            )
-            >= 4
-        ):
+        if sum(j["status"] == "running" and j["app"] == name for j in store.all("jobs")) >= 4:
             raise HTTPException(429, "Four commands are already running")
-        job = {
-            "id": uuid.uuid4().hex,
-            "app": name,
-            "status": "running",
-            "output": "",
-            "bytes_seen": 0,
-            "truncated": False,
-            "exit_code": None,
-        }
+        job = {"id": job_id, "app": name, "status": "running", "output": "",
+               "bytes_seen": 0, "truncated": False, "exit_code": None,
+               "request_hash": request_hash, "caller": who, "created_at": time.time()}
         store.put(job, "jobs")
-        threading.Thread(
-            target=execute_job, args=(job, body.command, body.timeout), daemon=True
-        ).start()
-    return {"id": job["id"], "status": "running"}
+        threading.Thread(target=execute_job, args=(job, body.command, body.timeout), daemon=True).start()
+    return job_view(job)
 
 
-@app.get("/api/apps/{name}/jobs/{job_id}")
-def job_result(name: str, job_id: str, who=Depends(identity)):
+def owned_job(name, job_id, who):
     authorized(name, who, "contributor")
     job = store.get(job_id, "jobs")
     if not job or job["app"] != name:
         raise HTTPException(404, "Job not found")
     return job
+
+
+@app.get("/api/apps/{name}/jobs/{job_id}")
+def job_result(name: str, job_id: str, after: int | None = Query(default=None, ge=0), who=Depends(identity)):
+    return job_view(owned_job(name, job_id, who), after)
+
+
+@app.post("/api/apps/{name}/jobs/{job_id}/cancel")
+def cancel_job(name: str, job_id: str, who=Depends(identity)):
+    with store.app_lock(name):
+        job = owned_job(name, job_id, who)
+        if job["status"] in {"running", "interrupted"}:
+            ready(authorized(name, who, "contributor"))
+            with store.lock:
+                job = owned_job(name, job_id, who)
+                if job["status"] not in {"running", "interrupted"}:
+                    return job_view(job)
+                job["cancel_requested"] = True
+                store.put(job, "jobs")
+            runtime.cancel(name, job_id)
+        return job_view(store.get(job_id, "jobs"))
+
+
+@contextmanager
+def transfer_slot(who):
+    with store.lock:
+        if who in transfer_users:
+            raise HTTPException(429, "A file transfer is already active for this caller; retry shortly")
+        transfer_users.add(who)
+    acquired = transfer_slots.acquire(blocking=False)
+    try:
+        if not acquired:
+            raise HTTPException(429, "Two file transfers are already active; retry shortly")
+        yield
+    finally:
+        if acquired:
+            transfer_slots.release()
+        with store.lock:
+            transfer_users.remove(who)
+
+
+@contextmanager
+def transfer_app(name, who):
+    with transfer_slot(who):
+        lock = store.app_lock(name)
+        if not lock.acquire(blocking=False):
+            raise HTTPException(409, "App is busy; retry this transfer after maintenance")
+        try:
+            yield
+        finally:
+            lock.release()
+
+
+@app.get("/api/apps/{name}/transfer")
+def download_file(name: str, path: str = Query(max_length=2000),
+                  max_bytes: int = Query(default=TRANSFER_LIMIT, ge=1, le=TRANSFER_LIMIT), who=Depends(identity)):
+    authorized(name, who, "contributor")
+    with transfer_app(name, who):
+        ready(authorized(name, who, "contributor"))
+        result = runtime.transfer(name, path, max_bytes=max_bytes)
+    return Response(result["content"], media_type="application/octet-stream",
+                    headers={"X-Content-SHA256": result["sha256"], "Cache-Control": "no-store"})
+
+
+@app.put("/api/apps/{name}/transfer")
+async def upload_file(name: str, request: Request, path: str = Query(max_length=2000),
+                      sha256: str = Query(pattern="^[a-f0-9]{64}$"), who=Depends(identity)):
+    # Bound bytes before buffering a potentially untrusted request body.
+    authorized(name, who, "contributor")
+    with transfer_slot(who):
+        content = bytearray()
+        try:
+            async with asyncio.timeout(UPLOAD_BODY_TIMEOUT):
+                async for chunk in request.stream():
+                    if len(content) + len(chunk) > TRANSFER_LIMIT:
+                        raise HTTPException(413, "Transfer exceeds 16 MiB; split using shell")
+                    content.extend(chunk)
+        except TimeoutError:
+            raise HTTPException(408, "Upload body timed out; file was not changed") from None
+        if hashlib.sha256(content).hexdigest() != sha256:
+            raise HTTPException(422, "SHA-256 mismatch; file was not changed")
+        def write():
+            lock = store.app_lock(name)
+            if not lock.acquire(blocking=False):
+                raise HTTPException(409, "App is busy; retry this transfer after maintenance")
+            try:
+                ready(authorized(name, who, "contributor"))
+                return runtime.transfer(name, path, bytes(content))
+            finally:
+                lock.release()
+        task = asyncio.create_task(asyncio.to_thread(write))
+        cancelled = False
+        while True:
+            try:
+                result = await asyncio.shield(task)
+                break
+            except asyncio.CancelledError:
+                cancelled = True
+                if task.cancelled():
+                    raise
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
 
 
 class FileWrite(BaseModel):
@@ -477,14 +622,45 @@ def list_backups(name: str, who=Depends(identity)):
         }
 
 
+class SnapshotRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+def once(name, who, action, key, payload, perform):
+    operation_id = digest(json.dumps([name, who, action, key]))
+    signature = digest(json.dumps(payload, sort_keys=True))
+    previous = store.get(operation_id, "operations")
+    if previous:
+        if previous["request_hash"] != signature:
+            raise HTTPException(409, "Idempotency key already used for different parameters")
+        if previous["status"] == "rejected":
+            raise HTTPException(previous["error_status"], previous["error_detail"])
+        if previous["status"] != "finished":
+            raise HTTPException(409, "Operation outcome is unknown; inspect snapshots and app before a new request")
+        return previous["result"]
+    operation = {"id": operation_id, "request_hash": signature, "status": "started"}
+    store.put(operation, "operations")
+    try:
+        result = perform()
+    except (HTTPException, BackupRejected) as exc:
+        status = exc.status_code if isinstance(exc, HTTPException) else 422
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        operation.update(status="rejected", error_status=status, error_detail=detail)
+        store.put(operation, "operations")
+        raise HTTPException(status, detail) from None
+    operation.update(status="finished", result=result)
+    store.put(operation, "operations")
+    return result
+
+
 @app.post("/api/apps/{name}/backups", status_code=201)
-def backup(name: str, who=Depends(identity)):
+def backup(name: str, body: SnapshotRequest, who=Depends(identity)):
     with store.app_lock(name):
         record = authorized(name, who, "owner")
-        return backups.create(record)
+        return once(name, who, "backup", body.idempotency_key, {}, lambda: backups.create(record))
 
 
-class Restore(BaseModel):
+class Restore(SnapshotRequest):
     confirm_replace_data: bool = False
 
 
@@ -499,31 +675,41 @@ def restore(name: str, backup_id: str, body: Restore, who=Depends(identity)):
         raise HTTPException(404, "Backup not found")
     with store.app_lock(name):
         record = authorized(name, who, "owner")
-        # Select a manager-owned directory rather than constructing a filesystem
-        # path from request input. Never follow a substituted backup symlink.
-        folder = next(
-            (candidate for candidate in (state / "backups").iterdir()
-             if candidate.name == backup_id and candidate.is_dir() and not candidate.is_symlink()),
-            None,
-        ) if (state / "backups").is_dir() else None
-        if folder is None or not (folder / "manifest.json").is_file() or (folder / "manifest.json").is_symlink():
-            raise HTTPException(404, "Backup not found")
+        return once(name, who, "restore", body.idempotency_key, {"backup_id": backup_id},
+                    lambda: restore_workspace(name, backup_id, record, who))
+
+
+def restore_workspace(name, backup_id, record, who):
+    # Select a manager-owned directory rather than constructing a filesystem
+    # path from request input. Never follow a substituted backup symlink.
+    folder = next(
+        (candidate for candidate in (state / "backups").iterdir()
+         if candidate.name == backup_id and candidate.is_dir() and not candidate.is_symlink()),
+        None,
+    ) if (state / "backups").is_dir() else None
+    if folder is None or not (folder / "manifest.json").is_file() or (folder / "manifest.json").is_symlink():
+        raise HTTPException(404, "Backup not found")
+    try:
         manifest = json.loads((folder / "manifest.json").read_text())
-        if manifest["app"] != name:
-            raise HTTPException(404, "Backup not found")
-        if "db_password" in record or manifest.get("format") != "workspace-v1":
-            raise HTTPException(409, "Legacy database backups require explicit migration; no data was replaced")
-        record["status"] = "maintenance"
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("app"), str):
+            raise ValueError("Invalid snapshot manifest")
+    except (OSError, ValueError):
+        raise HTTPException(422, "Snapshot manifest is invalid; no workspace data was changed") from None
+    if manifest["app"] != name:
+        raise HTTPException(404, "Backup not found")
+    if "db_password" in record or manifest.get("format") != "workspace-v1":
+        raise HTTPException(409, "Legacy database backups require explicit migration; no data was replaced")
+    record["status"] = "maintenance"
+    store.put(record)
+    runtime.container(name).stop(timeout=10)
+    try:
+        runtime.archive(record["name"], folder.name, restore=True)
+        runtime.container(name).start()
+        record["status"] = "running"
+    except Exception:
+        # Keep the app stopped when restore is incomplete.
+        record["status"] = "error"
+        raise
+    finally:
         store.put(record)
-        runtime.container(name).stop(timeout=10)
-        try:
-            runtime.archive(record["name"], folder.name, restore=True)
-            runtime.container(name).start()
-            record["status"] = "running"
-        except Exception:
-            # Keep the app stopped when restore is incomplete.
-            record["status"] = "error"
-            raise
-        finally:
-            store.put(record)
     return public_record(record, who)

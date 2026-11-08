@@ -20,7 +20,7 @@ def test_exec_waits_and_preserves_bounded_result(monkeypatch):
     assert mcp_server.exec_command("trip", "some-command", 3) == finished
     assert [c[0] for c in calls] == ["POST", "GET", "GET"]
     assert calls[0][2] == {"command": "some-command", "timeout": 3}
-    assert calls[-1][1] == "/api/apps/trip/jobs/job"
+    assert calls[-1][1] == "/api/apps/trip/jobs/job?after=0"
 
 
 @pytest.mark.parametrize("status", ["failed", "interrupted"])
@@ -41,6 +41,6 @@ def test_exec_stops_polling_without_retrying_command(monkeypatch):
     times = iter([0, 17])
     monkeypatch.setattr(mcp_server, "call", call)
     monkeypatch.setattr(mcp_server.time, "monotonic", lambda: next(times))
-    with pytest.raises(TimeoutError, match="inspect it through the platform CLI"):
-        mcp_server.exec_command("trip", "some-command", 1)
+    result = mcp_server.exec_command("trip", "some-command", 1)
+    assert result['status'] == 'running'
     assert calls == ["POST", "GET"]
