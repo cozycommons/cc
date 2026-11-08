@@ -211,15 +211,21 @@ class HostedAuth:
 
     def install(self, app):
         @app.get('/_commons/login')
-        def login(request: Request):
+        def login(request: Request, app_state: str | None = None):
             self.login_budget.take()
             host = self.host(request)
             if host != self.settings.portal:
                 state = self.pending.put({'host': host}, 300)
                 url = self.settings.url(self.settings.portal) + '/_commons/authorize?' + urlencode({'target': host, 'state': state})
                 return cookie(RedirectResponse(url, headers=BROWSER_HEADERS), LOGIN, state, 300)
+            if app_state is not None:
+                if len(app_state) > 128:
+                    raise HTTPException(400, 'Sign-in expired; reopen the app')
+                continuation = self.pending.get(app_state)
+                if not continuation or not continuation.get('host'):
+                    raise HTTPException(400, 'Sign-in expired; reopen the app')
             verifier = secrets.token_urlsafe(48)
-            state = self.pending.put({'verifier': verifier}, 300)
+            state = self.pending.put({'verifier': verifier, 'app_state': app_state}, 300)
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
             url = self.settings.supabase_url + '/auth/v1/authorize?' + urlencode({
                 'provider': 'google', 'redirect_to': self.settings.url(host) + '/_commons/callback',
@@ -245,7 +251,14 @@ class HostedAuth:
             except (httpx.HTTPError, ValueError, KeyError, TypeError):
                 raise HTTPException(401, 'Sign-in failed; start again') from None
             session = self.new_session(self.settings.portal, token)
-            response = cookie(RedirectResponse('/', status_code=303, headers=BROWSER_HEADERS), SESSION, session, 3600)
+            destination = '/'
+            app_state = pending.get('app_state')
+            continuation = self.pending.get(app_state) if isinstance(app_state, str) else None
+            if continuation and continuation.get('host'):
+                destination = '/_commons/authorize?' + urlencode({
+                    'target': continuation['host'], 'state': app_state,
+                })
+            response = cookie(RedirectResponse(destination, status_code=303, headers=BROWSER_HEADERS), SESSION, session, 3600)
             response.delete_cookie(LOGIN, path='/', secure=True, httponly=True, samesite='lax')
             return response
 
@@ -258,9 +271,7 @@ class HostedAuth:
                 raise HTTPException(400, 'Sign-in expired; reopen the app')
             session = self.session(request)
             if not session or not self.user(session['token']):
-                # Finish central sign-in, then use the directory link to reopen
-                # the app. No unvalidated return URL survives the OAuth flow.
-                return RedirectResponse('/_commons/login', headers=BROWSER_HEADERS)
+                return RedirectResponse('/_commons/login?' + urlencode({'app_state': state}), headers=BROWSER_HEADERS)
             ticket = self.tickets.put({'host': target, 'state': state, 'token': session['token'], 'family': session['family']}, 60)
             return RedirectResponse(self.settings.url(target) + '/_commons/finish#' + ticket, headers=BROWSER_HEADERS)
 
