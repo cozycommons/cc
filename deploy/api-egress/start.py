@@ -69,7 +69,7 @@ def main() -> None:
     if role == 'netguard':
         os.execv('/bin/sh', ['sh', str(ROOT / 'firewall.sh')])
     if role == 'proxy':
-        config = squid_config(os.environ.get('EGRESS_MODE', 'audit'), os.environ['EGRESS_SUPABASE_HOST'])
+        config = squid_config(os.environ['EGRESS_MODE'], os.environ['EGRESS_SUPABASE_HOST'])
         Path('/tmp/squid.conf').write_text(config)
         # Squid requires a certificate to enable ClientHello inspection. This
         # ephemeral certificate can serve local access-denied TLS errors. It is
