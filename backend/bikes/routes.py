@@ -324,8 +324,11 @@ def map_png(
             raise HTTPException(422, 'Give lat and lng, or a station.')
         first = find_station(docks, marks[0])
         lat, lng = first.lat, first.lng
-    # Renders are shared for a minute per view, so the public route cannot be made to redraw on demand.
+    # Renders are shared for a minute per view; distinct views wait for a free render slot.
     key = (round(lat, 4), round(lng, 4), radius, need, tuple(marks), you, gbfs.feed_updated_at())
     stamp = f"Citi Bike {now:%-I:%M %p}"
-    png = render.cached_render(key, lambda: render.render(docks, now, lat, lng, radius, need, marks, you, stamp))
+    try:
+        png = render.cached_render(key, lambda: render.render(docks, now, lat, lng, radius, need, marks, you, stamp))
+    except render.Busy:
+        raise HTTPException(503, 'Busy drawing other maps; try again shortly.', headers={'Retry-After': '2'})
     return Response(png, media_type='image/png', headers={'Cache-Control': 'public, max-age=60'})

@@ -580,3 +580,14 @@ def test_at_a_full_station_ride_on_and_count_the_walk_back(client):
     http, _ = client
     body = http.get('/bikes/options', params={'station': PENN.short_name, 'need': 'dock'}).json()
     assert body['station']['station_id'] == PENN.short_name and body['message'].startswith('Dock here: 3 open docks now.')
+
+
+def test_map_png_refuses_when_every_render_slot_is_taken(client, monkeypatch):
+    from bikes import render
+    http, _ = client
+    monkeypatch.setattr(render, '_renders', render.threading.BoundedSemaphore(1))
+    render._renders.acquire()
+    response = http.get('/bikes/map.png', params={'lat': PENN.lat, 'lng': PENN.lng, 'radius': 2999})
+    assert response.status_code == 503 and response.headers['retry-after'] == '2'
+    render._renders.release()
+    assert http.get('/bikes/map.png', params={'lat': PENN.lat, 'lng': PENN.lng, 'radius': 2999}).status_code == 200
