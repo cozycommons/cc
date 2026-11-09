@@ -13,8 +13,10 @@ def main():
         [sys.executable, str(root / "migration_runner.py"), "--family", "all"],
         cwd=root, check=True,
     )
+    # No access log: request lines carry query strings such as OAuth codes.
     os.execv(sys.executable, [sys.executable, "-m", "uvicorn", "main:app",
-                            "--host", "0.0.0.0", "--port", "8000"])
+                            "--host", "0.0.0.0", "--port", "8000",
+                            "--no-access-log"])
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ jobs:
       - name: Verify API egress Compose with Coolify project-directory semantics
         env:
           API_RUNTIME_FILE: /daemon-only/api-runtime
+          EGRESS_MODE: audit
           EGRESS_SUPABASE_HOST: synthetic.supabase.co
           EGRESS_DB_HOST: synthetic.pooler.supabase.com
         run: |

@@ -64,7 +64,7 @@ services:
     command: [proxy]
     user: "13:13"
     environment:
-      EGRESS_MODE: ${EGRESS_MODE:-audit}
+      EGRESS_MODE: ${EGRESS_MODE:?Set audit or enforce}
       EGRESS_SUPABASE_HOST: ${EGRESS_SUPABASE_HOST:?Set exact project-ref.supabase.co}
     networks:
       private: {ipv4_address: 172.30.87.3}

@@ -29,6 +29,13 @@ INK, INK_SOFT, YOU = '#3d2f29', '#6f6256', '#2a78d6'
 
 _cache = TTLCache(maxsize=256, ttl=60)
 _lock = threading.Lock()
+# The route is public and each view is a fresh cache key, so cap concurrent
+# renders rather than let a burst of distinct views take every API worker.
+_renders = threading.BoundedSemaphore(2)
+
+
+class Busy(Exception):
+    """Every render slot is taken."""
 
 
 @lru_cache(maxsize=1)
@@ -164,7 +171,12 @@ def cached_render(key, make):
         hit = _cache.get(key)
     if hit is not None:
         return hit
-    png = make()
+    if not _renders.acquire(blocking=False):
+        raise Busy
+    try:
+        png = make()
+    finally:
+        _renders.release()
     with _lock:
         _cache[key] = png
     return png
