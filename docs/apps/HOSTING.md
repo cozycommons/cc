@@ -397,3 +397,10 @@ runtime-image`. Explicit targets build the runtime image as well as manager/Cadd
 one build at a time. Start normally with the build profile disabled. The public
 interpolation variables must be available at build and runtime. Inspect the
 rendered definition before starting.
+
+The hosted manager reconciles proxy attachments to registered app networks every
+five seconds. Compose recreates the proxy independently of app containers, so
+these dynamic attachments must be restored after deployment. Reconciliation
+checks both app and platform-instance network labels, skips existing attachments,
+and retries when Docker or the new proxy is unavailable. It does not restart app
+containers or replace their workspaces.

@@ -13,6 +13,9 @@ class FakeRuntime:
         self.fail_reload = False
         self.files = {}
 
+    def reconcile_proxy_networks(self, records):
+        pass
+
     def create(self, record, token):
         self.created = record["name"]
 

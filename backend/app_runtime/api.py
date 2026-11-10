@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import html
 import json
+import logging
 import os
 import secrets
 import threading
@@ -65,6 +66,17 @@ changes_slots = threading.BoundedSemaphore(2)
 UPLOAD_BODY_TIMEOUT = 30
 
 
+def maintain_proxy_networks(stop):
+    # Compose recreates the proxy after the manager is healthy. Reconcile
+    # continuously, not just before that replacement, and retry Docker outages.
+    while not stop.is_set():
+        try:
+            runtime.reconcile_proxy_networks(store.all())
+        except Exception:
+            logging.getLogger(__name__).warning("Proxy network reconciliation will retry")
+        stop.wait(5)
+
+
 @asynccontextmanager
 async def lifespan(app):
     if settings.hosted:
@@ -77,6 +89,10 @@ async def lifespan(app):
     stop = threading.Event()
     worker = threading.Thread(target=backups.run, args=(stop,), daemon=True)
     worker.start()
+    proxy_worker = None
+    if settings.hosted:
+        proxy_worker = threading.Thread(target=maintain_proxy_networks, args=(stop,), daemon=True)
+        proxy_worker.start()
     remote_worker = None
     if remote_backup_worker:
         remote_worker = threading.Thread(target=remote_backup_worker.run, args=(stop,), daemon=True)
@@ -86,6 +102,8 @@ async def lifespan(app):
     finally:
         stop.set()
         await asyncio.to_thread(worker.join)
+        if proxy_worker:
+            await asyncio.to_thread(proxy_worker.join)
         if remote_worker:
             await asyncio.to_thread(remote_worker.join)
 
