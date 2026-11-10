@@ -123,7 +123,7 @@ async def reject_cross_origin_mutations(request: Request, call_next):
     response = await call_next(request)
     if settings.hosted:
         response.headers['Cache-Control'] = 'no-store'
-        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers.setdefault('Referrer-Policy', 'no-referrer')
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('Content-Security-Policy', BROWSER_HEADERS['Content-Security-Policy'] + "; style-src 'unsafe-inline'")
     return response

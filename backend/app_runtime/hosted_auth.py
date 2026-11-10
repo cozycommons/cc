@@ -278,7 +278,11 @@ class HostedAuth:
         @app.get('/_commons/finish', response_class=HTMLResponse)
         def finish(request: Request):
             self.host(request)
-            return HTMLResponse('<!doctype html><title>Opening app</title><p id="status">Opening app…</p><script src="/_commons/finish.js"></script>', headers=BROWSER_HEADERS)
+            # Browsers without Fetch Metadata need a same-app Referer on the
+            # final navigation. Never send it to another origin; the ticket
+            # remains in the fragment and finish.js removes it before fetching.
+            headers = {**BROWSER_HEADERS, 'Referrer-Policy': 'same-origin'}
+            return HTMLResponse('<!doctype html><title>Opening app</title><p id="status">Opening app…</p><script src="/_commons/finish.js"></script>', headers=headers)
 
         @app.get('/_commons/finish.js')
         def finish_js():
