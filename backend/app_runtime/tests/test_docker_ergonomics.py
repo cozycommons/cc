@@ -226,3 +226,42 @@ def test_real_git_changes_helper_omits_untracked_contents(sandbox):
     assert any('after' in diff['text'] for diff in result['diffs'])
     assert any(change['untracked'] for change in result['changes'])
     assert 'untracked-secret-marker' not in str(report)
+
+
+def test_proxy_replacement_restores_app_network_and_alias(sandbox):
+    runtime = sandbox
+    prefix = runtime.prefix
+    proxy = app = None
+    network = runtime.client.networks.create(prefix + 'web', labels={
+        'cc.apps.instance': prefix, 'cc.apps': 'web',
+    })
+    try:
+        app = runtime.client.containers.run(runtime.image,
+            ['python', '-m', 'http.server', '8080', '--bind', '0.0.0.0'], entrypoint='',
+            name=prefix + 'web', network=network.name, detach=True, mem_limit='128m')
+        proxy = runtime.client.containers.run(runtime.image, ['sleep', '300'], entrypoint='',
+            name=prefix + 'proxy', network_mode='bridge', detach=True, mem_limit='128m')
+        def reachable():
+            result = proxy.exec_run(['python', '-c',
+                "import urllib.request;urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://" + prefix + "web:8080',timeout=2).read()"], environment={"RES_OPTIONS": "attempts:1 timeout:1"})
+            return result.exit_code == 0
+        runtime.reconcile_proxy_networks([{'name': 'web'}])
+        for _ in range(20):
+            if reachable():
+                break
+            time.sleep(.1)
+        assert reachable(), app.logs().decode()
+        proxy.remove(force=True)
+        proxy = runtime.client.containers.run(runtime.image, ['sleep', '300'], entrypoint='',
+            name=prefix + 'proxy', network_mode='bridge', detach=True, mem_limit='128m')
+        assert not reachable()  # Reproduce the production 502 cause.
+        runtime.reconcile_proxy_networks([{'name': 'web'}])
+        assert reachable()
+        runtime.reconcile_proxy_networks([{'name': 'web'}])  # Idempotent.
+        proxy.reload()
+        assert 'proxy' in proxy.attrs['NetworkSettings']['Networks'][network.name]['Aliases']
+    finally:
+        for container in (proxy, app):
+            if container:
+                container.remove(force=True)
+        network.remove()
