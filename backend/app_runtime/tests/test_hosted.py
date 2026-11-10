@@ -307,7 +307,8 @@ def test_browser_ticket_host_state_origin_and_replay(hosted):
     assert c.get('/_commons/login', headers={'Host': 'evil.test', 'X-Forwarded-Host': host}).status_code == 400
 
 
-def test_fresh_app_sign_in_returns_to_requested_app(hosted, monkeypatch):
+@pytest.mark.parametrize("fetch_metadata", [True, False])
+def test_fresh_app_sign_in_returns_to_requested_app(hosted, monkeypatch, fetch_metadata):
     c, api = hosted
     host = 'trip.example.test'
     app_login = c.get('/_commons/login', headers={'Host': host})
@@ -337,6 +338,16 @@ def test_fresh_app_sign_in_returns_to_requested_app(hosted, monkeypatch):
     assert resumed.status_code == 307
     assert resumed.headers['location'].startswith(f'https://{host}/_commons/finish#')
     ticket = urlsplit(resumed.headers['location']).fragment
+    finish = c.get('/_commons/finish', headers={'Host': host})
+    assert finish.headers['content-type'].startswith('text/html')
+    # Older iOS browsers omit Fetch Metadata. The handoff must retain a
+    # same-origin Referer for the navigation after redeeming the ticket,
+    # without leaking the handoff URL to other origins.
+    assert finish.headers['referrer-policy'] == 'same-origin'
+    if not fetch_metadata:
+        c.headers.pop('sec-fetch-site')
+        c.headers.pop('sec-fetch-mode')
+        c.headers['Referer'] = f'https://{host}/_commons/finish'
     app_session = c.post('/_commons/session', json={'ticket': ticket}, headers={
         'Host': host, 'Origin': f'https://{host}', 'Cookie': f'{LOGIN}={app_state}',
     })
