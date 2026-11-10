@@ -624,7 +624,7 @@ def test_another_apps_page_cannot_use_a_members_cookie(hosted):
     assert status(**framed) == 403
     assert status(**framed, Referer='https://trip--api.example.test/') == 204
     # Without Fetch Metadata (older browsers), only this app's Referer vouches.
-    assert status() == 403
+    assert status() == 303
     assert status(Referer='https://evil.example.test/page') == 403
     assert status(Referer='https://trip.example.test/page') == 204
     # Same app, own services, same-origin requests and plain navigations work.
@@ -646,7 +646,10 @@ def test_legacy_browser_recovery_renders_html_without_granting_access(hosted, ca
     key = api.hosted_auth.new_session(host, 'viewer-token')
     headers = {'Host': host, 'Cookie': f'{SESSION}={key}'}
     rejected = c.get('/authorize/trip/default', headers=headers)
-    assert rejected.status_code == 403
+    assert rejected.status_code == 303
+    assert rejected.headers['location'] == '/_commons/recover'
+    rejected = c.get(rejected.headers['location'], headers=headers)
+    assert rejected.status_code == 200
     assert rejected.headers['content-type'].startswith('text/html')
     assert 'href="/"' in rejected.text
     assert rejected.headers['referrer-policy'] == 'same-origin'
@@ -711,3 +714,14 @@ def test_html_navigation_redirects_to_public_recovery_not_authorized_app(hosted)
     denied = c.get('/authorize/trip/default', headers={**headers, 'Origin': 'https://evil.example.test'})
     assert denied.status_code == 303
     assert c.get('/authorize/trip/default', headers={**headers, 'Referer': 'https://trip.example.test/_commons/recover'}).headers['location'] == '/_commons/login'
+
+
+@pytest.mark.parametrize('accept', ['', '*/*', 'application/json', 'text/html'])
+def test_missing_browser_context_always_redirects_without_approving(hosted, accept):
+    c, _ = hosted
+    for header in ('sec-fetch-site', 'sec-fetch-mode'):
+        c.headers.pop(header)
+    response = c.get('/authorize/trip/default', headers={'Host': 'trip.example.test', 'Accept': accept})
+    assert response.status_code == 303
+    assert response.headers['location'] == '/_commons/recover'
+    assert 'X-Commons-App-Cookie' not in response.headers

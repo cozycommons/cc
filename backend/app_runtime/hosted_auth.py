@@ -216,7 +216,10 @@ class HostedAuth:
                     metadata('sec-fetch-mode', {'navigate', 'cors', 'no-cors', 'same-origin', 'websocket'}),
                     metadata('sec-fetch-dest', {'document', 'iframe', 'frame', 'empty', 'script', 'image'}),
                 )
-        if 'text/html' in request.headers.get('accept', '').lower():
+        missing_context = not any(request.headers.get(name) for name in (
+            'origin', 'referer', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest'
+        ))
+        if missing_context or 'text/html' in request.headers.get('accept', '').lower():
             # Keep forward_auth non-2xx: a 200 here would authorize the request.
             # WebKit may download an intercepted error response, so navigate
             # to a separate public document instead of rendering the 403.
@@ -229,7 +232,7 @@ class HostedAuth:
         # browsers. Cross-app fetches still get 403; framing is denied by CSP.
         return HTMLResponse(
             '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">'
-            '<title>Open app</title></head><body><h1>Open your app</h1>'
+            '<title>Continue to app</title></head><body data-recovery-version="2"><h1>Continue to your app</h1>'
             '<p>Your browser could not confirm the sign-in navigation. Continue from this page.</p>'
             '<p><a href="/" referrerpolicy="same-origin">Open app</a></p>'
             '<p>If this page returns, open the app in Safari.</p>'
