@@ -686,3 +686,28 @@ def test_browser_recovery_handles_malformed_referrer(hosted):
     })
     assert response.status_code == 403
     assert response.headers['content-type'].startswith('text/html')
+
+
+def test_html_navigation_redirects_to_public_recovery_not_authorized_app(hosted):
+    c, api = hosted
+    for header in ('sec-fetch-site', 'sec-fetch-mode'):
+        c.headers.pop(header)
+    headers = {'Host': 'trip.example.test', 'Accept': 'text/html'}
+    denied = c.get('/authorize/trip/default', headers=headers)
+    assert denied.status_code == 303
+    assert denied.headers['location'] == '/_commons/recover'
+    assert 'X-Commons-App-Cookie' not in denied.headers
+    page = c.get(denied.headers['location'], headers=headers)
+    assert page.status_code == 200
+    assert page.headers['content-type'].startswith('text/html')
+    assert page.headers['content-disposition'] == 'inline'
+    assert page.headers['referrer-policy'] == 'same-origin'
+    assert "frame-ancestors 'none'" in page.headers['content-security-policy']
+    assert 'set-cookie' not in page.headers
+    assert 'href="/"' in page.text
+    assert c.get('/_commons/recover', headers={'Host': 'evil.test'}).status_code == 400
+    # An HTML Accept header can only obtain the public recovery document,
+    # including from an untrusted origin, never a successful auth response.
+    denied = c.get('/authorize/trip/default', headers={**headers, 'Origin': 'https://evil.example.test'})
+    assert denied.status_code == 303
+    assert c.get('/authorize/trip/default', headers={**headers, 'Referer': 'https://trip.example.test/_commons/recover'}).headers['location'] == '/_commons/login'

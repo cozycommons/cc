@@ -216,6 +216,14 @@ class HostedAuth:
                     metadata('sec-fetch-mode', {'navigate', 'cors', 'no-cors', 'same-origin', 'websocket'}),
                     metadata('sec-fetch-dest', {'document', 'iframe', 'frame', 'empty', 'script', 'image'}),
                 )
+        if 'text/html' in request.headers.get('accept', '').lower():
+            # Keep forward_auth non-2xx: a 200 here would authorize the request.
+            # WebKit may download an intercepted error response, so navigate
+            # to a separate public document instead of rendering the 403.
+            return RedirectResponse('/_commons/recover', status_code=303, headers=BROWSER_HEADERS)
+        return self.recovery_page(status_code=403)
+
+    def recovery_page(self, status_code=200):
         # This contains no app content and grants no access. A top-level click
         # starts on the app origin, supplying the fallback Referer on older
         # browsers. Cross-app fetches still get 403; framing is denied by CSP.
@@ -225,8 +233,8 @@ class HostedAuth:
             '<p>Your browser could not confirm the sign-in navigation. Continue from this page.</p>'
             '<p><a href="/" referrerpolicy="same-origin">Open app</a></p>'
             '<p>If this page returns, open the app in Safari.</p>'
-            '</body></html>', status_code=403,
-            headers={**BROWSER_HEADERS, 'Referrer-Policy': 'same-origin'},
+            '</body></html>', status_code=status_code,
+            headers={**BROWSER_HEADERS, 'Referrer-Policy': 'same-origin', 'Content-Disposition': 'inline'},
         )
 
     def session(self, request):
@@ -251,6 +259,11 @@ class HostedAuth:
         return None
 
     def install(self, app):
+        @app.get('/_commons/recover', response_class=HTMLResponse)
+        def recover(request: Request):
+            self.host(request)
+            return self.recovery_page()
+
         @app.get('/_commons/login')
         def login(request: Request, app_state: str | None = None):
             self.login_budget.take()
