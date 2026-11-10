@@ -636,3 +636,53 @@ def test_another_apps_page_cannot_use_a_members_cookie(hosted):
     # Public routes carry no member identity, so they need no origin check.
     record = api.store.get('trip'); record['routes']['default']['public'] = True; api.store.put(record)
     assert status(Origin='https://evil.example.test') == 204
+
+
+def test_legacy_browser_recovery_renders_html_without_granting_access(hosted, caplog):
+    c, api = hosted
+    host = 'trip.example.test'
+    for header in ('sec-fetch-site', 'sec-fetch-mode'):
+        c.headers.pop(header)
+    key = api.hosted_auth.new_session(host, 'viewer-token')
+    headers = {'Host': host, 'Cookie': f'{SESSION}={key}'}
+    rejected = c.get('/authorize/trip/default', headers=headers)
+    assert rejected.status_code == 403
+    assert rejected.headers['content-type'].startswith('text/html')
+    assert 'href="/"' in rejected.text
+    assert rejected.headers['referrer-policy'] == 'same-origin'
+    assert "frame-ancestors 'none'" in rejected.headers['content-security-policy']
+    assert 'X-Commons-App-Cookie' not in rejected.headers
+    assert key not in rejected.text and 'viewer-token' not in rejected.text
+    assert 'origin=missing referer=missing site=missing mode=missing dest=missing' in caplog.text
+    # A click from the recovery page supplies a same-origin Referer, but still
+    # needs a valid session and membership; recovery does not grant either.
+    headers['Referer'] = f'https://{host}/'
+    assert c.get('/authorize/trip/default', headers=headers).status_code == 204
+    headers['Cookie'] = f'{SESSION}=unknown'
+    assert c.get('/authorize/trip/default', headers=headers).status_code == 303
+    headers['Cookie'] = f'{SESSION}={api.hosted_auth.new_session(host, "other-token")}'
+    assert c.get('/authorize/trip/default', headers=headers).status_code == 404
+
+
+def test_browser_recovery_diagnostics_never_log_raw_headers(hosted, caplog):
+    c, api = hosted
+    headers = {'Host': 'trip.example.test', 'Origin': 'https://evil.example.test/secret-value',
+               'Referer': 'https://evil.example.test/?token=secret-value',
+               'Sec-Fetch-Site': 'secret-value', 'Sec-Fetch-Mode': 'secret-value',
+               'Sec-Fetch-Dest': 'secret-value', 'Cookie': 'secret-value'}
+    for _ in range(2):
+        response = c.get('/authorize/trip/default', headers=headers)
+        assert response.status_code == 403
+        assert 'secret-value' not in response.text
+    assert 'secret-value' not in caplog.text
+    assert caplog.text.count('App browser recovery:') == 1
+    assert 'origin=other referer=other site=other mode=other dest=other' in caplog.text
+
+
+def test_browser_recovery_handles_malformed_referrer(hosted):
+    c, _ = hosted
+    response = c.get('/authorize/trip/default', headers={
+        'Host': 'trip.example.test', 'Origin': 'https://evil.example.test', 'Referer': 'http://[',
+    })
+    assert response.status_code == 403
+    assert response.headers['content-type'].startswith('text/html')

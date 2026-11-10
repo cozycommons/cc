@@ -6,6 +6,7 @@ only random references. Restart signs browsers out. No refresh tokens are kept.
 import base64
 import hashlib
 import json
+import logging
 import secrets
 import threading
 import time
@@ -89,6 +90,8 @@ class HostedAuth:
         self.families = Ephemeral()
         self.login_budget, self.auth_budget = Budget(60), Budget(600)
         self.auth_slots = threading.BoundedSemaphore(4)
+        self._last_origin_diagnostic = 0.0
+        self._origin_diagnostic_lock = threading.Lock()
 
     def new_session(self, host, token, family=None):
         if family is None:
@@ -187,6 +190,44 @@ class HostedAuth:
         # Metadata: only a referring page on this app can vouch for them.
         referer = request.headers.get('referer')
         return referer is not None and self.app_of(referer) == app
+
+    def browser_recovery(self, request, app):
+        # Log only finite classifications, at most once a minute. Never log
+        # raw origins/referrers, paths, query strings, cookies or credentials.
+        with self._origin_diagnostic_lock:
+            now = time.monotonic()
+            if now - self._last_origin_diagnostic >= 60:
+                self._last_origin_diagnostic = now
+                def source(name):
+                    value = request.headers.get(name)
+                    if value is None:
+                        return 'missing'
+                    try:
+                        return 'same-app' if self.app_of(value) == app else 'other'
+                    except ValueError:
+                        return 'other'
+                def metadata(name, known):
+                    value = request.headers.get(name)
+                    return 'missing' if value is None else (value if value in known else 'other')
+                logging.getLogger(__name__).warning(
+                    'App browser recovery: origin=%s referer=%s site=%s mode=%s dest=%s',
+                    source('origin'), source('referer'),
+                    metadata('sec-fetch-site', {'same-origin', 'same-site', 'cross-site', 'none'}),
+                    metadata('sec-fetch-mode', {'navigate', 'cors', 'no-cors', 'same-origin', 'websocket'}),
+                    metadata('sec-fetch-dest', {'document', 'iframe', 'frame', 'empty', 'script', 'image'}),
+                )
+        # This contains no app content and grants no access. A top-level click
+        # starts on the app origin, supplying the fallback Referer on older
+        # browsers. Cross-app fetches still get 403; framing is denied by CSP.
+        return HTMLResponse(
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">'
+            '<title>Open app</title></head><body><h1>Open your app</h1>'
+            '<p>Your browser could not confirm the sign-in navigation. Continue from this page.</p>'
+            '<p><a href="/" referrerpolicy="same-origin">Open app</a></p>'
+            '<p>If this page returns, open the app in Safari.</p>'
+            '</body></html>', status_code=403,
+            headers={**BROWSER_HEADERS, 'Referrer-Policy': 'same-origin'},
+        )
 
     def session(self, request):
         host = self.host(request)
