@@ -67,8 +67,8 @@ fail startup. The local Compose and stdio client retain their loopback guards.
   shared backend and the manager hold. A user's Supabase token alone, such as
   a frontend session token, cannot reach shell or membership APIs. App
   container capabilities do not use this header.
-- Login allocation is globally limited to 60/minute. Auth validation is limited
-  to 600/minute and four concurrent requests. These protective budgets are global
+- Login allocation is globally limited to 600/minute. Auth validation is limited
+  to 6,000/minute and 40 concurrent requests. These protective budgets are global
   behind TCP passthrough, not per-client fairness; overload temporarily rejects
   authentication. No successful identity cache delays membership checks.
 - The existing `/mcp` connector adds exactly `list_apps`, `create_app`,
