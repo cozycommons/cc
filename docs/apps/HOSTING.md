@@ -27,7 +27,10 @@ fail startup. The local Compose and stdio client retain their loopback guards.
 - Browser cookies are Secure, HttpOnly, SameSite=Lax, host-only `__Host-` cookies.
   They contain random references, not Supabase tokens. Central sign-in issues a
   60-second one-use ticket bound to the app hostname and a browser nonce. Tickets
-  travel in URL fragments, not request URLs; a same-origin POST redeems them.
+  return as single-use callback codes to `/_commons/complete`. The callback
+  checks the host and browser nonce, sets the session cookie, and redirects to
+  `/`. It needs no JavaScript. Codes are not access tokens; callback responses
+  are no-store/no-referrer and proxy access logging must remain disabled.
 - Access tokens, PKCE verifiers, sessions and tickets exist only in bounded
   manager memory. Refresh tokens are discarded. Sessions expire within one hour
   or when their upstream access token expires; manager restart signs browsers
@@ -59,10 +62,21 @@ fail startup. The local Compose and stdio client retain their loopback guards.
   app's page from sending a member's cookie to another app. Route authorization
   refuses requests whose `Origin` is a different app. Without `Origin`, it
   admits same-origin requests and top-level navigations; cross-origin
-  subresources and frames need a `Referer` on the same app. Browsers without
-  Fetch Metadata (Safari before 16.4, Firefox before 90) therefore need that
-  `Referer` even to navigate. Services of the same app (`trip` and
-  `trip--api`) may call each other.
+  subresources and frames need a `Referer` on the same app. When browser
+  metadata and referrers are absent, only GET/HEAD can use a valid session;
+  mutations and WebSockets still require same-app origin evidence. The proxy
+  overwrites original-method/upgrade markers before checking authorization.
+  Private responses enforce CORP same-origin, add frame-ancestors self without
+  replacing the app's CSP, and strip CORS allow-origin/credentials headers.
+  Serve browser assets and APIs on the same service origin. Public routes keep
+  their own response policies.
+
+  **Apps must keep GET/HEAD free of side effects.** Response isolation prevents
+  a sibling app reading or embedding private content; it cannot prevent that
+  sibling from causing a GET request in a browser with no request metadata.
+  Use mutation methods plus CSRF protection for writes. This is a deliberate
+  compatibility tradeoff for browsers without Fetch Metadata, not full
+  isolation between hostile applications on the same registrable site.
 - Bearer requests must also carry `X-Commons-Apps-Caller`, a secret only the
   shared backend and the manager hold. A user's Supabase token alone, such as
   a frontend session token, cannot reach shell or membership APIs. App
@@ -359,9 +373,11 @@ Local verification on 2026-11-06 (America/New_York):
   TCP passthrough to Caddy passed certificate-verified requests using a local CA.
   Forwarding removed platform Authorization/cookies and a spoofed internal
   header while preserving application cookies; denied authorization redirected.
-- Chromium exercised the browser ticket completion script with synthetic Auth
-  responses: fragment removal, Secure/HttpOnly cookie installation and replay
-  rejection passed. Real Google sign-in and public ACME issuance are deployment
+- Chromium exercised the redirect-only callback through real Caddy with
+  Fetch Metadata and Referer removed: host-only Secure/HttpOnly session cookies,
+  one-use callback replay rejection, CORP script blocking, and CORS read blocking
+  passed. Real proxy requests also rejected spoofed method markers and
+  origin-less WebSocket upgrades. Real Google sign-in and public ACME issuance are deployment
   acceptance checks, not claimed by this local test.
 - A supplemental independent review passed after fixing logout-family races,
   unrelated OAuth client acceptance, authentication work bounds, input-echoing
