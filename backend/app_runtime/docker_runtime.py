@@ -36,6 +36,31 @@ class Runtime:
     def container(self, name):
         return self.client.containers.get(self.prefix + name)
 
+    def reconcile_proxy_networks(self, records):
+        """Restore dynamic app attachments after Compose replaces the proxy.
+
+        Gotcha: replacement drops runtime-added app networks. Sign-in can work
+        while app requests return empty 502s (mobile may download document.txt).
+        Check proxy-to-app connectivity before debugging browser authentication.
+        """
+        proxy = self.client.containers.get(self.prefix + "proxy")
+        attached = proxy.attrs["NetworkSettings"]["Networks"]
+        for record in records:
+            if record.get("status") == "creating":
+                continue
+            name = record["name"]
+            network_name = self.prefix + name
+            if network_name in attached:
+                continue
+            try:
+                network = self.client.networks.get(network_name)
+            except docker.errors.NotFound:
+                continue
+            labels = network.attrs.get("Labels") or {}
+            if labels.get("cc.apps.instance") != self.prefix or labels.get("cc.apps") != name:
+                continue
+            network.connect(proxy, aliases=["proxy"])
+
     def status(self, name):
         try:
             container = self.container(name)
