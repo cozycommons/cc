@@ -32,6 +32,10 @@ class FakeRuntime:
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     from app_runtime import docker_runtime
+    from app_runtime.backups import Backups
+
+    # Tests that exercise scheduled backups call tick explicitly.
+    monkeypatch.setattr(Backups, "run", lambda self, stop: None)
 
     fake = FakeRuntime()
     monkeypatch.setattr(docker_runtime, "Runtime", lambda: fake)

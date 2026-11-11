@@ -87,8 +87,8 @@ class HostedAuth:
         self.settings, self.store = settings, store
         self.pending, self.sessions, self.tickets = Ephemeral(), Ephemeral(), Ephemeral()
         self.families = Ephemeral()
-        self.login_budget, self.auth_budget = Budget(60), Budget(600)
-        self.auth_slots = threading.BoundedSemaphore(4)
+        self.login_budget, self.auth_budget = Budget(600), Budget(6000)
+        self.auth_slots = threading.BoundedSemaphore(40)
 
     def new_session(self, host, token, family=None):
         if family is None:

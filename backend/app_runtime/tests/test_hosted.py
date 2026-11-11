@@ -475,6 +475,7 @@ def test_central_logout_revokes_children_even_when_issuance_races(hosted, monkey
 
 def test_login_budget_bounds_unauthenticated_pending_state(hosted):
     c, api = hosted
+    assert api.hosted_auth.login_budget.maximum == 600
     api.hosted_auth.login_budget.maximum = 2
     assert c.get('/_commons/login').status_code == 307
     assert c.get('/_commons/login').status_code == 307
@@ -496,12 +497,13 @@ def test_upstream_auth_has_global_budget_and_concurrency_bound(hosted):
     from fastapi import HTTPException
     c, api = hosted
     auth = HostedAuth(api.settings, api.store)
+    assert auth.auth_budget.maximum == 6000
     auth.auth_budget.maximum = 0
     with pytest.raises(HTTPException) as error:
         auth.user('bad-token')
     assert error.value.status_code == 429
     auth.auth_budget.maximum = 10
-    for _ in range(4):
+    for _ in range(40):
         assert auth.auth_slots.acquire(blocking=False)
     with pytest.raises(HTTPException) as error:
         auth.user('bad-token')
