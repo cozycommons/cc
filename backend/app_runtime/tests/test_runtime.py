@@ -66,3 +66,20 @@ def test_changes_uses_fixed_helper_and_workspace(monkeypatch):
         ],
         INSPECTION_TIMEOUT,
     )]
+
+
+def test_proxy_network_reconciliation_checks_labels_and_skips_existing(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr('app_runtime.docker_runtime.docker.from_env', lambda: client)
+    runtime = Runtime()
+    proxy = client.containers.get.return_value
+    proxy.attrs = {'NetworkSettings': {'Networks': {runtime.prefix + 'existing': {}}}}
+    network = client.networks.get.return_value
+    network.attrs = {'Labels': {'cc.apps.instance': runtime.prefix, 'cc.apps': 'trip'}}
+    runtime.reconcile_proxy_networks([{'name': 'new', 'status': 'creating'}, {'name': 'existing'}, {'name': 'trip'}])
+    client.networks.get.assert_called_once_with(runtime.prefix + 'trip')
+    network.connect.assert_called_once_with(proxy, aliases=['proxy'])
+    network.connect.reset_mock()
+    network.attrs['Labels']['cc.apps.instance'] = 'another-instance'
+    runtime.reconcile_proxy_networks([{'name': 'trip'}])
+    network.connect.assert_not_called()
