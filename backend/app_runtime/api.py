@@ -8,21 +8,24 @@ import hmac
 import hashlib
 import html
 import json
+import logging
 import os
 import secrets
 import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from .backups import BackupRejected, Backups, INTERVAL
 from .core import Store, allowed, digest, hostname, proxy_config, service_name, slug
 from .docker_runtime import Runtime, TRANSFER_LIMIT
+from . import text_files
 from .changes_page import render_changes_page
 from .portal_assets import router as portal_assets_router
 from .portal_content import landing_page, router as portal_content_router
@@ -43,6 +46,7 @@ settings = Settings.load()
 state = Path(os.environ.get("APPS_STATE", "/state"))
 state.mkdir(parents=True, exist_ok=True)
 store = Store(state / "registry.sqlite3")
+job_changed = threading.Condition(store.lock)
 users = {} if settings.hosted else json.loads(Path(os.environ.get("APPS_USERS", "/run/users.json")).read_text())
 hosted_auth = HostedAuth(settings, store) if settings.hosted else None
 config_path = Path(os.environ.get("APPS_PROXY_CONFIG", "/proxy/Caddyfile"))
@@ -65,6 +69,17 @@ changes_slots = threading.BoundedSemaphore(2)
 UPLOAD_BODY_TIMEOUT = 30
 
 
+def maintain_proxy_networks(stop):
+    # Compose recreates the proxy after the manager is healthy. Reconcile
+    # continuously, not just before that replacement, and retry Docker outages.
+    while not stop.is_set():
+        try:
+            runtime.reconcile_proxy_networks(store.all())
+        except Exception:
+            logging.getLogger(__name__).warning("Proxy network reconciliation will retry")
+        stop.wait(5)
+
+
 @asynccontextmanager
 async def lifespan(app):
     if settings.hosted:
@@ -77,6 +92,10 @@ async def lifespan(app):
     stop = threading.Event()
     worker = threading.Thread(target=backups.run, args=(stop,), daemon=True)
     worker.start()
+    proxy_worker = None
+    if settings.hosted:
+        proxy_worker = threading.Thread(target=maintain_proxy_networks, args=(stop,), daemon=True)
+        proxy_worker.start()
     remote_worker = None
     if remote_backup_worker:
         remote_worker = threading.Thread(target=remote_backup_worker.run, args=(stop,), daemon=True)
@@ -86,6 +105,8 @@ async def lifespan(app):
     finally:
         stop.set()
         await asyncio.to_thread(worker.join)
+        if proxy_worker:
+            await asyncio.to_thread(proxy_worker.join)
         if remote_worker:
             await asyncio.to_thread(remote_worker.join)
 
@@ -481,9 +502,20 @@ class Command(BaseModel):
     command: str = Field(min_length=1, max_length=16000)
     timeout: int = Field(default=120, ge=1, le=300)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+    cwd: str = Field(default="/workspace", min_length=1, max_length=2000)
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("command", "idempotency_key", "cwd")
+    @classmethod
+    def valid_execution(cls, value, info):
+        if value is not None and (not value.strip() or "\x00" in value):
+            raise ValueError("Execution fields must be nonblank and contain no NUL")
+        if info.field_name == "cwd" and not value.startswith("/"):
+            raise ValueError("cwd must be absolute inside the app")
+        return value
 
 
-def execute_job(job, command, timeout):
+def execute_job(job, command, timeout, cwd="/workspace"):
     def output(chunk):
         with store.lock:
             current = store.get(job["id"], "jobs")
@@ -492,8 +524,12 @@ def execute_job(job, command, timeout):
             current["truncated"] = current["truncated"] or current["bytes_seen"] + size > 65536
             current["bytes_seen"] += size
             store.put(current, "jobs")
+            job_changed.notify_all()
     try:
-        code = runtime.run(job["app"], command, timeout, output, job_id=job["id"])
+        options = {"job_id": job["id"]}
+        if cwd != "/workspace":
+            options["cwd"] = cwd
+        code = runtime.run(job["app"], command, timeout, output, **options)
         changes = {"status": "finished", "exit_code": code}
     except Exception:
         changes = {"status": "failed", "error": "Command execution failed; inspect app state before retrying"}
@@ -503,20 +539,36 @@ def execute_job(job, command, timeout):
             changes["status"] = "cancelled"
         current.update(changes, finished_at=time.time())
         store.put(current, "jobs")
+        job_changed.notify_all()
 
 
-def job_view(job, after=None):
+def job_view(job, after=None, max_output_bytes=None):
     result = {key: value for key, value in job.items()
               if key not in {"request_hash", "caller", "idempotency_key"}}
     end = job["bytes_seen"]
     raw = job["output"].encode()
     start = end - len(raw)
-    result.update(output_start=start, next_cursor=end)
+    offset = 0 if after is None else max(0, after - start)
+    if after is not None and after > end:
+        raise HTTPException(422, "Output cursor is ahead of this job")
+    if offset < len(raw) and raw[offset] & 0xc0 == 0x80:
+        raise HTTPException(422, "Output cursor must be a UTF-8 boundary")
+    stop = len(raw) if max_output_bytes is None else min(len(raw), offset + max_output_bytes)
+    while stop > offset and stop < len(raw) and raw[stop] & 0xc0 == 0x80:
+        stop -= 1
+    result["output"] = raw[offset:stop].decode()
+    next_cursor = start + stop
+    gap = after is not None and after < start
     if after is not None:
-        if after > end:
-            raise HTTPException(422, "Output cursor is ahead of this job")
-        result["output"] = raw[max(0, after-start):].decode(errors="ignore")
-        result["truncated"] = after < start
+        result["truncated"] = gap
+    status = job["status"]
+    state = "completed" if status == "finished" else status
+    if status == "running" and job.get("cancel_requested"):
+        state = "cancel_requested"
+    result.update(job_id=job["id"], state=state, output_start=start,
+                  available_from=start, next_cursor=next_cursor,
+                  output_gap=gap, more_output=next_cursor < end,
+                  output_encoding="utf-8", bytes_seen=end)
     return result
 
 
@@ -525,7 +577,10 @@ def execute(name: str, body: Command, who=Depends(identity)):
     with store.app_lock(name):
         record = authorized(name, who, "contributor")
         job_id = digest(json.dumps([name, who, body.idempotency_key]))[:32] if body.idempotency_key else uuid.uuid4().hex
-        request_hash = digest(json.dumps([body.command, body.timeout]))
+        parameters = [body.command, body.timeout]
+        if body.cwd != "/workspace":
+            parameters.append(body.cwd)
+        request_hash = digest(json.dumps(parameters))
         previous = store.get(job_id, "jobs")
         if previous:
             if previous.get("request_hash") != request_hash:
@@ -538,7 +593,7 @@ def execute(name: str, body: Command, who=Depends(identity)):
                "bytes_seen": 0, "truncated": False, "exit_code": None,
                "request_hash": request_hash, "caller": who, "created_at": time.time()}
         store.put(job, "jobs")
-        threading.Thread(target=execute_job, args=(job, body.command, body.timeout), daemon=True).start()
+        threading.Thread(target=execute_job, args=(job, body.command, body.timeout, body.cwd), daemon=True).start()
     return job_view(job)
 
 
@@ -551,8 +606,21 @@ def owned_job(name, job_id, who):
 
 
 @app.get("/api/apps/{name}/jobs/{job_id}")
-def job_result(name: str, job_id: str, after: int | None = Query(default=None, ge=0), who=Depends(identity)):
-    return job_view(owned_job(name, job_id, who), after)
+def job_result(name: str, job_id: str, after: int | None = Query(default=None, ge=0),
+               wait_ms: int = Query(default=0, ge=0, le=10000),
+               max_output_bytes: int | None = Query(default=None, ge=4, le=65536),
+               wait_for: Literal["output", "completion"] = "output",
+               who=Depends(identity)):
+    deadline = time.monotonic() + wait_ms / 1000
+    with job_changed:
+        while True:
+            # Recheck current membership on every wake, including revocation.
+            job = owned_job(name, job_id, who)
+            result = job_view(job, after, max_output_bytes)
+            remaining = deadline - time.monotonic()
+            if job["status"] != "running" or (wait_for == "output" and result["output"]) or remaining <= 0:
+                return result
+            job_changed.wait(remaining)
 
 
 @app.post("/api/apps/{name}/jobs/{job_id}/cancel")
@@ -651,6 +719,80 @@ async def upload_file(name: str, request: Request, path: str = Query(max_length=
         if cancelled:
             raise asyncio.CancelledError
         return result
+
+
+
+async def text_operation(name, operation, request, who):
+    authorized(name, who, "contributor")
+    # Reserve before consuming a body: bounded individual requests must also
+    # obey the global and per-caller concurrent-buffer limits.
+    with transfer_slot(who):
+        return await buffered_text_operation(name, operation, request, who)
+
+
+async def buffered_text_operation(name, operation, request, who):
+    content = bytearray()
+    try:
+        async with asyncio.timeout(UPLOAD_BODY_TIMEOUT):
+            async for chunk in request.stream():
+                if len(content) + len(chunk) > text_files.REQUEST_LIMIT:
+                    raise HTTPException(413, text_files.TextError('INPUT_TOO_LARGE').detail())
+                content.extend(chunk)
+    except TimeoutError:
+        raise HTTPException(408, text_files.TextError('INPUT_TOO_LARGE').detail()) from None
+    try:
+        body = json.loads(content)
+        text_files.validate_request(operation, body)
+    except (ValueError, UnicodeError, RecursionError):
+        raise HTTPException(422, text_files.TextError('INVALID_ARGUMENT').detail()) from None
+    except text_files.TextError as error:
+        raise HTTPException(413 if error.code == 'INPUT_TOO_LARGE' else 422, error.detail()) from None
+
+    def run():
+        lock = store.app_lock(name)
+        if not lock.acquire(blocking=False):
+            raise HTTPException(409, "App is busy; retry this transfer after maintenance")
+        try:
+            ready(authorized(name, who, "contributor"))
+            try:
+                return runtime.text(name, operation, body)
+            except text_files.TextError as error:
+                status = 409 if error.code in {'CONFLICT', 'ALREADY_EXISTS'} else 422
+                if error.code in {'TEXT_RUNTIME_ERROR', 'TEXT_OUTPUT_LIMIT', 'PARTIAL_WRITE'}:
+                    status = 502
+                raise HTTPException(status, error.detail()) from None
+        finally:
+            lock.release()
+    # Keep the per-app lock until the helper actually finishes, even when the
+    # caller disconnects. Another structured writer must not overlap it.
+    task = asyncio.create_task(asyncio.to_thread(run))
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            cancelled = True
+            if task.cancelled():
+                raise
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
+@app.post("/api/apps/{name}/text/read")
+async def read_text_files(name: str, request: Request, who=Depends(identity)):
+    return await text_operation(name, 'read', request, who)
+
+
+@app.post("/api/apps/{name}/text/edit")
+async def edit_text_files(name: str, request: Request, who=Depends(identity)):
+    return await text_operation(name, 'edit', request, who)
+
+
+@app.post("/api/apps/{name}/text/write")
+async def write_text_file(name: str, request: Request, who=Depends(identity)):
+    return await text_operation(name, 'write', request, who)
 
 
 class FileWrite(BaseModel):

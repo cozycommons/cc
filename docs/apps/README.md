@@ -7,6 +7,9 @@ walkthrough](PROTOTYPE.md), [product contract](PRODUCT.md), [technical
 design](TECH.md) and [hosted setup](HOSTING.md). The hosted pilot is for
 synthetic data; moving existing apps or production data remains out of scope.
 
+See [the agent-agnostic box tool contract](MCP.md) for shell jobs, precision file
+operations and compatibility behavior.
+
 ## Vision
 
 Cozy Commons is a shared home for software that a community uses and shapes

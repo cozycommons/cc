@@ -19,6 +19,24 @@ the user to reconnect the connector. `disable_project` hides a project's tools
 and keeps its data. Trips, Floor Planner, Beli, Resy, Partiful and ESPN are on this connector; other
 projects may direct you elsewhere. Use `whoami` to check the signed-in identity.
 
+## Apps / Coco boxes
+
+Use `list_apps` to obtain exact app identifiers and current roles. Box tools need
+contributor access and `commons:edit`, including file/log reads. App viewers use
+the app's own interface; they do not receive box access.
+
+Start shell work with `exec_command` and a unique `idempotency_key`; after a lost
+response retry the same key/command/cwd/timeout. Use `job_read` with `next_cursor`
+and `job_cancel` for continuation. Cancellation is not rollback. An uncertain
+result with a job ID means inspect that job, not start again with a new key.
+Fresh shells do not retain cwd/env; use supervisor and `commons expose` for services.
+
+`read_files` returns bounded text and whole-file hashes. `edit_files` uses exact
+unique replacements plus an expected hash. `write_file` requires a current hash
+for replacement, or null for create-only. Never overwrite from truncated content;
+reread on conflict. Paths are workspace-relative. Use shell/transfer for large or
+binary files. See [the box contract](../apps/MCP.md) for limits and legacy fields.
+
 ## Beli
 
 Beli needs a one-time link. Until then every Beli tool returns the link step:

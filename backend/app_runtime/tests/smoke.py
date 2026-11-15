@@ -99,8 +99,9 @@ async def mcp_edit():
             tools = await session.list_tools()
             check(
                 {tool.name for tool in tools.tools}
-                == {"list_apps", "create_app", "set_app_member", "exec_command", "transfer_file", "app_backups"},
-                "MCP exposes exactly six generic sandbox tools",
+                == {"list_apps", "create_app", "set_app_member", "exec_command", "transfer_file", "app_backups",
+                    "job_read", "job_cancel", "read_files", "edit_files", "write_file"},
+                "MCP exposes eleven generic sandbox tools",
             )
 
             async def shell(command):
@@ -119,7 +120,17 @@ async def mcp_edit():
             source = (ROOT / "infra/apps/example_trip.py").read_text()
             await shell("printf %s " + shlex.quote(source) + " > /workspace/trip.py")
             check(True, "Second contributor writes app source through MCP shell")
-            await shell("printf %s " + shlex.quote("Pack passport\n") + " > /workspace/notes.txt")
+            async def file_tool(name, arguments):
+                response = await session.call_tool(name, arguments)
+                check(not response.isError, 'MCP ' + name + ' succeeds')
+                return json.loads(response.content[0].text)
+            created = await file_tool('write_file', {'app': NAME, 'path': 'notes.txt',
+                'content': 'Pack luggage\n', 'expected_sha256': None})
+            await file_tool('edit_files', {'app': NAME, 'files': [{'path': 'notes.txt',
+                'expected_sha256': created['sha256'], 'edits': [{'old_text': 'luggage', 'new_text': 'passport'}]}]})
+            read = await file_tool('read_files', {'app': NAME, 'files': [{'path': 'notes.txt'}]})
+            check(read['files'][0]['content'] == 'Pack passport\n' and read['files'][0]['whole_file'],
+                  'MCP precision helpers create/edit/read exact context')
             result = await shell("cat /workspace/notes.txt")
             check(result["output"] == "Pack passport\n", "MCP shell reads the saved context")
             await shell("commons expose 3000 --default")
@@ -129,6 +140,10 @@ async def mcp_edit():
                   "MCP shell removes a published route")
             result = await shell("sleep 1; printf mcp-shell")
             check(result["output"] == "mcp-shell", "MCP returns completed command output without polling tools")
+            page = await file_tool('job_read', {'app': NAME, 'job_id': result['id'], 'wait_ms': 0})
+            check(page['state'] == 'completed' and page['output'] == 'mcp-shell', 'Split job read recovers completed output')
+            cancelled = await file_tool('job_cancel', {'app': NAME, 'job_id': result['id']})
+            check(cancelled['state'] == 'completed', 'Cancelling a completed job preserves its result')
 
 
 async def mcp_provision():

@@ -123,7 +123,8 @@ def test_stdio_protocol_reconnect_transfer_and_inventory(client, sandbox):
                 await session.initialize()
                 tools = await session.list_tools()
                 assert {tool.name for tool in tools.tools} == {
-                    'list_apps','create_app','set_app_member','exec_command','transfer_file','app_backups'}
+                    'list_apps','create_app','set_app_member','exec_command','transfer_file','app_backups',
+                    'job_read','job_cancel','read_files','edit_files','write_file'}
                 async def tool(name, args):
                     response = await session.call_tool(name,args)
                     assert not response.isError, response.content
@@ -142,6 +143,16 @@ def test_stdio_protocol_reconnect_transfer_and_inventory(client, sandbox):
                     'idempotency_key':'protocol-once','wait_ms':0})
                 result = await tool('exec_command',{'app':'trip','job_id':started['id'],'wait_ms':5000})
                 assert result['status'] == 'finished' and result['output'] == 'protocol'
+                page = await tool('job_read', {'app': 'trip', 'job_id': started['id'], 'wait_ms': 0})
+                assert page['state'] == 'completed' and page['output'] == 'protocol'
+                assert (await tool('job_cancel', {'app': 'trip', 'job_id': started['id']}))['state'] == 'completed'
+                created = await tool('write_file', {'app': 'trip', 'path': 'native.txt',
+                    'content': 'before\r\n', 'expected_sha256': None})
+                await tool('edit_files', {'app': 'trip', 'files': [{'path': 'native.txt',
+                    'expected_sha256': created['sha256'], 'edits': [{'old_text': 'before', 'new_text': 'after'}]}]})
+                read = await tool('read_files', {'app': 'trip', 'files': [{'path': 'native.txt'}]})
+                assert read['files'][0]['content'] == 'after\r\n'
+                assert read['files'][0]['whole_file']
     try:
         deadline = time.monotonic()+5
         while not server.started and time.monotonic()<deadline: time.sleep(.01)
@@ -226,3 +237,42 @@ def test_real_git_changes_helper_omits_untracked_contents(sandbox):
     assert any('after' in diff['text'] for diff in result['diffs'])
     assert any(change['untracked'] for change in result['changes'])
     assert 'untracked-secret-marker' not in str(report)
+
+
+def test_proxy_replacement_restores_app_network_and_alias(sandbox):
+    runtime = sandbox
+    prefix = runtime.prefix
+    proxy = app = None
+    network = runtime.client.networks.create(prefix + 'web', labels={
+        'cc.apps.instance': prefix, 'cc.apps': 'web',
+    })
+    try:
+        app = runtime.client.containers.run(runtime.image,
+            ['python', '-m', 'http.server', '8080', '--bind', '0.0.0.0'], entrypoint='',
+            name=prefix + 'web', network=network.name, detach=True, mem_limit='128m')
+        proxy = runtime.client.containers.run(runtime.image, ['sleep', '300'], entrypoint='',
+            name=prefix + 'proxy', network_mode='bridge', detach=True, mem_limit='128m')
+        def reachable():
+            result = proxy.exec_run(['python', '-c',
+                "import urllib.request;urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://" + prefix + "web:8080',timeout=2).read()"], environment={"RES_OPTIONS": "attempts:1 timeout:1"})
+            return result.exit_code == 0
+        runtime.reconcile_proxy_networks([{'name': 'web'}])
+        for _ in range(20):
+            if reachable():
+                break
+            time.sleep(.1)
+        assert reachable(), app.logs().decode()
+        proxy.remove(force=True)
+        proxy = runtime.client.containers.run(runtime.image, ['sleep', '300'], entrypoint='',
+            name=prefix + 'proxy', network_mode='bridge', detach=True, mem_limit='128m')
+        assert not reachable()  # Reproduce the production 502 cause.
+        runtime.reconcile_proxy_networks([{'name': 'web'}])
+        assert reachable()
+        runtime.reconcile_proxy_networks([{'name': 'web'}])  # Idempotent.
+        proxy.reload()
+        assert 'proxy' in proxy.attrs['NetworkSettings']['Networks'][network.name]['Aliases']
+    finally:
+        for container in (proxy, app):
+            if container:
+                container.remove(force=True)
+        network.remove()

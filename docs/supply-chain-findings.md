@@ -1,4 +1,53 @@
-# Advisory baseline, 2026-11-05
+# Supply-chain findings
+
+## November 15 security fixes (PR #270)
+
+CI's live advisory scan found two newly published advisories in existing Python
+locks. This change fixes their versions; it adds no advisory ignore and does not
+claim that either vulnerable parser is necessarily reachable in every service.
+
+| Package | Advisory and impact | Fixed release | Updated locks |
+| --- | --- | --- | --- |
+| `opentelemetry-api` | [GHSA-mf5v-w3w3-f6cg](https://osv.dev/vulnerability/GHSA-mf5v-w3w3-f6cg): quadratic traceparent parsing can cause CPU denial of service when untrusted carriers preserve the crafted value, including relevant MCP JSON metadata integrations | `1.45.2` | `backend/requirements.txt`, `backend/app_runtime/requirements.txt`, `backend/requirements-compute.txt`, `backend/requirements-crowdset.txt` |
+| `dnspython` | [GHSA-vvf4-9x63-8xvv](https://osv.dev/vulnerability/GHSA-vvf4-9x63-8xvv): attacker-controlled WKS zone-file service numbers can cause excessive memory and CPU use | `2.9.2` | `backend/requirements.txt` |
+
+PyPI's exact-release metadata was checked on 2026-11-15:
+
+- [`opentelemetry-api/1.45.2`](https://pypi.org/pypi/opentelemetry-api/1.45.2/json):
+  wheel uploaded `2026-10-29T17:29:06.955093Z`; source archive uploaded
+  `2026-10-29T17:29:37.888137Z`.
+- [`dnspython/2.9.2`](https://pypi.org/pypi/dnspython/2.9.2/json): wheel uploaded
+  `2026-11-03T23:56:52.088419Z`; source archive uploaded
+  `2026-11-03T23:56:53.601170Z`.
+
+Both releases already satisfy the seven-day cooldown at the November 15 commit.
+The historical global resolver cutoff remains `2026-10-28T00:00:00Z`: advancing
+it to November 4 also upgraded unrelated authentication and runtime dependencies.
+To keep this repair narrow, exact transitive pins in the affected `.in` files
+use the existing package-specific exception mechanism. Their cutoffs are the
+first whole second after the final release artifact (`2026-10-29T17:29:38Z` and
+`2026-11-03T23:56:54Z`). These overrides allow fixed versions beyond the
+historical resolver cutoff; they do **not** admit a release younger than seven
+days. Every other package retains its previous version, hashes and global cutoff.
+
+The entries expire on 2026-11-22. Remove these historical-cutoff overrides during
+the next reviewed global cutoff refresh by that date; retain suitable security
+minimums when changing the exact pins. Hash locks were generated with the
+repository-pinned `uv 0.13.7`; all replacement hashes match PyPI metadata.
+
+Independent exception and dependency review: `/root/research_review` explicitly
+approved both exact entries on 2026-11-15 after separately checking OSV advisories,
+PyPI timestamps and hashes, unyanked status, the seven-day age, expiry and the
+package-only lock diff. No advisory ignore or cooldown bypass was approved.
+Validation: OSV-Scanner v2.7.0, verified against the CI-pinned binary hash,
+reports zero vulnerabilities across all 11 tracked lockfiles. All four affected
+Python locks regenerate byte-identically with `uv 0.13.7`. The nine dependency-age
+policy tests (including a real resolver boundary check), two OSV policy tests,
+and the complete npm cooldown check (415 versions across two locks) pass. Application tests against the patched install are tracked in PR #270.
+
+---
+
+## Historical advisory baseline, 2026-11-05
 
 After integrating main through `da0c305`, OSV-Scanner v2.7.0 reports only the
 packages covered by pending remediation PRs #230 and #231. No advisories are

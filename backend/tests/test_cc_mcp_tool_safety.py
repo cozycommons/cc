@@ -94,6 +94,12 @@ def apps_foreign(db, monkeypatch):
     # fixture below. No app belongs to this caller.
     return {'set_app_member': {'app': 'foreign', 'user': str(uuid4()), 'role': 'viewer'},
             'exec_command': {'app': 'foreign', 'command': 'echo synthetic'},
+            'job_read': {'app': 'foreign', 'job_id': 'a'*32},
+            'job_cancel': {'app': 'foreign', 'job_id': 'a'*32},
+            'read_files': {'app': 'foreign', 'files': [{'path': 'test.txt'}]},
+            'edit_files': {'app': 'foreign', 'files': [{'path': 'test.txt', 'expected_sha256': 'a'*64,
+                'edits': [{'old_text': 'before', 'new_text': 'after'}]}]},
+            'write_file': {'app': 'foreign', 'path': 'test.txt', 'content': 'synthetic', 'expected_sha256': None},
             'transfer_file': {'app': 'foreign', 'path': '/workspace/file', 'direction': 'download'},
             'app_backups': {'app': 'foreign', 'action': 'list'}}
 
@@ -103,6 +109,12 @@ FIXTURES = {
         args=lambda db: {'list_apps': {}, 'create_app': {'name': 'fresh'},
                          'set_app_member': {'app': 'foreign', 'user': str(uuid4()), 'role': 'viewer'},
                          'exec_command': {'app': 'foreign', 'command': 'echo synthetic'},
+            'job_read': {'app': 'foreign', 'job_id': 'a'*32},
+            'job_cancel': {'app': 'foreign', 'job_id': 'a'*32},
+            'read_files': {'app': 'foreign', 'files': [{'path': 'test.txt'}]},
+            'edit_files': {'app': 'foreign', 'files': [{'path': 'test.txt', 'expected_sha256': 'a'*64,
+                'edits': [{'old_text': 'before', 'new_text': 'after'}]}]},
+            'write_file': {'app': 'foreign', 'path': 'test.txt', 'content': 'synthetic', 'expected_sha256': None},
             'transfer_file': {'app': 'foreign', 'path': '/workspace/file', 'direction': 'download'},
             'app_backups': {'app': 'foreign', 'action': 'list'}},
         foreign=apps_foreign, foreign_error='App or job not found',
