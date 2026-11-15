@@ -186,7 +186,14 @@ class HostedAuth:
         # Cross-origin subresources and frames, or a browser without Fetch
         # Metadata: only a referring page on this app can vouch for them.
         referer = request.headers.get('referer')
-        return referer is not None and self.app_of(referer) == app
+        if referer is not None:
+            return self.app_of(referer) == app
+        # Read-only navigation must work without browser metadata. Proxy
+        # response isolation blocks sibling apps from reading these responses.
+        # Never extend this fallback to mutations or WebSocket handshakes.
+        method = request.headers.get('x-commons-request-method', 'GET')
+        return (site is None and method in {'GET', 'HEAD'}
+                and not request.headers.get('x-commons-request-upgrade'))
 
     def session(self, request):
         host = self.host(request)
@@ -273,52 +280,21 @@ class HostedAuth:
             if not session or not self.user(session['token']):
                 return RedirectResponse('/_commons/login?' + urlencode({'app_state': state}), headers=BROWSER_HEADERS)
             ticket = self.tickets.put({'host': target, 'state': state, 'token': session['token'], 'family': session['family']}, 60)
-            return RedirectResponse(self.settings.url(target) + '/_commons/finish#' + ticket, headers=BROWSER_HEADERS)
+            return RedirectResponse(self.settings.url(target) + '/_commons/complete?' + urlencode({'code': ticket}), status_code=303, headers=BROWSER_HEADERS)
 
-        @app.get('/_commons/finish', response_class=HTMLResponse)
-        def finish(request: Request):
-            self.host(request)
-            # Browsers without Fetch Metadata need a same-app Referer on the
-            # final navigation. Never send it to another origin; the ticket
-            # remains in the fragment and finish.js removes it before fetching.
-            headers = {**BROWSER_HEADERS, 'Referrer-Policy': 'same-origin'}
-            return HTMLResponse('<!doctype html><title>Opening app</title><p id="status">Opening app…</p><script src="/_commons/finish.js"></script>', headers=headers)
-
-        @app.get('/_commons/finish.js')
-        def finish_js():
-            return Response("""const ticket = location.hash.slice(1);
-history.replaceState(null, '', '/_commons/finish');
-fetch('/_commons/session', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ticket})})
-.then(r => { if (!r.ok) throw Error(); location.replace('/'); })
-.catch(() => { document.getElementById('status').textContent = 'Sign-in expired. Reopen the app from the Apps directory.'; });
-""", media_type='text/javascript', headers=BROWSER_HEADERS)
-
-        @app.post('/_commons/session')
-        async def session(request: Request):
+        @app.get('/_commons/complete')
+        def complete(request: Request, code: str = ''):
             host = self.host(request)
-            if request.headers.get('origin') != self.settings.url(host):
-                raise HTTPException(403, 'Origin denied')
-            raw = b''
-            async for chunk in request.stream():
-                raw += chunk
-                if len(raw) > 1024:
-                    raise HTTPException(413, 'Request too large')
-            import json
-            try:
-                ticket_id = json.loads(raw)['ticket']
-                if not isinstance(ticket_id, str):
-                    raise ValueError()
-            except (ValueError, KeyError, TypeError):
-                raise HTTPException(400, 'Invalid sign-in') from None
-            entry = self.tickets.get(ticket_id, consume=True)
+            if not code or len(code) > 128:
+                raise HTTPException(400, 'Invalid sign-in callback')
+            entry = self.tickets.get(code, consume=True)
             state = request.cookies.get(LOGIN, '')
             if not entry or entry['host'] != host or not secrets.compare_digest(entry['state'], state):
-                raise HTTPException(401, 'Sign-in expired')
+                raise HTTPException(401, 'Sign-in expired; reopen the app')
             if not self.pending.get(state, consume=True):
-                raise HTTPException(401, 'Sign-in expired')
-            # The next authorized request revalidates the upstream token.
+                raise HTTPException(401, 'Sign-in expired; reopen the app')
             key = self.new_session(host, entry['token'], entry['family'])
-            response = cookie(Response(status_code=204, headers=BROWSER_HEADERS), SESSION, key, 3600)
+            response = cookie(RedirectResponse('/', status_code=303, headers=BROWSER_HEADERS), SESSION, key, 3600)
             response.delete_cookie(LOGIN, path='/', secure=True, httponly=True, samesite='lax')
             return response
 

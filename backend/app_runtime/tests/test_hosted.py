@@ -1,7 +1,7 @@
 import importlib
 import json
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 from uuid import UUID
 
 import pytest
@@ -291,14 +291,13 @@ def test_browser_ticket_host_state_origin_and_replay(hosted):
     assert c.get(f'/_commons/authorize?target=evil.test&state={state}').status_code == 400
     session = api.hosted_auth.new_session('apps.example.test', 'owner-token')
     response = c.get(f'/_commons/authorize?target={host}&state={state}', headers={'Cookie': f'{SESSION}={session}'})
-    assert response.status_code == 307
-    ticket = response.headers['location'].split('#')[1]
+    assert response.status_code == 303
+    ticket = parse_qs(urlsplit(response.headers['location']).query)['code'][0]
     assert 'owner-token' not in response.headers['location']
     headers = {'Host': host, 'Origin': 'https://' + host, 'Cookie': f'{LOGIN}={state}'}
-    assert c.post('/_commons/session', json={'ticket': ticket}, headers={**headers, 'Origin': 'https://evil.test'}).status_code == 403
-    installed = c.post('/_commons/session', json={'ticket': ticket}, headers=headers)
-    assert installed.status_code == 204
-    assert c.post('/_commons/session', json={'ticket': ticket}, headers=headers).status_code == 401
+    installed = c.get('/_commons/complete', params={'code': ticket}, headers=headers)
+    assert installed.status_code == 303
+    assert c.get('/_commons/complete', params={'code': ticket}, headers=headers).status_code == 401
     app_session = installed.cookies[SESSION]
     anonymous_portal = c.get('/', headers={'Cookie': f'{SESSION}={app_session}'})
     assert anonymous_portal.status_code == 200
@@ -335,23 +334,16 @@ def test_fresh_app_sign_in_returns_to_requested_app(hosted, monkeypatch, fetch_m
 
     resumed = c.get(callback.headers['location'],
                     headers={'Host': 'apps.example.test', 'Cookie': f'{SESSION}={central_session}'})
-    assert resumed.status_code == 307
-    assert resumed.headers['location'].startswith(f'https://{host}/_commons/finish#')
-    ticket = urlsplit(resumed.headers['location']).fragment
-    finish = c.get('/_commons/finish', headers={'Host': host})
-    assert finish.headers['content-type'].startswith('text/html')
-    # Older iOS browsers omit Fetch Metadata. The handoff must retain a
-    # same-origin Referer for the navigation after redeeming the ticket,
-    # without leaking the handoff URL to other origins.
-    assert finish.headers['referrer-policy'] == 'same-origin'
+    assert resumed.status_code == 303
+    assert urlsplit(resumed.headers['location']).path == '/_commons/complete'
     if not fetch_metadata:
         c.headers.pop('sec-fetch-site')
         c.headers.pop('sec-fetch-mode')
-        c.headers['Referer'] = f'https://{host}/_commons/finish'
-    app_session = c.post('/_commons/session', json={'ticket': ticket}, headers={
-        'Host': host, 'Origin': f'https://{host}', 'Cookie': f'{LOGIN}={app_state}',
+    app_session = c.get(resumed.headers['location'], headers={
+        'Host': host, 'Cookie': f'{LOGIN}={app_state}',
     })
-    assert app_session.status_code == 204
+    assert app_session.status_code == 303
+    assert app_session.headers['location'] == '/'
     assert c.get('/authorize/trip/default', headers={
         'Host': host, 'Cookie': f'{SESSION}={app_session.cookies[SESSION]}',
     }).status_code == 204
@@ -392,7 +384,7 @@ def test_expired_app_continuation_falls_back_to_directory(hosted, monkeypatch):
 def test_ticket_requires_browser_nonce(hosted):
     c, api = hosted
     ticket = api.hosted_auth.tickets.put({'host': 'trip.example.test', 'state': 'secret', 'token': 'owner-token'}, 60)
-    assert c.post('/_commons/session', headers={'Host': 'trip.example.test', 'Origin': 'https://trip.example.test'}, json={'ticket': ticket}).status_code == 401
+    assert c.get('/_commons/complete', params={'code': ticket}, headers={'Host': 'trip.example.test'}).status_code == 401
 
 
 def test_pkce_callback_requires_matching_browser_and_discards_refresh(hosted, monkeypatch):
@@ -466,9 +458,9 @@ def test_central_logout_revokes_children_even_when_issuance_races(hosted, monkey
         resume.set()
         result = future.result(timeout=3)
     assert not auth.families.get(family)
-    if result.status_code == 307:
-        ticket = result.headers['location'].split('#')[1]
-        assert c.post('/_commons/session', json={'ticket': ticket}, headers={
+    if result.status_code == 303:
+        ticket = parse_qs(urlsplit(result.headers['location']).query)['code'][0]
+        assert c.get('/_commons/complete', params={'code': ticket}, headers={
             'Host': 'trip.example.test', 'Origin': 'https://trip.example.test', 'Cookie': f'{LOGIN}={state}'}).status_code == 401
     assert c.get('/authorize/trip/default', headers={'Host': 'trip.example.test', 'Cookie': f'{SESSION}={child}'}).status_code == 303
 
@@ -625,8 +617,8 @@ def test_another_apps_page_cannot_use_a_members_cookie(hosted):
     assert status(**framed, Referer='https://evil.example.test/') == 403
     assert status(**framed) == 403
     assert status(**framed, Referer='https://trip--api.example.test/') == 204
-    # Without Fetch Metadata (older browsers), only this app's Referer vouches.
-    assert status() == 403
+    # Without Fetch Metadata, missing-context safe reads rely on response isolation.
+    assert status() == 204
     assert status(Referer='https://evil.example.test/page') == 403
     assert status(Referer='https://trip.example.test/page') == 204
     # Same app, own services, same-origin requests and plain navigations work.
@@ -638,3 +630,40 @@ def test_another_apps_page_cannot_use_a_members_cookie(hosted):
     # Public routes carry no member identity, so they need no origin check.
     record = api.store.get('trip'); record['routes']['default']['public'] = True; api.store.put(record)
     assert status(Origin='https://evil.example.test') == 204
+
+
+@pytest.mark.parametrize('method', ['POST', 'PUT', 'DELETE', 'PATCH'])
+def test_legacy_browser_fallback_never_authorizes_mutations(hosted, method):
+    c, api = hosted
+    for header in ('sec-fetch-site', 'sec-fetch-mode'):
+        c.headers.pop(header)
+    key = api.hosted_auth.new_session('trip.example.test', 'owner-token')
+    response = c.get('/authorize/trip/default', headers={
+        'Host': 'trip.example.test', 'Cookie': f'{SESSION}={key}',
+        'X-Commons-Request-Method': method,
+    })
+    assert response.status_code == 403
+
+
+def test_legacy_browser_fallback_requires_origin_for_websocket(hosted):
+    c, api = hosted
+    for header in ('sec-fetch-site', 'sec-fetch-mode'):
+        c.headers.pop(header)
+    key = api.hosted_auth.new_session('trip.example.test', 'owner-token')
+    headers = {'Host': 'trip.example.test', 'Cookie': f'{SESSION}={key}',
+               'X-Commons-Request-Method': 'GET', 'X-Commons-Request-Upgrade': 'websocket'}
+    assert c.get('/authorize/trip/default', headers=headers).status_code == 403
+    assert c.get('/authorize/trip/default', headers={**headers, 'Origin': 'https://trip.example.test'}).status_code == 204
+
+
+def test_private_proxy_isolation_and_trusted_request_markers(hosted):
+    c, api = hosted
+    config = proxy_config(api.store.all(), api.settings)
+    assert 'Cross-Origin-Resource-Policy same-origin' in config
+    assert '+Content-Security-Policy "frame-ancestors \'self\'"' in config
+    assert '-Access-Control-Allow-Origin' in config
+    assert 'header_up X-Commons-Request-Method {http.request.method}' in config
+    assert 'header_up X-Commons-Request-Upgrade {http.request.header.Upgrade}' in config
+    record = api.store.get('trip'); record['routes']['default']['public'] = True; api.store.put(record)
+    public = proxy_config(api.store.all(), api.settings)
+    assert 'Cross-Origin-Resource-Policy' not in public
