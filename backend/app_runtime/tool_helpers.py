@@ -67,6 +67,12 @@ def validate_exec(command, job_id, cancel, after, wait_ms):
         raise ValueError('Provide either command to start or job_id to reconnect')
     if cancel and not job_id:
         raise ValueError('Cancel requires an existing job_id')
+    if command is not None and (not command.strip() or "\x00" in command):
+        raise ValueError('command must be nonblank and contain no NUL')
+    if job_id is not None and not job_id.strip():
+        raise ValueError('job_id must be nonblank')
+    if command is not None and after != 0:
+        raise ValueError('A start cannot include an output cursor; use job_read after starting')
     if after < 0 or not 0 <= wait_ms <= 10000:
         raise ValueError('after must be nonnegative; wait_ms must be 0–10000')
 
@@ -74,9 +80,10 @@ def validate_exec(command, job_id, cancel, after, wait_ms):
 # Only exact platform-authored messages may cross the OAuth bridge.
 SAFE_MANAGER_ERRORS = {
     'Apps caller not recognized': 'Apps manager rejected this Commons backend. Ask the platform owner to set the same APPS_MANAGER_CALLER_SECRET on both services.',
-    'Idempotency key already used for a different command': 'Command retry key conflicts with another command or timeout. Use a new key only for new work.',
+    'Idempotency key already used for a different command': 'Command retry key conflicts with another command, cwd or timeout. Use a new key only for new work.',
     'Idempotency key already used for different parameters': 'Snapshot retry key conflicts with different parameters. Recover the original request before starting new work.',
     'Operation outcome is unknown; inspect snapshots and app before a new request': 'Snapshot outcome is unknown. Inspect inventory and actual app state before choosing a new key.',
+    'Output cursor must be a UTF-8 boundary': 'Output cursor must be a UTF-8 boundary; use a next_cursor returned by this job.',
     'Output cursor is ahead of this job': 'Output cursor is ahead of this job; reconnect using a cursor returned by this job.',
     'SHA-256 mismatch; file was not changed': 'Upload checksum mismatch; file was not changed.',
     'Transfer failed: path must be a regular file inside /workspace and within the requested byte limit': 'File must be regular, inside /workspace and within the transfer limit (2 MiB MCP; 16 MiB binary HTTP/CLI).',
@@ -94,4 +101,49 @@ def manager_error(response):
         detail = response.json().get('detail')
     except (ValueError, AttributeError):
         return None
+    if isinstance(detail, dict):
+        from .text_files import ERRORS
+        code = detail.get('code')
+        if isinstance(code, str) and code in ERRORS:
+            return code + ': ' + ERRORS[code]
+        return None
     return SAFE_MANAGER_ERRORS.get(detail) if isinstance(detail, str) else None
+
+
+def execution_request(command, timeout, idempotency_key, cwd, timeout_seconds):
+    if timeout_seconds is not None:
+        if timeout != 120 and timeout != timeout_seconds:
+            raise ValueError('Use timeout_seconds; conflicting legacy timeout')
+        timeout = timeout_seconds
+    if not 1 <= timeout <= 300:
+        raise ValueError('timeout_seconds must be 1–300')
+    if idempotency_key is not None and (not idempotency_key.strip() or len(idempotency_key) > 128 or "\x00" in idempotency_key):
+        raise ValueError('idempotency_key must be nonblank, at most 128 characters, without NUL')
+    if cwd is not None and (not cwd.startswith('/') or len(cwd) > 2000 or "\x00" in cwd):
+        raise ValueError('cwd must be an absolute path inside the app')
+    data = {'command': command, 'timeout': timeout}
+    if idempotency_key is not None:
+        data['idempotency_key'] = idempotency_key
+    if cwd is not None:
+        data['cwd'] = cwd
+    return data
+
+
+def job_query(cursor, wait_ms, max_output_bytes, *, completion=False):
+    if cursor < 0 or not 0 <= wait_ms <= 10000 or not 4 <= max_output_bytes <= 65536:
+        raise ValueError('cursor must be nonnegative; wait_ms 0–10000; max_output_bytes 4–65536')
+    parameters = {'after': cursor, 'wait_ms': wait_ms, 'max_output_bytes': max_output_bytes}
+    if completion:
+        parameters['wait_for'] = 'completion'
+    return '?' + urlencode(parameters)
+
+
+def uncertain_job(job_id):
+    return {'id': job_id, 'job_id': job_id, 'status': 'unknown', 'state': 'unknown',
+            'start_accepted': True, 'error': {'code': 'WAIT_UNAVAILABLE',
+            'recovery': 'Start accepted; read this job_id or retry the SAME idempotency key and execution parameters. Do not start with a new key.'}}
+
+
+def cancellation_result(result):
+    return {key: value for key, value in result.items() if key in
+            {'id', 'job_id', 'status', 'state', 'exit_code', 'cancel_requested', 'error'}}

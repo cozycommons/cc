@@ -123,7 +123,8 @@ def test_stdio_protocol_reconnect_transfer_and_inventory(client, sandbox):
                 await session.initialize()
                 tools = await session.list_tools()
                 assert {tool.name for tool in tools.tools} == {
-                    'list_apps','create_app','set_app_member','exec_command','transfer_file','app_backups'}
+                    'list_apps','create_app','set_app_member','exec_command','transfer_file','app_backups',
+                    'job_read','job_cancel','read_files','edit_files','write_file'}
                 async def tool(name, args):
                     response = await session.call_tool(name,args)
                     assert not response.isError, response.content
@@ -142,6 +143,16 @@ def test_stdio_protocol_reconnect_transfer_and_inventory(client, sandbox):
                     'idempotency_key':'protocol-once','wait_ms':0})
                 result = await tool('exec_command',{'app':'trip','job_id':started['id'],'wait_ms':5000})
                 assert result['status'] == 'finished' and result['output'] == 'protocol'
+                page = await tool('job_read', {'app': 'trip', 'job_id': started['id'], 'wait_ms': 0})
+                assert page['state'] == 'completed' and page['output'] == 'protocol'
+                assert (await tool('job_cancel', {'app': 'trip', 'job_id': started['id']}))['state'] == 'completed'
+                created = await tool('write_file', {'app': 'trip', 'path': 'native.txt',
+                    'content': 'before\r\n', 'expected_sha256': None})
+                await tool('edit_files', {'app': 'trip', 'files': [{'path': 'native.txt',
+                    'expected_sha256': created['sha256'], 'edits': [{'old_text': 'before', 'new_text': 'after'}]}]})
+                read = await tool('read_files', {'app': 'trip', 'files': [{'path': 'native.txt'}]})
+                assert read['files'][0]['content'] == 'after\r\n'
+                assert read['files'][0]['whole_file']
     try:
         deadline = time.monotonic()+5
         while not server.started and time.monotonic()<deadline: time.sleep(.01)

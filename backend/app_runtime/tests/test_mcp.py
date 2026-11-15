@@ -9,18 +9,17 @@ def test_exec_waits_and_preserves_bounded_result(monkeypatch):
     calls = []
     finished = {"id": "job", "status": "finished", "exit_code": 7,
                 "output": "partial output", "truncated": True}
-    replies = iter([{"id": "job"}, {"status": "running"}, finished])
+    replies = iter([{"id": "job"}, finished])
 
     def call(method, path, data=None):
         calls.append((method, path, data))
         return next(replies)
 
     monkeypatch.setattr(mcp_server, "call", call)
-    monkeypatch.setattr(mcp_server.time, "sleep", lambda _: None)
     assert mcp_server.exec_command("trip", "some-command", 3) == finished
-    assert [c[0] for c in calls] == ["POST", "GET", "GET"]
+    assert [c[0] for c in calls] == ["POST", "GET"]
     assert calls[0][2] == {"command": "some-command", "timeout": 3}
-    assert calls[-1][1] == "/api/apps/trip/jobs/job?after=0"
+    assert calls[-1][1] == "/api/apps/trip/jobs/job?after=0&wait_ms=1000&max_output_bytes=4096&wait_for=completion"
 
 
 @pytest.mark.parametrize("status", ["failed", "interrupted"])
@@ -38,9 +37,19 @@ def test_exec_stops_polling_without_retrying_command(monkeypatch):
         calls.append(method)
         return {"id": "job", "status": "running"}
 
-    times = iter([0, 17])
     monkeypatch.setattr(mcp_server, "call", call)
-    monkeypatch.setattr(mcp_server.time, "monotonic", lambda: next(times))
     result = mcp_server.exec_command("trip", "some-command", 1)
     assert result['status'] == 'running'
     assert calls == ["POST", "GET"]
+
+
+@pytest.mark.parametrize('arguments', [
+    {'app': 'trip', 'path': 'file', 'content': 'PRIVATE_SENTINEL'},
+    {'app': 'trip', 'path': 'file', 'content': 'ok', 'expected_sha256': None, 'PRIVATE_SENTINEL': 'private'},
+])
+def test_standalone_sdk_redacts_file_input_and_unknown_keys(arguments):
+    import asyncio
+    from mcp.server.fastmcp.exceptions import ToolError
+    with pytest.raises(ToolError) as error:
+        asyncio.run(mcp_server.mcp.call_tool('write_file', arguments))
+    assert 'PRIVATE_SENTINEL' not in str(error.value)

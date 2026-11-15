@@ -9,12 +9,14 @@ import codecs
 import socket
 import threading
 import time
+from pathlib import Path
 
 from docker.utils.socket import frames_iter
 
 import docker
 
 from .settings import Settings
+from . import text_files
 from .tool_helpers import TRANSFER_LIMIT
 from .git_inspection import (
     GIT_INSPECTION_SCRIPT,
@@ -157,10 +159,10 @@ class Runtime:
             raise RuntimeError("Exec stream ended before process completion; inspect app state")
         return result["ExitCode"]
 
-    def run(self, name, command, seconds, on_output, job_id=None):
+    def run(self, name, command, seconds, on_output, job_id=None, cwd="/workspace"):
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
         code = self._exec(name,
-            ["python", "-c", JOB_SCRIPT, job_id or uuid.uuid4().hex, str(seconds), command],
+            ["python", "-c", JOB_SCRIPT, job_id or uuid.uuid4().hex, str(seconds), command, cwd],
             seconds + 7, lambda chunk: on_output(decoder.decode(chunk)))
         on_output(decoder.decode(b"", final=True))
         return code
@@ -247,6 +249,53 @@ class Runtime:
         if not isinstance(result, dict) or not isinstance(result.get("repositories"), list):
             raise RuntimeError("Git inspection returned invalid data")
         return result
+
+    def text(self, name, operation, request):
+        """Inject a bounded helper/request without putting user content in argv."""
+        text_files.validate_request(operation, request)
+        payload = json.dumps({'operation': operation, 'request': request}, ensure_ascii=False,
+                             separators=(',', ':')).encode('utf-8')
+        if len(payload) > text_files.REQUEST_LIMIT:
+            raise text_files.TextError('INPUT_TOO_LARGE')
+        container = self.container(name)
+        temporary = 'cc-text-request-' + uuid.uuid4().hex
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode='w') as tar:
+            info = tarfile.TarInfo(temporary)
+            info.size, info.mode = len(payload), 0o600
+            tar.addfile(info, io.BytesIO(payload))
+        output = bytearray()
+        def collect(chunk):
+            if len(output) + len(chunk) > text_files.RESPONSE_LIMIT:
+                raise text_files.TextError('TEXT_OUTPUT_LIMIT')
+            output.extend(chunk)
+        try:
+            if not container.put_archive('/tmp', archive.getvalue()):
+                raise text_files.TextError('TEXT_RUNTIME_ERROR')
+            code = self._exec(name, ['/usr/bin/timeout', '--signal=TERM', '--kill-after=1s',
+                                    text_files.HELPER_WALL_TIMEOUT, 'python', '-c',
+                                    Path(text_files.__file__).read_text(), '/workspace', '/tmp/' + temporary],
+                              text_files.EXEC_SECONDS, collect)
+            if code:
+                raise text_files.TextError('TEXT_RUNTIME_ERROR')
+            result = json.loads(output)
+            if not isinstance(result, dict) or type(result.get('ok')) is not bool:
+                raise text_files.TextError('TEXT_RUNTIME_ERROR')
+            if not result['ok']:
+                error = result.get('error')
+                raise text_files.TextError(error.get('code') if isinstance(error, dict) else None)
+            if not isinstance(result.get('result'), dict):
+                raise text_files.TextError('TEXT_RUNTIME_ERROR')
+            return result['result']
+        except text_files.TextError:
+            raise
+        except Exception:
+            raise text_files.TextError('TEXT_RUNTIME_ERROR') from None
+        finally:
+            try:
+                container.exec_run(['/bin/rm', '-f', '/tmp/' + temporary], detach=True)
+            except Exception:
+                pass
 
     def transfer(self, name, path, content=None, max_bytes=TRANSFER_LIMIT):
         if not path.startswith("/workspace/") or "\x00" in path:
@@ -357,12 +406,13 @@ else:
 # Runs only inside the Linux app container; no host process or filesystem access.
 JOB_SCRIPT = r"""
 import os, pathlib, signal, subprocess, sys, time
-job, seconds, command = sys.argv[1:]
+job, seconds, command = sys.argv[1:4]
+cwd = sys.argv[4] if len(sys.argv) > 4 else None
 marker = pathlib.Path('/tmp/cc-job-' + job + '.cancel')
 if marker.exists():
     marker.unlink()
     sys.exit(130)
-process = subprocess.Popen(['bash', '-lc', command], start_new_session=True)
+process = subprocess.Popen(['bash', '-lc', command], start_new_session=True, cwd=cwd)
 deadline = time.monotonic() + int(seconds)
 reason = None
 while process.poll() is None:
