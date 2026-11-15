@@ -55,7 +55,9 @@ emits uv's `exclude-newer-package` table for that package only. All other packag
 retain the strictly seven-day global cutoff. Direct URLs, local paths, included
 requirement files and VCS references are rejected because uv cannot enforce
 index upload age for them. Keep each package cutoff as early as possible. Remove exceptions after the releases age out.
-No exceptions are currently accepted.
+Two exact Python resolver-cutoff overrides were reviewed on 2026-11-15; see
+[the findings](supply-chain-findings.md) and `dependency-age-exceptions.json`.
+Both patched releases still satisfy the seven-day age requirement.
 
 ## Advisory exceptions
 
