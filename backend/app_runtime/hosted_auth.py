@@ -88,7 +88,8 @@ class HostedAuth:
         self.pending, self.sessions, self.tickets = Ephemeral(), Ephemeral(), Ephemeral()
         self.families = Ephemeral()
         self.login_budget, self.auth_budget = Budget(600), Budget(6000)
-        self.auth_slots = threading.BoundedSemaphore(40)
+        # Each slot is a blocking Supabase call; stay well under the 40-thread pool.
+        self.auth_slots = threading.BoundedSemaphore(16)
 
     def new_session(self, host, token, family=None):
         if family is None:

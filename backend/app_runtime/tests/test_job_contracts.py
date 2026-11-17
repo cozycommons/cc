@@ -147,6 +147,19 @@ def test_bounded_wait_wakes_for_output(client, monkeypatch):
                 api.job_changed.notify_all()
 
 
+def test_wait_returns_immediately_when_wait_slots_are_full(client, monkeypatch):
+    c, api, _ = client
+    saved_job(api, status="running")
+    monkeypatch.setattr(api, "wait_slots", threading.BoundedSemaphore(1))
+    assert api.wait_slots.acquire(blocking=False)
+    monkeypatch.setattr(api.job_changed, "wait", lambda timeout=None: pytest.fail("waited without a slot"))
+    try:
+        response = c.get("/api/apps/trip/jobs/job?after=0&wait_ms=10000", headers=headers("friend"))
+        assert response.status_code == 200 and response.json()["state"] == "running"
+    finally:
+        api.wait_slots.release()
+
+
 def test_wait_rechecks_membership_after_wake(client, monkeypatch):
     c, api, _ = client
     saved_job(api, status="running")

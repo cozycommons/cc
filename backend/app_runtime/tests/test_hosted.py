@@ -495,7 +495,7 @@ def test_upstream_auth_has_global_budget_and_concurrency_bound(hosted):
         auth.user('bad-token')
     assert error.value.status_code == 429
     auth.auth_budget.maximum = 10
-    for _ in range(40):
+    for _ in range(16):
         assert auth.auth_slots.acquire(blocking=False)
     with pytest.raises(HTTPException) as error:
         auth.user('bad-token')
