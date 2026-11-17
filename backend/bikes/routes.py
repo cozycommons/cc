@@ -324,7 +324,7 @@ def map_png(
             raise HTTPException(422, 'Give lat and lng, or a station.')
         first = find_station(docks, marks[0])
         lat, lng = first.lat, first.lng
-    # Renders are shared for a minute per view; distinct views wait for a free render slot.
+    # Renders are shared for a minute per view; distinct views beyond two concurrent renders get 503 and retry.
     key = (round(lat, 4), round(lng, 4), radius, need, tuple(marks), you, gbfs.feed_updated_at())
     stamp = f"Citi Bike {now:%-I:%M %p}"
     try:

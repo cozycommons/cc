@@ -66,6 +66,9 @@ transfer_users = set()
 inspection_slots = threading.BoundedSemaphore(2)
 inspection_cache = {}
 changes_slots = threading.BoundedSemaphore(2)
+# Long polls hold a worker thread; keep most of the 40-thread pool free for
+# forward-auth and other sync routes. Over the cap, a read returns immediately.
+wait_slots = threading.BoundedSemaphore(8)
 UPLOAD_BODY_TIMEOUT = 30
 
 
@@ -610,17 +613,25 @@ def job_result(name: str, job_id: str, after: int | None = Query(default=None, g
                wait_ms: int = Query(default=0, ge=0, le=10000),
                max_output_bytes: int | None = Query(default=None, ge=4, le=65536),
                wait_for: Literal["output", "completion"] = "output",
-               who=Depends(identity)):
-    deadline = time.monotonic() + wait_ms / 1000
-    with job_changed:
-        while True:
-            # Recheck current membership on every wake, including revocation.
-            job = owned_job(name, job_id, who)
-            result = job_view(job, after, max_output_bytes)
-            remaining = deadline - time.monotonic()
-            if job["status"] != "running" or (wait_for == "output" and result["output"]) or remaining <= 0:
-                return result
-            job_changed.wait(remaining)
+               response: Response = None, who=Depends(identity)):
+    waiting = wait_ms > 0 and wait_slots.acquire(blocking=False)
+    if wait_ms > 0 and not waiting:
+        # Tell looping clients the wait was skipped so they back off.
+        response.headers["Retry-After"] = "1"
+    deadline = time.monotonic() + (wait_ms / 1000 if waiting else 0)
+    try:
+        with job_changed:
+            while True:
+                # Recheck current membership on every wake, including revocation.
+                job = owned_job(name, job_id, who)
+                result = job_view(job, after, max_output_bytes)
+                remaining = deadline - time.monotonic()
+                if job["status"] != "running" or (wait_for == "output" and result["output"]) or remaining <= 0:
+                    return result
+                job_changed.wait(remaining)
+    finally:
+        if waiting:
+            wait_slots.release()
 
 
 @app.post("/api/apps/{name}/jobs/{job_id}/cancel")

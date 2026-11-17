@@ -1,6 +1,6 @@
 # Regenerate with scripts/lock-backend-requirements.sh backend/app_runtime/requirements.in backend/app_runtime/requirements.txt
 # uv-version: 0.13.7
-# uv-exclude-newer: 2026-10-28T00:00:00Z
+# uv-exclude-newer: 2026-11-04T00:00:00Z
 # requires-python: >=3.12
 # environments: python_version >= '3.12' and python_version < '3.14'
 fastapi>=0.162.0,<0.163
@@ -13,6 +13,6 @@ mcp==1.30.0
 pytest>=9.0.3,<10
 websockets==15.0.1
 
-# Exact transitive security fix; package cutoff: dependency-age-exceptions.json.
+# Exact transitive security fix.
 # GHSA-mf5v-w3w3-f6cg (all other packages retain the global cutoff).
 opentelemetry-api==1.45.2
