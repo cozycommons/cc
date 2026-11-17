@@ -156,6 +156,7 @@ def test_wait_returns_immediately_when_wait_slots_are_full(client, monkeypatch):
     try:
         response = c.get("/api/apps/trip/jobs/job?after=0&wait_ms=10000", headers=headers("friend"))
         assert response.status_code == 200 and response.json()["state"] == "running"
+        assert response.headers["Retry-After"] == "1"
     finally:
         api.wait_slots.release()
 

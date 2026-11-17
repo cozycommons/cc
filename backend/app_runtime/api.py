@@ -613,8 +613,11 @@ def job_result(name: str, job_id: str, after: int | None = Query(default=None, g
                wait_ms: int = Query(default=0, ge=0, le=10000),
                max_output_bytes: int | None = Query(default=None, ge=4, le=65536),
                wait_for: Literal["output", "completion"] = "output",
-               who=Depends(identity)):
+               response: Response = None, who=Depends(identity)):
     waiting = wait_ms > 0 and wait_slots.acquire(blocking=False)
+    if wait_ms > 0 and not waiting:
+        # Tell looping clients the wait was skipped so they back off.
+        response.headers["Retry-After"] = "1"
     deadline = time.monotonic() + (wait_ms / 1000 if waiting else 0)
     try:
         with job_changed:
