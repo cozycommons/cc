@@ -1,0 +1,143 @@
+/* Bouquet page — self-contained styles, bq- prefixed to stay collision-free. */
+
+.bq-page {
+  position: relative;
+  min-height: 100svh;
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 20px 40px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 38%, rgba(255, 214, 226, 0.75), rgba(255, 214, 226, 0) 70%),
+    linear-gradient(168deg, #fdf6ec 0%, #fbeef0 55%, #f7e3e8 100%);
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #6d4356;
+}
+
+.bq-stage {
+  width: min(88vw, 400px);
+}
+
+.bq-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 62svh;
+}
+
+/* Whole bouquet gently sways around the hand-off point. */
+.bq-sway {
+  transform-box: view-box;
+  transform-origin: 50% 76%;
+  animation: bq-sway 7s ease-in-out infinite alternate;
+}
+
+@keyframes bq-sway {
+  from { transform: rotate(-1.1deg); }
+  to { transform: rotate(1.1deg); }
+}
+
+/* Flowers bloom in: scale up from the flower's own base with a soft overshoot. */
+.bq-bloom {
+  transform-box: fill-box;
+  transform-origin: 50% 88%;
+  animation: bq-bloom 1.15s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes bq-bloom {
+  from { transform: scale(0) rotate(-10deg); opacity: 0; }
+  to { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+/* Stems draw themselves upward. */
+.bq-stem {
+  fill: none;
+  stroke: #5e8a4c;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: bq-grow 1.2s ease-out forwards;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes bq-grow {
+  to { stroke-dashoffset: 0; }
+}
+
+.bq-words {
+  text-align: center;
+  animation: bq-fade-up 1.4s ease-out 1.6s both;
+}
+
+.bq-title {
+  margin: 0;
+  font-size: clamp(2.4rem, 9vw, 3.6rem);
+  font-weight: 500;
+  font-style: italic;
+  letter-spacing: 0.01em;
+  color: #a93d5e;
+}
+
+.bq-sub {
+  margin: 6px 0 0;
+  font-size: clamp(0.95rem, 3.6vw, 1.1rem);
+  font-style: italic;
+  color: #96707f;
+}
+
+@keyframes bq-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* A few petals drifting down the page. */
+.bq-petal {
+  position: absolute;
+  top: -4vh;
+  width: 15px;
+  height: 15px;
+  border-radius: 80% 4px 80% 4px;
+  background: #f2a7bc;
+  opacity: 0;
+  animation: bq-fall linear infinite;
+}
+
+.bq-petal--1 { left: 12%; animation-duration: 13s; animation-delay: 2.2s; }
+.bq-petal--2 { left: 30%; animation-duration: 17s; animation-delay: 6s; background: #f8c8d4; width: 11px; height: 11px; }
+.bq-petal--3 { left: 58%; animation-duration: 15s; animation-delay: 3.8s; background: #f6b98a; }
+.bq-petal--4 { left: 76%; animation-duration: 12s; animation-delay: 8.4s; width: 12px; height: 12px; }
+.bq-petal--5 { left: 90%; animation-duration: 18s; animation-delay: 5.2s; background: #e5c6ee; width: 10px; height: 10px; }
+
+@keyframes bq-fall {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
+  8% { opacity: 0.75; }
+  50% { transform: translate3d(4vw, 52vh, 0) rotate(210deg); }
+  92% { opacity: 0.6; }
+  100% { transform: translate3d(-2vw, 106vh, 0) rotate(390deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bq-sway,
+  .bq-petal {
+    animation: none;
+  }
+  .bq-petal {
+    display: none;
+  }
+  .bq-bloom,
+  .bq-words {
+    animation-duration: 0.01s;
+    animation-delay: 0s;
+  }
+  .bq-stem {
+    animation-duration: 0.01s;
+    animation-delay: 0s;
+  }
+}
