@@ -22,6 +22,17 @@ def _check_required_schema(supabase) -> None:
             raise RuntimeError(f"Release schema attestation failed: {name}")
 
 
+def _apps_config_error() -> str | None:
+    """Catch a half-applied Apps rollout before Coolify swaps this container in.
+
+    Configuration only: a manager outage must not mark the shared backend
+    unready. Unsetting APPS_MANAGER_URL disables the Apps tools instead.
+    """
+    if os.getenv("APPS_MANAGER_URL") and len(os.getenv("APPS_MANAGER_CALLER_SECRET", "")) < 32:
+        return "apps_caller_secret_missing"
+    return None
+
+
 @router.get("/health")
 def health_check():
     """Cheap process liveness probe; deliberately performs no network I/O."""
@@ -34,6 +45,11 @@ def health_check():
 @router.get("/ready")
 async def readiness_check(request: Request):
     """Bounded dependency and core-schema probe for deployment readiness."""
+    if reason := _apps_config_error():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "not_ready", "reason": reason},
+        )
     supabase = getattr(request.app.state, "readiness_supabase", None) or getattr(request.app.state, "supabase_admin", None)
     if supabase is None:
         return JSONResponse(
