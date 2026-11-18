@@ -17,10 +17,24 @@ const petalRing = (count, radius, rx, ry, fill, keyPrefix) =>
     />
   ));
 
+// Positioning and bloom animation live on separate nested groups: a CSS
+// `transform` animation overrides the SVG `transform` attribute on the same
+// element, so putting both on one <g> discards the translate and collapses
+// the flower to the SVG origin. Outer <g> positions, inner <g> animates.
+function Positioned({ x, y, delay, children }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <g className="bq-bloom" style={{ '--d': `${delay}s` }}>
+        {children}
+      </g>
+    </g>
+  );
+}
+
 // Layered round flower (rose / peony): outer petals, inner petals, heart.
 function RoundFlower({ x, y, r, outer, inner, heart, delay }) {
   return (
-    <g className="bq-bloom" style={{ '--d': `${delay}s` }} transform={`translate(${x} ${y})`}>
+    <Positioned x={x} y={y} delay={delay}>
       {petalRing(8, r * 0.52, r * 0.36, r * 0.55, outer, 'o')}
       {petalRing(5, r * 0.3, r * 0.26, r * 0.38, inner, 'i')}
       <circle r={r * 0.2} fill={heart} />
@@ -31,7 +45,7 @@ function RoundFlower({ x, y, r, outer, inner, heart, delay }) {
         strokeWidth={r * 0.05}
         opacity="0.55"
       />
-    </g>
+    </Positioned>
   );
 }
 
@@ -40,7 +54,7 @@ function Tulip({ x, y, r, fill, inner, delay }) {
   const top = -r * 1.05;
   const bottom = r * 0.55;
   return (
-    <g className="bq-bloom" style={{ '--d': `${delay}s` }} transform={`translate(${x} ${y})`}>
+    <Positioned x={x} y={y} delay={delay}>
       <path
         d={`M ${-w} ${bottom} C ${-w * 1.05} ${top * 0.35} ${-w * 0.42} ${top} 0 ${top * 0.42}
             C ${w * 0.42} ${top} ${w * 1.05} ${top * 0.35} ${w} ${bottom}
@@ -55,17 +69,17 @@ function Tulip({ x, y, r, fill, inner, delay }) {
         strokeWidth={r * 0.07}
         opacity="0.6"
       />
-    </g>
+    </Positioned>
   );
 }
 
 function Daisy({ x, y, r, delay }) {
   return (
-    <g className="bq-bloom" style={{ '--d': `${delay}s` }} transform={`translate(${x} ${y})`}>
+    <Positioned x={x} y={y} delay={delay}>
       {petalRing(10, r * 0.55, r * 0.2, r * 0.5, '#fdfbf5', 'd')}
       <circle r={r * 0.3} fill="#f2b33d" />
       <circle r={r * 0.16} fill="#e09b26" />
-    </g>
+    </Positioned>
   );
 }
 
@@ -75,14 +89,14 @@ function Breath({ x, y, delay }) {
     [0, 0], [-13, -9], [12, -12], [-6, -20], [8, -24], [-18, -24], [18, -3],
   ];
   return (
-    <g className="bq-bloom" style={{ '--d': `${delay}s` }} transform={`translate(${x} ${y})`}>
+    <Positioned x={x} y={y} delay={delay}>
       {puffs.map(([dx, dy], i) => (
         <path key={`s-${i}`} d={`M 0 26 Q ${dx * 0.4} 8 ${dx} ${dy}`} fill="none" stroke="#7d9b6a" strokeWidth="1.4" />
       ))}
       {puffs.map(([dx, dy], i) => (
         <circle key={`p-${i}`} cx={dx} cy={dy} r={i % 2 ? 3.4 : 4.4} fill="#ffffff" stroke="#e8e2d2" strokeWidth="0.8" />
       ))}
-    </g>
+    </Positioned>
   );
 }
 
