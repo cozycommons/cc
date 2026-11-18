@@ -79,6 +79,7 @@ def validate_exec(command, job_id, cancel, after, wait_ms):
 
 # Only exact platform-authored messages may cross the OAuth bridge.
 SAFE_MANAGER_ERRORS = {
+    'Backup helper unavailable; app was not stopped': 'Backup helper unavailable; app was not stopped. Ask the platform owner to rebuild the runtime image, then use a new snapshot request key.',
     'Apps caller not recognized': 'Apps manager rejected this Commons backend. Ask the platform owner to set the same APPS_MANAGER_CALLER_SECRET on both services.',
     'Idempotency key already used for a different command': 'Command retry key conflicts with another command, cwd or timeout. Use a new key only for new work.',
     'Idempotency key already used for different parameters': 'Snapshot retry key conflicts with different parameters. Recover the original request before starting new work.',

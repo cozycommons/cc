@@ -11,3 +11,6 @@ ENV HOME=/workspace/home
 WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/app-start"]
 COPY infra/apps/runtime/restore_workspace.py /opt/restore_workspace.py
+
+# This platform image also supplies backup helpers; exclude unmanaged-image cleanup.
+LABEL coolify.managed="true"

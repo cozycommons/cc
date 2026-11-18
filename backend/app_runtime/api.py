@@ -992,11 +992,15 @@ def restore_workspace(name, backup_id, record, who):
         raise HTTPException(404, "Backup not found")
     if "db_password" in record or manifest.get("format") != "workspace-v1":
         raise HTTPException(409, "Legacy database backups require explicit migration; no data was replaced")
+    try:
+        helper_image = runtime.prepare_archive()
+    except Exception:
+        raise HTTPException(503, "Backup helper unavailable; app was not stopped") from None
     record["status"] = "maintenance"
     store.put(record)
     runtime.container(name).stop(timeout=10)
     try:
-        runtime.archive(record["name"], folder.name, restore=True)
+        runtime.archive(record["name"], folder.name, restore=True, image=helper_image)
         runtime.container(name).start()
         record["status"] = "running"
     except Exception:

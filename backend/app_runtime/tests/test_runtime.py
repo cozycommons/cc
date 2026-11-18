@@ -17,6 +17,7 @@ def test_provisioning_only_connects_proxy_and_injects_no_database(monkeypatch):
     client.networks.create.return_value.connect.assert_called_once_with(
         "cc-apps-local-proxy", aliases=["proxy"]
     )
+    assert client.containers.run.call_args.kwargs["labels"]["coolify.managed"] == "false"
     environment = client.containers.run.call_args.kwargs["environment"]
     assert set(environment) == {"COMMONS_APP", "COMMONS_APP_TOKEN", "COMMONS_CONTROL_URL"}
     assert client.containers.run.call_args.kwargs["volumes"] == {
@@ -83,3 +84,48 @@ def test_proxy_network_reconciliation_checks_labels_and_skips_existing(monkeypat
     network.attrs['Labels']['cc.apps.instance'] = 'another-instance'
     runtime.reconcile_proxy_networks([{'name': 'trip'}])
     network.connect.assert_not_called()
+
+
+def test_archive_preflight_resolves_local_image_without_pull(monkeypatch):
+    import pytest
+    client = MagicMock()
+    monkeypatch.setattr('app_runtime.docker_runtime.docker.from_env', lambda: client)
+    runtime = Runtime()
+    client.images.get.return_value.id = 'sha256:trusted'
+    assert runtime.prepare_archive() == 'sha256:trusted'
+    client.images.get.assert_called_once_with(runtime.image)
+    client.images.pull.assert_not_called()
+    client.images.get.side_effect = RuntimeError('private daemon details')
+    with pytest.raises(RuntimeError, match='Backup helper image is unavailable') as error:
+        runtime.prepare_archive()
+    assert 'private' not in str(error.value)
+    client.containers.run.assert_not_called()
+
+
+def test_archive_uses_pinned_preflight_image_instead_of_mutable_tag(monkeypatch):
+    client = MagicMock()
+    monkeypatch.setattr('app_runtime.docker_runtime.docker.from_env', lambda: client)
+    runtime = Runtime()
+    client.containers.create.return_value.wait.return_value = {'StatusCode': 0}
+    runtime.archive('trip', 'a' * 32, image='sha256:checked-before-stop')
+    assert client.containers.create.call_args.args[0] == 'sha256:checked-before-stop'
+    assert client.containers.create.call_args.kwargs['network_mode'] == 'none'
+    client.images.pull.assert_not_called()
+
+
+def test_archive_failure_cleans_helper_and_never_pulls(monkeypatch):
+    import pytest
+    client = MagicMock()
+    monkeypatch.setattr('app_runtime.docker_runtime.docker.from_env', lambda: client)
+    runtime = Runtime()
+    helper = client.containers.create.return_value
+    helper.wait.return_value = {'StatusCode': 1}
+    with pytest.raises(RuntimeError, match='Workspace archive helper failed'):
+        runtime.archive('trip', 'a' * 32, image='sha256:trusted')
+    assert client.containers.create.call_args.kwargs['labels']['coolify.managed'] == 'false'
+    helper.remove.assert_called_once_with(force=True)
+    client.images.pull.assert_not_called()
+    client.containers.create.side_effect = RuntimeError('image disappeared')
+    with pytest.raises(RuntimeError):
+        runtime.archive('trip', 'a' * 32, image='sha256:trusted')
+    client.images.pull.assert_not_called()
