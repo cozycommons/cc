@@ -19,6 +19,9 @@ class FakeRuntime:
     def create(self, record, token):
         self.created = record["name"]
 
+    def prepare_archive(self):
+        return "sha256:synthetic"
+
     def status(self, name):
         return "running"
 
@@ -339,7 +342,7 @@ def test_restore_selects_owned_directory_and_rejects_symlinks(client, tmp_path):
     (folder / "manifest.json").unlink()
     (folder / "manifest.json").write_text(json.dumps(manifest))
     assert c.post(path, **args).status_code == 200
-    fake.archive.assert_called_once_with("trip", backup_id, restore=True)
+    fake.archive.assert_called_once_with("trip", backup_id, restore=True, image="sha256:synthetic")
     fake.container.return_value.stop.assert_called_once_with(timeout=10)
     fake.container.return_value.start.assert_called_once()
 
@@ -354,7 +357,7 @@ def test_backup_does_not_block_other_apps_or_lose_same_app_updates(client, autom
     entered, release = threading.Event(), threading.Event()
     fake.container = MagicMock()
 
-    def archive(*args):
+    def archive(*args, **kwargs):
         entered.set()
         assert release.wait(5), 'test did not release backup'
 
@@ -438,6 +441,28 @@ def test_remote_backup_inventory_and_restore_remain_owner_only(client, monkeypat
     result = c.post(restore_url, json=payload, headers=headers("owner"))
     assert result.status_code == 200
     assert offsite.downloads == [("trip", backup_id)]
-    fake.archive.assert_called_once_with("trip", backup_id, restore=True)
+    fake.archive.assert_called_once_with("trip", backup_id, restore=True, image="sha256:synthetic")
     fake.container.return_value.stop.assert_called_once_with(timeout=10)
     fake.container.return_value.start.assert_called_once()
+
+
+def test_restore_missing_helper_leaves_live_app_and_snapshot_unchanged(client):
+    from unittest.mock import MagicMock
+    c, api, fake = client
+    backup_id = 'e' * 32
+    folder = api.state / 'backups' / backup_id
+    folder.mkdir(parents=True)
+    manifest = {'app': 'trip', 'id': backup_id, 'format': 'workspace-v1'}
+    (folder / 'manifest.json').write_text(json.dumps(manifest))
+    (folder / 'workspace.tgz').write_bytes(b'preserve-this-backup')
+    fake.container = MagicMock()
+    fake.archive = MagicMock()
+    fake.prepare_archive = MagicMock(side_effect=RuntimeError('private daemon details'))
+    response = c.post(f'/api/apps/trip/backups/{backup_id}/restore',
+        json={'confirm_replace_data': True, 'idempotency_key': 'missing-helper'}, headers=headers('owner'))
+    assert response.status_code == 503
+    assert 'private daemon' not in response.text
+    assert api.store.get('trip')['status'] == 'running'
+    fake.container.assert_not_called()
+    fake.archive.assert_not_called()
+    assert (folder / 'workspace.tgz').read_bytes() == b'preserve-this-backup'

@@ -33,7 +33,12 @@ class Runtime:
         self.starts.append(self.current)
         self.states[self.current] = "running"
 
-    def archive(self, name, backup_id):
+    def prepare_archive(self):
+        if self.fail == "image":
+            raise RuntimeError("synthetic missing image")
+        return "sha256:synthetic"
+
+    def archive(self, name, backup_id, image=None):
         (self.state / "backups" / backup_id / "workspace.tgz").write_bytes(b"synthetic")
         if self.fail == "archive":
             raise RuntimeError("synthetic archive failure")
@@ -193,3 +198,28 @@ def test_legacy_managed_database_and_backups_require_migration(setup):
     assert "trip" not in backups.runtime.stops
     with pytest.raises(ValueError, match="legacy managed database"):
         backups.create(record)
+
+
+def test_missing_helper_retries_without_stopping_app_or_removing_good_snapshots(setup):
+    backups, clock = setup
+    clock[0] += INTERVAL
+    backups.tick()
+    previous = backups.list('trip')
+    stops = list(backups.runtime.stops)
+    starts = list(backups.runtime.starts)
+    backups.runtime.fail = 'image'
+    clock[0] += INTERVAL
+    backups.tick()
+    record = backups.store.get('trip')
+    assert record['status'] == 'running'
+    assert record['next_backup_at'] == clock[0] + RETRY
+    assert 'helper unavailable' in record['backup_error']
+    assert 'backup_pending' not in record
+    assert backups.runtime.stops == stops and backups.runtime.starts == starts
+    assert backups.list('trip') == previous
+    assert all((backups.root / item['id'] / 'workspace.tgz').exists() for item in previous)
+    backups.runtime.fail = None
+    clock[0] += RETRY
+    backups.tick()
+    assert 'backup_error' not in backups.store.get('trip')
+    assert backups.list('trip') != previous

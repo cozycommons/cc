@@ -76,6 +76,13 @@ class Backups:
         actual = self.runtime.status(name)
         if record["status"] not in {"running", "stopped"} or actual not in {"running", "stopped"}:
             raise BackupRejected("App is unavailable for backup")
+        try:
+            helper_image = self.runtime.prepare_archive()
+        except Exception:
+            record["backup_error"] = "Backup helper unavailable; app left unchanged and retry scheduled"
+            record["next_backup_at"] = self.clock() + RETRY
+            self.store.put(record)
+            raise BackupRejected("Backup helper unavailable; app was not stopped") from None
         backup_id = uuid.uuid4().hex
         folder = self.root / backup_id
         was_running = actual == "running"
@@ -85,7 +92,7 @@ class Backups:
             folder.mkdir(parents=True)
             if was_running:
                 self.runtime.container(name).stop(timeout=10)
-            self.runtime.archive(name, backup_id)
+            self.runtime.archive(name, backup_id, image=helper_image)
             created = self.clock()
             registry = self.store.backup_registry(created)
             registry_temporary = folder / "registry.tmp"

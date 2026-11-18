@@ -405,3 +405,20 @@ these dynamic attachments must be restored after deployment. Reconciliation
 checks both app and platform-instance network labels, skips existing attachments,
 and retries when Docker or the new proxy is unavailable. It does not restart app
 containers or replace their workspaces.
+
+## Backup helper image availability
+
+The runtime Docker image carries `coolify.managed=true`, matching Coolify's
+managed-image cleanup exclusion. It supplies both app containers and backup
+helpers, even when no app currently references its latest tag. Keep that label
+when rebuilding; explicit forced image removal can still break availability.
+
+Backups and restores resolve the helper image locally before setting maintenance
+state or stopping the app, then use that exact image ID for the helper. A missing
+image leaves the app running and existing snapshots intact; automatic backups
+record an error and retry after five minutes without restarting the app.
+Rebuild the reviewed runtime image to repair it. Helper creation never implicitly
+pulls an image from a registry.
+
+App and archive-helper containers explicitly override `coolify.managed=false`: Commons
+owns their lifecycle, so the image label must not enroll them in Coolify container cleanup.

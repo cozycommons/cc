@@ -111,7 +111,8 @@ class Runtime:
                 "COMMONS_APP_TOKEN": token,
                 "COMMONS_CONTROL_URL": "http://proxy/api-control",
             },
-            labels={"cc.apps": name, "cc.apps.instance": self.prefix},
+            labels={"cc.apps": name, "cc.apps.instance": self.prefix,
+                    "coolify.managed": "false"},
         )
 
     def reload_proxy(self):
@@ -370,7 +371,14 @@ else:
             raise ValueError(result.output.decode()[-1000:])
         return result.output.decode()
 
-    def archive(self, name, backup_id, restore=False):
+    def prepare_archive(self):
+        """Resolve locally before downtime; helpers must never trigger an implicit pull."""
+        try:
+            return self.client.images.get(self.image).id
+        except Exception:
+            raise RuntimeError("Backup helper image is unavailable; app was not stopped") from None
+
+    def archive(self, name, backup_id, restore=False, image=None):
         command = (
             "python /opt/restore_workspace.py /backup/workspace.tgz"
             if restore
@@ -390,16 +398,20 @@ else:
             )
         else:
             volumes[self.prefix + "state"] = {"bind": "/state", "mode": "rw"}
-        self.client.containers.run(
-            self.image,
-            ["bash", "-ec", command],
-            entrypoint="",
-            remove=True,
-            network_mode="none",
-            volumes=volumes,
-            mem_limit="256m",
-            pids_limit=64,
+        # containers.run implicitly pulls on ImageNotFound. A local helper must
+        # fail promptly instead; keep its image identity from preflight.
+        helper = self.client.containers.create(
+            image or self.prepare_archive(), ["bash", "-ec", command],
+            entrypoint="", network_mode="none", volumes=volumes,
+            mem_limit="256m", pids_limit=64,
+            labels={"coolify.managed": "false"},
         )
+        try:
+            helper.start()
+            if helper.wait().get("StatusCode") != 0:
+                raise RuntimeError("Workspace archive helper failed")
+        finally:
+            helper.remove(force=True)
 
 
 
