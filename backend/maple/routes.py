@@ -105,7 +105,10 @@ def ingest_exp_runs(
     try:
         return logic.ingest_runs(_supabase(request), account["id"], runs)
     except RunError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        # Batch-level validation only (per-row errors ride in the 200
+        # body); the detail stays fixed so no exception text leaks.
+        logger.warning("ingest batch rejected for account %s: %s", account["id"], e)
+        raise HTTPException(status_code=422, detail="invalid ingest batch")
 
 
 @router.get("/exp/runs")
