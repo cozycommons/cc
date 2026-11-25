@@ -23,7 +23,11 @@ class AccountError(Exception):
 
 
 def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    # The token is a 256-bit random bearer token (secrets.token_urlsafe),
+    # not a human password: a fast hash is the correct storage here, the
+    # same pattern as espn/beli accounts. Password KDFs defend low-entropy
+    # secrets against guessing; there is nothing to guess at 256 bits.
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()  # codeql[py/weak-sensitive-data-hashing]
 
 
 def mint_token() -> str:
