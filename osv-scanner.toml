@@ -1,5 +1,3 @@
-# Exact, reviewed advisory acceptance; recheck upstream before expiry.
-[[IgnoredVulns]]
-id = "GHSA-fc5q-39xc-vjpf"
-ignoreUntil = 2026-11-25
-reason = "Reviewed 2026-11-18 by research_review (independent agent): GHSA-fc5q-39xc-vjpf affects frontend/package-lock.json picomatch 4.0.7, confined to Vite/Vitest/fdir/tinyglobby development/build tooling. No public user-supplied glob path found; final Nginx image contains dist only, no Node dependencies. Risk remains for malicious repository/config/plugin patterns in developer/CI execution. Upstream has no patched release (npm latest 4.0.7); recheck upstream and replace the affected dependency before expiry. Temporary acceptance unblocks the backup availability incident fix."
+# No accepted advisories. Add [[IgnoredVulns]] only after security review.
+# Each entry requires id, reason (reviewer + YYYY-MM-DD + reachability rationale),
+# and ignoreUntil (YYYY-MM-DD, at most 30 days after review). See docs/supply-chain.md.
