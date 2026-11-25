@@ -466,3 +466,18 @@ def test_restore_missing_helper_leaves_live_app_and_snapshot_unchanged(client):
     fake.container.assert_not_called()
     fake.archive.assert_not_called()
     assert (folder / 'workspace.tgz').read_bytes() == b'preserve-this-backup'
+
+
+def test_restore_missing_helper_skips_offsite_download(client, monkeypatch):
+    from unittest.mock import MagicMock
+    c, api, fake = client
+    offsite = MagicMock()
+    monkeypatch.setattr(api, 'offsite', offsite)
+    fake.container = MagicMock()
+    fake.prepare_archive = MagicMock(side_effect=RuntimeError('missing image'))
+    response = c.post(f'/api/apps/trip/backups/{"f" * 32}/restore',
+        json={'confirm_replace_data': True, 'idempotency_key': 'missing-helper-remote'}, headers=headers('owner'))
+    assert response.status_code == 503
+    offsite.download.assert_not_called()
+    fake.container.assert_not_called()
+    assert not (api.state / 'backups' / ('f' * 32)).exists()
