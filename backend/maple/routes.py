@@ -81,8 +81,9 @@ def onboard(request: Request, body: dict = Body(default={})):
         raise HTTPException(status_code=422, detail="label must be a string")
     try:
         return accounts.create_account(_supabase(request), label)
-    except AccountError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except AccountError:
+        logger.exception("telemetry onboarding failed")
+        raise HTTPException(status_code=400, detail="could not create the telemetry account")
 
 
 @router.get("/me")
