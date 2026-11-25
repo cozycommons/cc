@@ -21,6 +21,8 @@ from resy.mcp_server import mcp as resy_mcp
 from resy.routes import router as resy_router
 from espn.mcp_server import mcp as espn_mcp
 from espn.routes import router as espn_router
+from maple.mcp_server import mcp as maple_mcp
+from maple.routes import router as maple_router
 from espn.public_compression import PublicPredictionsCompression
 from floor_planner.routes import router as floor_planner_router
 from floor_planner.scans import router as floor_planner_scans_router
@@ -104,6 +106,9 @@ app.state.floor_planner_supabase: Client = create_client(SUPABASE_URL, SUPABASE_
 # connector persist rotated refresh tokens through their own clients, and a
 # cached row would hand /partiful a refresh token Partiful has already retired.
 app.state.partiful_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+# Maple telemetry token reads must never be cached either: a deleted
+# account's token has to stop working on the next request.
+app.state.maple_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 @app.middleware("http")
@@ -161,6 +166,8 @@ app.include_router(resy_router, prefix="/resy")
 app.mount("/resy/mcp", resy_mcp.streamable_http_app())
 app.include_router(espn_router, prefix="/espn")
 app.mount("/espn/mcp", espn_mcp.streamable_http_app())
+app.include_router(maple_router, prefix="/telemetry")
+app.mount("/telemetry/mcp", maple_mcp.streamable_http_app())
 
 app.state.mcp_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 cc_mcp_app = create_agent_app(app.state.mcp_supabase, providers=cc_mcp_providers)

@@ -13,6 +13,7 @@ A monorepo for community projects amongst our friends.
 - **[Partiful](docs/partiful.md)** — access to friends’ hosted, RSVP’d, and invited events.
 - **[Resy](backend/resy/)** — restaurant search, availability, and reservations.
 - **[ESPN Fantasy](backend/espn/)** — league stats, rosters, and opt-in lineup automation.
+- **[Maple Telemetry](docs/maple-telemetry.md)** — per-user MapleStory Classic EXP telemetry, shipped from the player's machine.
 - **[Cozy Bikes](docs/cozy-bikes.md)** — wait at a full Citi Bike dock or ride to the next one, from a year of trips and live docks.
 - **[VITAL occupancy](docs/cozy-vital.md)** — how busy VITAL Brooklyn is now, and when it's quiet.
 
@@ -20,6 +21,7 @@ A monorepo for community projects amongst our friends.
 
 - `frontend/` — shared Vite + React web app
 - `backend/` — FastAPI services and integrations
+- `clients/` — client apps that ship data to the backend (the Maple EXP shipper)
 - `supabase/` — local database configuration and seed data
 - `scripts/` — development, migration, and verification tooling
 - `docs/` — project guides, specs, and operations
