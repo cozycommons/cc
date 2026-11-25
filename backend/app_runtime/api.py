@@ -962,6 +962,12 @@ def restore(name: str, backup_id: str, body: Restore, who=Depends(identity)):
 
 
 def restore_workspace(name, backup_id, record, who):
+    # Check the helper before any download or stop so a missing image
+    # leaves both the live app and the backups directory untouched.
+    try:
+        helper_image = runtime.prepare_archive()
+    except Exception:
+        raise HTTPException(503, "Backup helper unavailable; app was not stopped") from None
     # Select a manager-owned directory rather than constructing a filesystem
     # path from request input. Never follow a substituted backup symlink.
     folder = next(
@@ -992,10 +998,6 @@ def restore_workspace(name, backup_id, record, who):
         raise HTTPException(404, "Backup not found")
     if "db_password" in record or manifest.get("format") != "workspace-v1":
         raise HTTPException(409, "Legacy database backups require explicit migration; no data was replaced")
-    try:
-        helper_image = runtime.prepare_archive()
-    except Exception:
-        raise HTTPException(503, "Backup helper unavailable; app was not stopped") from None
     record["status"] = "maintenance"
     store.put(record)
     runtime.container(name).stop(timeout=10)
