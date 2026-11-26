@@ -8,6 +8,14 @@ body:has(.sv-page){background:var(--paper,#f7f0e4);margin:0}
 .sv-field{display:grid;gap:6px;min-width:0}
 .sv-seg{display:flex;flex-wrap:wrap;width:100%;box-sizing:border-box}
 .sv-seg .cc-segmented__item{flex:1 1 auto;min-width:0}
+.sv-measures{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px;align-items:end}
+.sv-measures .cc-input{min-width:0;box-sizing:border-box}
+.sv-calibrate{display:grid;gap:10px}
+.sv-calibrate[open] summary{margin-bottom:10px}
+.sv-calibrate summary{cursor:pointer}
+.sv-calibrate>*+*{margin-top:10px}
+.sv-calibrate .cc-textarea{box-sizing:border-box;font-variant-numeric:tabular-nums}
+.sv-basis{margin:0}
 .sv-results{display:grid;gap:18px;transition:opacity var(--ease,180ms ease)}
 .sv-results.is-stale{opacity:.55}
 .sv-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}

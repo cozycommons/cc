@@ -31,6 +31,7 @@ few millimetres. Each step solves a tridiagonal system (Thomas algorithm).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Literal
@@ -102,6 +103,11 @@ PLAN_ASPECT = 1.3
 180 x 140 mm). experiments/finite_size.py: a true aspect of 1.5 to 2 instead moves the
 classic time by 2 to 7 %."""
 
+SEAR_SPREAD = (0.5, 2.0)
+"""Factors on h_sear for the range a plan quotes around its core peak. experiments/sear.py:
+half to double the contact moves a 51 mm steak's finish by about -0.5 to +0.4 C and a 25 mm
+steak's by -1.5 to +1.2 C. A surface that runs hotter than boiling lands outside this range."""
+
 NODES = 40  # along the reported line: centre to surface
 SIDE_NODES = 20  # along width and length, where only the centre value is used
 BATH_STEP_S = 10.0
@@ -140,6 +146,7 @@ class Axis:
         self.surface = R ** m
         self.ones = [1.0] * n
         self._factored: dict[tuple[float, float], tuple[list[float], list[float], list[float]]] = {}
+        self._shared: dict[tuple[int, float, float], tuple[list[float], list[float]]] = {}
 
     def _factor(self, h: float, dt: float) -> tuple[list[float], list[float], list[float]]:
         """Thomas elimination of the step's tridiagonal matrix, which is fixed for a given h and dt."""
@@ -155,8 +162,17 @@ class Axis:
             b[i] += w[i] * g[i - 1]
         return w, [1.0 / x for x in b], g
 
-    def relax(self, field: list[float], h: float, dt: float) -> list[float]:
-        """The field dt seconds later, its surface losing heat to 0 through coefficient h."""
+    def relax(self, field: list[float], h: float, dt: float, share: bool = False) -> list[float]:
+        """The field dt seconds later, its surface losing heat to 0 through coefficient h.
+
+        share=True remembers the answer for this very list. Every bath starts from
+        the same uniform field whatever its temperature, so a plan's baths then
+        solve each step once between them. forget() drops what was remembered.
+        """
+        if share:
+            hit = self._shared.get((id(field), h, dt))
+            if hit is not None and hit[0] is field:  # the id could belong to a new list after forget()
+                return hit[1]
         key = (h, dt)
         if key not in self._factored:
             self._factored[key] = self._factor(h, dt)
@@ -169,7 +185,12 @@ class Axis:
         out[-1] = d[-1] * inv[-1]
         for i in range(n - 2, -1, -1):
             out[i] = (d[i] + g[i] * out[i + 1]) * inv[i]
+        if share:
+            self._shared[(id(field), h, dt)] = (field, out)
         return out
+
+    def forget(self) -> None:
+        self._shared.clear()
 
 
 @lru_cache(maxsize=64)
@@ -223,17 +244,23 @@ class Steak:
                 *(axis(mm / 2000.0, m, SIDE_NODES, k, alpha) for mm, m in sides if mm))
 
 
-def footprint(weight_g: float, thickness_mm: float, width_mm: float | None = None,
-              length_mm: float | None = None) -> tuple[float, float]:
-    """(width, length) in mm of a slab of this weight and thickness, keeping any side that was measured."""
-    area_mm2 = weight_g / 1000 / MEAT_DENSITY / (thickness_mm / 1000) * 1e6
-    if width_mm and length_mm:
-        return width_mm, length_mm
-    if width_mm or length_mm:
-        known = width_mm or length_mm
-        return (width_mm or area_mm2 / known), (length_mm or area_mm2 / known)
-    width = (area_mm2 / PLAN_ASPECT) ** 0.5
-    return width, width * PLAN_ASPECT
+def sized(steak: Steak, weight_g: float | None) -> Steak:
+    """The steak with the sides nobody measured filled in from its weight."""
+    if not weight_g:
+        return steak
+    volume_mm3 = weight_g / 1000 / MEAT_DENSITY * 1e9
+    if steak.shape == 'cylinder':
+        return steak if steak.length_mm else replace(steak, length_mm=volume_mm3 / (math.pi * (steak.thickness_mm / 2) ** 2))
+    area = volume_mm3 / steak.thickness_mm
+    if steak.shape == 'puck':
+        return steak if steak.width_mm else replace(steak, width_mm=(4 * area / math.pi) ** 0.5)
+    width, length = steak.width_mm, steak.length_mm
+    if width and length:
+        return steak
+    if width or length:
+        return replace(steak, width_mm=width or area / length, length_mm=length or area / width)
+    width = (area / PLAN_ASPECT) ** 0.5
+    return replace(steak, width_mm=width, length_mm=width * PLAN_ASPECT)
 
 
 class Body:
@@ -256,7 +283,8 @@ class Body:
         self.peak = list(self.T)
 
     def copy(self) -> 'Body':
-        body = Body(self.steak)
+        body = object.__new__(Body)
+        body.steak, body.axes, body.r, body.dr, body.volume = self.steak, self.axes, self.r, self.dr, self.volume
         body.outside = self.outside
         body.parts = list(self.parts)  # fields are replaced each step, never mutated
         body.T = list(self.T)
@@ -267,19 +295,20 @@ class Body:
     def core(self) -> float:
         return self.T[0]
 
-    def step(self, outside_c: float, h: float, dt: float, side_h: float | None = None) -> None:
+    def step(self, outside_c: float, h: float, dt: float, side_h: float | None = None, share: bool = False) -> None:
         """Advance dt seconds with every surface exposed to outside_c.
 
         h is the coefficient on the surface the reported line ends at (a slab's
         faces, a roast's side); side_h is the coefficient on the others and
-        defaults to h.
+        defaults to h. share is Axis.relax's.
         """
         if outside_c != self.outside:
             self.parts.append((self.outside - outside_c, [a.ones for a in self.axes]))
             self.outside = outside_c
-        self.relax(h, dt, side_h)
+        self.relax(h, dt, side_h, share=share)
 
-    def relax(self, h: float, dt: float, side_h: float | None = None, base: list[float] | None = None) -> None:
+    def relax(self, h: float, dt: float, side_h: float | None = None, base: list[float] | None = None,
+              share: bool = False) -> None:
         """Advance the parts dt seconds and rebuild the temperatures on top of base.
 
         base is the temperature the line would have with no parts: the outside
@@ -291,7 +320,7 @@ class Body:
         T = [self.outside] * len(self.r) if base is None else base
         parts = []
         for coef, fields in self.parts:
-            fields = [line.relax(fields[0], h, dt), *(a.relax(f, side, dt) for a, f in zip(sides, fields[1:]))]
+            fields = [line.relax(fields[0], h, dt, share), *(a.relax(f, side, dt, share) for a, f in zip(sides, fields[1:]))]
             parts.append((coef, fields))
             for f in fields[1:]:
                 coef *= f[0]
@@ -373,7 +402,7 @@ def bath(body: Body, bath_c: float, until, limit_s: float = 24 * 3600) -> list[B
     states = [body.copy()]
     t = 0.0
     while not until(body) and t < limit_s:
-        body.step(bath_c, h, BATH_STEP_S)
+        body.step(bath_c, h, BATH_STEP_S, share=True)
         t += BATH_STEP_S
         states.append(body.copy())
     return states
@@ -494,7 +523,7 @@ def trace(steak: Steak, target_c: float, cook: Cook, finish: Finish, every_s: fl
     t, end = 0.0, cook.minutes * 60
     while t < end - 1e-9:
         bath_c = cook.bath_c if cook.switch_minutes is None or t < cook.switch_minutes * 60 else target_c
-        body.step(bath_c, steak.physics.h_bath, BATH_STEP_S)
+        body.step(bath_c, steak.physics.h_bath, BATH_STEP_S, share=True)
         t += BATH_STEP_S
         record(BATH_STEP_S, body, 'bath')
     finish.run(body, lambda dt, b: record(dt, b, 'finish'))
@@ -510,6 +539,14 @@ def profile(body: Body) -> list[dict]:
 
 def plan(steak: Steak, target_c: float, boost_c: float, finish: Finish) -> dict:
     """Classic sous vide against both shortcuts, with every boost in BOOSTS_C side by side."""
+    try:
+        return _plan(steak, target_c, boost_c, finish)
+    finally:
+        for a in steak.axes:  # the baths' shared solves are only worth keeping within one plan
+            a.forget()
+
+
+def _plan(steak: Steak, target_c: float, boost_c: float, finish: Finish) -> dict:
     base = classic(steak, target_c, finish)
     boosts = sorted(set(BOOSTS_C) | {boost_c})
     sweep = [hot_and_pull(steak, target_c, b, finish) for b in boosts]
@@ -522,13 +559,27 @@ def plan(steak: Steak, target_c: float, boost_c: float, finish: Finish) -> dict:
         out['saved_minutes'] = round(base.minutes - cook.minutes, 1)
         out['extra_overcooked_mm'] = round(out['overcooked_mm'] - base_over, 1)
         return out
+
+    def sear_range(cook: Cook) -> list[float]:
+        """The core peak if the pan's contact is half or double the assumed one."""
+        peaks = []
+        for factor in SEAR_SPREAD:
+            body = cook.pulled.copy()
+            body.steak = replace(steak, physics=replace(steak.physics, h_sear=steak.physics.h_sear * factor))
+            peaks.append(round(finish.run(body), 1))
+        return peaks
     warnings = [f'{cook.minutes / 60:.1f} h at {cook.bath_c:g} C: below {DANGER_C} C, '
                 f'keep cooks under {DANGER_HOURS:.0f} h.'
                 for cook in cooks.values() if cook.bath_c < DANGER_C and cook.minutes / 60 > DANGER_HOURS][:1]
+    thickness_only = replace(steak, shape='cylinder' if steak.shape == 'cylinder' else 'slab',
+                             width_mm=None, length_mm=None, bone='none')
     return {
-        **{name: row(cook) for name, cook in cooks.items()},
+        **{name: {**row(cook), 'core_peak_range_c': sear_range(cook)} for name, cook in cooks.items()},
         'sweep': [row(c) for c in sweep],
         'trace': {name: trace(steak, target_c, cook, finish) for name, cook in cooks.items()},
         'profile': {name: profile(cook.finished) for name, cook in cooks.items()},
         'warnings': warnings,
+        # What the same cook would take if only the thickness were known.
+        'thickness_only_minutes': round(base.minutes if thickness_only == steak
+                                        else classic(thickness_only, target_c, Finish(0)).minutes, 1),
     }
