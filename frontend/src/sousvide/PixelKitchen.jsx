@@ -7,6 +7,7 @@ import { STRATEGIES, fmtMinutes, shade, toF } from './SousVideApp.jsx';
 export const W = 200;
 export const H = 112;
 const PLAY_MS = 14000; // a whole cook, any length, replays in this long
+const FRAME_MS = 83;
 
 const C = {
   wall: '#e7dcc5', tile: '#dccfb4', counter: '#694b36', plank: '#5a3f2d', edge: '#8a6448',
@@ -238,41 +239,75 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
     return Array.from({ length: count }, () => [Math.floor(r() * 40), Math.floor(r() * 13)]);
   }, [cut]);
 
-  useEffect(() => { setT(0); }, [strategy, plan]);
+  const clock = useRef(0);
+  const seen = useRef(false);
+  useEffect(() => { clock.current = 0; setT(0); }, [strategy, plan]);
+
+  // Autoplay the first time the replay scrolls into view; stop whenever it
+  // leaves the screen or the tab hides, so a phone isn't drawing frames nobody sees.
   useEffect(() => {
+    const el = canvas.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    setPlaying(!reduced);
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) setPlaying(false);
+      else if (!seen.current && !reduced) setPlaying(true);
+      if (entry.isIntersecting) seen.current = true;
+    }, { threshold: 0.4 });
+    observer.observe(el);
+    const hide = () => { if (document.visibilityState === 'hidden') setPlaying(false); };
+    document.addEventListener('visibilitychange', hide);
+    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', hide); };
   }, []);
 
+  // One frame of the scene at clock.current; tick drives water, flames and the cat.
+  const painted = useRef(null);
+  const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
+  const frame = (tick) => {
+    if (!painted.current) {
+      const ctx = canvas.current?.getContext?.('2d');
+      if (!ctx) return;
+      painted.current = painter(ctx);
+    }
+    const paint = painted.current;
+    const at = clock.current;
+    const point = pointAt(trace, at);
+    const scene = sceneAt(trace, at, sear);
+    const bathC = row.switch_minutes != null && at > row.switch_minutes ? target : row.bath_c;
+    drawKitchen(paint, {
+      scene, point, t: at, tick, marbling, fatCap: cut.id === 'ribeye' || cut.id === 'strip',
+      peaks: peaksAt(trace, at, 24), bathF: toF(bathC), coreF: toF(point.core), targetF: toF(target),
+      crust: scene === 'bath' ? 0 : Math.min(1, ((at - bathEnd) * 60) / Math.max(sear, 1)),
+      hot: bathC > target,
+    });
+  };
+
+  // Paused: draw once per change. Playing: about 12 frames a second (pixel art
+  // gains nothing from 60), with React state updated only a few times a second.
   useEffect(() => {
-    const ctx = canvas.current?.getContext?.('2d');
-    if (!ctx) return undefined;
-    const paint = painter(ctx);
+    if (playing) return undefined;
+    clock.current = t;
+    frame(0);
+  });
+  useEffect(() => {
+    if (!playing) return undefined;
     let raf;
     let last = performance.now();
-    let clock = t;
-    const draw = (now) => {
-      if (playing) {
-        clock = Math.min(end, clock + ((now - last) / PLAY_MS) * end);
-        if (clock >= end) setPlaying(false);
-      }
+    let drawn = 0;
+    let synced = 0;
+    const loop = (now) => {
+      clock.current = Math.min(end, clock.current + ((now - last) / PLAY_MS) * end);
       last = now;
-      const point = pointAt(trace, clock);
-      const scene = sceneAt(trace, clock, sear);
-      const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
-      const bathC = row.switch_minutes != null && clock > row.switch_minutes ? target : row.bath_c;
-      drawKitchen(paint, {
-        scene, point, t: clock, tick: now, marbling, fatCap: cut.id === 'ribeye' || cut.id === 'strip',
-        peaks: peaksAt(trace, clock, 24), bathF: toF(bathC), coreF: toF(point.core), targetF: toF(target),
-        crust: scene === 'bath' ? 0 : Math.min(1, ((clock - bathEnd) * 60) / Math.max(sear, 1)),
-        hot: bathC > target,
-      });
-      if (playing && Math.abs(clock - t) > end / 200) setT(clock);
-      raf = requestAnimationFrame(draw);
+      if (now - drawn >= FRAME_MS) { drawn = now; frame(now); }
+      if (clock.current >= end) { setT(end); setPlaying(false); return; }
+      if (now - synced >= 200) { synced = now; setT(clock.current); }
+      raf = requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(draw);
+    raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [trace, playing, t, end, sear, target, row, marbling, cut]);
+  // frame closes over the current plan; restarting the loop on every render would reset its timers.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, trace, end]);
 
   const point = pointAt(trace, t);
   const scene = sceneAt(trace, t, sear);
@@ -289,7 +324,7 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
         aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, core ${Math.round(toF(point.core))}°F`} />
       <div className="sv-pixel__bar">
         <button type="button" className="cc-button sv-pixel__play" onClick={() => {
-          if (t >= end) setT(0);
+          if (t >= end) { clock.current = 0; setT(0); }
           setPlaying((p) => !p);
         }}>{playing ? 'Pause' : t >= end ? 'Replay' : 'Play'}</button>
         <input className="cc-range" type="range" aria-label="Time" min={0} max={end} step={end / 400} value={t}
