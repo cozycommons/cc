@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
+import PixelKitchen from './PixelKitchen.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './sousvide.css';
 
@@ -194,6 +195,7 @@ export default function SousVideApp() {
             <section className="sv-cards" aria-label="Methods">
               {STRATEGIES.map((s) => <Card key={s.id} strategy={s} row={p[s.id]} target={target} />)}
             </section>
+            <PixelKitchen plan={p} target={target} sear={sear} cut={{ id: cut.id, mm }} />
             <section className="sv-section" aria-label="Core temperature">
               <h2 className="cc-h3">Core temperature</h2>
               <CoreChart trace={p.trace} target={target} />
