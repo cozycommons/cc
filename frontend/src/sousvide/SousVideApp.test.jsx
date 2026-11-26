@@ -63,11 +63,11 @@ describe('Sous vide', () => {
     expect(step('bath')).toBe('Set the bath to136°F');
     expect(step('probe')).toContain('¼ to ⅜″ from the bone');
     expect(step('out')).toBe('Take it out at124°Fon the thermometer, about 19 min in. Sear it right away.');
-    // The same range as the cut-open view: a pan half to twice as hot as assumed.
-    expect(step('sear')).toBe('Sear45 s a sidethen rest 5 min. The center ends 128 to 130°F, medium rare.'
+    // The same range as the cut-open view, unnamed since it spans rare and medium rare.
+    expect(step('sear')).toBe('Sear45 s a sidethen rest 5 min. The center ends about 128 to 130°F.'
       + 'Under the crust, 3/16″ a side cooks past medium rare. A longer sear browns more and cooks that layer deeper.');
     expect(within(answer).getByText(/^Fastest of the three: 38 min faster than classic/)).toBeTruthy();
-    expect(within(answer).getByText(/^Food safety: the bath stays at 130°F or hotter/)).toBeTruthy();
+    expect(answer.textContent).not.toContain('safe');
     expect(within(answer).getByText(/3\/16″ a side cooks past medium rare/)).toBeTruthy();
 
     // Cooling the bath before the steak is ready is its own step.
@@ -107,13 +107,33 @@ describe('Sous vide', () => {
     expect(answer.querySelector('[data-step="out"]').textContent).toContain('about 4 h 10 in. Below 130°F it can’t wait, so skip cooling');
     expect(within(answer).getByRole('alert').textContent).toBe('Below 130°F, keep the whole cook under 4 h. This one takes 4 h 10.');
     fireEvent.click(within(answer).getByRole('radio', { name: 'Hot, then pull, 3 h 20' }));
-    expect(within(answer).getByText(/so the cook has no time limit/)).toBeTruthy();
+    expect(within(answer).queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps an early cool-down below 130°F and says to sear right away', async () => {
+    const rare = { ...PLAN, hot_then_drop: row('hot_then_drop', 60, 87, { switch_minutes: 73 }) };
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => (url.includes('target_c=52&') ? rare : PLAN) })));
+    await act(async () => { render(<SousVideApp />); });
+    const slider = screen.getByRole('slider', { name: 'Doneness' });
+    fireEvent.change(slider, { target: { value: '52' } });
+    await act(async () => { fireEvent.pointerUp(slider); });
+    const answer = await screen.findByRole('region', { name: 'What to do' });
+    await vi.waitFor(() => expect(within(answer).getByRole('radio', { name: 'Hot, then cool, 1 h 27' })).toBeTruthy());
+    fireEvent.click(within(answer).getByRole('radio', { name: 'Hot, then cool, 1 h 27' }));
+    expect(answer.querySelector('[data-step="cool"]').textContent).toBe('Cool the bath to126°Fat 1 h 13. Ice works.');
+    expect(answer.querySelector('[data-step="out"]').textContent)
+      .toBe('Take it out at124°Fon the thermometer, about 1 h 27 in. Below 130°F it can’t wait: sear right away.');
+    expect(answer.textContent).not.toContain('skip cooling');
   });
 
   it('recommends the classic cook when pulling early saves little or overcooks more', () => {
     expect(recommended(PLAN)).toBe('hot_and_pull');
     expect(recommended({ ...PLAN, hot_and_pull: { ...PLAN.hot_and_pull, saved_minutes: 5 } })).toBe('classic');
     expect(recommended({ ...PLAN, hot_and_pull: { ...PLAN.hot_and_pull, extra_overcooked_mm: 2 } })).toBe('classic');
+    // Never the one that breaks the 4 h rule below 130°F when the other does not.
+    const long = { ...PLAN, hot_and_pull: { ...PLAN.hot_and_pull, bath_c: 53, minutes: 250, saved_minutes: 30 }, classic: row('classic', 53, 280) };
+    expect(recommended({ ...long, classic: row('classic', 55, 200) })).toBe('classic');
+    expect(recommended({ ...PLAN, hot_and_pull: { ...PLAN.hot_and_pull, saved_minutes: 5 }, classic: row('classic', 53, 300) })).toBe('hot_and_pull');
   });
 
   it('plans the bone-in ribeye from its thickness and weight, then from what the cook measures', async () => {
@@ -176,6 +196,12 @@ describe('Sous vide', () => {
     await act(async () => { fireEvent.pointerUp(slider); });
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[1][0]).toContain('boost_c=5');
+  });
+
+  it('names an out-of-range measurement instead of printing the field errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 422, json: async () => ({ detail: [{ loc: ['query', 'weight_g'] }] }) })));
+    await act(async () => { render(<SousVideApp />); });
+    expect((await screen.findByRole('alert')).textContent).toBe('A measurement is out of range. Check the weight, width and length.');
   });
 
   it('shows the API error', async () => {

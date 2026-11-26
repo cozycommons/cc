@@ -287,8 +287,13 @@ The page leads with the answer for the default steak: one method as steps
 (bath, where the thermometer tip goes, when to take it out, the sear and rest),
 with a tab per method showing its time. It recommends hot, then pull unless it
 saves under 10 minutes or overcooks more than 1 mm a side beyond the classic
-cook; hot, then cool is always slower than pulling and is there for a steak that
-has to wait. Depths are shown to the nearest sixteenth of an inch. The chart,
+cook, and never recommends a cook that breaks the 4 h rule below 54.4 °C when
+the other does not; hot, then cool is always slower than pulling and is there
+for a steak that has to wait. The page states the 4 h rule only where it
+applies and makes no other food-safety claim: the model checks bath time and
+temperature, not pasteurization. The center's finish is shown as the range
+between a weaker and a stronger sear, named by doneness only when the whole
+range is one. Depths are shown to the nearest sixteenth of an inch. The chart,
 the cut-open view, the replay, every hot bath, the sizing and calibration sit
 below the steak's controls.
 
