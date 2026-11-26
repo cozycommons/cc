@@ -1,8 +1,8 @@
 FROM node:24-bookworm-slim
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY --chmod=644 package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY auth.mjs server.mjs ./
+COPY --chmod=644 auth.mjs server.mjs ./
 RUN mkdir /data && chown node:node /data
 ENV NODE_ENV=production PORT=4100 BOARD_DATA_DIR=/data
 USER node
