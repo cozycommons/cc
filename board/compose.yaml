@@ -1,0 +1,19 @@
+services:
+  board:
+    build:
+      context: ./board
+    environment:
+      BOARD_ORIGIN: ${BOARD_ORIGIN:-https://board.cozycommons.dev}
+      COMMONS_API_ORIGIN: ${COMMONS_API_ORIGIN:-https://api.cozycommons.dev}
+      SUPABASE_URL: ${SUPABASE_URL:?Set the Commons Supabase project URL}
+      SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:?Set the Commons Supabase publishable key}
+      BOARD_MEMBER_EMAILS: ${BOARD_MEMBER_EMAILS:-}
+      BOARD_AGENT_KEYS: ${BOARD_AGENT_KEYS:-}
+    expose:
+      - "4100"
+    volumes:
+      - board-data:/data
+    restart: unless-stopped
+
+volumes:
+  board-data:

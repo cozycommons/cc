@@ -71,7 +71,7 @@ services:
       - 'traefik.enable=true'
       - 'traefik.docker.network=${APPS_PROXY_NETWORK:-coolify}'
       - 'traefik.tcp.routers.commons-apps.entrypoints=https'
-      - 'traefik.tcp.routers.commons-apps.rule=HostSNIRegexp(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?\.cozycommons\.dev$`) && !HostSNI(`admin.cozycommons.dev`) && !HostSNI(`api.cozycommons.dev`) && !HostSNI(`auth.cozycommons.dev`) && !HostSNI(`www.cozycommons.dev`) && !HostSNI(`mail.cozycommons.dev`) && !HostSNI(`smtp.cozycommons.dev`) && !HostSNI(`ftp.cozycommons.dev`) && !HostSNI(`proxy.cozycommons.dev`) && !HostSNI(`status.cozycommons.dev`) && !HostSNI(`static.cozycommons.dev`) && !HostSNI(`assets.cozycommons.dev`) && !HostSNI(`mcp.cozycommons.dev`) && !HostSNI(`localhost.cozycommons.dev`) && !HostSNI(`default.cozycommons.dev`)'
+      - 'traefik.tcp.routers.commons-apps.rule=HostSNIRegexp(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?\.cozycommons\.dev$`) && !HostSNI(`admin.cozycommons.dev`) && !HostSNI(`api.cozycommons.dev`) && !HostSNI(`auth.cozycommons.dev`) && !HostSNI(`board.cozycommons.dev`) && !HostSNI(`www.cozycommons.dev`) && !HostSNI(`mail.cozycommons.dev`) && !HostSNI(`smtp.cozycommons.dev`) && !HostSNI(`ftp.cozycommons.dev`) && !HostSNI(`proxy.cozycommons.dev`) && !HostSNI(`status.cozycommons.dev`) && !HostSNI(`static.cozycommons.dev`) && !HostSNI(`assets.cozycommons.dev`) && !HostSNI(`mcp.cozycommons.dev`) && !HostSNI(`localhost.cozycommons.dev`) && !HostSNI(`default.cozycommons.dev`)'
       - 'traefik.tcp.routers.commons-apps.tls.passthrough=true'
       - 'traefik.tcp.routers.commons-apps.service=commons-apps'
       - 'traefik.tcp.services.commons-apps.loadbalancer.server.port=443'

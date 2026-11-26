@@ -4,6 +4,9 @@ Cozy Commons has a shared static frontend and FastAPI backend deployed from this
 monorepo, plus separate services where projects need them. The Coolify resource
 instructions below cover the shared pair; Crowdset's separate application is
 documented in [its deployment instructions](crowdset/README.md#hosted-test-configuration).
+Cozy Board runs separately because the upstream Node service owns a persistent
+SQLite database and attachment volume. See [Board deployment](../board/README.md#deployment).
+
 Dice remains available at `/dice`. The existing `jasonkeung.com/dice` deployment
 remains separate during migration.
 

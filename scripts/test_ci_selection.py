@@ -28,6 +28,12 @@ TEST_FILES = [
 
 
 class SelectionTests(unittest.TestCase):
+    def test_board_paths_select_the_board_suite(self):
+        for path in ["board/Dockerfile", "board/compose.yaml", "board/server.mjs", "board/package-lock.json"]:
+            with self.subTest(path=path):
+                plan = ci.select([path], TEST_FILES)
+                self.assertEqual([j for j in ci.JOBS if plan[j]], ["board"])
+
     def test_apps_runtime_paths_select_the_docker_suite(self):
         for path in ["infra/apps/runtime/commons.py", "infra/apps/hosted/compose.yaml", "scripts/apps-dev.sh"]:
             with self.subTest(path=path):
