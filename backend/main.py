@@ -36,6 +36,7 @@ from service_health import router as health_router
 from trips.routes import router as trips_router
 from bikes.routes import router as bikes_router
 from vital.routes import router as vital_router
+from sousvide.routes import router as sousvide_router
 from supabase_cache import CachedSupabaseClient, SupabaseTTLCacheStore
 import mcp_validation
 import request_validation
@@ -152,6 +153,7 @@ app.include_router(venmo_router, prefix="/venmo")
 app.include_router(trips_router, prefix="/trips")
 app.include_router(bikes_router, prefix="/bikes")
 app.include_router(vital_router, prefix="/vital")
+app.include_router(sousvide_router, prefix="/sousvide")
 app.include_router(floor_planner_router, prefix="/floor-planner")
 app.include_router(floor_planner_scans_router, prefix="/floor-planner")
 app.include_router(dice_router, prefix="/dice")

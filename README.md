@@ -16,6 +16,7 @@ A monorepo for community projects amongst our friends.
 - **[Maple Telemetry](docs/maple-telemetry.md)** — per-user MapleStory Classic EXP telemetry, shipped from the player's machine.
 - **[Cozy Bikes](docs/cozy-bikes.md)** — wait at a full Citi Bike dock or ride to the next one, from a year of trips and live docks.
 - **[VITAL occupancy](docs/cozy-vital.md)** — how busy VITAL Brooklyn is now, and when it's quiet.
+- **[Sous vide](docs/cozy-sous-vide.md)** — bath time for any steak, and what a hotter bath saves.
 
 ## Layout
 
