@@ -71,6 +71,14 @@ export default function CozyWabiLanding() {
               </div>
               <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
             </Link>
+            <Link className="cc-home-project" to="/sousvide" aria-label="Open Sous vide steak planner">
+              <span className="cc-home-project__icon" aria-hidden="true">🥩</span>
+              <div className="cc-home-project__body">
+                <h2>Sous vide</h2>
+                <p>Bath time for any steak, and what a hotter bath saves.</p>
+              </div>
+              <span className="cc-home-project__arrow" aria-hidden="true">↗</span>
+            </Link>
             <Link className="cc-home-project" to="/floor-planner" aria-label="Open Cozy Floor Planner">
               <span className="cc-home-project__icon" aria-hidden="true">⌑</span>
               <div className="cc-home-project__body">
