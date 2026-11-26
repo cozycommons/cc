@@ -1,45 +1,86 @@
 """Heat conduction through a steak in a water bath, a pan and the air.
 
-The steak is a 1-D body: a slab heated through both faces (a steak wider than
-about three times its thickness) or an infinite cylinder heated around its side
-(a tenderloin roast). Heat moves by conduction, rho*c*dT/dt = div(k grad T),
-and enters through the surface by convection, q = h*(T_outside - T_surface).
-Properties are constant, the meat never freezes or loses water, and a bath
-or pan change is instant.
+Heat moves by conduction, rho*c*dT/dt = div(k grad T), and enters through the
+surface by convection, q = h*(T_outside - T_surface). Properties are constant,
+the meat never freezes or loses water, and a bath or pan change is instant.
+
+The steak is a box (thickness x width x length), a round puck (a filet) or a
+roast (a cylinder with a length). Conduction is linear, so two facts keep the
+solve one-dimensional and stdlib-only:
+
+- A box that starts uniform and sees one outside temperature on every face has
+  the product solution: (T - T_out) / (T_start - T_out) is the product of the
+  1-D solutions along each axis. A steak measured only by thickness has one
+  axis, the infinite slab.
+- When the outside temperature changes (bath to pan to air, or a hot bath
+  dropped to the target), the change is a uniform offset that relaxes on its
+  own. The temperature is the outside temperature plus a sum of such parts,
+  each a product of 1-D solutions (Body.parts).
+
+The model reports temperatures along the line through the middle of the steak:
+through the thickness at the centre of a slab or puck, along the radius at the
+middle of a roast.
 
 Doneness follows the hottest temperature each layer reached: myoglobin and
 myosin denature within minutes at these temperatures, so a layer that once
 peaked at 60 C stays medium even after the bath drops back to 55 C.
 
-The solver is backward Euler on a finite-volume grid. It is unconditionally
+Each 1-D solve is backward Euler on a finite-volume grid. It is unconditionally
 stable, so a 10 s step works for the bath and a 1 s step resolves a sear's
 few millimetres. Each step solves a tridiagonal system (Thomas algorithm).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Literal
 
-Shape = Literal['slab', 'cylinder']
+Shape = Literal['slab', 'cylinder', 'puck']
 
-# Whole-muscle beef near 55 C. Literature values for alpha run 1.1e-7 to
-# 1.4e-7 m^2/s (fat lowers it a few per cent); Baldwin's tables assume about
-# 1.1e-7 to 1.3e-7, so cook times here carry roughly +/-10 %.
-CONDUCTIVITY = 0.46  # k, W/(m K)
-DIFFUSIVITY = 1.2e-7  # alpha, m^2/s
-# Surface heat transfer coefficients, W/(m^2 K). A bagged steak in a
-# circulating bath sees about 95 (Baldwin). Still air around a resting steak
-# is about 10. In a hot pan a wet steak's surface boils, which holds the meat
-# just under the crust near 100 C while the sear lasts: the sear is modelled
-# as a stiff contact (h=400) with 100 C. Heat that leaves as steam or builds
-# the crust never enters the meat, so this is not the pan's temperature.
-H_BATH = 95.0
-H_AIR = 10.0
-H_SEAR = 400.0
-SEAR_SURFACE_C = 100.0
-AIR_C = 22.0
 
-NODES = 40
+@dataclass(frozen=True)
+class Physics:
+    """Every physical constant the heat solve uses.
+
+    None of these has been measured on the cook's own steak or kitchen. Unless a
+    field says otherwise its value is carried from the first version of this
+    model, which took it from general food-engineering knowledge rather than a
+    cited table; the literature pass and probe-log calibration
+    (calibrate.py) are the two ways they get replaced.
+    """
+
+    conductivity: float = 0.46
+    """k of the meat, W/(m K). Lean whole-muscle beef near 55 C. First-version value, uncited.
+    Only the ratio h/k matters to the solve, so an error here acts like an error in h."""
+
+    diffusivity: float = 1.2e-7
+    """alpha of the meat, m^2/s. First-version value: beef is quoted between 1.1e-7 and 1.4e-7,
+    and Baldwin's tables assume about 1.1e-7 to 1.3e-7. Cook time scales as 1/alpha, so this
+    range is about +/-10 % on time. The constant a probe log fits best (calibrate.py)."""
+
+    h_bath: float = 95.0
+    """Surface heat transfer coefficient of a bagged steak in a circulating bath, W/(m^2 K).
+    The value Baldwin uses for his tables. Depends on the circulator and the bag's contact."""
+
+    h_air: float = 10.0
+    """Still air around a resting steak, W/(m^2 K). First-version value, a textbook
+    free-convection-plus-radiation figure. Ignores evaporation, which cools a wet surface faster."""
+
+    air_c: float = 22.0
+    """Room temperature while the steak rests, C. Assumed."""
+
+    h_sear: float = 400.0
+    """Stiffness of the pan contact, W/(m^2 K), toward sear_surface_c. First-version guess.
+    The least certain constant: see experiments/sear.py for what it does to the carryover."""
+
+    sear_surface_c: float = 100.0
+    """Temperature the sear drives the meat's surface toward, C. A wet surface boils, which
+    holds the meat just under the crust near 100 C while the sear lasts. Heat that leaves as
+    steam or builds the crust never enters the meat, so this is not the pan's temperature."""
+
+
+NODES = 40  # along the reported line: centre to surface
+SIDE_NODES = 20  # along width and length, where only the centre value is used
 BATH_STEP_S = 10.0
 SEAR_STEP_S = 1.0
 REST_STEP_S = 5.0
@@ -54,28 +95,17 @@ DANGER_C = 54.4
 DANGER_HOURS = 4.0
 
 
-@dataclass(frozen=True)
-class Steak:
-    thickness_mm: float  # slab thickness, or cylinder diameter
-    shape: Shape = 'slab'
-    start_c: float = 5.0
+class Axis:
+    """One direction heat moves along: half a slab's thickness, or a cylinder's radius.
 
-    @property
-    def half_m(self) -> float:
-        return self.thickness_mm / 2000.0
+    Nodes run from the centre (0) to the surface (n-1). relax() advances the
+    homogeneous problem: the outside is at 0 and the field decays toward it.
+    """
 
-    @property
-    def m(self) -> int:
-        """Geometry exponent: 0 for a slab, 1 for a cylinder."""
-        return 0 if self.shape == 'slab' else 1
-
-
-class Body:
-    """Temperatures on a radial grid from the centre (node 0) to the surface (node N-1)."""
-
-    def __init__(self, steak: Steak, temps: list[float] | None = None):
-        self.steak = steak
-        n, m, R = NODES, steak.m, steak.half_m
+    def __init__(self, half_m: float, m: int, nodes: int, conductivity: float, diffusivity: float):
+        # m is the geometry exponent: 0 for a slab, 1 for a cylinder.
+        self.half_m, self.alpha, self.k = half_m, diffusivity, conductivity
+        n, R = nodes, half_m
         self.dr = R / (n - 1)
         self.r = [i * self.dr for i in range(n)]
         # Control volume i spans [r_i - dr/2, r_i + dr/2], clipped to [0, R],
@@ -85,11 +115,100 @@ class Body:
         self.volume = [(b ** (m + 1) - a ** (m + 1)) / (m + 1) for a, b in zip(lo, hi)]
         self.face = [hi[i] ** m for i in range(n - 1)]  # between node i and i+1
         self.surface = R ** m
-        self.T = list(temps) if temps else [steak.start_c] * n
+        self.ones = [1.0] * n
+        self._factored: dict[tuple[float, float], tuple[list[float], list[float], list[float]]] = {}
+
+    def _factor(self, h: float, dt: float) -> tuple[list[float], list[float], list[float]]:
+        """Thomas elimination of the step's tridiagonal matrix, which is fixed for a given h and dt."""
+        n = len(self.r)
+        g = [self.alpha * dt * a / self.dr for a in self.face]  # conductance * dt / (rho c)
+        surf = h * dt * self.surface * self.alpha / self.k  # h / (rho c) * dt * area
+        # Row i: -g[i-1] T_{i-1} + b_i T_i - g[i] T_{i+1} = volume_i * T_i(old).
+        b = [self.volume[i] + (g[i - 1] if i else 0.0) + (g[i] if i < n - 1 else 0.0) for i in range(n)]
+        b[-1] += surf
+        w = [0.0] * n
+        for i in range(1, n):
+            w[i] = -g[i - 1] / b[i - 1]
+            b[i] += w[i] * g[i - 1]
+        return w, [1.0 / x for x in b], g
+
+    def relax(self, field: list[float], h: float, dt: float) -> list[float]:
+        """The field dt seconds later, its surface losing heat to 0 through coefficient h."""
+        key = (h, dt)
+        if key not in self._factored:
+            self._factored[key] = self._factor(h, dt)
+        w, inv, g = self._factored[key]
+        n = len(field)
+        d = [v * t for v, t in zip(self.volume, field)]
+        for i in range(1, n):
+            d[i] -= w[i] * d[i - 1]
+        out = [0.0] * n
+        out[-1] = d[-1] * inv[-1]
+        for i in range(n - 2, -1, -1):
+            out[i] = (d[i] + g[i] * out[i + 1]) * inv[i]
+        return out
+
+
+@lru_cache(maxsize=64)
+def axis(half_m: float, m: int, nodes: int, conductivity: float, diffusivity: float) -> Axis:
+    """Axes are shared so each (h, dt) matrix is factored once per geometry, not once per Body."""
+    return Axis(half_m, m, nodes, conductivity, diffusivity)
+
+
+@dataclass(frozen=True)
+class Steak:
+    thickness_mm: float  # slab or puck thickness, or a roast's diameter
+    shape: Shape = 'slab'
+    start_c: float = 5.0
+    width_mm: float | None = None  # a slab's shorter side, or a puck's diameter
+    length_mm: float | None = None  # a slab's longer side, or a roast's length
+    physics: Physics = Physics()
+
+    @property
+    def half_m(self) -> float:
+        return self.thickness_mm / 2000.0
+
+    @property
+    def axes(self) -> tuple[Axis, ...]:
+        """The reported line first, then the directions whose only effect is on the middle.
+
+        An unmeasured side is treated as infinite: it gets no axis.
+        """
+        if self.shape == 'cylinder':
+            line, sides = 1, [(self.length_mm, 0)]
+        elif self.shape == 'puck':
+            line, sides = 0, [(self.width_mm, 1)]
+        else:
+            line, sides = 0, [(self.width_mm, 0), (self.length_mm, 0)]
+        k, alpha = self.physics.conductivity, self.physics.diffusivity
+        return (axis(self.half_m, line, NODES, k, alpha),
+                *(axis(mm / 2000.0, m, SIDE_NODES, k, alpha) for mm, m in sides if mm))
+
+
+class Body:
+    """Temperatures from the centre (node 0) to the surface (node N-1) along the steak's middle line.
+
+    The state is the outside temperature plus parts. Each part is one past change
+    of the outside temperature: a coefficient times the product of a 1-D field per
+    axis, each field relaxing toward 0 (see the module docstring).
+    """
+
+    def __init__(self, steak: Steak):
+        self.steak = steak
+        self.axes = steak.axes
+        line = self.axes[0]
+        self.r, self.dr, self.volume = line.r, line.dr, line.volume
+        # The meat starts in equilibrium with an outside at its own temperature.
+        self.outside = steak.start_c
+        self.parts: list[tuple[float, list[list[float]]]] = []
+        self.T = [steak.start_c] * len(self.r)
         self.peak = list(self.T)
 
     def copy(self) -> 'Body':
-        body = Body(self.steak, self.T)
+        body = Body(self.steak)
+        body.outside = self.outside
+        body.parts = list(self.parts)  # fields are replaced each step, never mutated
+        body.T = list(self.T)
         body.peak = list(self.peak)
         return body
 
@@ -97,25 +216,37 @@ class Body:
     def core(self) -> float:
         return self.T[0]
 
-    def step(self, outside_c: float, h: float, dt: float) -> None:
-        """Advance dt seconds with the surface exposed to outside_c through coefficient h."""
-        n, T = len(self.T), self.T
-        g = [DIFFUSIVITY * dt * a / self.dr for a in self.face]  # conductance * dt / (rho c)
-        surf = h * dt * self.surface * DIFFUSIVITY / CONDUCTIVITY  # h / (rho c) * dt * area
-        # Tridiagonal system a_i T_{i-1} + b_i T_i + c_i T_{i+1} = d_i.
-        a = [0.0] + [-x for x in g]
-        c = [-x for x in g] + [0.0]
-        b = [self.volume[i] + (g[i - 1] if i else 0.0) + (g[i] if i < n - 1 else 0.0) for i in range(n)]
-        d = [self.volume[i] * T[i] for i in range(n)]
-        b[-1] += surf
-        d[-1] += surf * outside_c
-        for i in range(1, n):
-            w = a[i] / b[i - 1]
-            b[i] -= w * c[i - 1]
-            d[i] -= w * d[i - 1]
-        T[-1] = d[-1] / b[-1]
-        for i in range(n - 2, -1, -1):
-            T[i] = (d[i] - c[i] * T[i + 1]) / b[i]
+    def step(self, outside_c: float, h: float, dt: float, side_h: float | None = None) -> None:
+        """Advance dt seconds with every surface exposed to outside_c.
+
+        h is the coefficient on the surface the reported line ends at (a slab's
+        faces, a roast's side); side_h is the coefficient on the others and
+        defaults to h.
+        """
+        if outside_c != self.outside:
+            self.parts.append((self.outside - outside_c, [a.ones for a in self.axes]))
+            self.outside = outside_c
+        self.relax(h, dt, side_h)
+
+    def relax(self, h: float, dt: float, side_h: float | None = None, base: list[float] | None = None) -> None:
+        """Advance the parts dt seconds and rebuild the temperatures on top of base.
+
+        base is the temperature the line would have with no parts: the outside
+        temperature, unless the caller is superposing a solution of its own
+        (Finish.run does).
+        """
+        side = h if side_h is None else side_h
+        line, sides = self.axes[0], self.axes[1:]
+        T = [self.outside] * len(self.r) if base is None else base
+        parts = []
+        for coef, fields in self.parts:
+            fields = [line.relax(fields[0], h, dt), *(a.relax(f, side, dt) for a, f in zip(sides, fields[1:]))]
+            parts.append((coef, fields))
+            for f in fields[1:]:
+                coef *= f[0]
+            T = [t + coef * x for t, x in zip(T, fields[0])]
+        self.parts = parts
+        self.T = T
         self.peak = [max(p, t) for p, t in zip(self.peak, T)]
 
     def depth_over_mm(self, limit_c: float) -> float:
@@ -126,7 +257,7 @@ class Body:
         return max(0.0, (self.steak.half_m - max(inside) - self.dr / 2) * 1000)
 
     def share_over(self, limit_c: float) -> float:
-        """Fraction of the meat (by volume) whose peak passed limit_c."""
+        """Fraction of the middle line's meat (by volume) whose peak passed limit_c."""
         over = sum(v for v, p in zip(self.volume, self.peak) if p > limit_c)
         return over / sum(self.volume)
 
@@ -135,35 +266,63 @@ class Body:
 class Finish:
     sear_s: float = 45.0  # per side; modelled as both faces at once, like flipping every 15 s
 
+    def steps(self, physics: Physics) -> list[tuple[bool, float, float, float, float]]:
+        """(resting, outside_c, h, side_h, dt) for the sear and then the longest rest.
+
+        The pan touches only the surface the reported line ends at. The other
+        surfaces are treated as insulated for the length of the sear: they would
+        lose a negligible amount to the air, and a single outside temperature
+        keeps the product solution exact.
+        """
+        sear = (False, physics.sear_surface_c, physics.h_sear, 0.0, SEAR_STEP_S)
+        rest = (True, physics.air_c, physics.h_air, physics.h_air, REST_STEP_S)
+        return [sear] * round(self.sear_s / SEAR_STEP_S) + [rest] * round(REST_MAX_S / REST_STEP_S)
+
     def run(self, body: Body, record=None) -> float:
-        """Sear, then rest until the core stops rising. Returns the core's highest temperature."""
-        top = body.core
-        t = 0.0
-        while t < self.sear_s:
-            body.step(SEAR_SURFACE_C, H_SEAR, SEAR_STEP_S)
-            t += SEAR_STEP_S
-            top = max(top, body.core)
-            if record:
-                record(SEAR_STEP_S, body)
-        rested = 0.0
-        while rested < REST_MAX_S:
+        """Sear, then rest until the core stops rising. Returns the core's highest temperature.
+
+        The body must come straight from a bath. Its temperature is then the bath
+        temperature minus a shortfall (its parts), and the finish splits the same
+        way: a steak uniformly at the bath temperature going through the sear and
+        rest, which is the same for every pull time and is solved once
+        (_uniform_finish), plus the shortfall relaxing with nothing heating it.
+        The body is left readable (T, peak) but must not be stepped again.
+        """
+        physics, bath_c = body.steak.physics, body.outside
+        uniform = _uniform_finish(replace(body.steak, start_c=0.0), self.sear_s)
+        top, rested = body.core, 0.0
+        for (resting, _, h, side_h, dt), (cold, per_degree) in zip(self.steps(physics), uniform):
             before = body.core
-            body.step(AIR_C, H_AIR, REST_STEP_S)
-            rested += REST_STEP_S
+            body.relax(h, dt, side_h, base=[a + bath_c * b for a, b in zip(cold, per_degree)])
             top = max(top, body.core)
             if record:
-                record(REST_STEP_S, body)
-            if body.core < before and rested >= 60:
-                break
+                record(dt, body)
+            if resting:
+                rested += dt
+                if body.core < before and rested >= 60:
+                    break
         return top
+
+
+@lru_cache(maxsize=32)
+def _uniform_finish(steak: Steak, sear_s: float) -> list[tuple[list[float], list[float]]]:
+    """After each finish step: a steak that started uniformly at 0 C, and its gain per degree of start."""
+    cold, warm = Body(replace(steak, start_c=0.0)), Body(replace(steak, start_c=1.0))
+    out = []
+    for _, outside_c, h, side_h, dt in Finish(sear_s).steps(steak.physics):
+        cold.step(outside_c, h, dt, side_h)
+        warm.step(outside_c, h, dt, side_h)
+        out.append((cold.T, [b - a for a, b in zip(cold.T, warm.T)]))
+    return out
 
 
 def bath(body: Body, bath_c: float, until, limit_s: float = 24 * 3600) -> list[Body]:
     """Cook in the bath, keeping a snapshot per step, until until(body) or limit_s."""
+    h = body.steak.physics.h_bath
     states = [body.copy()]
     t = 0.0
     while not until(body) and t < limit_s:
-        body.step(bath_c, H_BATH, BATH_STEP_S)
+        body.step(bath_c, h, BATH_STEP_S)
         t += BATH_STEP_S
         states.append(body.copy())
     return states
@@ -284,7 +443,7 @@ def trace(steak: Steak, target_c: float, cook: Cook, finish: Finish, every_s: fl
     t, end = 0.0, cook.minutes * 60
     while t < end - 1e-9:
         bath_c = cook.bath_c if cook.switch_minutes is None or t < cook.switch_minutes * 60 else target_c
-        body.step(bath_c, H_BATH, BATH_STEP_S)
+        body.step(bath_c, steak.physics.h_bath, BATH_STEP_S)
         t += BATH_STEP_S
         record(BATH_STEP_S, body, 'bath')
     finish.run(body, lambda dt, b: record(dt, b, 'finish'))

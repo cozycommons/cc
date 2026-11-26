@@ -3,13 +3,15 @@ import math
 import pytest
 
 from sousvide import model
-from sousvide.model import Body, Finish, Steak
+from sousvide.model import Body, Finish, Physics, Steak
+
+PHYSICS = Physics()
 
 
 def core_after(steak: Steak, bath_c: float, seconds: float) -> float:
     body = Body(steak)
     for _ in range(round(seconds / model.BATH_STEP_S)):
-        body.step(bath_c, model.H_BATH, model.BATH_STEP_S)
+        body.step(bath_c, PHYSICS.h_bath, model.BATH_STEP_S)
     return body.core
 
 
@@ -18,14 +20,14 @@ def test_slab_core_matches_the_series_solution():
     # (T0 - Tb) / (Ti - Tb) = C1 exp(-z^2 Fo), where z tan z = Bi.
     steak = Steak(38, start_c=5)
     half = steak.half_m
-    biot = model.H_BATH * half / model.CONDUCTIVITY
+    biot = PHYSICS.h_bath * half / PHYSICS.conductivity
     lo, hi = 1e-6, math.pi / 2 - 1e-9
     for _ in range(100):
         z = (lo + hi) / 2
         lo, hi = (z, hi) if z * math.tan(z) < biot else (lo, z)
     c1 = 4 * math.sin(z) / (2 * z + math.sin(2 * z))
     seconds = 3600
-    fourier = model.DIFFUSIVITY * seconds / half ** 2
+    fourier = PHYSICS.diffusivity * seconds / half ** 2
     expected = 55 + (5 - 55) * c1 * math.exp(-z * z * fourier)
     assert core_after(steak, 55, seconds) == pytest.approx(expected, abs=0.3)
 
@@ -63,7 +65,7 @@ def test_dropping_the_bath_holds_the_core_at_target():
     assert drop.switch_minutes < drop.minutes
     body = drop.pulled.copy()
     for _ in range(360):  # another hour at the target
-        body.step(target, model.H_BATH, model.BATH_STEP_S)
+        body.step(target, PHYSICS.h_bath, model.BATH_STEP_S)
         assert body.core <= target + model.READY_WITHIN_C
 
 
