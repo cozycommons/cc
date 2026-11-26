@@ -2,10 +2,12 @@ FROM node:22-bookworm-slim AS web
 WORKDIR /build/frontend
 COPY --chmod=644 frontend/package.json frontend/package-lock.json ./
 RUN npm ci --ignore-scripts
-COPY frontend/chat.html frontend/vite.chat.config.js ./
+COPY frontend/chat.html frontend/vite.chat.config.js frontend/postcss.config.js ./
 COPY frontend/src/chat ./src/chat
-COPY frontend/src/design/system ./src/design/system
-COPY design/cozy-wabi /build/design/cozy-wabi
+COPY frontend/src/components/ui ./src/components/ui
+COPY frontend/src/design/commons-theme.css frontend/src/design/shadcn-theme.css ./src/design/
+COPY frontend/src/lib/utils.js ./src/lib/
+COPY design/cozy-wabi/tokens.css /build/design/cozy-wabi/
 RUN npm run build:chat
 
 FROM node:24-bookworm-slim

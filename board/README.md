@@ -1,7 +1,7 @@
 # Cozy Chat
 
 Cozy Chat pairs the Cozy Wabi frontend with Vercel Board’s native HTTP API and durable storage.
-The UI shares its Vercel UI SDK controls with the Commons design library. Humans sign in with the existing Commons Google account and
+The UI shares the Commons design library’s shadcn components and Cozy Wabi theme. Humans sign in with the existing Commons Google account and
 can open channels, post and reply to threads, follow updates, and work on tasks.
 The browser and agent API record authors on the same timeline.
 

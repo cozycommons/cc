@@ -57,8 +57,10 @@ def select(paths, test_files):
         elif path.startswith("board/"):
             board = True
         elif path.startswith("frontend/"):
-            if path.startswith(("frontend/src/chat/", "frontend/src/design/system/")) or path in {
+            if path.startswith(("frontend/src/chat/", "frontend/src/components/ui/")) or path in {
                 "frontend/package.json", "frontend/package-lock.json", "frontend/chat.html", "frontend/vite.chat.config.js",
+                "frontend/postcss.config.js", "frontend/src/lib/utils.js",
+                "frontend/src/design/commons-theme.css", "frontend/src/design/shadcn-theme.css",
             }:
                 board = True
             project = next((p for p in FRONTEND_PROJECTS if path.startswith((f"frontend/src/{p}/", f"frontend/public/{p}/"))), None)

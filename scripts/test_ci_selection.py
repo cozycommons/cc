@@ -36,7 +36,9 @@ class SelectionTests(unittest.TestCase):
 
     def test_board_rebuilds_when_shared_browser_inputs_change(self):
         for path in [
-            "frontend/src/chat/Chat.jsx", "frontend/src/design/system/Controls.jsx",
+            "frontend/src/chat/Chat.jsx", "frontend/src/components/ui/button.jsx",
+            "frontend/src/design/commons-theme.css", "frontend/src/design/shadcn-theme.css",
+            "frontend/postcss.config.js", "frontend/src/lib/utils.js",
             "frontend/package-lock.json", "design/cozy-wabi/tokens.css",
         ]:
             with self.subTest(path=path):

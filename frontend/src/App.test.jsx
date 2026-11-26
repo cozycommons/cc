@@ -97,14 +97,14 @@ describe('top-level routes', () => {
     expect(screen.getByTestId('supabase-provider')).toBeInTheDocument();
   });
 
-  it('serves the chosen Wabi component library at /design', async () => {
+  it('serves the shadcn component library at /design', async () => {
     window.history.replaceState({}, '', '/design');
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: /Cozy Commons.*Design system\./ })).toBeInTheDocument());
-    expect(screen.getByRole('link', { name: 'homepage' })).toHaveAttribute('href', '/');
-    expect(screen.getByRole('heading', { name: /Raised keys.*soft landing\./ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Design System' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Cozy Commons' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('heading', { name: 'Buttons' })).toBeInTheDocument();
   });
 
   it('serves the Dice design system at /design/dice', async () => {
