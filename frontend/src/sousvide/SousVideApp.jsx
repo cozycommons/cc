@@ -58,6 +58,11 @@ function savedCalibration() {
 }
 export const deltaF = (c) => c * 9 / 5;
 export const fmtF = (c) => `${Math.round(toF(c))}°F`;
+// A temperature range in °F, or one value when both ends round to it.
+export function fmtRange([lo, hi]) {
+  const [a, b] = [lo, hi].map((c) => Math.round(toF(c)));
+  return a === b ? `about ${a}°F` : `${a} to ${b}°F`;
+}
 export const fmtInches = (mm) => `${(mm / 25.4).toFixed(2).replace(/0$/, '')}″`;
 export function fmtMinutes(min) {
   const m = Math.round(min);
@@ -216,8 +221,8 @@ function steps(id, row, form, plan) {
   const pullAt = fmtF(row.pull_core_c);
   const about = `about ${fmtMinutes(row.minutes)} in`;
   const probe = PROBE[form.cut.shape === 'cylinder' ? 'cylinder' : plan.steak.bone];
-  // The cook aims within READY_WITHIN_C of the target, so a center that close reads as the target.
-  const endsC = Math.abs(row.core_peak_c - target) <= 0.55 ? target : row.core_peak_c;
+  // Where the center ends, across a pan half to twice as hot as assumed (as in the cut-open view).
+  const ends = fmtRange(row.core_peak_range_c);
   const rest = Math.max(1, Math.round(restMinutes(plan.trace[id], sear)));
   const out = [
     { key: 'bath', label: 'Set the bath to', value: fmtF(row.bath_c) },
@@ -231,32 +236,35 @@ function steps(id, row, form, plan) {
       note: `when it reads ${pullAt}, ${about}. Ice works. It can then wait in the bath.` });
   } else {
     out.push({ key: 'out', label: 'Take it out at', value: pullAt,
-      note: `on the thermometer, ${about}${id === 'hot_and_pull' ? '. Sear it right away.' : canWait ? ', or any time after.' : '.'}` });
+      note: `on the thermometer, ${about}${id === 'hot_and_pull' ? '. Sear it right away.'
+        : id === 'hot_then_drop' && !canWait ? `. Below ${fmtF(SAFE_HOLD_C)} it can’t wait, so skip cooling the bath and sear right away.`
+          : canWait ? ', or any time after.' : '.'}` });
   }
   // What a longer sear changes: the layer under the crust that goes past the target.
   const under = row.overcooked_mm > 0 ? `${fmtDepth(row.overcooked_mm)} a side cooks past ${doneness(target)}` : `nothing cooks past ${doneness(target)}`;
   out.push(sear
-    ? { key: 'sear', label: 'Sear', value: `${sear} s a side`, note: `then rest ${rest} min. The center ends about ${fmtF(endsC)}, ${doneness(endsC)}.`,
+    ? { key: 'sear', label: 'Sear', value: `${sear} s a side`, note: `then rest ${rest} min. The center ends ${ends}, ${doneness(row.core_peak_c)}.`,
       more: `Under the crust, ${under}. A longer sear browns more and cooks that layer deeper.` }
-    : { key: 'sear', label: 'Rest', value: `${rest} min`, note: `The center ends about ${fmtF(endsC)}, ${doneness(endsC)}.` });
+    : { key: 'sear', label: 'Rest', value: `${rest} min`, note: `The center ends ${ends}, ${doneness(row.core_peak_c)}.` });
   return out;
 }
 
 function tradeoff(id, row, target) {
   const canWait = target >= SAFE_HOLD_C;
   const saved = row.saved_minutes >= 1 ? `${fmtMinutes(row.saved_minutes)} faster than classic` : 'No faster than classic';
-  if (id === 'hot_and_pull') return `Fastest: ${saved}. It can’t wait: take it out on time and sear straight away.`;
+  if (id === 'hot_and_pull') return `Fastest of the three: ${saved}. It can’t wait: take it out on time and sear straight away.`;
   if (id === 'hot_then_drop') {
     return canWait ? `${saved}, slower than pulling, but it can wait once the bath is cool.` : `${saved}, slower than pulling.`;
   }
   return canWait ? 'The slowest and the easiest: it can wait in the bath once it’s done.' : 'The slowest and the easiest.';
 }
 
-// Food safety follows the coolest the bath gets: at or above SAFE_HOLD_C it can
-// run as long as it likes, below it the whole cook stays under SAFE_HOURS.
+// The model's one food-safety rule (model.DANGER_C, DANGER_HOURS), read off the
+// coolest the bath gets: at or above SAFE_HOLD_C a cook has no time limit, below
+// it the whole cook stays under SAFE_HOURS.
 function safety(id, row, target) {
   const coolest = id === 'hot_and_pull' ? row.bath_c : target;
-  if (coolest >= SAFE_HOLD_C) return { ok: true, text: `Food safe at any length: the bath stays at ${fmtF(SAFE_HOLD_C)} or hotter.` };
+  if (coolest >= SAFE_HOLD_C) return { ok: true, text: `Food safety: the bath stays at ${fmtF(SAFE_HOLD_C)} or hotter, so the cook has no time limit.` };
   return {
     ok: row.minutes <= SAFE_HOURS * 60,
     text: `Below ${fmtF(SAFE_HOLD_C)}, keep the whole cook under ${SAFE_HOURS} h. This one takes ${fmtMinutes(row.minutes)}.`,
@@ -445,10 +453,9 @@ function Details({ form, stale }) {
       <section className="sv-section" aria-label="Cross-section">
         <h2 className="cc-h3">Cut open</h2>
         {STRATEGIES.map((s) => {
-          const [lo, hi] = p[s.id].core_peak_range_c.map((c) => Math.round(toF(c)));
           return (
             <Slice key={s.id} profile={p.profile[s.id]} label={s.name}
-              note={`center ${lo === hi ? `${lo}°F` : `${lo} to ${hi}°F`}, ${fmtDepth(p[s.id].overcooked_mm)} past ${done} under each side`} />
+              note={`center ${fmtRange(p[s.id].core_peak_range_c)}, ${fmtDepth(p[s.id].overcooked_mm)} past ${done} under each side`} />
           );
         })}
         <p className="cc-help">The center’s range is a pan half or twice as hot as assumed.</p>

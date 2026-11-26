@@ -63,11 +63,11 @@ describe('Sous vide', () => {
     expect(step('bath')).toBe('Set the bath to136°F');
     expect(step('probe')).toContain('¼ to ⅜″ from the bone');
     expect(step('out')).toBe('Take it out at124°Fon the thermometer, about 19 min in. Sear it right away.');
-    // The pull aims within 1°F of the target, so its center reads as the target.
-    expect(step('sear')).toBe('Sear45 s a sidethen rest 5 min. The center ends about 130°F, medium rare.'
+    // The same range as the cut-open view: a pan half to twice as hot as assumed.
+    expect(step('sear')).toBe('Sear45 s a sidethen rest 5 min. The center ends 128 to 130°F, medium rare.'
       + 'Under the crust, 3/16″ a side cooks past medium rare. A longer sear browns more and cooks that layer deeper.');
-    expect(within(answer).getByText(/^Fastest: 38 min faster than classic/)).toBeTruthy();
-    expect(within(answer).getByText(/^Food safe at any length/)).toBeTruthy();
+    expect(within(answer).getByText(/^Fastest of the three: 38 min faster than classic/)).toBeTruthy();
+    expect(within(answer).getByText(/^Food safety: the bath stays at 130°F or hotter/)).toBeTruthy();
     expect(within(answer).getByText(/3\/16″ a side cooks past medium rare/)).toBeTruthy();
 
     // Cooling the bath before the steak is ready is its own step.
@@ -103,11 +103,11 @@ describe('Sous vide', () => {
     const answer = await screen.findByRole('region', { name: 'What to do' });
     await vi.waitFor(() => expect(within(answer).getByRole('radio', { name: 'Hot, then cool, 4 h 10' })).toBeTruthy());
     fireEvent.click(within(answer).getByRole('radio', { name: 'Hot, then cool, 4 h 10' }));
-    expect(answer.textContent).not.toContain('wait');
-    expect(answer.querySelector('[data-step="out"]').textContent).toContain('about 4 h 10 in.');
+    expect(answer.textContent).not.toContain('can then wait');
+    expect(answer.querySelector('[data-step="out"]').textContent).toContain('about 4 h 10 in. Below 130°F it can’t wait, so skip cooling');
     expect(within(answer).getByRole('alert').textContent).toBe('Below 130°F, keep the whole cook under 4 h. This one takes 4 h 10.');
     fireEvent.click(within(answer).getByRole('radio', { name: 'Hot, then pull, 3 h 20' }));
-    expect(within(answer).getByText(/^Food safe at any length/)).toBeTruthy();
+    expect(within(answer).getByText(/so the cook has no time limit/)).toBeTruthy();
   });
 
   it('recommends the classic cook when pulling early saves little or overcooks more', () => {
