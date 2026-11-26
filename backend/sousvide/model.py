@@ -87,7 +87,8 @@ BONE_MIDDLE_FACTOR = 1.5
 widths. Fitted to 2-D solves with a cortical-and-marrow rib (experiments/ribeye.py): the bone
 needs about half the heat of the meat it displaces and conducts faster, so the meat beside it
 is ready sooner than with the bone simply removed (which would be 1.0). Classic times land
-within 5 % for bones 15 to 40 mm wide in steaks 25 to 64 mm thick."""
+within 5.3 % for bones 15 to 40 mm wide in steaks 25 to 64 mm thick at mid-range marrow
+conductivity, and from 12 % short to 7 % long across the marrow range and solid bone."""
 
 BONE_MM = 28.0
 """Width of a beef rib where it crosses a steak, mm. The canonical case's assumption, for
@@ -100,8 +101,8 @@ footprint comes out a few per cent large."""
 
 PLAN_ASPECT = 1.3
 """Length / width assumed for a footprint known only by its area (the canonical ribeye is
-180 x 140 mm). experiments/finite_size.py: a true aspect of 1.5 to 2 instead moves the
-classic time by 2 to 7 %."""
+180 x 140 mm). experiments/finite_size.py: among rectangles of one area, an aspect of 1.5
+cooks 1 to 3 % faster than a square and an aspect of 2 cooks 3 to 8 % faster."""
 
 SEAR_SPREAD = (0.5, 2.0)
 """Factors on h_sear for the range a plan quotes around its core peak. experiments/sear.py:

@@ -201,7 +201,10 @@ def pull_by_boost() -> None:
         zs_in = [(s.zs[-1] - z) * 1000 for z in reversed(s.zs)]
         lobe, by_bone, seam = cut.node_near(ribeye.meat_end_mm / 2), cut.node_near(ribeye.meat_end_mm - 3), cut.node_near(ribeye.meat_end_mm)
         from_bone = [ribeye.meat_end_mm - x for x in reversed(mm[:seam + 2])]
+        pulled = [[bath_c + v * along[0] for v in row] for row in shortfall]
         depths.append([f'+{boost:g}',
+                       depth_from(zs_in, pulled[lobe][::-1], OVER_C), depth_from(mm, [row[0] for row in pulled], OVER_C),
+                       depth_from(from_bone, [pulled[i][0] for i in range(seam + 1, -1, -1)], OVER_C),
                        depth_from(zs_in, peak[lobe][::-1], OVER_C), depth_from(zs_in, peak[by_bone][::-1], OVER_C),
                        depth_from(mm, [row[0] for row in peak], OVER_C),
                        depth_from(from_bone, [peak[i][0] for i in range(seam + 1, -1, -1)], OVER_C),
@@ -211,10 +214,13 @@ def pull_by_boost() -> None:
             table(['bath', 'pull, min', 'coldest meat at pull', 'it reads, C', 'it finishes at, C',
                    'planner min', '% off', 'planner pull core C', 'bone as meat min', '% off', '51 mm slab min', '% off'], rows),
             'The pull is the first whole minute at which the sear and rest carry the meat that is coldest at the pull to 54.0 C.')
-    section('Meat past target + 2 C (56.5 C) after the sear and rest, mm',
-            table(['bath', 'under the open face, mid-lobe', 'under the face, 3 mm from the bone', 'in from the open edge, mid-thickness',
-                   'out from the bone, mid-thickness', 'gray band (65 C) under the face', 'planner past target', 'planner gray'], depths),
-            'Depths at the pull times above. The bone side is measured from the bone into the meat along the mid-plane.')
+    section('Meat past target + 2 C (56.5 C), mm',
+            table(['bath', 'bath only: under the face', 'bath only: in from the open edge', 'bath only: out from the bone',
+                   'seared: under the open face, mid-lobe', 'seared: under the face, 3 mm from the bone',
+                   'seared: in from the open edge, mid-thickness', 'seared: out from the bone, mid-thickness',
+                   'gray band (65 C) under the face', 'planner past target', 'planner gray'], depths),
+            'Depths at the pull times above: first straight out of the bath, then after the sear and rest. '
+            'The bone side is measured from the bone into the meat along the mid-plane.')
 
 
 def probe() -> None:

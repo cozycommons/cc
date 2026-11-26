@@ -318,7 +318,9 @@ export default function SousVideApp() {
           <div className={`sv-results${plan.status === 'loading' ? ' is-stale' : ''}`} aria-busy={plan.status === 'loading'}>
             {p.warnings.map((w) => <p key={w} className="cc-notice cc-notice--error" role="alert">{w}</p>)}
             <p className="cc-caption sv-basis">
-              {sized.sized_by === 'weight' && `Sized from the weight as ${fmtInches(sized.width_mm ?? mm)} × ${fmtInches(sized.length_mm ?? mm)}. `}
+              {sized.sized_by === 'weight' && `Sized from the weight as ${
+                [sized.width_mm && `${fmtInches(sized.width_mm)}${slab ? '' : ' across'}`, sized.length_mm && `${fmtInches(sized.length_mm)}${slab ? '' : ' long'}`]
+                  .filter(Boolean).join(' × ')}. `}
               {sized.sized_by === 'thickness' && 'No weight or width, so this is an endless slab: it runs long unless the steak is five thicknesses wide. '}
               {p.thickness_only_minutes - p.classic.minutes > 1
                 && `Thickness alone would say ${fmtMinutes(p.thickness_only_minutes)} for the classic cook. `}

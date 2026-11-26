@@ -30,18 +30,18 @@ The pull is the first whole minute at which the sear and rest carry the meat tha
 | +4 | 91 | 6 mm from the bone | 50.8 | 54.03 | 91 | 0.0 | 50.5 | 104 | 14.5 | 115 | 26.7 |
 | +5 | 86 | 6 mm from the bone | 50.5 | 54.1 | 86 | -0.4 | 50.1 | 98 | 14.0 | 108 | 25.6 |
 
-## Meat past target + 2 C (56.5 C) after the sear and rest, mm
+## Meat past target + 2 C (56.5 C), mm
 
-Depths at the pull times above. The bone side is measured from the bone into the meat along the mid-plane.
+Depths at the pull times above: first straight out of the bath, then after the sear and rest. The bone side is measured from the bone into the meat along the mid-plane.
 
-| bath | under the open face, mid-lobe | under the face, 3 mm from the bone | in from the open edge, mid-thickness | out from the bone, mid-thickness | gray band (65 C) under the face | planner past target | planner gray |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| +0 | 10.1 | 10.1 | 0.0 | 0.0 | 3.4 | 8.8 | 2.9 |
-| +1 | 10.1 | 10.1 | 0.0 | 0.0 | 3.4 | 8.8 | 2.9 |
-| +2 | 10.1 | 10.1 | 0.0 | 0.0 | 3.4 | 9.5 | 3.6 |
-| +3 | 11.4 | 10.1 | 0.5 | 0.0 | 3.4 | 9.5 | 3.6 |
-| +4 | 11.4 | 10.1 | 3.5 | 0.0 | 3.4 | 9.5 | 3.6 |
-| +5 | 11.4 | 10.1 | 6.5 | 0.0 | 3.4 | 9.5 | 3.6 |
+| bath | bath only: under the face | bath only: in from the open edge | bath only: out from the bone | seared: under the open face, mid-lobe | seared: under the face, 3 mm from the bone | seared: in from the open edge, mid-thickness | seared: out from the bone, mid-thickness | gray band (65 C) under the face | planner past target | planner gray |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| +0 | 0.0 | 0.0 | 0.0 | 10.1 | 10.1 | 0.0 | 0.0 | 3.4 | 8.8 | 2.9 |
+| +1 | 0.0 | 0.0 | 0.0 | 10.1 | 10.1 | 0.0 | 0.0 | 3.4 | 8.8 | 2.9 |
+| +2 | 0.0 | 0.0 | 0.0 | 10.1 | 10.1 | 0.0 | 0.0 | 3.4 | 9.5 | 3.6 |
+| +3 | 0.0 | 0.5 | 0.0 | 11.4 | 10.1 | 0.5 | 0.0 | 3.4 | 9.5 | 3.6 |
+| +4 | 2.0 | 3.5 | 0.0 | 11.4 | 10.1 | 3.5 | 0.0 | 3.4 | 9.5 | 3.6 |
+| +5 | 3.4 | 6.5 | 0.0 | 11.4 | 10.1 | 6.5 | 0.0 | 3.4 | 9.5 | 3.6 |
 
 ## What the probe reads at the +3 C pull (98 min), by where its tip is
 
