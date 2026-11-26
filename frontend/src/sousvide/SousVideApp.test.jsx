@@ -1,7 +1,7 @@
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import SousVideApp, { fmtF, fmtInches, fmtMinutes, shade } from './SousVideApp.jsx';
+import SousVideApp, { fmtF, fmtInches, fmtMinutes, forgetPlans, shade } from './SousVideApp.jsx';
 
 vi.mock('../components/SiteHeader.jsx', () => ({ default: () => null }));
 vi.mock('../api.js', () => ({ getUrl: () => 'https://api.test' }));
@@ -23,7 +23,7 @@ const PLAN = {
 };
 
 describe('Sous vide', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); forgetPlans(); });
 
   it('formats temperatures, thickness and durations for a US kitchen', () => {
     expect([fmtF(54.5), fmtInches(38), fmtMinutes(18.8), fmtMinutes(152)]).toEqual(['130°F', '1.5″', '19 min', '2 h 32']);
@@ -38,7 +38,8 @@ describe('Sous vide', () => {
   it('compares the three methods for the chosen steak', async () => {
     const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
     vi.stubGlobal('fetch', fetch);
-    render(<SousVideApp />);
+    // The plan suspends; React 19 wants that render awaited inside act.
+    await act(async () => { render(<SousVideApp />); });
     const pull = await screen.findByRole('article', { name: 'Hot, then pull' });
     expect(within(pull).getByText('19 min').parentElement.textContent).toBe('19 min in the bath');
     expect(within(pull).getByText('38 min')).toBeTruthy(); // saved
@@ -47,13 +48,27 @@ describe('Sous vide', () => {
     expect(fetch.mock.calls[0][0]).toBe(
       'https://api.test/sousvide/plan?thickness_mm=38&shape=slab&start_c=5&target_c=54.5&boost_c=3&sear_s=45');
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Tenderloin roast' }));
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Tenderloin roast' })); });
     await vi.waitFor(() => expect(fetch.mock.calls.at(-1)[0]).toContain('thickness_mm=75&shape=cylinder'));
+  });
+
+  it('asks for a new plan only when a slider is let go', async () => {
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => { render(<SousVideApp />); });
+    const slider = screen.getByRole('slider', { name: 'Hotter bath' });
+    fireEvent.change(slider, { target: { value: '4' } });
+    fireEvent.change(slider, { target: { value: '5' } });
+    expect(screen.getByText('+9°F · 139°F')).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => { fireEvent.pointerUp(slider); });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toContain('boost_c=5');
   });
 
   it('shows the API error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({ detail: 'nope' }) })));
-    render(<SousVideApp />);
+    await act(async () => { render(<SousVideApp />); });
     expect((await screen.findByRole('alert')).textContent).toBe('nope');
   });
 });

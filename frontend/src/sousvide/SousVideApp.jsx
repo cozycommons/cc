@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, use, useDeferredValue, useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import PixelKitchen from './PixelKitchen.jsx';
@@ -52,26 +52,47 @@ export function shade(c) {
   return `rgb(${SHADES.at(-1)[1]})`;
 }
 
-function usePlan(params) {
-  const [state, setState] = useState({ status: 'loading' });
-  const query = new URLSearchParams(params).toString();
-  useEffect(() => {
-    const abort = new AbortController();
-    setState((s) => ({ ...s, status: 'loading' }));
-    // Sliders fire on every tick; a plan costs the API about half a second.
-    const timer = setTimeout(async () => {
-      try {
-        const response = await fetch(`${getUrl()}/sousvide/plan?${query}`, { signal: abort.signal });
-        const body = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(body?.detail || 'Could not plan the cook.');
-        setState({ status: 'ready', data: body });
-      } catch (error) {
-        if (error.name !== 'AbortError') setState((s) => ({ ...s, status: 'error', message: error.message }));
-      }
-    }, 250);
-    return () => { clearTimeout(timer); abort.abort(); };
-  }, [query]);
-  return state;
+// One request per distinct plan, shared by every render that asks for it.
+// A failed plan stays cached, so the error boundary sees it instead of
+// render retrying forever; it is forgotten once a different plan is asked
+// for, so coming back to it tries again. The oldest plans fall out once the
+// cache holds PLAN_CACHE of them.
+const PLAN_CACHE = 64;
+const plans = new Map();
+const failed = new Set();
+export function forgetPlans() { plans.clear(); failed.clear(); }
+export function planFor(query) {
+  for (const q of failed) {
+    if (q !== query) { plans.delete(q); failed.delete(q); }
+  }
+  let promise = plans.get(query);
+  if (!promise) {
+    promise = fetch(`${getUrl()}/sousvide/plan?${query}`).then(async (response) => {
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail || 'Could not plan the cook.');
+      return body;
+    });
+    promise.catch(() => failed.add(query));
+    plans.set(query, promise);
+    if (plans.size > PLAN_CACHE) plans.delete(plans.keys().next().value);
+  }
+  return promise;
+}
+
+// Shows a failed plan, and clears it when the steak changes so the next plan
+// can load. (Remounting it with a key would also remount the Suspense boundary
+// below, which drops the dimmed previous plan for a blank fallback.)
+class PlanError extends React.Component {
+  state = { error: null, query: this.props.query };
+  static getDerivedStateFromError(error) { return { error }; }
+  static getDerivedStateFromProps({ query }, state) {
+    return query === state.query ? null : { error: null, query };
+  }
+  render() {
+    return this.state.error
+      ? <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>
+      : this.props.children;
+  }
 }
 
 function Segmented({ label, items, value, onChange }) {
@@ -88,12 +109,21 @@ function Segmented({ label, items, value, onChange }) {
   );
 }
 
+// The label follows the thumb while it moves; the plan is only asked for once
+// the thumb is let go (pointer, touch or key), since each plan costs the API
+// about half a second.
 function Range({ label, value, shown, min, max, step, onChange }) {
+  const [draft, setDraft] = useState(null);
+  const commit = () => {
+    if (draft != null) onChange(draft);
+    setDraft(null);
+  };
   return (
     <label className="cc-range-field sv-field">
-      <span className="cc-label">{label} <output>{shown}</output></span>
-      <input className="cc-range" type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(Number(e.target.value))} />
+      <span className="cc-label">{label} <output>{shown(draft ?? value)}</output></span>
+      <input className="cc-range" type="range" aria-label={label} min={min} max={max} step={step} value={draft ?? value}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit} onKeyUp={commit} onTouchEnd={commit} onBlur={commit} />
     </label>
   );
 }
@@ -159,16 +189,54 @@ function Slice({ profile, label }) {
   );
 }
 
+export const queryOf = (steak) => new URLSearchParams({
+  thickness_mm: steak.mm, shape: steak.cut.shape, start_c: steak.start, target_c: steak.target,
+  boost_c: steak.boost, sear_s: steak.sear,
+}).toString();
+
+function Results({ steak, stale }) {
+  const p = use(planFor(queryOf(steak)));
+  const { target, sear, cut, mm } = steak;
+  return (
+    <div className={`sv-results${stale ? ' is-stale' : ''}`} aria-busy={stale}>
+      {p.warnings.map((w) => <p key={w} className="cc-notice cc-notice--error" role="alert">{w}</p>)}
+      <section className="sv-cards" aria-label="Methods">
+        {STRATEGIES.map((s) => <Card key={s.id} strategy={s} row={p[s.id]} target={target} />)}
+      </section>
+      <PixelKitchen plan={p} target={target} sear={sear} cut={{ id: cut.id, mm }} />
+      <section className="sv-section" aria-label="Core temperature">
+        <h2 className="cc-h3">Core temperature</h2>
+        <CoreChart trace={p.trace} target={target} />
+      </section>
+      <section className="sv-section" aria-label="Cross-section">
+        <h2 className="cc-h3">Cross-section</h2>
+        {STRATEGIES.map((s) => <Slice key={s.id} profile={p.profile[s.id]} label={s.name} />)}
+      </section>
+      <section className="sv-section" aria-label="Every boost">
+        <h2 className="cc-h3">Hot, then pull at every boost</h2>
+        <table className="sv-table">
+          <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Past target</th></tr></thead>
+          <tbody>
+            {p.sweep.map((r) => (
+              <tr key={r.bath_c} className={r.bath_c === p.hot_and_pull.bath_c ? 'is-chosen' : undefined}>
+                <td>{fmtF(r.bath_c)}</td><td>{fmtMinutes(r.minutes)}</td>
+                <td>{r.saved_minutes > 0 ? fmtMinutes(r.saved_minutes) : '–'}</td><td>{r.overcooked_mm} mm</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  );
+}
+
 export default function SousVideApp() {
-  const [cut, setCut] = useState(CUTS[0]);
-  const [mm, setMm] = useState(CUTS[0].mm);
-  const [start, setStart] = useState(5);
-  const [target, setTarget] = useState(54.5);
-  const [boost, setBoost] = useState(3);
-  const [sear, setSear] = useState(45);
-  const plan = usePlan({ thickness_mm: mm, shape: cut.shape, start_c: start, target_c: target, boost_c: boost, sear_s: sear });
-  const p = plan.data;
-  const pickCut = (id) => { const next = CUTS.find((c) => c.id === id); setCut(next); setMm(next.mm); };
+  const [steak, setSteak] = useState({ cut: CUTS[0], mm: CUTS[0].mm, start: 5, target: 54.5, boost: 3, sear: 45 });
+  // The last plan stays on screen, dimmed, while the next one loads.
+  const shown = useDeferredValue(steak);
+  const set = (key) => (value) => setSteak((s) => ({ ...s, [key]: value }));
+  const pickCut = (id) => { const cut = CUTS.find((c) => c.id === id); setSteak((s) => ({ ...s, cut, mm: cut.mm })); };
+  const { cut, target } = steak;
   return (
     <div className="sv-page">
       <SiteHeader product="Sous vide" to="/sousvide" icon="🥩" onSignIn={null} />
@@ -176,50 +244,22 @@ export default function SousVideApp() {
         <h1 className="cc-h1">Sous vide steak</h1>
         <section className="sv-controls" aria-label="Steak">
           <Segmented label="Cut" items={CUTS.map((c) => ({ key: c.id, name: c.name }))} value={cut.id} onChange={pickCut} />
-          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={mm} min={10} max={100} step={1}
-            shown={`${fmtInches(mm)} · ${mm} mm`} onChange={setMm} />
+          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={steak.mm} min={10} max={100} step={1}
+            shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
           <Segmented label="Doneness" items={DONENESS.map((d) => ({ key: d.c, name: `${d.name} ${fmtF(d.c)}` }))}
-            value={target} onChange={setTarget} />
+            value={target} onChange={set('target')} />
           <Segmented label="Starts from" items={STARTS.map((s) => ({ key: s.c, name: `${s.name} ${fmtF(s.c)}` }))}
-            value={start} onChange={setStart} />
-          <Range label="Hotter bath" value={boost} min={0} max={10} step={0.5}
-            shown={`+${Math.round(deltaF(boost))}°F · ${fmtF(target + boost)}`} onChange={setBoost} />
-          <Range label="Sear, each side" value={sear} min={0} max={120} step={15}
-            shown={sear ? `${sear} s` : 'none'} onChange={setSear} />
+            value={steak.start} onChange={set('start')} />
+          <Range label="Hotter bath" value={steak.boost} min={0} max={10} step={0.5}
+            shown={(b) => `+${Math.round(deltaF(b))}°F · ${fmtF(target + b)}`} onChange={set('boost')} />
+          <Range label="Sear, each side" value={steak.sear} min={0} max={120} step={15}
+            shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
         </section>
-        {plan.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{plan.message}</p>}
-        {!p && plan.status === 'loading' && <p className="cc-caption" aria-busy="true">Working out the heat…</p>}
-        {p && (
-          <div className={`sv-results${plan.status === 'loading' ? ' is-stale' : ''}`} aria-busy={plan.status === 'loading'}>
-            {p.warnings.map((w) => <p key={w} className="cc-notice cc-notice--error" role="alert">{w}</p>)}
-            <section className="sv-cards" aria-label="Methods">
-              {STRATEGIES.map((s) => <Card key={s.id} strategy={s} row={p[s.id]} target={target} />)}
-            </section>
-            <PixelKitchen plan={p} target={target} sear={sear} cut={{ id: cut.id, mm }} />
-            <section className="sv-section" aria-label="Core temperature">
-              <h2 className="cc-h3">Core temperature</h2>
-              <CoreChart trace={p.trace} target={target} />
-            </section>
-            <section className="sv-section" aria-label="Cross-section">
-              <h2 className="cc-h3">Cross-section</h2>
-              {STRATEGIES.map((s) => <Slice key={s.id} profile={p.profile[s.id]} label={s.name} />)}
-            </section>
-            <section className="sv-section" aria-label="Every boost">
-              <h2 className="cc-h3">Hot, then pull at every boost</h2>
-              <table className="sv-table">
-                <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Past target</th></tr></thead>
-                <tbody>
-                  {p.sweep.map((r) => (
-                    <tr key={r.bath_c} className={r.bath_c === p.hot_and_pull.bath_c ? 'is-chosen' : undefined}>
-                      <td>{fmtF(r.bath_c)}</td><td>{fmtMinutes(r.minutes)}</td>
-                      <td>{r.saved_minutes > 0 ? fmtMinutes(r.saved_minutes) : '–'}</td><td>{r.overcooked_mm} mm</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          </div>
-        )}
+        <PlanError query={queryOf(shown)}>
+          <Suspense fallback={<p className="cc-caption" aria-busy="true">Working out the heat…</p>}>
+            <Results steak={shown} stale={shown !== steak} />
+          </Suspense>
+        </PlanError>
       </main>
     </div>
   );

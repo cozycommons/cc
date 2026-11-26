@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { STRATEGIES, fmtMinutes, shade, toF } from './SousVideApp.jsx';
 
 // A pixel-art replay of one cook from the plan's trace: the bag in the bath, the
@@ -7,7 +7,7 @@ import { STRATEGIES, fmtMinutes, shade, toF } from './SousVideApp.jsx';
 export const W = 200;
 export const H = 112;
 const PLAY_MS = 14000; // a whole cook, any length, replays in this long
-const FRAME_MS = 83;
+const FRAME_MS = 83; // about 12 fps
 
 const C = {
   wall: '#e7dcc5', tile: '#dccfb4', counter: '#694b36', plank: '#5a3f2d', edge: '#8a6448',
@@ -225,110 +225,109 @@ export function drawKitchen({ px, text }, frame) {
   return point;
 }
 
+// A shared frame clock: while anything subscribes, requestAnimationFrame
+// publishes the time about every FRAME_MS (pixel art gains nothing from 60 fps).
+// Nothing runs while no replay is playing.
+let frameNow = 0;
+function subscribeFrames(onFrame) {
+  let raf;
+  const loop = (now) => {
+    if (now - frameNow >= FRAME_MS) { frameNow = now; onFrame(); }
+    raf = requestAnimationFrame(loop);
+  };
+  raf = requestAnimationFrame(loop);
+  return () => cancelAnimationFrame(raf);
+}
+const still = () => () => {};
+const readFrame = () => frameNow;
+const noFrame = () => 0;
+
+// Whether el is on screen in a visible tab. Without IntersectionObserver
+// (old browsers, tests) it counts as on screen.
+function useOnScreen(el) {
+  const store = useMemo(() => {
+    let onScreen = typeof IntersectionObserver === 'undefined';
+    return {
+      subscribe(onChange) {
+        if (!el || onScreen) return () => {};
+        const observer = new IntersectionObserver(([entry]) => { onScreen = entry.isIntersecting; onChange(); }, { threshold: 0.25 });
+        observer.observe(el);
+        document.addEventListener('visibilitychange', onChange);
+        return () => { observer.disconnect(); document.removeEventListener('visibilitychange', onChange); };
+      },
+      read: () => onScreen && document.visibilityState !== 'hidden',
+    };
+  }, [el]);
+  return useSyncExternalStore(store.subscribe, store.read, () => false);
+}
+
 export default function PixelKitchen({ plan, target, sear, cut }) {
-  const canvas = useRef(null);
+  const [canvas, setCanvas] = useState(null);
   const [strategy, setStrategy] = useState('hot_and_pull');
-  const [t, setT] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  // Paused at `paused` minutes, or playing since `run.at` (ms) from `run.from` minutes.
+  const [paused, setPaused] = useState(0);
+  const [run, setRun] = useState(null);
+  const [shownPlan, setShownPlan] = useState(plan);
   const trace = plan.trace[strategy];
   const end = trace.at(-1).min;
   const row = plan[strategy];
+  const onScreen = useOnScreen(canvas);
+  const now = useSyncExternalStore(run ? subscribeFrames : still, readFrame, noFrame);
+  const t = run ? Math.min(end, run.from + (Math.max(0, now - run.at) / PLAY_MS) * end) : paused;
+
+  // Adjust state during render rather than in effects: a new plan rewinds, and
+  // the replay stops at the end or once it leaves the screen.
+  if (plan !== shownPlan) { setShownPlan(plan); setRun(null); setPaused(0); }
+  else if (run && (t >= end || !onScreen)) { setRun(null); setPaused(t); }
+
   const marbling = useMemo(() => {
     const r = rng(cut.id.length * 7919 + cut.mm);
     const count = cut.id === 'ribeye' ? 26 : cut.id === 'strip' ? 14 : 6;
     return Array.from({ length: count }, () => [Math.floor(r() * 40), Math.floor(r() * 13)]);
-  }, [cut]);
-
-  const clock = useRef(0);
-  const seen = useRef(false);
-  useEffect(() => { clock.current = 0; setT(0); }, [strategy, plan]);
-
-  // Autoplay the first time the replay scrolls into view; stop whenever it
-  // leaves the screen or the tab hides, so a phone isn't drawing frames nobody sees.
-  useEffect(() => {
-    const el = canvas.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) setPlaying(false);
-      else if (!seen.current && !reduced) setPlaying(true);
-      if (entry.isIntersecting) seen.current = true;
-    }, { threshold: 0.4 });
-    observer.observe(el);
-    const hide = () => { if (document.visibilityState === 'hidden') setPlaying(false); };
-    document.addEventListener('visibilitychange', hide);
-    return () => { observer.disconnect(); document.removeEventListener('visibilitychange', hide); };
-  }, []);
-
-  // One frame of the scene at clock.current; tick drives water, flames and the cat.
-  const painted = useRef(null);
-  const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
-  const frame = (tick) => {
-    if (!painted.current) {
-      const ctx = canvas.current?.getContext?.('2d');
-      if (!ctx) return;
-      painted.current = painter(ctx);
-    }
-    const paint = painted.current;
-    const at = clock.current;
-    const point = pointAt(trace, at);
-    const scene = sceneAt(trace, at, sear);
-    const bathC = row.switch_minutes != null && at > row.switch_minutes ? target : row.bath_c;
-    drawKitchen(paint, {
-      scene, point, t: at, tick, marbling, fatCap: cut.id === 'ribeye' || cut.id === 'strip',
-      peaks: peaksAt(trace, at, 24), bathF: toF(bathC), coreF: toF(point.core), targetF: toF(target),
-      crust: scene === 'bath' ? 0 : Math.min(1, ((at - bathEnd) * 60) / Math.max(sear, 1)),
-      hot: bathC > target,
-    });
-  };
-
-  // Paused: draw once per change. Playing: about 12 frames a second (pixel art
-  // gains nothing from 60), with React state updated only a few times a second.
-  useEffect(() => {
-    if (playing) return undefined;
-    clock.current = t;
-    frame(0);
-  });
-  useEffect(() => {
-    if (!playing) return undefined;
-    let raf;
-    let last = performance.now();
-    let drawn = 0;
-    let synced = 0;
-    const loop = (now) => {
-      clock.current = Math.min(end, clock.current + ((now - last) / PLAY_MS) * end);
-      last = now;
-      if (now - drawn >= FRAME_MS) { drawn = now; frame(now); }
-      if (clock.current >= end) { setT(end); setPlaying(false); return; }
-      if (now - synced >= 200) { synced = now; setT(clock.current); }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  // frame closes over the current plan; restarting the loop on every render would reset its timers.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, trace, end]);
+  }, [cut.id, cut.mm]);
 
   const point = pointAt(trace, t);
   const scene = sceneAt(trace, t, sear);
+  const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
+  const bathC = row.switch_minutes != null && t > row.switch_minutes ? target : row.bath_c;
+  const tick = run ? now : 0;
+  const fatCap = cut.id === 'ribeye' || cut.id === 'strip';
+
+  // The canvas is outside React, so drawing it is an effect: one frame per
+  // render, and renders only happen on a change or a frame tick.
+  useEffect(() => {
+    const ctx = canvas?.getContext?.('2d');
+    if (!ctx) return;
+    drawKitchen(painter(ctx), {
+      scene, point, t, tick, marbling, fatCap, peaks: peaksAt(trace, t, 24),
+      bathF: toF(bathC), coreF: toF(point.core), targetF: toF(target),
+      crust: scene === 'bath' ? 0 : Math.min(1, ((t - bathEnd) * 60) / Math.max(sear, 1)),
+      hot: bathC > target,
+    });
+  }, [canvas, scene, point, t, tick, marbling, fatCap, trace, bathC, target, bathEnd, sear]);
+
+  const pick = useCallback((id) => { setStrategy(id); setRun(null); setPaused(0); }, []);
+  const toggle = () => {
+    if (run) { setRun(null); setPaused(t); return; }
+    setRun({ from: t >= end ? 0 : t, at: performance.now() });
+  };
   return (
     <section className="sv-section sv-pixel" aria-label="Replay">
       <h2 className="cc-h3">Replay</h2>
       <div className="cc-segmented sv-seg" role="radiogroup" aria-label="Method to replay">
         {STRATEGIES.map((s) => (
           <button key={s.id} type="button" role="radio" className="cc-segmented__item" aria-checked={s.id === strategy}
-            onClick={() => setStrategy(s.id)}>{s.name}</button>
+            onClick={() => pick(s.id)}>{s.name}</button>
         ))}
       </div>
-      <canvas ref={canvas} width={W} height={H} className="sv-pixel__canvas" role="img"
+      <canvas ref={setCanvas} width={W} height={H} className="sv-pixel__canvas" role="img"
         aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, core ${Math.round(toF(point.core))}°F`} />
       <div className="sv-pixel__bar">
-        <button type="button" className="cc-button sv-pixel__play" onClick={() => {
-          if (t >= end) { clock.current = 0; setT(0); }
-          setPlaying((p) => !p);
-        }}>{playing ? 'Pause' : t >= end ? 'Replay' : 'Play'}</button>
+        <button type="button" className="cc-button sv-pixel__play" onClick={toggle}>
+          {run ? 'Pause' : t >= end ? 'Replay' : 'Play'}
+        </button>
         <input className="cc-range" type="range" aria-label="Time" min={0} max={end} step={end / 400} value={t}
-          onChange={(e) => { setPlaying(false); setT(Number(e.target.value)); }} />
+          onChange={(e) => { setRun(null); setPaused(Number(e.target.value)); }} />
         <output className="sv-pixel__readout">{fmtMinutes(t)} · {Math.round(toF(point.core))}°F</output>
       </div>
     </section>
