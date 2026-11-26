@@ -1,0 +1,11 @@
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "tw-animate-css";
+@reference "tailwindcss/theme.css";
+@reference "./shadcn-theme.css";
+
+@source "./DesignIndex.jsx";
+@source "./DesignForm.jsx";
+@source "./DataShowcase.jsx";
+@source "./Foundations.jsx";
+@source "./system/DataPatterns.jsx";
+@source "../components/ui";

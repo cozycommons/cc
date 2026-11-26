@@ -1,36 +1,32 @@
 # Cozy Commons design system
 
-Cozy Wabi is the chosen visual direction for Cozy Commons. Its warm washi
-paper, iron glaze, editorial serif, and ledger-like labels now power the React
-home page at `/` and the living component library at `/design`.
+The React component library lives at `/design`. It uses the Radix Nova
+registry from shadcn/ui and the Commons theme in `frontend/src/index.css`.
+The theme uses Geist, semantic color tokens, and the system color preference.
+The gallery includes interactive examples for actions, forms, data, feedback,
+and overlays.
 
-The `cozy-wabi/` folder remains the source reference for the shared tokens and
-CSS artwork. The Clay and Skeuo folders are retained as historical explorations;
-the comparison board is no longer part of the deployed app.
+## Use the system
 
-## Preview
-
-To inspect the original static Wabi reference locally:
+- Import components from `frontend/src/components/ui/` using the existing
+  `@/components/ui/` aliases. Start with the shared component variants and
+  semantic tokens, then compose application-specific layouts.
+- Apply `commons-theme` to the document element for the lifetime of a themed
+  surface so dialogs, menus, and toasts inherit its tokens when portaled.
+  Import `@fontsource-variable/geist` in the themed entry point.
+- Run `npx shadcn@latest info --json` from `frontend/` before adding a new
+  component. The Vite app uses Tailwind CSS v4, Radix, and Lucide.
+- Keep gallery-only utilities in `frontend/src/design/design-utilities.css`.
+  Verify the initial route bundle budget with `npm run build:check`.
+- Follow the installed shadcn, UI SDK, and Web Design Guidelines skills.
+  The Commons primitives use shadcn and Radix. Apply the SDK's keyboard,
+  focus, and naming guidance to component composition.
 
 ```sh
-cd design/cozy-wabi
-python3 -m http.server 4173 --bind 127.0.0.1
+npm run dev --prefix frontend
 ```
 
-Then open <http://127.0.0.1:4173/index.html>. The production React app imports
-the Wabi styles directly and adds the local interactions in React.
+Open `/design` in the development frontend. The examples use local sample data.
 
-## Component libraries
-
-The Wabi direction includes `components.html`, `components.css`, and
-`components.js` as a static reference alongside the production React library.
-
-The Wabi reference covers navigation, typography, buttons, cards, text fields,
-search, textarea, select, checkbox, radio, switches, sliders, segmented
-controls, tabs, badges, avatars, progress, notices, accordions, dialogs, and
-toasts. Demonstrations run locally; sample forms do not send data. Its README
-documents the class names and tokens that the React pages reuse.
-
-The Dice links retain `/dice` for eventual app integration. The standalone static
-preview server does not host that app route. Room activity and sample records
-are illustrative, not connected to live data.
+The archived Wabi, Clay, and Skeuo references remain under their original
+directories. The Wabi materials are also used by the Commons homepage.

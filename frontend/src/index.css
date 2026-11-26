@@ -1,4 +1,10 @@
 @import "tailwindcss";
+@import "./design/shadcn-theme.css";
+/* The design gallery and admin patterns load these utilities on demand. */
+@source not "./design/{DesignIndex,DesignForm,DataShowcase,Foundations}.jsx";
+@source not "./design/system/DataPatterns.jsx";
+@source not "./components/ui/{accordion,alert,avatar,badge,card,checkbox,collapsible,dialog,empty,field,label,progress,radio-group,select,separator,skeleton,slider,sonner,spinner,switch,table,tabs,tooltip}.jsx";
+
 
 html,
 body,
@@ -14,39 +20,6 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
-@theme {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-}
 
 /* Modern CSS theme variables */
 :root {
@@ -117,6 +90,98 @@ body {
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.645 0.246 16.439);
 }
+
+/* Reusable Commons theme for shadcn surfaces and portaled overlays. */
+.commons-theme {
+  color-scheme: light;
+  --radius: .5rem;
+  --background: #fff;
+  --foreground: #171717;
+  --card: #fff;
+  --card-foreground: #171717;
+  --popover: #fff;
+  --popover-foreground: #171717;
+  --primary: #171717;
+  --primary-foreground: #fff;
+  --secondary: #f0f0f0;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #565656;
+  --accent: #edf3ff;
+  --accent-foreground: #173d9e;
+  --destructive: #a52c27;
+  --border: #dedede;
+  --input: #909090;
+  --ring: #2856c8;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #171717;
+  --sidebar-primary: #171717;
+  --sidebar-primary-foreground: #fff;
+  --sidebar-accent: #edf3ff;
+  --sidebar-accent-foreground: #173d9e;
+  --sidebar-border: #dedede;
+  --sidebar-ring: #2856c8;
+  --commons-typeface: 'Geist Variable', system-ui, sans-serif;
+  scroll-padding-top: 7rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .commons-theme {
+    color-scheme: dark;
+    --background: #101010;
+    --foreground: #f5f5f5;
+    --card: #151515;
+    --card-foreground: #f5f5f5;
+    --popover: #191919;
+    --popover-foreground: #f5f5f5;
+    --primary: #f5f5f5;
+    --primary-foreground: #171717;
+    --secondary: #252525;
+    --secondary-foreground: #f5f5f5;
+    --muted: #202020;
+    --muted-foreground: #b1b1b1;
+    --accent: #1c2d55;
+    --accent-foreground: #c5d6ff;
+    --destructive: #ff9c95;
+    --border: #353535;
+    --input: #777;
+    --ring: #99b8ff;
+    --sidebar: #171717;
+    --sidebar-foreground: #f5f5f5;
+    --sidebar-primary: #f5f5f5;
+    --sidebar-primary-foreground: #171717;
+    --sidebar-accent: #1c2d55;
+    --sidebar-accent-foreground: #c5d6ff;
+    --sidebar-border: #353535;
+    --sidebar-ring: #99b8ff;
+  }
+}
+
+.commons-theme body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--commons-typeface);
+}
+
+.commons-theme, .commons-theme body, .commons-theme #root { overflow-x: clip; }
+
+@layer base {
+  .commons-theme * { border-color: var(--border); }
+}
+
+.commons-theme :is(button, a, label) { touch-action: manipulation; }
+.commons-theme :is(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commons-theme :is([data-slot], [data-sonner-toast]) {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+
 
 /* Custom utility classes using the theme variables */
 .bg-theme-background { background-color: var(--background); }
