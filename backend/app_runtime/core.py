@@ -12,7 +12,7 @@ RESERVED = {
     "apps",
     "api",
     "auth",
-    "board",
+    "chat",
     "www",
     "mail",
     "smtp",

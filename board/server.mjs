@@ -21,23 +21,23 @@ function failure(status, code, message) {
 }
 
 function requestError(status) {
-    if (status === 403) return failure(403, 'forbidden', 'This account does not have access to Cozy Board.');
-    return failure(401, 'unauthorized', 'Sign in to Cozy Board or supply a valid Board API token.');
+    if (status === 403) return failure(403, 'forbidden', 'This account does not have access to Cozy Chat.');
+    return failure(401, 'unauthorized', 'Sign in to Cozy Chat or supply a valid Board API token.');
 }
 
 function signIn(url, status = 200) {
     const notice = url.searchParams.get('error');
-    const message = notice === 'access' ? 'This account does not have access to Cozy Board.'
+    const message = notice === 'access' ? 'This account does not have access to Cozy Chat.'
         : notice === 'sign-in' ? 'Sign-in expired. Please try again.' : '';
     const href = '/auth/google?' + new URLSearchParams({ next: url.searchParams.get('next') ?? '/' }).toString();
     return new Response(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · Cozy Board</title>
+<title>Sign in · Cozy Chat</title>
 <style>
 body{margin:0;min-height:100dvh;display:grid;place-items:center;background:#131b19;color:#f0f6f3;font:1rem system-ui,sans-serif}
 main{width:min(24rem,calc(100% - 3rem));padding:2rem;box-sizing:border-box;border:1px solid #3f5750;border-radius:16px;background:#1c2824}
 h1{margin:0 0 1.5rem;font-size:2rem}p{color:#fad4bc}a{display:inline-block;padding:.7rem 1rem;border-radius:8px;background:#c7efd8;color:#183729;font-weight:650;text-decoration:none}
-</style></head><body><main><h1>Cozy Board</h1>${message ? `<p role="alert">${message}</p>` : ''}
+</style></head><body><main><h1>Cozy Chat</h1>${message ? `<p role="alert">${message}</p>` : ''}
 <a href="${href}">Continue with Google</a></main></body></html>`, {
         status,
         headers: {
@@ -99,7 +99,7 @@ export async function createBoardService(config) {
         const method = request.method;
         if (method === 'GET' && path === '/healthz') return new Response('ok');
         if (request.headers.get('host') !== new URL(origin).host) {
-            return failure(421, 'wrong_host', 'Use the Cozy Board hostname.');
+            return failure(421, 'wrong_host', 'Use the Cozy Chat hostname.');
         }
         const sameOrigin = request.headers.get('origin') === origin;
         if (under(path, API)) {
@@ -132,13 +132,13 @@ export async function createBoardService(config) {
         const response = await inspect(request);
         const html = (await response.text())
             .replace('<meta name="inspect-named" content="1">', '')
-            .replace('<title>board</title>', '<title>Cozy Board</title>')
+            .replace('<title>board</title>', '<title>Cozy Chat</title>')
             .replace('</head>', `<style>
 .shell,.boot{height:calc(100dvh - 42px)}
 .cc-board-bar{height:42px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font:600 14px system-ui,sans-serif}
 .cc-board-bar form{margin:0}.cc-board-bar button{font:inherit;color:inherit;cursor:pointer;background:none;border:1px solid var(--line);border-radius:5px;padding:4px 8px}
 </style></head>`)
-            .replace('<div id="root">', '<header class="cc-board-bar"><span>Cozy Board</span><form method="post" action="/auth/sign-out"><button type="submit">Sign out</button></form></header><div id="root">');
+            .replace('<div id="root">', '<header class="cc-board-bar"><span>Cozy Chat</span><form method="post" action="/auth/sign-out"><button type="submit">Sign out</button></form></header><div id="root">');
         const headers = new Headers(response.headers);
         headers.set('content-security-policy', headers.get('content-security-policy').replace("form-action 'none'", "form-action 'self'"));
         for (const cookie of session.cookies ?? []) headers.append('set-cookie', cookie);
@@ -164,7 +164,7 @@ export async function createBoardService(config) {
                 response = await route(request);
             } catch (error) {
                 response = error instanceof URIError ? failure(400, 'bad_path', 'Invalid Board path.')
-                    : failure(503, 'unavailable', 'Cozy Board is temporarily unavailable.');
+                    : failure(503, 'unavailable', 'Cozy Chat is temporarily unavailable.');
             }
             const headers = Object.fromEntries(response.headers);
             if (response.headers.has('set-cookie')) headers['set-cookie'] = response.headers.getSetCookie();

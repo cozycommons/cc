@@ -3,7 +3,7 @@ services:
     build:
       context: ./board
     environment:
-      BOARD_ORIGIN: ${BOARD_ORIGIN:-https://board.cozycommons.dev}
+      BOARD_ORIGIN: ${BOARD_ORIGIN:-https://chat.cozycommons.dev}
       COMMONS_API_ORIGIN: ${COMMONS_API_ORIGIN:-https://api.cozycommons.dev}
       SUPABASE_URL: ${SUPABASE_URL:?Set the Commons Supabase project URL}
       SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:?Set the Commons Supabase publishable key}

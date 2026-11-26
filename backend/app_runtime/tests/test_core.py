@@ -9,7 +9,7 @@ from app_runtime.core import Store, allowed, hostname, proxy_config, slug
         "admin",
         "api",
         "auth",
-        "board",
+        "chat",
         "www",
         "default",
         "a--b",

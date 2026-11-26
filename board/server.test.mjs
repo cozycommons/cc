@@ -108,7 +108,7 @@ test('Google PKCE preserves a board link and keeps the session in HTTP-only cook
     const page = await fetchBoard('/', { headers: browser });
     const html = await page.text();
     assert.equal(page.status, 200);
-    assert.match(html, /<title>Cozy Board/);
+    assert.match(html, /<title>Cozy Chat/);
     assert.doesNotMatch(html, /inspect-named/);
     assert.match(html, /method="post" action="\/auth\/sign-out"/);
     assert.equal((await fetchBoard('/app.js')).status, 200);
