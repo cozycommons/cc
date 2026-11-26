@@ -3,10 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { cn } from '@/lib/utils';
 
 const pairs = [
-  ['Background', 'bg-background text-foreground'],
-  ['Primary', 'bg-primary text-primary-foreground'],
-  ['Muted', 'bg-muted text-muted-foreground'],
-  ['Accent', 'bg-accent text-accent-foreground'],
+  ['Paper', 'bg-background text-foreground'],
+  ['Moss', 'bg-primary text-primary-foreground'],
+  ['Clay', 'bg-secondary text-secondary-foreground'],
+  ['Moss Glaze', 'bg-accent text-accent-foreground'],
 ];
 
 export default function Foundations() {
@@ -15,7 +15,7 @@ export default function Foundations() {
       <Card>
         <CardHeader>
           <CardTitle><h3>Color Roles</h3></CardTitle>
-          <CardDescription>Use each surface with its matching text token.</CardDescription>
+          <CardDescription>Use each Wabi surface with its matching ink token.</CardDescription>
         </CardHeader>
         <CardContent>
           <ul className="grid grid-cols-2 gap-2">
@@ -30,12 +30,12 @@ export default function Foundations() {
       <Card id="typography" className="scroll-mt-20">
         <CardHeader>
           <CardTitle><h3>Typography</h3></CardTitle>
-          <CardDescription>Geist for headings, copy, and controls.</CardDescription>
+          <CardDescription>Georgia for headings, Trebuchet for copy, and Courier for code.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          <p className="text-2xl font-semibold tracking-tight text-balance">Workspace Overview</p>
+          <h4 className="text-2xl tracking-tight text-balance">Workspace Overview</h4>
           <p className="text-base">Manage team access and project settings.</p>
-          <p className="text-sm text-muted-foreground tabular-nums">Updated 12 minutes ago</p>
+          <p className="text-sm text-muted-foreground"><code>updated 12 min ago</code></p>
         </CardContent>
       </Card>
     </div>

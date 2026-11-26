@@ -83,7 +83,8 @@ The room, counts, times, player names, and Dice records are explicitly labeled a
 
 ## Data and interaction patterns
 
-This directory keeps the original Wabi HTML and CSS specimens. The production
-React component library is documented in [the design system README](../README.md).
+This directory keeps the original Wabi HTML and CSS specimens. The shared React
+components map these material tokens to shadcn's semantic theme. See
+[the design system README](../README.md) for the React integration.
 The admin UI composes the shared shadcn controls through its compatibility
 patterns in `frontend/src/design/system/DataPatterns.jsx`.

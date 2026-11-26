@@ -9,3 +9,38 @@
 @source "./Foundations.jsx";
 @source "./system/DataPatterns.jsx";
 @source "../components/ui";
+
+.design-gallery {
+  background:
+    radial-gradient(circle at 18% 4%, var(--commons-lamplight), transparent 26rem),
+    radial-gradient(circle at 92% 31%, var(--commons-mosslight), transparent 24rem),
+    var(--background);
+}
+
+.design-wordmark {
+  font-family: var(--serif);
+  font-size: 1.75rem;
+  font-style: italic;
+  letter-spacing: -.06em;
+  line-height: .9;
+}
+
+.design-wordmark span:last-child {
+  margin-inline-start: .875rem;
+  color: var(--destructive);
+  font-family: var(--mono);
+  font-size: .625rem;
+  font-style: normal;
+  letter-spacing: .12em;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+.design-hero {
+  --commons-heading: var(--paper-light);
+  border: 1px solid rgb(242 234 219 / 16%);
+  border-radius: var(--radius-card);
+  background: radial-gradient(ellipse at 68% 0%, rgb(211 145 85 / 28%), transparent 64%), var(--espresso);
+  color: var(--paper-light);
+  box-shadow: var(--commons-paper-shadow);
+}
