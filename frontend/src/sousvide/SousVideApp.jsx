@@ -1,4 +1,4 @@
-import React, { Suspense, use, useDeferredValue, useState } from 'react';
+import React, { Suspense, use, useDeferredValue, useId, useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import PixelKitchen from './PixelKitchen.jsx';
@@ -38,6 +38,7 @@ const MM_PER_IN = 25.4;
 const G_PER_LB = 453.592;
 // model.DANGER_C and DANGER_HOURS: below this bath, a cook has a time limit.
 const SAFE_HOLD_C = 54.4;
+const SAFE_HOURS = 4;
 export const STRATEGIES = [
   { id: 'classic', name: 'Classic' },
   { id: 'hot_and_pull', name: 'Hot, then pull' },
@@ -151,14 +152,20 @@ class PlanError extends React.Component {
   }
 }
 
-function Segmented({ label, items, value, onChange }) {
+// Native radios drawn as cozy-wabi segments, so arrow keys move the choice.
+// An item may carry its own accessible `label` when its content is more than text.
+export function Segmented({ label, items, value, onChange, showLabel = true, className = 'sv-seg' }) {
+  const name = useId();
   return (
     <div className="sv-field">
-      <span className="cc-label">{label}</span>
-      <div className="cc-segmented sv-seg" role="radiogroup" aria-label={label}>
+      {showLabel && <span className="cc-label" aria-hidden="true">{label}</span>}
+      <div className={`cc-segmented ${className}`} role="radiogroup" aria-label={label}>
         {items.map((item) => (
-          <button key={item.key} type="button" role="radio" className="cc-segmented__item"
-            aria-checked={item.key === value} onClick={() => onChange(item.key)}>{item.name}</button>
+          <label key={item.key} className="cc-segmented__item">
+            <input type="radio" className="sv-radio" name={name} value={item.key} checked={item.key === value}
+              aria-label={item.label} onChange={() => onChange(item.key)} />
+            {item.name}
+          </label>
         ))}
       </div>
     </div>
@@ -219,24 +226,41 @@ function steps(id, row, form, plan) {
   if (id === 'hot_then_drop' && row.switch_minutes < row.minutes - 1) {
     out.push({ key: 'cool', label: 'Cool the bath to', value: fmtF(target), note: `at ${fmtMinutes(row.switch_minutes)}. Ice works.` });
   }
-  if (id === 'hot_then_drop' && row.switch_minutes >= row.minutes - 1) {
+  if (id === 'hot_then_drop' && row.switch_minutes >= row.minutes - 1 && canWait) {
     out.push({ key: 'cool', label: 'Cool the bath to', value: fmtF(target),
-      note: `when it reads ${pullAt}, ${about}. Ice works.${canWait ? ' It can then wait in the bath.' : ''}` });
+      note: `when it reads ${pullAt}, ${about}. Ice works. It can then wait in the bath.` });
   } else {
     out.push({ key: 'out', label: 'Take it out at', value: pullAt,
       note: `on the thermometer, ${about}${id === 'hot_and_pull' ? '. Sear it right away.' : canWait ? ', or any time after.' : '.'}` });
   }
+  // What a longer sear changes: the layer under the crust that goes past the target.
+  const under = row.overcooked_mm > 0 ? `${fmtDepth(row.overcooked_mm)} a side cooks past ${doneness(target)}` : `nothing cooks past ${doneness(target)}`;
   out.push(sear
-    ? { key: 'sear', label: 'Sear', value: `${sear} s a side`, note: `then rest ${rest} min. The center ends about ${fmtF(endsC)}, ${doneness(endsC)}.` }
+    ? { key: 'sear', label: 'Sear', value: `${sear} s a side`, note: `then rest ${rest} min. The center ends about ${fmtF(endsC)}, ${doneness(endsC)}.`,
+      more: `Under the crust, ${under}. A longer sear browns more and cooks that layer deeper.` }
     : { key: 'sear', label: 'Rest', value: `${rest} min`, note: `The center ends about ${fmtF(endsC)}, ${doneness(endsC)}.` });
   return out;
 }
 
 function tradeoff(id, row, target) {
+  const canWait = target >= SAFE_HOLD_C;
   const saved = row.saved_minutes >= 1 ? `${fmtMinutes(row.saved_minutes)} faster than classic` : 'No faster than classic';
-  if (id === 'hot_and_pull') return `${saved}. It can’t wait in the bath: take it out on time and sear straight away.`;
-  if (id === 'hot_then_drop') return `${saved}, slower than pulling, but it can wait once the bath is cool.`;
-  return target >= SAFE_HOLD_C ? 'The slowest and the easiest: it can wait in the bath once it’s done.' : 'The slowest and the easiest.';
+  if (id === 'hot_and_pull') return `Fastest: ${saved}. It can’t wait: take it out on time and sear straight away.`;
+  if (id === 'hot_then_drop') {
+    return canWait ? `${saved}, slower than pulling, but it can wait once the bath is cool.` : `${saved}, slower than pulling.`;
+  }
+  return canWait ? 'The slowest and the easiest: it can wait in the bath once it’s done.' : 'The slowest and the easiest.';
+}
+
+// Food safety follows the coolest the bath gets: at or above SAFE_HOLD_C it can
+// run as long as it likes, below it the whole cook stays under SAFE_HOURS.
+function safety(id, row, target) {
+  const coolest = id === 'hot_and_pull' ? row.bath_c : target;
+  if (coolest >= SAFE_HOLD_C) return { ok: true, text: `Food safe at any length: the bath stays at ${fmtF(SAFE_HOLD_C)} or hotter.` };
+  return {
+    ok: row.minutes <= SAFE_HOURS * 60,
+    text: `Below ${fmtF(SAFE_HOLD_C)}, keep the whole cook under ${SAFE_HOURS} h. This one takes ${fmtMinutes(row.minutes)}.`,
+  };
 }
 
 function Answer({ form, stale }) {
@@ -246,40 +270,32 @@ function Answer({ form, stale }) {
   const id = picked ?? best;
   const row = p[id];
   const strategy = STRATEGIES.find((s) => s.id === id);
-  const done = doneness(form.target);
+  const safe = safety(id, row, form.target);
   return (
     <section className={`sv-answer${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
-      <div className="cc-segmented sv-methods" role="radiogroup" aria-label="Method">
-        {STRATEGIES.map((s) => (
-          <button key={s.id} type="button" role="radio" className="cc-segmented__item" aria-checked={s.id === id}
-            aria-label={`${s.name}, ${fmtMinutes(p[s.id].minutes)}`} onClick={() => setPicked(s.id)}>
-            <b>{fmtMinutes(p[s.id].minutes)}</b><span>{s.name}</span>
-          </button>
-        ))}
-      </div>
+      <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={setPicked}
+        items={STRATEGIES.map((s) => ({
+          key: s.id, label: `${s.name}, ${fmtMinutes(p[s.id].minutes)}`,
+          name: <><b>{fmtMinutes(p[s.id].minutes)}</b><span>{s.name}</span></>,
+        }))} />
       <header className="sv-answer__head">
         <h2 className="cc-h3">{strategy.name}</h2>
         {id === best && <span className="cc-badge cc-badge--soft">Recommended</span>}
       </header>
-      {p.warnings.length > 0 && (
-        <p className="cc-notice cc-notice--error" role="alert">Below {fmtF(SAFE_HOLD_C)}, keep the whole cook under 4 h.</p>
-      )}
       <ol className="sv-steps">
         {steps(id, row, form, p).map((s) => (
           <li key={s.key} data-step={s.key}>
             <span className="cc-label">{s.label}</span>
             {s.value && <b>{s.value}</b>}
             {s.note && <span className="sv-steps__note">{s.note}</span>}
+            {s.more && <span className="sv-steps__more">{s.more}</span>}
           </li>
         ))}
       </ol>
       <p className="sv-answer__trade">{tradeoff(id, row, form.target)}</p>
-      {form.sear > 0 && (
-        <p className="cc-help sv-answer__sear">
-          Under the crust, {row.overcooked_mm > 0 ? `${fmtDepth(row.overcooked_mm)} a side cooks past ${done}` : `nothing cooks past ${done}`}.
-          A longer sear browns more and cooks that layer deeper.
-        </p>
-      )}
+      {safe.ok
+        ? <p className="cc-help sv-answer__safe">{safe.text}</p>
+        : <p className="cc-notice cc-notice--error" role="alert">{safe.text}</p>}
     </section>
   );
 }
@@ -441,15 +457,16 @@ function Details({ form, stale }) {
       <details className="cc-accordion">
         <summary>Every hot bath</summary>
         <div className="cc-accordion__content">
-          <p className="cc-help">Hot, then pull at each bath temperature. A hotter bath is faster; past a point it overcooks the outside before the sear does.</p>
+          <p className="cc-help">Hot, then pull at each bath temperature. A hotter bath is faster; past a point it overcooks the outside before the sear does. Depths are meat past {done}.</p>
           <table className="sv-table">
-            <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Overcooked before the sear</th></tr></thead>
+            <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Overcooked, before sear</th><th scope="col">after sear</th></tr></thead>
             <tbody>
               {p.sweep.map((r) => (
                 <tr key={r.bath_c} className={r.bath_c === p.hot_and_pull.bath_c ? 'is-chosen' : undefined}>
                   <td>{fmtF(r.bath_c)}</td><td>{fmtMinutes(r.minutes)}</td>
                   <td>{r.saved_minutes >= 1 ? fmtMinutes(r.saved_minutes) : '–'}</td>
                   <td>{r.bath_overcooked_mm > 0 ? `${fmtDepth(r.bath_overcooked_mm)} a side` : '–'}</td>
+                  <td>{r.overcooked_mm > 0 ? `${fmtDepth(r.overcooked_mm)} a side` : '–'}</td>
                 </tr>
               ))}
             </tbody>
@@ -520,7 +537,12 @@ export default function SousVideApp() {
           </div>
           <section className="sv-controls" id="steak" aria-label="Steak">
             <h2 className="sv-controls__title">Your steak</h2>
-            <Segmented label="Cut" items={CUTS.map((c) => ({ key: c.id, name: c.name }))} value={cut.id} onChange={pickCut} />
+            <label className="cc-field sv-field">
+              <span className="cc-label">Cut</span>
+              <select className="cc-select" value={cut.id} onChange={(e) => pickCut(e.target.value)}>
+                {CUTS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
             <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
               shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
             <div className="sv-measures">
@@ -537,7 +559,7 @@ export default function SousVideApp() {
             <Range label="Doneness" value={target} min={49} max={68} step={0.5}
               shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} />
             <Range label="Hot bath, for the faster methods" value={form.boost} min={0} max={10} step={0.5}
-              shown={(b) => `+${Math.round(deltaF(b))}°F · ${fmtF(target + b)}`} onChange={set('boost')} />
+              shown={(b) => `${fmtF(target + b)} · +${Math.round(toF(target + b)) - Math.round(toF(target))}°F`} onChange={set('boost')} />
             <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
               shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
           </section>

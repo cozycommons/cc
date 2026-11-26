@@ -57,15 +57,17 @@ describe('Sous vide', () => {
     // The plan suspends; React 19 wants that render awaited inside act.
     await act(async () => { render(<SousVideApp />); });
     const answer = await screen.findByRole('region', { name: 'What to do' });
-    expect(within(answer).getByRole('radio', { name: 'Hot, then pull, 19 min' }).getAttribute('aria-checked')).toBe('true');
+    expect(within(answer).getByRole('radio', { name: 'Hot, then pull, 19 min' }).checked).toBe(true);
     expect(within(answer).getByText('Recommended')).toBeTruthy();
     const step = (key) => answer.querySelector(`[data-step="${key}"]`).textContent;
     expect(step('bath')).toBe('Set the bath to136°F');
     expect(step('probe')).toContain('¼ to ⅜″ from the bone');
     expect(step('out')).toBe('Take it out at124°Fon the thermometer, about 19 min in. Sear it right away.');
     // The pull aims within 1°F of the target, so its center reads as the target.
-    expect(step('sear')).toBe('Sear45 s a sidethen rest 5 min. The center ends about 130°F, medium rare.');
-    expect(within(answer).getByText(/^38 min faster than classic/)).toBeTruthy();
+    expect(step('sear')).toBe('Sear45 s a sidethen rest 5 min. The center ends about 130°F, medium rare.'
+      + 'Under the crust, 3/16″ a side cooks past medium rare. A longer sear browns more and cooks that layer deeper.');
+    expect(within(answer).getByText(/^Fastest: 38 min faster than classic/)).toBeTruthy();
+    expect(within(answer).getByText(/^Food safe at any length/)).toBeTruthy();
     expect(within(answer).getByText(/3\/16″ a side cooks past medium rare/)).toBeTruthy();
 
     // Cooling the bath before the steak is ready is its own step.
@@ -86,6 +88,26 @@ describe('Sous vide', () => {
     expect(answer.querySelector('[data-step="cool"]').textContent)
       .toBe('Cool the bath to130°Fwhen it reads 124°F, about 40 min in. Ice works. It can then wait in the bath.');
     expect(answer.querySelector('[data-step="out"]')).toBeNull();
+  });
+
+  it('never says a steak below 130°F can wait, and flags a long cook there', async () => {
+    const rare = {
+      ...PLAN, classic: row('classic', 52, 300), hot_and_pull: row('hot_and_pull', 55, 200),
+      hot_then_drop: row('hot_then_drop', 55, 250, { switch_minutes: 250 }),
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => (url.includes('target_c=52&') ? rare : PLAN) })));
+    await act(async () => { render(<SousVideApp />); });
+    const slider = screen.getByRole('slider', { name: 'Doneness' });
+    fireEvent.change(slider, { target: { value: '52' } });
+    await act(async () => { fireEvent.pointerUp(slider); });
+    const answer = await screen.findByRole('region', { name: 'What to do' });
+    await vi.waitFor(() => expect(within(answer).getByRole('radio', { name: 'Hot, then cool, 4 h 10' })).toBeTruthy());
+    fireEvent.click(within(answer).getByRole('radio', { name: 'Hot, then cool, 4 h 10' }));
+    expect(answer.textContent).not.toContain('wait');
+    expect(answer.querySelector('[data-step="out"]').textContent).toContain('about 4 h 10 in.');
+    expect(within(answer).getByRole('alert').textContent).toBe('Below 130°F, keep the whole cook under 4 h. This one takes 4 h 10.');
+    fireEvent.click(within(answer).getByRole('radio', { name: 'Hot, then pull, 3 h 20' }));
+    expect(within(answer).getByText(/^Food safe at any length/)).toBeTruthy();
   });
 
   it('recommends the classic cook when pulling early saves little or overcooks more', () => {
@@ -109,7 +131,7 @@ describe('Sous vide', () => {
     await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Along an edge' })); });
     await vi.waitFor(() => expect(planned(fetch)).toContain('weight_g=1334&width_mm=140&bone=edge'));
 
-    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Tenderloin roast' })); });
+    await act(async () => { fireEvent.change(screen.getByLabelText('Cut'), { target: { value: 'roast' } }); });
     await vi.waitFor(() => expect(planned(fetch)).toBe(
       'https://api.test/sousvide/plan?thickness_mm=75&shape=cylinder&start_c=5&weight_g=1134&target_c=54.5&boost_c=3&sear_s=45'));
     expect(screen.queryByRole('radiogroup', { name: 'Bone' })).toBeNull();
@@ -149,7 +171,7 @@ describe('Sous vide', () => {
     const slider = screen.getByRole('slider', { name: 'Hot bath, for the faster methods' });
     fireEvent.change(slider, { target: { value: '4' } });
     fireEvent.change(slider, { target: { value: '5' } });
-    expect(screen.getByText('+9°F · 139°F')).toBeTruthy();
+    expect(screen.getByText('139°F · +9°F')).toBeTruthy();
     expect(fetch).toHaveBeenCalledTimes(1);
     await act(async () => { fireEvent.pointerUp(slider); });
     expect(fetch).toHaveBeenCalledTimes(2);
