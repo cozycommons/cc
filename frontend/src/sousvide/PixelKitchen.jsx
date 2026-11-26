@@ -330,7 +330,7 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
         ))}
       </div>
       <canvas ref={setCanvas} width={W} height={H} className="sv-pixel__canvas" role="img"
-        aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, core ${Math.round(toF(point.core))}°F`} />
+        aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, center ${Math.round(toF(point.core))}°F`} />
       <div className="sv-pixel__bar">
         <button type="button" className="cc-button sv-pixel__play" onClick={toggle}>
           {run ? 'Pause' : t >= end ? 'Replay' : 'Play'}

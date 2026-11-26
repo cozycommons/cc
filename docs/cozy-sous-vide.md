@@ -283,6 +283,15 @@ probe (a reading a minute) with about 0.1 °C repeatability.
 
 ## Page
 
+The page leads with the answer for the default steak: one method as steps
+(bath, where the thermometer tip goes, when to take it out, the sear and rest),
+with a tab per method showing its time. It recommends hot, then pull unless it
+saves under 10 minutes or overcooks more than 1 mm a side beyond the classic
+cook; hot, then cool is always slower than pulling and is there for a steak that
+has to wait. Depths are shown to the nearest sixteenth of an inch. The chart,
+the cut-open view, the replay, every hot bath, the sizing and calibration sit
+below the steak's controls.
+
 Sliders and typed measurements ask for a plan when they are let go or left,
 not on every tick or keystroke; each distinct plan is fetched once and cached
 in the page, and the previous plan stays on screen, dimmed, while the next one
