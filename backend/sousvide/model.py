@@ -36,27 +36,29 @@ from functools import lru_cache
 from typing import Literal
 
 Shape = Literal['slab', 'cylinder', 'puck']
+Bone = Literal['none', 'edge', 'middle']
 
 
 @dataclass(frozen=True)
 class Physics:
     """Every physical constant the heat solve uses.
 
-    None of these has been measured on the cook's own steak or kitchen. Unless a
-    field says otherwise its value is carried from the first version of this
-    model, which took it from general food-engineering knowledge rather than a
-    cited table; the literature pass and probe-log calibration
-    (calibrate.py) are the two ways they get replaced.
+    None of these has been measured on the cook's own steak or kitchen. Each
+    field says where its value came from. "First-version value" means it is
+    carried from the first version of this model, which took it from general
+    food-engineering knowledge rather than a cited table. A probe log
+    (calibrate.py) replaces alpha and sometimes h_bath for one cook's setup.
     """
 
     conductivity: float = 0.46
-    """k of the meat, W/(m K). Lean whole-muscle beef near 55 C. First-version value, uncited.
-    Only the ratio h/k matters to the solve, so an error here acts like an error in h."""
+    """k of the meat, W/(m K). The sourced literature pass for this work gives 0.37 to 0.51 for
+    marbled ribeye lean; 0.46 sits inside it. Only the ratio h/k matters to the solve, so an
+    error here acts like an error in h: about -5 % to +3 % on time across that range."""
 
     diffusivity: float = 1.2e-7
-    """alpha of the meat, m^2/s. First-version value: beef is quoted between 1.1e-7 and 1.4e-7,
-    and Baldwin's tables assume about 1.1e-7 to 1.3e-7. Cook time scales as 1/alpha, so this
-    range is about +/-10 % on time. The constant a probe log fits best (calibrate.py)."""
+    """alpha of the meat, m^2/s. The same literature pass gives 1.07e-7 to 1.44e-7 for marbled
+    ribeye lean (beef fat alone: 0.9e-7 to 1.2e-7); 1.2e-7 sits inside it. Cook time scales as
+    1/alpha, so that range is +12 % to -17 % on time. The constant a probe log fits (calibrate.py)."""
 
     h_bath: float = 95.0
     """Surface heat transfer coefficient of a bagged steak in a circulating bath, W/(m^2 K).
@@ -78,6 +80,27 @@ class Physics:
     holds the meat just under the crust near 100 C while the sear lasts. Heat that leaves as
     steam or builds the crust never enters the meat, so this is not the pan's temperature."""
 
+
+BONE_MIDDLE_FACTOR = 1.5
+"""A bone through the middle of a slab narrows the width the planner heats by this many bone
+widths. Fitted to 2-D solves with a cortical-and-marrow rib (experiments/ribeye.py): the bone
+needs about half the heat of the meat it displaces and conducts faster, so the meat beside it
+is ready sooner than with the bone simply removed (which would be 1.0). Classic times land
+within 5 % for bones 15 to 40 mm wide in steaks 25 to 64 mm thick."""
+
+BONE_MM = 28.0
+"""Width of a beef rib where it crosses a steak, mm. The canonical case's assumption, for
+when the bone was not measured."""
+
+MEAT_DENSITY = 1050.0
+"""kg/m^3, for turning a weight into a footprint. The value relayed with the canonical case;
+lean beef is usually quoted between 1040 and 1080. Bone is denser, so a bone-in steak's
+footprint comes out a few per cent large."""
+
+PLAN_ASPECT = 1.3
+"""Length / width assumed for a footprint known only by its area (the canonical ribeye is
+180 x 140 mm). experiments/finite_size.py: a true aspect of 1.5 to 2 instead moves the
+classic time by 2 to 7 %."""
 
 NODES = 40  # along the reported line: centre to surface
 SIDE_NODES = 20  # along width and length, where only the centre value is used
@@ -163,10 +186,25 @@ class Steak:
     width_mm: float | None = None  # a slab's shorter side, or a puck's diameter
     length_mm: float | None = None  # a slab's longer side, or a roast's length
     physics: Physics = Physics()
+    bone: Bone = 'none'  # slabs only; the width is measured across the bone
+    bone_mm: float = BONE_MM  # the bone's width
 
     @property
     def half_m(self) -> float:
         return self.thickness_mm / 2000.0
+
+    @property
+    def heated_width_mm(self) -> float | None:
+        """The width of all-meat slab that heats like this one.
+
+        A bone along an edge counts as meat: it shields that edge about as well as
+        more steak would (experiments/bone.py, within 2.5 %). A bone through the
+        middle narrows the steak by BONE_MIDDLE_FACTOR bone widths, but never below
+        one lobe of meat with the bone as good as water.
+        """
+        if self.width_mm is None or self.bone != 'middle' or self.shape != 'slab':
+            return self.width_mm
+        return max(self.width_mm - BONE_MIDDLE_FACTOR * self.bone_mm, (self.width_mm - self.bone_mm) / 2)
 
     @property
     def axes(self) -> tuple[Axis, ...]:
@@ -179,10 +217,23 @@ class Steak:
         elif self.shape == 'puck':
             line, sides = 0, [(self.width_mm, 1)]
         else:
-            line, sides = 0, [(self.width_mm, 0), (self.length_mm, 0)]
+            line, sides = 0, [(self.heated_width_mm, 0), (self.length_mm, 0)]
         k, alpha = self.physics.conductivity, self.physics.diffusivity
         return (axis(self.half_m, line, NODES, k, alpha),
                 *(axis(mm / 2000.0, m, SIDE_NODES, k, alpha) for mm, m in sides if mm))
+
+
+def footprint(weight_g: float, thickness_mm: float, width_mm: float | None = None,
+              length_mm: float | None = None) -> tuple[float, float]:
+    """(width, length) in mm of a slab of this weight and thickness, keeping any side that was measured."""
+    area_mm2 = weight_g / 1000 / MEAT_DENSITY / (thickness_mm / 1000) * 1e6
+    if width_mm and length_mm:
+        return width_mm, length_mm
+    if width_mm or length_mm:
+        known = width_mm or length_mm
+        return (width_mm or area_mm2 / known), (length_mm or area_mm2 / known)
+    width = (area_mm2 / PLAN_ASPECT) ** 0.5
+    return width, width * PLAN_ASPECT
 
 
 class Body:
@@ -360,7 +411,7 @@ class Cook:
         return {
             'strategy': self.strategy, 'bath_c': round(self.bath_c, 1), 'minutes': round(self.minutes, 1),
             'switch_minutes': None if self.switch_minutes is None else round(self.switch_minutes, 1),
-            'core_peak_c': round(self.core_peak_c, 1),
+            'pull_core_c': round(self.pulled.core, 1), 'core_peak_c': round(self.core_peak_c, 1),
             'bath_overcooked_mm': round(self.pulled.depth_over_mm(over), 1),
             'overcooked_mm': round(self.finished.depth_over_mm(over), 1),
             'overcooked_pct': round(100 * self.finished.share_over(over), 1),
