@@ -58,6 +58,8 @@ def client(monkeypatch):
     gbfs.reset_cache()
     monkeypatch.setattr(gbfs, '_fetch', lambda feed: feeds[feed])
     monkeypatch.setattr(routes, 'load_model', lambda: MODEL)
+    # Routes read the real clock; on a holiday every answer would end with its name.
+    monkeypatch.setattr(conditions, 'holiday', lambda day: None)
     app = FastAPI()
     app.include_router(routes.router, prefix='/bikes')
     yield TestClient(app), feeds
