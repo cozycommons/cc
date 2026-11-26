@@ -9,8 +9,8 @@ import re
 import subprocess
 
 
-FRONTEND_PROJECTS = ("bikes", "crowdset", "dice", "design", "trips", "floor-planner", "vital")
-BACKEND_PROJECTS = ("beli", "bikes", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips", "vital")
+FRONTEND_PROJECTS = ("bikes", "crowdset", "dice", "design", "trips", "floor-planner", "sousvide", "vital")
+BACKEND_PROJECTS = ("beli", "bikes", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "sousvide", "trips", "vital")
 INTEGRATIONS = {"beli", "espn", "partiful", "resy"}
 JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute", "bikes", "apps")
 SHARED_BACKEND_INPUTS = {
