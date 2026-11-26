@@ -1,15 +1,18 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { board } from '@vercel/board';
 import { local } from '@vercel/board/backend-local';
-import { inspector } from '@vercel/board/inspect';
 import { createAuth } from './auth.mjs';
 
 const API = '/api/board';
-const INSPECTOR = '/board';
+const BROWSER_API = '/board';
+const WEB_DIR = fileURLToPath(new URL('../frontend/dist-chat/', import.meta.url));
+const PAGE_POLICY = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' https: data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const AGENT_SCOPE = '*=read,post,react,label';
 
 function under(path, prefix) {
@@ -25,30 +28,9 @@ function requestError(status) {
     return failure(401, 'unauthorized', 'Sign in to Cozy Chat or supply a valid Board API token.');
 }
 
-function signIn(url, status = 200) {
-    const notice = url.searchParams.get('error');
-    const message = notice === 'access' ? 'This account does not have access to Cozy Chat.'
-        : notice === 'sign-in' ? 'Sign-in expired. Please try again.' : '';
-    const href = '/auth/google?' + new URLSearchParams({ next: url.searchParams.get('next') ?? '/' }).toString();
-    return new Response(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · Cozy Chat</title>
-<style>
-body{margin:0;min-height:100dvh;display:grid;place-items:center;background:#131b19;color:#f0f6f3;font:1rem system-ui,sans-serif}
-main{width:min(24rem,calc(100% - 3rem));padding:2rem;box-sizing:border-box;border:1px solid #3f5750;border-radius:16px;background:#1c2824}
-h1{margin:0 0 1.5rem;font-size:2rem}p{color:#fad4bc}a{display:inline-block;padding:.7rem 1rem;border-radius:8px;background:#c7efd8;color:#183729;font-weight:650;text-decoration:none}
-</style></head><body><main><h1>Cozy Chat</h1>${message ? `<p role="alert">${message}</p>` : ''}
-<a href="${href}">Continue with Google</a></main></body></html>`, {
-        status,
-        headers: {
-            'content-type': 'text/html; charset=utf-8',
-            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-        },
-    });
-}
-
 export async function createBoardService(config) {
-    const { origin, dataDir } = config;
+    const { origin, dataDir, webDir = WEB_DIR } = config;
+    const page = await readFile(join(webDir, 'chat.html'));
     const auth = createAuth(config);
     const caller = new AsyncLocalStorage();
     const store = local({ dir: dataDir });
@@ -61,12 +43,11 @@ export async function createBoardService(config) {
     });
     // Fail at startup if the persistent volume is missing or unwritable.
     await team.createChannel('general');
-    const inspect = inspector({ board: team, basePath: '' });
 
     async function serveBoard(request, url, authenticated, fromPage) {
         if (authenticated.status !== 200) return requestError(authenticated.status);
 
-        const path = fromPage ? url.pathname.slice(INSPECTOR.length) || '/' : url.pathname.slice(API.length) || '/';
+        const path = fromPage ? url.pathname.slice(BROWSER_API.length) || '/' : url.pathname.slice(API.length) || '/';
         const decoded = decodeURIComponent(path);
         if (decoded.includes('\\') || decoded.startsWith('//') || decoded.split('/').some(segment => segment === '..' || segment === '.')) {
             return failure(400, 'bad_path', 'Invalid Board path.');
@@ -76,7 +57,7 @@ export async function createBoardService(config) {
         }
 
         const headers = new Headers(request.headers);
-        for (const name of ['authorization', 'cookie', 'x-inspect-token']) headers.delete(name);
+        for (const name of ['authorization', 'cookie', 'x-chat-request']) headers.delete(name);
         if (authenticated.agent) {
             // A dedicated token has one identity and cannot administer the board.
             if (headers.has('x-board-can') && headers.get('x-board-can') !== AGENT_SCOPE) {
@@ -106,9 +87,9 @@ export async function createBoardService(config) {
             if (method === 'GET' && [API, API + '/', API + '/openapi.json'].includes(path)) return team.fetch(request);
             return serveBoard(request, url, await auth.api(request), false);
         }
-        if (under(path, INSPECTOR)) {
+        if (under(path, BROWSER_API)) {
             const site = request.headers.get('sec-fetch-site');
-            if (request.headers.get('x-inspect-token') !== 'page' || (site && site !== 'same-origin')
+            if (request.headers.get('x-chat-request') !== '1' || (site && site !== 'same-origin')
                 || (!['GET', 'HEAD'].includes(method) && !sameOrigin)) return requestError(403);
             return serveBoard(request, url, await auth.browser(request), true);
         }
@@ -118,8 +99,21 @@ export async function createBoardService(config) {
         if (method !== 'GET') return failure(405, 'method_not_allowed', 'Method not allowed.');
         if (path === '/auth/google') return auth.begin(request);
         if (path === '/auth/callback') return auth.callback(request);
-        if (path === '/auth/sign-in') return signIn(url);
-        if (path === '/app.js') return inspect(request);
+        if (path === '/auth/sign-in') return frontPage();
+        if (under(path, '/chat-assets')) {
+            const asset = /^\/chat-assets\/([a-zA-Z0-9_-]+\.(js|css))$/.exec(path);
+            if (!asset) return failure(404, 'not_found', 'Asset not found.');
+            const [, name, kind] = asset;
+            const data = await readFile(join(webDir, 'chat-assets', name)).catch(error => {
+                if (error.code === 'ENOENT') return null;
+                throw error;
+            });
+            if (!data) return failure(404, 'not_found', 'Asset not found.');
+            return new Response(data, { headers: {
+                'content-type': kind === 'css' ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8',
+                'cache-control': 'public, max-age=31536000, immutable',
+            } });
+        }
         if (under(path, '/auth') || under(path, '/api')) return failure(404, 'not_found', 'Page not found.');
 
         const session = await auth.browser(request);
@@ -129,20 +123,16 @@ export async function createBoardService(config) {
             if (session.status === 403) next.searchParams.set('error', 'access');
             return Response.redirect(next, 303);
         }
-        const response = await inspect(request);
-        const html = (await response.text())
-            .replace('<meta name="inspect-named" content="1">', '')
-            .replace('<title>board</title>', '<title>Cozy Chat</title>')
-            .replace('</head>', `<style>
-.shell,.boot{height:calc(100dvh - 42px)}
-.cc-board-bar{height:42px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font:600 14px system-ui,sans-serif}
-.cc-board-bar form{margin:0}.cc-board-bar button{font:inherit;color:inherit;cursor:pointer;background:none;border:1px solid var(--line);border-radius:5px;padding:4px 8px}
-</style></head>`)
-            .replace('<div id="root">', '<header class="cc-board-bar"><span>Cozy Chat</span><form method="post" action="/auth/sign-out"><button type="submit">Sign out</button></form></header><div id="root">');
-        const headers = new Headers(response.headers);
-        headers.set('content-security-policy', headers.get('content-security-policy').replace("form-action 'none'", "form-action 'self'"));
-        for (const cookie of session.cookies ?? []) headers.append('set-cookie', cookie);
-        return new Response(html, { headers });
+        return frontPage(session.cookies);
+    }
+
+    function frontPage(cookies = []) {
+        const headers = new Headers({
+            'content-type': 'text/html; charset=utf-8',
+            'content-security-policy': PAGE_POLICY,
+        });
+        for (const cookie of cookies) headers.append('set-cookie', cookie);
+        return new Response(page, { headers });
     }
 
     const server = createServer(async (incoming, outgoing) => {
@@ -169,7 +159,9 @@ export async function createBoardService(config) {
             const headers = Object.fromEntries(response.headers);
             if (response.headers.has('set-cookie')) headers['set-cookie'] = response.headers.getSetCookie();
             // Attachments and Board responses can contain private content.
-            headers['cache-control'] = 'private, no-store';
+            if (!new URL(request.url).pathname.startsWith('/chat-assets/') || !response.ok) {
+                headers['cache-control'] = 'private, no-store';
+            }
             headers['x-content-type-options'] = 'nosniff';
             headers['referrer-policy'] = 'no-referrer';
             outgoing.writeHead(response.status, headers);
@@ -208,6 +200,7 @@ function readConfig() {
         commonsApi: readOrigin(env.COMMONS_API_ORIGIN, 'COMMONS_API_ORIGIN'),
         supabaseKey: env.SUPABASE_PUBLISHABLE_KEY,
         dataDir: env.BOARD_DATA_DIR || '.board',
+        webDir: env.BOARD_WEB_DIR || WEB_DIR,
         members: new Set((env.BOARD_MEMBER_EMAILS ?? '').split(',').map(email => email.trim().toLowerCase()).filter(Boolean)),
         agentKeys,
     };

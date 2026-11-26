@@ -34,6 +34,14 @@ class SelectionTests(unittest.TestCase):
                 plan = ci.select([path], TEST_FILES)
                 self.assertEqual([j for j in ci.JOBS if plan[j]], ["board"])
 
+    def test_board_rebuilds_when_shared_browser_inputs_change(self):
+        for path in [
+            "frontend/src/chat/Chat.jsx", "frontend/src/design/system/Controls.jsx",
+            "frontend/package-lock.json", "design/cozy-wabi/tokens.css",
+        ]:
+            with self.subTest(path=path):
+                self.assertTrue(ci.select([path], TEST_FILES)["board"])
+
     def test_apps_runtime_paths_select_the_docker_suite(self):
         for path in ["infra/apps/runtime/commons.py", "infra/apps/hosted/compose.yaml", "scripts/apps-dev.sh"]:
             with self.subTest(path=path):

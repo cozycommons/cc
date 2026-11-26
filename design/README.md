@@ -17,8 +17,10 @@ cd design/cozy-wabi
 python3 -m http.server 4173 --bind 127.0.0.1
 ```
 
-Then open <http://127.0.0.1:4173/index.html>. The production React app imports
-the Wabi styles directly and adds the local interactions in React.
+Then open <http://127.0.0.1:4173/index.html>. The production React app imports the Wabi styles directly. The living library
+and Cozy Chat share React controls backed by Vercel UI SDK in
+`frontend/src/design/system`. Use those controls for keyboard, focus, and
+selection behavior while styling their parts with the Wabi tokens.
 
 ## Component libraries
 

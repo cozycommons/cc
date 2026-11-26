@@ -114,3 +114,7 @@ best-effort recommendation.
 
 Follow Jason's design preferences in `docs/crowdset/DESIGN.md`. That document also
 records the current Crowdset feature scope.
+
+For the React design system, follow the UI SDK skill when using SDK controls.
+Read `frontend/node_modules/@ui-sdk/react/docs/llms.txt` and the docs for the
+installed component before composing it.

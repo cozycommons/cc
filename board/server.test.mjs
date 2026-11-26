@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, get } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +25,10 @@ const close = server => new Promise(resolve => server.close(resolve));
 
 before(async () => {
     dataDir = await mkdtemp(join(tmpdir(), 'cozy-board-test-'));
+    const webDir = join(dataDir, 'web');
+    await mkdir(join(webDir, 'chat-assets'), { recursive: true });
+    await writeFile(join(webDir, 'chat.html'), '<title>Cozy Chat</title><script src="/chat-assets/chat-test.js"></script>');
+    await writeFile(join(webDir, 'chat-assets', 'chat-test.js'), '// test asset');
     provider = createServer(async (req, res) => {
         const url = new URL(req.url, 'http://127.0.0.1');
         const token = req.headers.authorization?.slice(7);
@@ -57,7 +61,7 @@ before(async () => {
     origin = await listen(reserve);
     await close(reserve);
     config = {
-        origin, dataDir, supabaseUrl: providerOrigin, supabaseKey: 'synthetic-key', commonsApi: providerOrigin,
+        origin, dataDir, webDir, supabaseUrl: providerOrigin, supabaseKey: 'synthetic-key', commonsApi: providerOrigin,
         members: new Set(['member@example.test']),
         agentKeys: new Map([[createHash('sha256').update(agent).digest('hex'), 'codex']]),
     };
@@ -75,7 +79,7 @@ after(async () => {
 
 const fetchBoard = (path, options) => fetch(origin + path, { redirect: 'manual', ...options });
 const bearer = token => ({ authorization: `Bearer ${token}` });
-const browser = { cookie: `cc-board-access=${member}`, 'x-inspect-token': 'page' };
+const browser = { cookie: `cc-board-access=${member}`, 'x-chat-request': '1' };
 const post = (headers, body) => ({ method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 test('private board permits only verified members and Commons admins', async () => {
@@ -109,9 +113,9 @@ test('Google PKCE preserves a board link and keeps the session in HTTP-only cook
     const html = await page.text();
     assert.equal(page.status, 200);
     assert.match(html, /<title>Cozy Chat/);
-    assert.doesNotMatch(html, /inspect-named/);
-    assert.match(html, /method="post" action="\/auth\/sign-out"/);
-    assert.equal((await fetchBoard('/app.js')).status, 200);
+    assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
+    assert.equal((await fetchBoard('/chat-assets/chat-test.js')).status, 200);
+    assert.equal((await fetchBoard('/chat-assets/missing.js')).status, 404);
 
     const external = await fetchBoard('/auth/google?next=%2F%09%2Fevil.example');
     const nextCookie = external.headers.getSetCookie().find(value => value.startsWith('cc-board-next='));

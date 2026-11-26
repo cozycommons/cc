@@ -1,5 +1,6 @@
 import React from 'react';
 import { ComparisonBar, DataRow, SegmentedControl, Skeleton } from './system/DataPatterns.jsx';
+import { Button } from './system/Controls.jsx';
 
 const periods = [
   { value: 'week', label: 'Week' },
@@ -45,7 +46,7 @@ export default function DataShowcase() {
       <article className="cc-data-panel cc-data-panel--refresh">
         <div className="cc-data-panel__heading"><span className="cc-label">03 / loading & freshness</span><span className={`cc-data-tag${loading ? ' cc-data-tag--busy' : ''}`}>{loading ? 'Updating' : 'Sample'}</span></div>
         <div className="cc-refresh-layout">
-          <div><h3 className="cc-h3">Keep your place.</h3><p className="cc-data-caption">Keep the last result during a refresh. Use a skeleton for the first load.</p><button className="cc-button cc-button--secondary" type="button" disabled={loading} onClick={refresh}>{loading ? 'Refreshing…' : 'Preview refresh'}</button><p className="cc-data-caption" role="status">{loading ? 'Fetching sample update…' : updated ? 'Sample updated just now.' : 'Ready to preview.'}</p></div>
+          <div><h3 className="cc-h3">Keep your place.</h3><p className="cc-data-caption">Keep the last result during a refresh. Use a skeleton for the first load.</p><Button disabled={loading} onClick={refresh}>{loading ? 'Refreshing…' : 'Preview refresh'}</Button><p className="cc-data-caption" role="status">{loading ? 'Fetching sample update…' : updated ? 'Sample updated just now.' : 'Ready to preview.'}</p></div>
           <div className="cc-refresh-sample"><div className="cc-refresh-sample__heading"><span>Weekly activity</span><strong>24 games</strong></div><div aria-busy={loading}>{loading ? <Skeleton label="Loading sample activity" /> : <div className="cc-mini-bars" aria-label="Sample activity: Monday 4, Tuesday 7, Wednesday 5, Thursday 8 games" role="img">{[4, 7, 5, 8].map((value, index) => <div key={index}><i style={{ height: `${value * 10}px` }} /><span>{['M', 'T', 'W', 'T'][index]}</span></div>)}</div>}</div></div>
         </div>
       </article>

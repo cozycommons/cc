@@ -119,7 +119,7 @@ jobs:
           cache-dependency-path: board/package-lock.json
       - run: npm ci --prefix board --ignore-scripts
       - run: npm test --prefix board
-      - run: docker build --tag cozy-board-ci board
+      - run: docker build --tag cozy-board-ci -f board/Dockerfile .
       - name: Verify the Board container opens a persistent volume
         run: |
           set -euo pipefail

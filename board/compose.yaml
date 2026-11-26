@@ -1,7 +1,8 @@
 services:
   board:
     build:
-      context: ./board
+      context: .
+      dockerfile: board/Dockerfile
     environment:
       BOARD_ORIGIN: ${BOARD_ORIGIN:-https://chat.cozycommons.dev}
       COMMONS_API_ORIGIN: ${COMMONS_API_ORIGIN:-https://api.cozycommons.dev}

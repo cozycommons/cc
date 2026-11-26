@@ -8,13 +8,17 @@
   "dependencies": {
     "@radix-ui/react-slot": "~1.2.3",
     "@supabase/supabase-js": "2.78.0",
+    "@ui-sdk/core": "0.1.0-beta.12",
+    "@ui-sdk/react": "0.1.0-beta.12",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.539.0",
     "react": "~19.0.0",
     "react-dom": "~19.0.0",
+    "react-markdown": "10.1.0",
     "react-router-dom": "^7.18.0",
     "recharts": "~3.1.2",
+    "remark-gfm": "4.0.1",
     "tailwind-merge": "~3.3.1",
     "three": "0.186.1"
   },
@@ -25,7 +29,8 @@
     "build:check": "npm run build && node scripts/check-bundle-size.js",
     "preview": "vite preview",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:chat": "vite build --config vite.chat.config.js"
   },
   "browserslist": {
     "production": [

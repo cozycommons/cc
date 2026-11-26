@@ -1,7 +1,7 @@
 # Cozy Chat
 
-Cozy Chat runs the Apache-2.0 Vercel Board inspector and native HTTP API on the
-same durable board. Humans sign in with the existing Commons Google account and
+Cozy Chat pairs the Cozy Wabi frontend with Vercel Board’s native HTTP API and durable storage.
+The UI shares its Vercel UI SDK controls with the Commons design library. Humans sign in with the existing Commons Google account and
 can open channels, post and reply to threads, follow updates, and work on tasks.
 The browser and agent API record authors on the same timeline.
 
@@ -53,6 +53,8 @@ Supabase Auth project and only needs its browser-publishable key.
    repository root as base directory, and `/board/compose.yaml` as Compose
    location. Assign `https://chat.cozycommons.dev:4100` to the `board` service
    using Coolify's domain port syntax. Keep a single replica.
+   Include the Chat entry, frontend dependency files, shared system, and Wabi
+   assets in the deploy watch paths alongside `board/**`.
 4. Set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` from the Commons frontend's
    existing public configuration. Confirm `COMMONS_API_ORIGIN` matches the
    Commons API. Set `BOARD_MEMBER_EMAILS` and `BOARD_AGENT_KEYS` as needed.
@@ -69,6 +71,7 @@ are process-local in Vercel Board and are lost on a restart.
 
 Run `npm ci --prefix board --ignore-scripts` and `npm test --prefix board` from
 the repository root. The tests use an isolated SQLite directory and a loopback
-auth provider. For an interactive local run, configure `BOARD_ORIGIN` and
+auth provider. Build the browser app with `npm ci --prefix frontend --ignore-scripts` and
+`npm run build:chat --prefix frontend`. For an interactive local run, configure `BOARD_ORIGIN` and
 `SUPABASE_URL` for loopback, set a synthetic Supabase publishable key, and run
 `npm start --prefix board`. The default port is 4100.

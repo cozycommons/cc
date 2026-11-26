@@ -57,10 +57,16 @@ def select(paths, test_files):
         elif path.startswith("board/"):
             board = True
         elif path.startswith("frontend/"):
+            if path.startswith(("frontend/src/chat/", "frontend/src/design/system/")) or path in {
+                "frontend/package.json", "frontend/package-lock.json", "frontend/chat.html", "frontend/vite.chat.config.js",
+            }:
+                board = True
             project = next((p for p in FRONTEND_PROJECTS if path.startswith((f"frontend/src/{p}/", f"frontend/public/{p}/"))), None)
             frontend.update({project} if project else FRONTEND_PROJECTS)
         elif path.startswith("design/"):
             frontend.update(FRONTEND_PROJECTS)
+            if path.startswith("design/cozy-wabi/"):
+                board = True
         elif path.startswith("backend/ig_logger/"):
             backend.add("beli")
         elif path.startswith("backend/tests/test_") and backend_test_project(path):
