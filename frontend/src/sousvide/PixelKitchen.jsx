@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { STRATEGIES, fmtMinutes, shade, toF } from './SousVideApp.jsx';
+import { STRATEGIES, Segmented, fmtMinutes, shade, toF } from './SousVideApp.jsx';
 
 // A pixel-art replay of one cook from the plan's trace: the bag in the bath, the
 // pan, the board, and a cross-section that fills in as each layer peaks. The
@@ -323,14 +323,10 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
   return (
     <section className="sv-section sv-pixel" aria-label="Replay">
       <h2 className="cc-h3">Replay</h2>
-      <div className="cc-segmented sv-seg" role="radiogroup" aria-label="Method to replay">
-        {STRATEGIES.map((s) => (
-          <button key={s.id} type="button" role="radio" className="cc-segmented__item" aria-checked={s.id === strategy}
-            onClick={() => pick(s.id)}>{s.name}</button>
-        ))}
-      </div>
+      <Segmented label="Method to replay" showLabel={false} items={STRATEGIES.map((s) => ({ key: s.id, name: s.name }))}
+        value={strategy} onChange={pick} />
       <canvas ref={setCanvas} width={W} height={H} className="sv-pixel__canvas" role="img"
-        aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, core ${Math.round(toF(point.core))}°F`} />
+        aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, center ${Math.round(toF(point.core))}°F`} />
       <div className="sv-pixel__bar">
         <button type="button" className="cc-button sv-pixel__play" onClick={toggle}>
           {run ? 'Pause' : t >= end ? 'Replay' : 'Play'}

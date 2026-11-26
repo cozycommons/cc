@@ -1,4 +1,4 @@
-import React, { Suspense, use, useDeferredValue, useState } from 'react';
+import React, { Suspense, use, useDeferredValue, useId, useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import PixelKitchen from './PixelKitchen.jsx';
@@ -27,18 +27,22 @@ export const doneness = (c) => DONENESS.filter((d) => c >= d.c).at(-1).name;
 const BONES = [{ key: 'none', name: 'None' }, { key: 'edge', name: 'Along an edge' }, { key: 'middle', name: 'Through the middle' }];
 // Where the coldest meat is, from the 2-D solves in backend/sousvide/experiments.
 const PROBE = {
-  middle: 'Probe tip at mid-thickness, ¼ to ⅜ in from the bone and halfway along it, not touching it. The middle of the meat reads about 2°F higher.',
-  edge: 'Probe tip at mid-thickness in the middle of the whole steak, bone included.',
-  cylinder: 'Probe tip on the roast’s axis, halfway along it.',
-  none: 'Probe tip at mid-thickness in the middle of the steak.',
+  middle: 'Halfway through the thickness, ¼ to ⅜″ from the bone and halfway along it, not touching it.',
+  edge: 'Halfway through the thickness, in the middle of the whole steak, bone included.',
+  cylinder: 'In the center of the roast, halfway along it.',
+  none: 'Halfway through the thickness, in the middle of the steak.',
 };
 const CALIBRATION_KEY = 'sousvide.calibration';
+const DEFAULT_ALPHA = 1.2; // model.Physics.diffusivity, in 1e-7 m²/s
 const MM_PER_IN = 25.4;
 const G_PER_LB = 453.592;
+// model.DANGER_C and DANGER_HOURS: below this bath, a cook has a time limit.
+const SAFE_HOLD_C = 54.4;
+const SAFE_HOURS = 4;
 export const STRATEGIES = [
-  { id: 'classic', name: 'Classic', how: 'Bath at target until the core is within 1°F of it.' },
-  { id: 'hot_and_pull', name: 'Hot, then pull', how: 'Hotter bath. Pull early and let the sear finish the core.' },
-  { id: 'hot_then_drop', name: 'Hot, then drop', how: 'Hotter bath, then cool it to target. Holds as long as you like.' },
+  { id: 'classic', name: 'Classic' },
+  { id: 'hot_and_pull', name: 'Hot, then pull' },
+  { id: 'hot_then_drop', name: 'Hot, then cool' },
 ];
 
 export const toF = (c) => c * 9 / 5 + 32;
@@ -54,11 +58,55 @@ function savedCalibration() {
 }
 export const deltaF = (c) => c * 9 / 5;
 export const fmtF = (c) => `${Math.round(toF(c))}°F`;
+// A temperature range in °F, or one value when both ends round to it.
+export function fmtRange([lo, hi]) {
+  const [a, b] = [lo, hi].map((c) => Math.round(toF(c)));
+  return a === b ? `about ${a}°F` : `about ${a} to ${b}°F`;
+}
+// The finished center, with its doneness only when both ends share one.
+export function finish(range) {
+  const [lo, hi] = range.map(doneness);
+  return lo === hi ? `${fmtRange(range)}, ${lo}` : fmtRange(range);
+}
 export const fmtInches = (mm) => `${(mm / 25.4).toFixed(2).replace(/0$/, '')}″`;
 export function fmtMinutes(min) {
   const m = Math.round(min);
   if (m < 60) return `${m} min`;
   return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+}
+
+const EIGHTHS = { 2: '⅛', 4: '¼', 6: '⅜', 8: '½', 10: '⅝', 12: '¾', 14: '⅞' };
+// A depth to the nearest sixteenth of an inch, the way a cook reads a ruler.
+export function fmtDepth(mm) {
+  const n = Math.round((mm / MM_PER_IN) * 16);
+  if (n <= 0) return 'none';
+  const whole = Math.floor(n / 16);
+  const rest = n % 16;
+  const part = rest ? EIGHTHS[rest] ?? `${rest}/16` : '';
+  return `${whole || ''}${whole && part ? ' ' : ''}${part}″`;
+}
+
+// Whether a cook breaks the model's one food-safety rule (model.DANGER_C and
+// DANGER_HOURS): a bath below SAFE_HOLD_C, for longer than SAFE_HOURS.
+export const tooLong = (row) => row.bath_c < SAFE_HOLD_C && row.minutes > SAFE_HOURS * 60;
+
+// The method to lead with: pulling from a hotter bath, unless it saves too
+// little or overcooks more than the classic cook, or breaks the time rule when
+// the classic cook does not. Hot, then cool is always slower than pulling; it
+// is the choice when the steak has to wait.
+export function recommended(plan) {
+  const pull = plan.hot_and_pull;
+  if (tooLong(pull) !== tooLong(plan.classic)) return tooLong(pull) ? 'classic' : 'hot_and_pull';
+  return pull.saved_minutes >= 10 && pull.extra_overcooked_mm <= 1 ? 'hot_and_pull' : 'classic';
+}
+
+// Minutes from the end of the sear until the center stops rising.
+export function restMinutes(trace, searS) {
+  const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
+  const finish = trace.filter((p) => p.phase === 'finish');
+  if (!finish.length) return 0;
+  const peak = finish.reduce((a, b) => (b.core > a.core ? b : a));
+  return Math.max(0, peak.min - bathEnd - searS / 60);
 }
 
 // Peak temperature to meat colour: raw, rare, medium rare, medium, well, crust.
@@ -94,7 +142,11 @@ export function planFor(query) {
   if (!promise) {
     promise = fetch(`${getUrl()}/sousvide/plan?${query}`).then(async (response) => {
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.detail || 'Could not plan the cook.');
+      // A 422 for an out-of-range measurement carries a list of field errors, not a message.
+      if (!response.ok) {
+        throw new Error(typeof body?.detail === 'string' ? body.detail
+          : response.status === 422 ? 'A measurement is out of range. Check the weight, width and length.' : 'Could not plan the cook.');
+      }
       return body;
     });
     promise.catch(() => failed.add(query));
@@ -114,20 +166,26 @@ class PlanError extends React.Component {
     return query === state.query ? null : { error: null, query };
   }
   render() {
-    return this.state.error
-      ? <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>
-      : this.props.children;
+    if (!this.state.error) return this.props.children;
+    // The answer shows the error; the details below it just step aside.
+    return this.props.quiet ? null : <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>;
   }
 }
 
-function Segmented({ label, items, value, onChange }) {
+// Native radios drawn as cozy-wabi segments, so arrow keys move the choice.
+// An item may carry its own accessible `label` when its content is more than text.
+export function Segmented({ label, items, value, onChange, showLabel = true, className = 'sv-seg' }) {
+  const name = useId();
   return (
     <div className="sv-field">
-      <span className="cc-label">{label}</span>
-      <div className="cc-segmented sv-seg" role="radiogroup" aria-label={label}>
+      {showLabel && <span className="cc-label" aria-hidden="true">{label}</span>}
+      <div className={`cc-segmented ${className}`} role="radiogroup" aria-label={label}>
         {items.map((item) => (
-          <button key={item.key} type="button" role="radio" className="cc-segmented__item"
-            aria-checked={item.key === value} onClick={() => onChange(item.key)}>{item.name}</button>
+          <label key={item.key} className="cc-segmented__item">
+            <input type="radio" className="sv-radio" name={name} value={item.key} checked={item.key === value}
+              aria-label={item.label} onChange={() => onChange(item.key)} />
+            {item.name}
+          </label>
         ))}
       </div>
     </div>
@@ -171,23 +229,100 @@ function Measure({ label, value, placeholder, step, onChange }) {
   );
 }
 
-function Card({ strategy, row, target }) {
-  const saved = row.saved_minutes;
-  const [low, high] = row.core_peak_range_c.map((c) => Math.round(toF(c)));
+// One method as steps a cook follows, in the order they happen.
+function steps(id, row, form, plan) {
+  const { target, sear } = form;
+  const canWait = target >= SAFE_HOLD_C; // below this, the bath is not a safe place to hold
+  const pullAt = fmtF(row.pull_core_c);
+  const about = `about ${fmtMinutes(row.minutes)} in`;
+  const probe = PROBE[form.cut.shape === 'cylinder' ? 'cylinder' : plan.steak.bone];
+  // Where the center ends, across a weaker to stronger sear (as in the cut-open view),
+  // named only when the whole range is one doneness.
+  const ends = finish(row.core_peak_range_c);
+  const rest = Math.max(1, Math.round(restMinutes(plan.trace[id], sear)));
+  const out = [
+    { key: 'bath', label: 'Set the bath to', value: fmtF(row.bath_c) },
+    { key: 'probe', label: 'Thermometer tip', note: probe },
+  ];
+  // Cooling before the steak is ready is part of the cook; cooling at the moment it
+  // is ready only matters when it can then wait.
+  const coolFirst = id === 'hot_then_drop' && row.switch_minutes < row.minutes - 1;
+  if (coolFirst) {
+    out.push({ key: 'cool', label: 'Cool the bath to', value: fmtF(target), note: `at ${fmtMinutes(row.switch_minutes)}. Ice works.` });
+  }
+  if (id === 'hot_then_drop' && row.switch_minutes >= row.minutes - 1 && canWait) {
+    out.push({ key: 'cool', label: 'Cool the bath to', value: fmtF(target),
+      note: `when it reads ${pullAt}, ${about}. Ice works. It can then wait in the bath.` });
+  } else {
+    out.push({ key: 'out', label: 'Take it out at', value: pullAt,
+      note: `on the thermometer, ${about}${id === 'hot_and_pull' ? '. Sear it right away.'
+        : id === 'hot_then_drop' && !canWait && !coolFirst ? `. Below ${fmtF(SAFE_HOLD_C)} it can’t wait, so skip cooling the bath and sear right away.`
+          : canWait ? ', or any time after.' : `. Below ${fmtF(SAFE_HOLD_C)} it can’t wait: sear right away.`}` });
+  }
+  // What a longer sear changes: the layer under the crust that goes past the target.
+  const under = row.overcooked_mm > 0 ? `${fmtDepth(row.overcooked_mm)} a side cooks past ${doneness(target)}` : `nothing cooks past ${doneness(target)}`;
+  out.push(sear
+    ? { key: 'sear', label: 'Sear', value: `${sear} s a side`, note: `then rest ${rest} min. The center ends ${ends}.`,
+      more: `Under the crust, ${under}. A longer sear browns more and cooks that layer deeper.` }
+    : { key: 'sear', label: 'Rest', value: `${rest} min`, note: `The center ends ${ends}.` });
+  return out;
+}
+
+function tradeoff(id, row, target) {
+  const canWait = target >= SAFE_HOLD_C;
+  const saved = row.saved_minutes >= 1 ? `${fmtMinutes(row.saved_minutes)} faster than classic` : 'No faster than classic';
+  if (id === 'hot_and_pull') return `Fastest of the three: ${saved}. It can’t wait: take it out on time and sear straight away.`;
+  if (id === 'hot_then_drop') {
+    return canWait ? `${saved}, slower than pulling, but it can wait once the bath is cool.` : `${saved}, slower than pulling.`;
+  }
+  return canWait ? 'The slowest and the easiest: it can wait in the bath once it’s done.' : 'The slowest and the easiest.';
+}
+
+// The time rule, read off the coolest the bath gets. The page only states it when
+// it applies, and claims nothing about safety when it does not.
+function safety(id, row, target) {
+  const coolest = id === 'hot_and_pull' ? row.bath_c : target;
+  if (coolest >= SAFE_HOLD_C) return null;
+  return {
+    ok: row.minutes <= SAFE_HOURS * 60,
+    text: `Below ${fmtF(SAFE_HOLD_C)}, keep the whole cook under ${SAFE_HOURS} h. This one takes ${fmtMinutes(row.minutes)}.`,
+  };
+}
+
+function Answer({ form, stale }) {
+  const p = use(planFor(queryOf(form)));
+  const best = recommended(p);
+  const [picked, setPicked] = useState(null);
+  const id = picked ?? best;
+  const row = p[id];
+  const strategy = STRATEGIES.find((s) => s.id === id);
+  const safe = safety(id, row, form.target);
   return (
-    <article className="sv-card" data-strategy={strategy.id} aria-label={strategy.name}>
-      <h2 className="cc-h3">{strategy.name}</h2>
-      <p className="sv-card__time"><b>{fmtMinutes(row.minutes)}</b> in the bath</p>
-      <dl className="sv-card__facts">
-        <div><dt>Bath</dt><dd>{fmtF(row.bath_c)}{row.switch_minutes != null && <>, {fmtF(target)} after {fmtMinutes(row.switch_minutes)}</>}</dd></div>
-        {strategy.id !== 'classic' && <div><dt>Saves</dt><dd>{saved > 0 ? fmtMinutes(saved) : 'nothing'}</dd></div>}
-        {strategy.id === 'hot_and_pull' && <div><dt>Pull when the core reads</dt><dd>{fmtF(row.pull_core_c)}</dd></div>}
-        <div><dt>Core peaks</dt><dd>{fmtF(row.core_peak_c)}{low !== high && ` (${low} to ${high} by sear)`}</dd></div>
-        <div><dt>Past target</dt><dd>{row.overcooked_mm} mm a side{strategy.id !== 'classic' && row.extra_overcooked_mm !== 0 ? ` (${row.extra_overcooked_mm > 0 ? '+' : ''}${row.extra_overcooked_mm})` : ''}</dd></div>
-        <div><dt>Gray band</dt><dd>{row.gray_mm} mm</dd></div>
-      </dl>
-      <p className="cc-caption">{strategy.how}</p>
-    </article>
+    <section className={`sv-answer${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
+      <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={setPicked}
+        items={STRATEGIES.map((s) => ({
+          key: s.id, label: `${s.name}, ${fmtMinutes(p[s.id].minutes)}`,
+          name: <><b>{fmtMinutes(p[s.id].minutes)}</b><span>{s.name}</span></>,
+        }))} />
+      <header className="sv-answer__head">
+        <h2 className="cc-h3">{strategy.name}</h2>
+        {id === best && <span className="cc-badge cc-badge--soft">Recommended</span>}
+      </header>
+      <ol className="sv-steps">
+        {steps(id, row, form, p).map((s) => (
+          <li key={s.key} data-step={s.key}>
+            <span className="cc-label">{s.label}</span>
+            {s.value && <b>{s.value}</b>}
+            {s.note && <span className="sv-steps__note">{s.note}</span>}
+            {s.more && <span className="sv-steps__more">{s.more}</span>}
+          </li>
+        ))}
+      </ol>
+      <p className="sv-answer__trade">{tradeoff(id, row, form.target)}</p>
+      {safe && (safe.ok
+        ? <p className="cc-help sv-answer__safe">{safe.text}</p>
+        : <p className="cc-notice cc-notice--error" role="alert">{safe.text}</p>)}
+    </section>
   );
 }
 
@@ -202,7 +337,7 @@ function CoreChart({ trace, target }) {
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round((tmax * f) / 10) * 10);
   return (
     <figure className="sv-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Core temperature over time for each method">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Center temperature over time for each method">
         <line className="sv-target" x1={PAD.left} x2={W - PAD.right} y1={y(toF(target))} y2={y(toF(target))} />
         <text className="sv-axis" x={PAD.left - 4} y={y(toF(target)) + 4} textAnchor="end">{Math.round(toF(target))}</text>
         <text className="sv-axis" x={PAD.left - 4} y={y(lo) + 4} textAnchor="end">{Math.round(lo)}</text>
@@ -221,12 +356,12 @@ function CoreChart({ trace, target }) {
 }
 
 // A slab is cut through both faces, so the profile mirrors; a roast is cut through its centre too.
-function Slice({ profile, label }) {
+function Slice({ profile, label, note }) {
   const outer = profile.map((p) => p.peak_c);
   const row = [...outer, ...[...outer].reverse()];
   return (
     <div className="sv-slice">
-      <span className="cc-caption">{label}</span>
+      <span className="sv-slice__label"><b>{label}</b> {note}</span>
       <div className="sv-slice__meat" role="img" aria-label={`${label} cross-section by peak temperature`}>
         {row.map((c, i) => <i key={i} style={{ background: shade(c) }} />)}
       </div>
@@ -234,8 +369,9 @@ function Slice({ profile, label }) {
   );
 }
 
-// One cook's probe log, fitted to the model. The result replaces the planner's alpha (and
-// the bath's h when the log pins it) for this browser until it is cleared.
+// One cook's probe log, fitted to the model. The result replaces the planner's alpha (how
+// fast heat spreads through the meat) and, when the log pins it, the bath's h (how fast
+// the water hands heat to the bag) for this browser until it is cleared.
 function Calibrate({ steak, calibration, onChange }) {
   const [log, setLog] = useState('');
   const [bathF, setBathF] = useState('135');
@@ -258,34 +394,45 @@ function Calibrate({ steak, calibration, onChange }) {
   };
   const f = state.fit;
   return (
-    <details className="sv-calibrate">
-      <summary className="cc-label">Calibrate from a probe log{calibration ? ` · using α ${calibration.alpha}` : ''}</summary>
-      <p className="cc-help">Log the core every few minutes during one cook in a bath held at one temperature, with the steak entered above
-        as measured. One reading per line: minutes since it went in, then °F.</p>
-      <div className="sv-measures">
-        <Measure label="Bath °F" value={bathF} step="0.5" onChange={setBathF} />
+    <details className="cc-accordion sv-calibrate">
+      <summary>Tune to your kitchen{calibration ? <span className="cc-badge cc-badge--soft">{faster(calibration.alpha)}</span> : null}</summary>
+      <div className="cc-accordion__content sv-calibrate__body">
+        <p className="cc-help">Log the thermometer every few minutes through one cook in a bath held at one temperature, with the
+          steak set above as you measured it. One reading per line: minutes since it went in, then °F.</p>
+        <div className="sv-measures">
+          <Measure label="Bath °F" value={bathF} step="0.5" onChange={setBathF} />
+        </div>
+        <label className="cc-field sv-field">
+          <span className="cc-label">Readings</span>
+          <textarea className="cc-textarea" rows={6} value={log} placeholder={'0, 41\n10, 48\n20, 71'} onChange={(e) => setLog(e.target.value)} />
+        </label>
+        <div className="cc-button-row">
+          <button type="button" className="cc-button cc-button--primary" disabled={readings.length < 3 || state.status === 'loading'} onClick={fit}>
+            Fit {readings.length} readings</button>
+          {calibration && <button type="button" className="cc-button cc-button--ghost" onClick={() => { onChange(null); setState({ status: 'idle' }); }}>
+            Back to defaults</button>}
+        </div>
+        {state.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{state.message}</p>}
+        {f && (
+          <div role="status">
+            <p className="cc-help">
+              Your steak {faster(f.alpha)} than the default. Times now miss your readings
+              by {deltaF(f.rms_c).toFixed(1)}°F, against {deltaF(f.default_rms_c).toFixed(1)}°F before.
+              {f.h_identifiable === false && ' The log couldn’t tell how fast your bath heats, so that stays at the default.'}
+              {f.alpha_on_bound && ' The fit hit its limit: check the thickness, the starting temperature and where the thermometer sat.'}
+            </p>
+            <p className="cc-caption">Diffusivity α {f.alpha} ×10⁻⁷ m²/s (default {DEFAULT_ALPHA}){f.h_fitted ? `, bath h ${f.h_bath} W/m²·K` : ''}</p>
+          </div>
+        )}
       </div>
-      <label className="cc-field sv-field">
-        <span className="cc-label">Readings</span>
-        <textarea className="cc-textarea" rows={6} value={log} placeholder={'0, 41\n10, 48\n20, 71'} onChange={(e) => setLog(e.target.value)} />
-      </label>
-      <div className="cc-button-row">
-        <button type="button" className="cc-button cc-button--primary" disabled={readings.length < 3 || state.status === 'loading'} onClick={fit}>
-          Fit {readings.length} readings</button>
-        {calibration && <button type="button" className="cc-button cc-button--ghost" onClick={() => { onChange(null); setState({ status: 'idle' }); }}>
-          Back to defaults</button>}
-      </div>
-      {state.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{state.message}</p>}
-      {f && (
-        <p className="cc-caption" role="status">
-          Fitted α {f.alpha} (default 1.2){f.h_fitted ? ` and bath h ${f.h_bath}` : ''}. The model now misses your readings
-          by {deltaF(f.rms_c).toFixed(1)}°F, against {deltaF(f.default_rms_c).toFixed(1)}°F before.
-          {f.h_identifiable === false && ' The log could not pin the bath’s h, so it stays at the default.'}
-          {f.alpha_on_bound && ' The fit hit its limit: check the thickness, the start temperature and where the probe sat.'}
-        </p>
-      )}
     </details>
   );
+}
+
+// A fitted diffusivity against the default, as a cook would say it.
+function faster(alpha) {
+  const pct = Math.round((alpha / DEFAULT_ALPHA - 1) * 100);
+  return pct === 0 ? 'heats as expected' : `heats ${Math.abs(pct)}% ${pct > 0 ? 'faster' : 'slower'}`;
 }
 
 // What the API needs about the steak itself: only what was measured, so it
@@ -307,49 +454,65 @@ export const queryOf = (form) => new URLSearchParams({
   ...(form.calibration?.h_bath && { h_bath: form.calibration.h_bath }),
 }).toString();
 
-function Results({ form, stale }) {
+// Everything behind the answer: how each method heats the steak, what it leaves
+// inside, every hotter bath, and how the steak was sized.
+function Details({ form, stale }) {
   const p = use(planFor(queryOf(form)));
   const { target, sear, cut, mm } = form;
   const slab = cut.shape === 'slab';
   const sized = p.steak;
+  const done = doneness(target);
   return (
-    <div className={`sv-results${stale ? ' is-stale' : ''}`} aria-busy={stale}>
-      {p.warnings.map((w) => <p key={w} className="cc-notice cc-notice--error" role="alert">{w}</p>)}
-      <p className="cc-caption sv-basis">
-        {sized.sized_by === 'weight' && `Sized from the weight as ${
-          [sized.width_mm && `${fmtInches(sized.width_mm)}${slab ? '' : ' across'}`, sized.length_mm && `${fmtInches(sized.length_mm)}${slab ? '' : ' long'}`]
-            .filter(Boolean).join(' × ')}. `}
-        {sized.sized_by === 'thickness' && 'No weight or width, so this is an endless slab: it runs long unless the steak is five thicknesses wide. '}
-        {p.thickness_only_minutes - p.classic.minutes > 1
-          && `Thickness alone would say ${fmtMinutes(p.thickness_only_minutes)} for the classic cook. `}
-        {PROBE[cut.shape === 'cylinder' ? 'cylinder' : sized.bone]}
-      </p>
-      <section className="sv-cards" aria-label="Methods">
-        {STRATEGIES.map((s) => <Card key={s.id} strategy={s} row={p[s.id]} target={target} />)}
-      </section>
-      <PixelKitchen plan={p} target={target} sear={sear} cut={{ id: cut.id, mm, bone: slab ? sized.bone : 'none' }} />
-      <section className="sv-section" aria-label="Core temperature">
-        <h2 className="cc-h3">Core temperature</h2>
+    <div className={`sv-details${stale ? ' is-stale' : ''}`} aria-busy={stale}>
+      <section className="sv-section" aria-label="Center temperature">
+        <h2 className="cc-h3">Center temperature</h2>
         <CoreChart trace={p.trace} target={target} />
       </section>
       <section className="sv-section" aria-label="Cross-section">
-        <h2 className="cc-h3">Cross-section</h2>
-        {STRATEGIES.map((s) => <Slice key={s.id} profile={p.profile[s.id]} label={s.name} />)}
+        <h2 className="cc-h3">Cut open</h2>
+        {STRATEGIES.map((s) => {
+          return (
+            <Slice key={s.id} profile={p.profile[s.id]} label={s.name}
+              note={`center ${fmtRange(p[s.id].core_peak_range_c)}, ${fmtDepth(p[s.id].overcooked_mm)} past ${done} under each side`} />
+          );
+        })}
+        <p className="cc-help">Estimates. The center’s range runs from a weaker to a stronger sear than assumed; a harder sear can land outside it.</p>
       </section>
-      <section className="sv-section" aria-label="Every boost">
-        <h2 className="cc-h3">Hot, then pull at every boost</h2>
-        <table className="sv-table">
-          <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Past target</th></tr></thead>
-          <tbody>
-            {p.sweep.map((r) => (
-              <tr key={r.bath_c} className={r.bath_c === p.hot_and_pull.bath_c ? 'is-chosen' : undefined}>
-                <td>{fmtF(r.bath_c)}</td><td>{fmtMinutes(r.minutes)}</td>
-                <td>{r.saved_minutes > 0 ? fmtMinutes(r.saved_minutes) : '–'}</td><td>{r.overcooked_mm} mm</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <PixelKitchen plan={p} target={target} sear={sear} cut={{ id: cut.id, mm, bone: slab ? sized.bone : 'none' }} />
+      <details className="cc-accordion">
+        <summary>Every hot bath</summary>
+        <div className="cc-accordion__content">
+          <p className="cc-help">Hot, then pull at each bath temperature. A hotter bath is faster; past a point it overcooks the outside before the sear does. Depths are meat past {done}.</p>
+          <table className="sv-table">
+            <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Overcooked, before sear</th><th scope="col">after sear</th></tr></thead>
+            <tbody>
+              {p.sweep.map((r) => (
+                <tr key={r.bath_c} className={r.bath_c === p.hot_and_pull.bath_c ? 'is-chosen' : undefined}>
+                  <td>{fmtF(r.bath_c)}</td><td>{fmtMinutes(r.minutes)}</td>
+                  <td>{r.saved_minutes >= 1 ? fmtMinutes(r.saved_minutes) : '–'}</td>
+                  <td>{r.bath_overcooked_mm > 0 ? `${fmtDepth(r.bath_overcooked_mm)} a side` : '–'}</td>
+                  <td>{r.overcooked_mm > 0 ? `${fmtDepth(r.overcooked_mm)} a side` : '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      <details className="cc-accordion">
+        <summary>How the steak was sized</summary>
+        <div className="cc-accordion__content">
+          <p className="cc-help">
+            {sized.sized_by === 'weight' && `Width and length from the weight: ${
+              [sized.width_mm && `${fmtInches(sized.width_mm)}${slab ? '' : ' across'}`, sized.length_mm && `${fmtInches(sized.length_mm)}${slab ? '' : ' long'}`]
+                .filter(Boolean).join(' × ')}. `}
+            {sized.sized_by === 'measured' && 'Width and length as measured. '}
+            {sized.sized_by === 'thickness' && 'No weight or width, so this treats the steak as endlessly wide: it runs long unless the steak is five times wider than thick. '}
+            {p.thickness_only_minutes - p.classic.minutes > 1
+              && `Thickness alone would say ${fmtMinutes(p.thickness_only_minutes)} for the classic cook. `}
+            {slab && sized.bone === 'middle' && 'The thermometer spot next to the bone is the last to cook; the middle of the meat reads about 2°F higher.'}
+          </p>
+        </div>
+      </details>
     </div>
   );
 }
@@ -357,6 +520,8 @@ function Results({ form, stale }) {
 const formFor = (cut, rest) => ({
   ...rest, cut, mm: cut.mm, bone: cut.bone, lb: String(cut.lb), widthIn: '', lengthIn: '',
 });
+
+const startNote = (c) => (c <= 7 ? ' · fridge' : c >= 18 ? ' · room temp' : '');
 
 export default function SousVideApp() {
   const [form, setForm] = useState(() => formFor(CUTS[0], {
@@ -375,37 +540,61 @@ export default function SousVideApp() {
   };
   const { cut, target } = form;
   const slab = cut.shape === 'slab';
+  const lb = measured(form.lb);
+  const query = queryOf(shown);
+  const loading = <p className="cc-caption" aria-busy="true">Working out the heat…</p>;
   return (
     <div className="sv-page">
       <SiteHeader product="Sous vide" to="/sousvide" icon="🥩" onSignIn={null} />
       <main className="sv-main">
-        <h1 className="cc-h1">Sous vide steak</h1>
-        <section className="sv-controls" aria-label="Steak">
-          <Segmented label="Cut" items={CUTS.map((c) => ({ key: c.id, name: c.name }))} value={cut.id} onChange={pickCut} />
-          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
-            shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
-          <div className="sv-measures">
-            <Measure label="Weight, lb" value={form.lb} step="0.01" onChange={set('lb')} />
-            {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={form.widthIn} step="0.1"
-              placeholder="from weight" onChange={set('widthIn')} />}
-            {cut.shape !== 'puck' && <Measure label="Length, in" value={form.lengthIn} step="0.1" placeholder="from weight"
-              onChange={set('lengthIn')} />}
+        <div className="sv-top">
+          <div className="sv-lead">
+            <h1 className="cc-h1">Sous vide steak</h1>
+            <p className="sv-steak-line">
+              {cut.name}, {fmtInches(form.mm)}{lb ? `, ${lb} lb` : ''}, {fmtF(form.start)} to {fmtF(target)} {doneness(target)}
+              {' '}<a className="cc-inline-link" href="#steak">Change</a>
+            </p>
+            <PlanError query={query}>
+              <Suspense fallback={loading}>
+                <Answer form={shown} stale={shown !== form} />
+              </Suspense>
+            </PlanError>
           </div>
-          {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
-          <Range label="Target" value={target} min={49} max={68} step={0.5}
-            shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} />
-          <Range label="Starts at" value={form.start} min={0} max={30} step={0.5} shown={fmtF} onChange={set('start')} />
-          <Range label="Hotter bath" value={form.boost} min={0} max={10} step={0.5}
-            shown={(b) => `+${Math.round(deltaF(b))}°F · ${fmtF(target + b)}`} onChange={set('boost')} />
-          <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
-            shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
-        </section>
-        <Calibrate steak={steakParams(form)} calibration={form.calibration} onChange={calibrate} />
-        <PlanError query={queryOf(shown)}>
-          <Suspense fallback={<p className="cc-caption" aria-busy="true">Working out the heat…</p>}>
-            <Results form={shown} stale={shown !== form} />
+          <section className="sv-controls" id="steak" aria-label="Steak">
+            <h2 className="sv-controls__title">Your steak</h2>
+            <label className="cc-field sv-field">
+              <span className="cc-label">Cut</span>
+              <select className="cc-select" value={cut.id} onChange={(e) => pickCut(e.target.value)}>
+                {CUTS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
+              shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
+            <div className="sv-measures">
+              <Measure label="Weight, lb" value={form.lb} step="0.01" onChange={set('lb')} />
+              {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={form.widthIn} step="0.1"
+                placeholder="from weight" onChange={set('widthIn')} />}
+              {cut.shape !== 'puck' && <Measure label="Length, in" value={form.lengthIn} step="0.1" placeholder="from weight"
+                onChange={set('lengthIn')} />}
+            </div>
+            {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
+            <Range label="Starts at" value={form.start} min={0} max={30} step={0.5}
+              shown={(c) => `${fmtF(c)}${startNote(c)}`} onChange={set('start')} />
+            <h2 className="sv-controls__title">Your cook</h2>
+            <Range label="Doneness" value={target} min={49} max={68} step={0.5}
+              shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} />
+            <Range label="Hot bath, for the faster methods" value={form.boost} min={0} max={10} step={0.5}
+              shown={(b) => `${fmtF(target + b)} · +${Math.round(toF(target + b)) - Math.round(toF(target))}°F`} onChange={set('boost')} />
+            <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
+              shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
+          </section>
+        </div>
+        <PlanError query={query} quiet>
+          <Suspense fallback={null}>
+            <Details form={shown} stale={shown !== form} />
           </Suspense>
         </PlanError>
+        <Calibrate steak={steakParams(form)} calibration={form.calibration} onChange={calibrate} />
       </main>
     </div>
   );
