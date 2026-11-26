@@ -1,7 +1,7 @@
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import SousVideApp, { doneness, fmtF, fmtInches, fmtMinutes, parseLog, shade } from './SousVideApp.jsx';
+import SousVideApp, { doneness, fmtF, fmtInches, fmtMinutes, forgetPlans, parseLog, shade } from './SousVideApp.jsx';
 
 vi.mock('../components/SiteHeader.jsx', () => ({ default: () => null }));
 vi.mock('../api.js', () => ({ getUrl: () => 'https://api.test' }));
@@ -27,7 +27,7 @@ const PLAN = {
 const planned = (fetch) => fetch.mock.calls.filter(([url]) => url.includes('/plan?')).at(-1)[0];
 
 describe('Sous vide', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); forgetPlans(); });
 
   it('formats temperatures, thickness and durations for a US kitchen', () => {
     expect([fmtF(54.5), fmtInches(38), fmtMinutes(18.8), fmtMinutes(152)]).toEqual(['130°F', '1.5″', '19 min', '2 h 32']);
@@ -47,7 +47,8 @@ describe('Sous vide', () => {
   it('plans the bone-in ribeye from its thickness and weight, then from what the cook measures', async () => {
     const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
     vi.stubGlobal('fetch', fetch);
-    render(<SousVideApp />);
+    // The plan suspends; React 19 wants that render awaited inside act.
+    await act(async () => { render(<SousVideApp />); });
     const pull = await screen.findByRole('article', { name: 'Hot, then pull' });
     expect(within(pull).getByText('19 min').parentElement.textContent).toBe('19 min in the bath');
     expect(within(pull).getByText('38 min')).toBeTruthy(); // saved
@@ -61,10 +62,11 @@ describe('Sous vide', () => {
       .toContain('from the bone');
 
     fireEvent.change(screen.getByLabelText('Width, in'), { target: { value: '5.5' } });
-    fireEvent.click(screen.getByRole('radio', { name: 'Along an edge' }));
+    fireEvent.blur(screen.getByLabelText('Width, in'));
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Along an edge' })); });
     await vi.waitFor(() => expect(planned(fetch)).toContain('weight_g=1334&width_mm=140&bone=edge'));
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Tenderloin roast' }));
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Tenderloin roast' })); });
     await vi.waitFor(() => expect(planned(fetch)).toBe(
       'https://api.test/sousvide/plan?thickness_mm=75&shape=cylinder&start_c=5&weight_g=1134&target_c=54.5&boost_c=3&sear_s=45'));
     expect(screen.queryByRole('radiogroup', { name: 'Bone' })).toBeNull();
@@ -75,9 +77,9 @@ describe('Sous vide', () => {
     const fetch = vi.fn(async (url) => ({ ok: true, json: async () => (url.endsWith('/calibrate') ? fit : PLAN) }));
     vi.stubGlobal('fetch', fetch);
     localStorage.clear();
-    render(<SousVideApp />);
+    await act(async () => { render(<SousVideApp />); });
     fireEvent.change(screen.getByLabelText('Readings'), { target: { value: '0, 41\n20, 60\n40, 100\n60, 120' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Fit 4 readings' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Fit 4 readings' })); });
     expect((await screen.findByText(/Fitted α 1.44 \(default 1.2\)/)).textContent)
       .toContain('The model now misses your readings by 0.5°F, against 6.7°F before. The log could not pin');
     const [, request] = fetch.mock.calls.find(([url]) => url.endsWith('/calibrate'));
@@ -90,14 +92,29 @@ describe('Sous vide', () => {
     expect(planned(fetch)).not.toContain('h_bath');
     expect(JSON.parse(localStorage.getItem('sousvide.calibration'))).toEqual({ alpha: 1.44 });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back to defaults' }));
-    await vi.waitFor(() => expect(planned(fetch)).not.toContain('alpha'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Back to defaults' })); });
+    // The default plan is already cached, so going back needs no request.
+    expect(screen.getByText('Calibrate from a probe log').textContent).toBe('Calibrate from a probe log');
     expect(localStorage.getItem('sousvide.calibration')).toBeNull();
+  });
+
+  it('asks for a new plan only when a slider is let go', async () => {
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => { render(<SousVideApp />); });
+    const slider = screen.getByRole('slider', { name: 'Hotter bath' });
+    fireEvent.change(slider, { target: { value: '4' } });
+    fireEvent.change(slider, { target: { value: '5' } });
+    expect(screen.getByText('+9°F · 139°F')).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => { fireEvent.pointerUp(slider); });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toContain('boost_c=5');
   });
 
   it('shows the API error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({ detail: 'nope' }) })));
-    render(<SousVideApp />);
+    await act(async () => { render(<SousVideApp />); });
     expect((await screen.findByRole('alert')).textContent).toBe('nope');
   });
 });

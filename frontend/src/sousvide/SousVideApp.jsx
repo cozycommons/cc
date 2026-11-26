@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, use, useDeferredValue, useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
+import PixelKitchen from './PixelKitchen.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './sousvide.css';
 
@@ -76,26 +77,47 @@ export function shade(c) {
   return `rgb(${SHADES.at(-1)[1]})`;
 }
 
-function usePlan(params) {
-  const [state, setState] = useState({ status: 'loading' });
-  const query = new URLSearchParams(params).toString();
-  useEffect(() => {
-    const abort = new AbortController();
-    setState((s) => ({ ...s, status: 'loading' }));
-    // Sliders fire on every tick; a plan costs the API about half a second.
-    const timer = setTimeout(async () => {
-      try {
-        const response = await fetch(`${getUrl()}/sousvide/plan?${query}`, { signal: abort.signal });
-        const body = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(body?.detail || 'Could not plan the cook.');
-        setState({ status: 'ready', data: body });
-      } catch (error) {
-        if (error.name !== 'AbortError') setState((s) => ({ ...s, status: 'error', message: error.message }));
-      }
-    }, 250);
-    return () => { clearTimeout(timer); abort.abort(); };
-  }, [query]);
-  return state;
+// One request per distinct plan, shared by every render that asks for it.
+// A failed plan stays cached, so the error boundary sees it instead of
+// render retrying forever; it is forgotten once a different plan is asked
+// for, so coming back to it tries again. The oldest plans fall out once the
+// cache holds PLAN_CACHE of them.
+const PLAN_CACHE = 64;
+const plans = new Map();
+const failed = new Set();
+export function forgetPlans() { plans.clear(); failed.clear(); }
+export function planFor(query) {
+  for (const q of failed) {
+    if (q !== query) { plans.delete(q); failed.delete(q); }
+  }
+  let promise = plans.get(query);
+  if (!promise) {
+    promise = fetch(`${getUrl()}/sousvide/plan?${query}`).then(async (response) => {
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail || 'Could not plan the cook.');
+      return body;
+    });
+    promise.catch(() => failed.add(query));
+    plans.set(query, promise);
+    if (plans.size > PLAN_CACHE) plans.delete(plans.keys().next().value);
+  }
+  return promise;
+}
+
+// Shows a failed plan, and clears it when the steak changes so the next plan
+// can load. (Remounting it with a key would also remount the Suspense boundary
+// below, which drops the dimmed previous plan for a blank fallback.)
+class PlanError extends React.Component {
+  state = { error: null, query: this.props.query };
+  static getDerivedStateFromError(error) { return { error }; }
+  static getDerivedStateFromProps({ query }, state) {
+    return query === state.query ? null : { error: null, query };
+  }
+  render() {
+    return this.state.error
+      ? <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>
+      : this.props.children;
+  }
 }
 
 function Segmented({ label, items, value, onChange }) {
@@ -112,22 +134,39 @@ function Segmented({ label, items, value, onChange }) {
   );
 }
 
+// The label follows the thumb while it moves; the plan is only asked for once
+// the thumb is let go (pointer, touch or key), since each plan costs the API
+// about half a second.
 function Range({ label, value, shown, min, max, step, onChange }) {
+  const [draft, setDraft] = useState(null);
+  const commit = () => {
+    if (draft != null) onChange(draft);
+    setDraft(null);
+  };
   return (
     <label className="cc-range-field sv-field">
-      <span className="cc-label">{label} <output>{shown}</output></span>
-      <input className="cc-range" type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(Number(e.target.value))} />
+      <span className="cc-label">{label} <output>{shown(draft ?? value)}</output></span>
+      <input className="cc-range" type="range" aria-label={label} min={min} max={max} step={step} value={draft ?? value}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit} onKeyUp={commit} onTouchEnd={commit} onBlur={commit} />
     </label>
   );
 }
 
+// Like Range: typing edits a draft, and the value is committed on blur or Enter,
+// so a half-typed "2." never asks the API for a plan.
 function Measure({ label, value, placeholder, step, onChange }) {
+  const [draft, setDraft] = useState(null);
+  const commit = () => {
+    if (draft != null && draft !== value) onChange(draft);
+    setDraft(null);
+  };
   return (
     <label className="cc-field sv-field">
       <span className="cc-label">{label}</span>
-      <input className="cc-input" type="number" inputMode="decimal" min="0" step={step} value={value}
-        placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <input className="cc-input" type="number" inputMode="decimal" min="0" step={step} value={draft ?? value}
+        placeholder={placeholder} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
     </label>
   );
 }
@@ -249,44 +288,93 @@ function Calibrate({ steak, calibration, onChange }) {
   );
 }
 
-export default function SousVideApp() {
-  const [cut, setCut] = useState(CUTS[0]);
-  const [mm, setMm] = useState(CUTS[0].mm);
-  const [bone, setBone] = useState(CUTS[0].bone);
-  const [lb, setLb] = useState(String(CUTS[0].lb));
-  const [widthIn, setWidthIn] = useState('');
-  const [lengthIn, setLengthIn] = useState('');
-  const [start, setStart] = useState(5);
-  const [target, setTarget] = useState(54.5);
-  const [boost, setBoost] = useState(3);
-  const [sear, setSear] = useState(45);
-  const [calibration, setCalibration] = useState(savedCalibration);
-  const slab = cut.shape === 'slab';
-  // Only what was measured goes to the API; it sizes the rest from the weight.
-  const steak = {
+// What the API needs about the steak itself: only what was measured, so it
+// sizes the rest from the weight.
+export function steakParams(form) {
+  const { cut, mm, bone, lb, widthIn, lengthIn, start } = form;
+  return {
     thickness_mm: mm, shape: cut.shape, start_c: start,
     ...(measured(lb) && { weight_g: Math.round(measured(lb) * G_PER_LB) }),
     ...(cut.shape !== 'cylinder' && measured(widthIn) && { width_mm: Math.round(measured(widthIn) * MM_PER_IN) }),
     ...(cut.shape !== 'puck' && measured(lengthIn) && { length_mm: Math.round(measured(lengthIn) * MM_PER_IN) }),
-    ...(slab && bone !== 'none' && { bone }),
+    ...(cut.shape === 'slab' && bone !== 'none' && { bone }),
   };
-  const plan = usePlan({
-    ...steak, target_c: target, boost_c: boost, sear_s: sear,
-    ...(calibration?.alpha && { alpha: calibration.alpha }), ...(calibration?.h_bath && { h_bath: calibration.h_bath }),
-  });
-  const p = plan.data;
-  const pickCut = (id) => {
-    const next = CUTS.find((c) => c.id === id);
-    setCut(next); setMm(next.mm); setBone(next.bone); setLb(String(next.lb)); setWidthIn(''); setLengthIn('');
-  };
+}
+
+export const queryOf = (form) => new URLSearchParams({
+  ...steakParams(form), target_c: form.target, boost_c: form.boost, sear_s: form.sear,
+  ...(form.calibration?.alpha && { alpha: form.calibration.alpha }),
+  ...(form.calibration?.h_bath && { h_bath: form.calibration.h_bath }),
+}).toString();
+
+function Results({ form, stale }) {
+  const p = use(planFor(queryOf(form)));
+  const { target, sear, cut, mm } = form;
+  const slab = cut.shape === 'slab';
+  const sized = p.steak;
+  return (
+    <div className={`sv-results${stale ? ' is-stale' : ''}`} aria-busy={stale}>
+      {p.warnings.map((w) => <p key={w} className="cc-notice cc-notice--error" role="alert">{w}</p>)}
+      <p className="cc-caption sv-basis">
+        {sized.sized_by === 'weight' && `Sized from the weight as ${
+          [sized.width_mm && `${fmtInches(sized.width_mm)}${slab ? '' : ' across'}`, sized.length_mm && `${fmtInches(sized.length_mm)}${slab ? '' : ' long'}`]
+            .filter(Boolean).join(' × ')}. `}
+        {sized.sized_by === 'thickness' && 'No weight or width, so this is an endless slab: it runs long unless the steak is five thicknesses wide. '}
+        {p.thickness_only_minutes - p.classic.minutes > 1
+          && `Thickness alone would say ${fmtMinutes(p.thickness_only_minutes)} for the classic cook. `}
+        {PROBE[cut.shape === 'cylinder' ? 'cylinder' : sized.bone]}
+      </p>
+      <section className="sv-cards" aria-label="Methods">
+        {STRATEGIES.map((s) => <Card key={s.id} strategy={s} row={p[s.id]} target={target} />)}
+      </section>
+      <PixelKitchen plan={p} target={target} sear={sear} cut={{ id: cut.id, mm, bone: slab ? sized.bone : 'none' }} />
+      <section className="sv-section" aria-label="Core temperature">
+        <h2 className="cc-h3">Core temperature</h2>
+        <CoreChart trace={p.trace} target={target} />
+      </section>
+      <section className="sv-section" aria-label="Cross-section">
+        <h2 className="cc-h3">Cross-section</h2>
+        {STRATEGIES.map((s) => <Slice key={s.id} profile={p.profile[s.id]} label={s.name} />)}
+      </section>
+      <section className="sv-section" aria-label="Every boost">
+        <h2 className="cc-h3">Hot, then pull at every boost</h2>
+        <table className="sv-table">
+          <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Past target</th></tr></thead>
+          <tbody>
+            {p.sweep.map((r) => (
+              <tr key={r.bath_c} className={r.bath_c === p.hot_and_pull.bath_c ? 'is-chosen' : undefined}>
+                <td>{fmtF(r.bath_c)}</td><td>{fmtMinutes(r.minutes)}</td>
+                <td>{r.saved_minutes > 0 ? fmtMinutes(r.saved_minutes) : '–'}</td><td>{r.overcooked_mm} mm</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  );
+}
+
+const formFor = (cut, rest) => ({
+  ...rest, cut, mm: cut.mm, bone: cut.bone, lb: String(cut.lb), widthIn: '', lengthIn: '',
+});
+
+export default function SousVideApp() {
+  const [form, setForm] = useState(() => formFor(CUTS[0], {
+    start: 5, target: 54.5, boost: 3, sear: 45, calibration: savedCalibration(),
+  }));
+  // The last plan stays on screen, dimmed, while the next one loads.
+  const shown = useDeferredValue(form);
+  const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+  const pickCut = (id) => setForm((f) => formFor(CUTS.find((c) => c.id === id), f));
   const calibrate = (next) => {
-    setCalibration(next);
+    setForm((f) => ({ ...f, calibration: next }));
     try {
       if (next) localStorage.setItem(CALIBRATION_KEY, JSON.stringify(next));
       else localStorage.removeItem(CALIBRATION_KEY);
     } catch { /* private mode: the fit still applies until the page closes */ }
   };
-  const sized = p?.steak;
+  const { cut, target } = form;
+  const slab = cut.shape === 'slab';
   return (
     <div className="sv-page">
       <SiteHeader product="Sous vide" to="/sousvide" icon="🥩" onSignIn={null} />
@@ -294,65 +382,30 @@ export default function SousVideApp() {
         <h1 className="cc-h1">Sous vide steak</h1>
         <section className="sv-controls" aria-label="Steak">
           <Segmented label="Cut" items={CUTS.map((c) => ({ key: c.id, name: c.name }))} value={cut.id} onChange={pickCut} />
-          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={mm} min={10} max={100} step={1}
-            shown={`${fmtInches(mm)} · ${mm} mm`} onChange={setMm} />
+          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
+            shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
           <div className="sv-measures">
-            <Measure label="Weight, lb" value={lb} step="0.01" onChange={setLb} />
-            {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={widthIn} step="0.1"
-              placeholder="from weight" onChange={setWidthIn} />}
-            {cut.shape !== 'puck' && <Measure label="Length, in" value={lengthIn} step="0.1" placeholder="from weight" onChange={setLengthIn} />}
+            <Measure label="Weight, lb" value={form.lb} step="0.01" onChange={set('lb')} />
+            {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={form.widthIn} step="0.1"
+              placeholder="from weight" onChange={set('widthIn')} />}
+            {cut.shape !== 'puck' && <Measure label="Length, in" value={form.lengthIn} step="0.1" placeholder="from weight"
+              onChange={set('lengthIn')} />}
           </div>
-          {slab && <Segmented label="Bone" items={BONES} value={bone} onChange={setBone} />}
+          {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
           <Range label="Target" value={target} min={49} max={68} step={0.5}
-            shown={`${fmtF(target)} · ${doneness(target)}`} onChange={setTarget} />
-          <Range label="Starts at" value={start} min={0} max={30} step={0.5} shown={fmtF(start)} onChange={setStart} />
-          <Range label="Hotter bath" value={boost} min={0} max={10} step={0.5}
-            shown={`+${Math.round(deltaF(boost))}°F · ${fmtF(target + boost)}`} onChange={setBoost} />
-          <Range label="Sear, each side" value={sear} min={0} max={120} step={15}
-            shown={sear ? `${sear} s` : 'none'} onChange={setSear} />
+            shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} />
+          <Range label="Starts at" value={form.start} min={0} max={30} step={0.5} shown={fmtF} onChange={set('start')} />
+          <Range label="Hotter bath" value={form.boost} min={0} max={10} step={0.5}
+            shown={(b) => `+${Math.round(deltaF(b))}°F · ${fmtF(target + b)}`} onChange={set('boost')} />
+          <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
+            shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
         </section>
-        <Calibrate steak={steak} calibration={calibration} onChange={calibrate} />
-        {plan.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{plan.message}</p>}
-        {!p && plan.status === 'loading' && <p className="cc-caption" aria-busy="true">Working out the heat…</p>}
-        {p && (
-          <div className={`sv-results${plan.status === 'loading' ? ' is-stale' : ''}`} aria-busy={plan.status === 'loading'}>
-            {p.warnings.map((w) => <p key={w} className="cc-notice cc-notice--error" role="alert">{w}</p>)}
-            <p className="cc-caption sv-basis">
-              {sized.sized_by === 'weight' && `Sized from the weight as ${
-                [sized.width_mm && `${fmtInches(sized.width_mm)}${slab ? '' : ' across'}`, sized.length_mm && `${fmtInches(sized.length_mm)}${slab ? '' : ' long'}`]
-                  .filter(Boolean).join(' × ')}. `}
-              {sized.sized_by === 'thickness' && 'No weight or width, so this is an endless slab: it runs long unless the steak is five thicknesses wide. '}
-              {p.thickness_only_minutes - p.classic.minutes > 1
-                && `Thickness alone would say ${fmtMinutes(p.thickness_only_minutes)} for the classic cook. `}
-              {PROBE[cut.shape === 'cylinder' ? 'cylinder' : sized.bone]}
-            </p>
-            <section className="sv-cards" aria-label="Methods">
-              {STRATEGIES.map((s) => <Card key={s.id} strategy={s} row={p[s.id]} target={target} />)}
-            </section>
-            <section className="sv-section" aria-label="Core temperature">
-              <h2 className="cc-h3">Core temperature</h2>
-              <CoreChart trace={p.trace} target={target} />
-            </section>
-            <section className="sv-section" aria-label="Cross-section">
-              <h2 className="cc-h3">Cross-section</h2>
-              {STRATEGIES.map((s) => <Slice key={s.id} profile={p.profile[s.id]} label={s.name} />)}
-            </section>
-            <section className="sv-section" aria-label="Every boost">
-              <h2 className="cc-h3">Hot, then pull at every boost</h2>
-              <table className="sv-table">
-                <thead><tr><th scope="col">Bath</th><th scope="col">Time</th><th scope="col">Saves</th><th scope="col">Past target</th></tr></thead>
-                <tbody>
-                  {p.sweep.map((r) => (
-                    <tr key={r.bath_c} className={r.bath_c === p.hot_and_pull.bath_c ? 'is-chosen' : undefined}>
-                      <td>{fmtF(r.bath_c)}</td><td>{fmtMinutes(r.minutes)}</td>
-                      <td>{r.saved_minutes > 0 ? fmtMinutes(r.saved_minutes) : '–'}</td><td>{r.overcooked_mm} mm</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          </div>
-        )}
+        <Calibrate steak={steakParams(form)} calibration={form.calibration} onChange={calibrate} />
+        <PlanError query={queryOf(shown)}>
+          <Suspense fallback={<p className="cc-caption" aria-busy="true">Working out the heat…</p>}>
+            <Results form={shown} stale={shown !== form} />
+          </Suspense>
+        </PlanError>
       </main>
     </div>
   );

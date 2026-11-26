@@ -281,6 +281,20 @@ two-parameter fit on a log with 0.5 °C noise or a tip 5 mm off settled
 confidently on pairs like α 2.2e-7 with h 32. In practice h needs a logging
 probe (a reading a minute) with about 0.1 °C repeatability.
 
+## Page
+
+Sliders and typed measurements ask for a plan when they are let go or left,
+not on every tick or keystroke; each distinct plan is fetched once and cached
+in the page, and the previous plan stays on screen, dimmed, while the next one
+loads (`use()`, Suspense and `useDeferredValue`, no fetching effects or timers).
+
+**Replay** draws the cook as pixel art from the plan's `trace`: the bag in the
+bath, the pan and the board, with a cross-section coloured by each layer's peak
+temperature, the bone, and a thermometer against the target. It runs at about
+12 frames a second only while playing and on screen, and never autoplays.
+Between trace readings it interpolates linearly through core, middle and
+surface, so it is a picture of the plan, not a finer simulation.
+
 ## API
 
 `GET /sousvide/plan`
