@@ -1,0 +1,24 @@
+# source: Jason Logsdon, How Sous Vide Meat Heats and Delta-T Cooking Explained, Amazing Food Made Easy, slide 26. https://www.amazingfoodmadeeasy.com/info/modernist-cooking-blog/more/sous-vide-summit-heating-meat
+# how: table (slide 26 total elapsed h:mm:ss at each whole-degree F display; converted to min and C)
+# cut: steak, species and muscle unspecified   thickness_mm: 63.5   width_mm: unknown   length_mm: unknown   bone: unknown
+# start_c: 6.7   bath_c: 55
+# phase notes: Both temperatures inferred: author says core rose about 70 F degrees to 114 F in first 2 h (implied ~44 F start; plausible 4-9 C). End target 131 F implies 55 C nominal bath; actual water temperature unknown. First tabulated reading is 2 h into cook. No zero-time reading.
+min,phase,core_c
+121.78,bath,45.56
+124.53,bath,46.11
+127.12,bath,46.67
+129.73,bath,47.22
+133.70,bath,47.78
+136.28,bath,48.33
+140.28,bath,48.89
+144.18,bath,49.44
+149.42,bath,50.00
+158.82,bath,50.56
+165.53,bath,51.11
+172.05,bath,51.67
+180.07,bath,52.22
+187.33,bath,52.78
+199.05,bath,53.33
+215.38,bath,53.89
+240.37,bath,54.44
+297.02,bath,55.00

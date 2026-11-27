@@ -1,0 +1,19 @@
+# source: Naomi Ishiwatari (2014), 熱・物質移動および反応を考慮したタンパク質食品の調理工学的解析, Tokyo University of Marine Science and Technology, Fig. 6-6 and Table 6-2. https://oacis.repo.nii.ac.jp/record/996/files/kad325.pdf
+# how: digitized figure (PyMuPDF vector circle/diamond centers; +/-0.1 C, +/-0.1 min; matched core/surface markers); last row is the mean pull time and threshold reported in section 6.5.2
+# cut: beef round roast   thickness_mm: 57.4   width_mm: 71   length_mm: 107   weight_g: 405   bone: none
+# start_c: 10.9   bath_c: 80
+# phase notes: Pre-seared on every face, refrigerated 1 h, vacuum sealed. Water bath to 58 C core, then immediate 2 C water chill. Surface probe on film. Last row is the reported pull endpoint; no corresponding surface measurement.
+min,phase,core_c,surface_c
+0,bath,10.9,80.9
+3.3,bath,12.4,80.9
+6.7,bath,15.8,80.8
+10,bath,20.1,80.8
+13.3,bath,25.0,80.7
+16.7,bath,30.2,80.7
+20,bath,35.9,80.7
+23.3,bath,40.7,80.8
+26.7,bath,45.2,80.8
+30,bath,49.1,80.7
+33.3,bath,52.5,80.8
+36.6,bath,55.5,80.8
+39.7,bath,58.0,

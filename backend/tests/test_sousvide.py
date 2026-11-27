@@ -234,3 +234,31 @@ def test_plan_warns_about_long_cooks_below_pasteurizing_temperature(client):
 
 def test_plan_rejects_a_steak_too_thick_to_model(client):
     assert client.get('/sousvide/plan', params={'thickness_mm': 200}).status_code == 422
+
+
+def test_validation_loader_reads_assumed_values_and_rejects_a_bad_phase(tmp_path):
+    from sousvide.experiments import validate
+
+    good = tmp_path / 'sear_example.csv'
+    good.write_text('# source: example\n'
+                    '# cut: ribeye   thickness_mm: 20 ("about 2 cm")   weight_g: unknown (150 assumed)   width_mm: unknown   bone: none\n'
+                    '# start_c: unknown (5 assumed, fridge)   bath_c: 52\n'
+                    '# schedule: bath 120 52; sear 1 a; sear 1 b; rest 3\n'
+                    'min,phase,core_c,bath_c\n'
+                    '0,bath,5,52.5\n'
+                    '120,bath,51.8,\n'
+                    '122.5,rest,60\n')
+    data = validate.load(good)
+    assert (data.steak.thickness_mm, data.steak.start_c, data.bath_c) == (20, 5, 52)
+    assert data.steak.width_mm and data.steak.length_mm  # filled in from the assumed weight
+    assert data.assumed == ['start_c', 'weight_g']
+    assert [(s.phase, s.minutes, s.bath_c, s.face) for s in data.steps] == [
+        ('bath', 120, 52, 'both'), ('sear', 1, None, 'a'), ('sear', 1, None, 'b'), ('rest', 3, None, 'both')]
+    assert [(r.phase, r.core_c, r.bath_c) for r in data.rows] == [('bath', 5, 52.5), ('bath', 51.8, None), ('rest', 60, None)]
+    # The logged bath column drives the model, not the header's nominal 52.
+    assert validate.at(validate.planner(data), 120) == pytest.approx(52.5, abs=0.05)
+
+    bad = tmp_path / 'bath_bad.csv'
+    bad.write_text('# thickness_mm: 25   start_c: 5   bath_c: 55\nmin,phase,core_c\n0,bath,5\n10,oven,30\n')
+    with pytest.raises(ValueError, match='bath_bad.csv.*phase'):
+        validate.load(bad)

@@ -1,0 +1,47 @@
+# source: Noorul Faridatul Akmal (2024), Sous Vide Processing to Tenderise Meat, Massey University, Fig. 4.5. https://mro.massey.ac.nz/server/api/core/bitstreams/6af359df-ffd9-4cc8-a2a9-32a795a13f68/content
+# how: digitized figure (Pillow, blue open-marker centers in embedded raster; +/-0.3 C, +/-0.1 min)
+# cut: beef pectoralis profundus   thickness_mm: 25   width_mm: 30   length_mm: 100   weight_g: 100   bone: none
+# start_c: 3.1   bath_c: 71
+# phase notes: Circulating bath. Recorded mean only, including late plateau. No sear or rest.
+min,phase,core_c
+0,bath,3.1
+1,bath,3.1
+2,bath,9.4
+3,bath,19.2
+4,bath,28.9
+5,bath,37.0
+6,bath,43.8
+7,bath,49.3
+8,bath,53.5
+9,bath,56.8
+10,bath,59.7
+11,bath,61.8
+12,bath,63.8
+13,bath,65.2
+14,bath,66.3
+15,bath,67.0
+16,bath,67.8
+17,bath,68.3
+18,bath,68.8
+19,bath,69.3
+20,bath,69.6
+21,bath,70.1
+22,bath,70.1
+23,bath,70.1
+24,bath,70.5
+25,bath,70.5
+26,bath,70.7
+27,bath,70.7
+28,bath,70.7
+29,bath,70.7
+30,bath,70.7
+31,bath,71.0
+32,bath,71.0
+33,bath,71.0
+34,bath,71.0
+35,bath,71.0
+36,bath,71.0
+37,bath,71.0
+38,bath,71.0
+39,bath,71.0
+40,bath,71.0
