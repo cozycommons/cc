@@ -24,8 +24,8 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-answer__head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .sv-answer__head .cc-h3{margin:0}
 .sv-steps{list-style:none;margin:0;padding:0;display:grid;gap:8px;counter-reset:step}
-.sv-steps li{display:grid;grid-template-columns:22px minmax(0,1fr);column-gap:10px;row-gap:1px;align-items:baseline;counter-increment:step}
-.sv-steps li::before{content:counter(step);grid-row:span 4;font-family:var(--mono,monospace);font-size:12px;color:var(--clay,#b76845)}
+.sv-steps li{display:grid;grid-template-columns:32px minmax(0,1fr);column-gap:12px;row-gap:1px;align-items:start}
+.sv-steps__icon{grid-row:span 4;width:28px;height:auto;margin-top:2px}
 .sv-steps .cc-label{font-size:11px}
 .sv-steps b{font-size:26px;line-height:1.1;color:var(--espresso,#2d2422);font-variant-numeric:tabular-nums}
 .sv-steps__note{font-size:15px;line-height:1.4;color:var(--ink,#3d2f29)}
@@ -34,14 +34,11 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-answer__safe{margin:0}
 .sv-when{display:grid;gap:10px;padding-top:12px;border-top:1px solid var(--line,#e4d6bd)}
 .sv-when__head{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:10px}
-.sv-when__eat{display:grid;gap:4px}
-.sv-when__eat .cc-input{min-width:0;box-sizing:border-box}
 .sv-when__list{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .sv-when__list li{display:grid;grid-template-columns:5.5em minmax(0,1fr);gap:10px;align-items:baseline;font-size:15px;line-height:1.35}
 .sv-when__list time{font-family:var(--mono,monospace);font-size:14px;color:var(--clay,#b76845);font-variant-numeric:tabular-nums;white-space:nowrap}
-.sv-when__log{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;align-items:end}
-.sv-when__log .cc-input{min-width:0;box-sizing:border-box;font-size:20px}
-.sv-when__log .cc-help{grid-column:1/-1;margin:0}
+.sv-when__log{display:grid;gap:10px}
+.sv-when__log .cc-help{margin:0}
 .sv-when .cc-help{margin:0}
 .sv-answer__head+.sv-when{padding-top:0;padding-bottom:12px;border-top:0;border-bottom:1px solid var(--line,#e4d6bd)}
 .sv-steps__more{font-size:13px;line-height:1.4;color:var(--ink-soft,#6f6256)}
@@ -50,15 +47,13 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-field{display:grid;gap:6px;min-width:0}
 .sv-seg{display:flex;flex-wrap:wrap;width:100%;box-sizing:border-box}
 .sv-seg .cc-segmented__item{flex:1 1 auto;min-width:0}
-.sv-measures{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px;align-items:end}
-.sv-measures .cc-input{min-width:0;box-sizing:border-box}
+.sv-measures{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
 .sv-ruler__body{display:grid;gap:10px}
 .sv-ruler .cc-help{margin:0}
 .cc-accordion.sv-ruler summary{min-height:48px;font-size:18px;line-height:1.25;letter-spacing:-.02em}
 .sv-ruler__counts .cc-segmented__item{justify-content:center;font-family:var(--sans,system-ui);font-size:16px;letter-spacing:0;font-variant-numeric:tabular-nums}
 .sv-calibrate__body{display:grid;gap:12px}
 .sv-calibrate summary .cc-badge{margin-left:auto;margin-right:12px}
-.sv-calibrate .cc-textarea{box-sizing:border-box;font-variant-numeric:tabular-nums}
 .sv-details{display:grid;gap:22px;transition:opacity var(--ease,180ms ease)}
 .is-stale{opacity:.55}
 .sv-details .cc-accordion__content{display:grid;gap:10px;overflow-x:auto}
@@ -96,5 +91,113 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-pixel__canvas{display:block;width:100%;max-width:800px;height:auto;aspect-ratio:200/112;image-rendering:pixelated;image-rendering:crisp-edges;border-radius:var(--radius-small,8px);box-shadow:var(--paper-shadow,none);background:#e7dcc5}
 .sv-pixel__bar{display:flex;align-items:center;gap:12px;max-width:800px}
 .sv-pixel__bar .cc-range{flex:1;min-width:0}
-.sv-pixel__play{min-width:84px}
+.sv-pixel__play{min-width:96px}
+.sv-pixel__stage{position:relative;max-width:800px}
 .sv-pixel__readout{font-family:var(--mono,monospace);font-size:13px;color:var(--ink-soft,#6f6256);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ---- Game feel ------------------------------------------------------------
+   Departures from cozy-wabi, scoped to this page: a vivid pixel palette
+   (Terraria-like grass, gold, lava and sky) instead of the muted earth tones,
+   square 2px ink outlines and hard bottom edges instead of soft paper shadows,
+   and springy motion. The paper background, type and spacing stay cozy-wabi.
+   Motion is transform and opacity only, and off under reduced motion. */
+.sv-page{
+  --sv-ink:#2b1d1a;--sv-face:#fffaf2;--sv-edge:#c9b48e;
+  --sv-grass:#58b72a;--sv-grass-edge:#3a7d1a;--sv-gold:#ffc531;--sv-gold-edge:#c98a11;
+  --sv-lava:#f2662a;--sv-sky:#3fa1e0;--sv-sky-edge:#23679a;
+  --sv-spring:cubic-bezier(.34,1.56,.64,1);
+}
+.sv-sprite{display:block;flex:none;image-rendering:pixelated}
+.sv-title{display:flex;align-items:center;gap:14px}
+.sv-title__cut{width:clamp(48px,9vw,72px);height:auto;animation:sv-pop 420ms var(--sv-spring) both}
+
+/* Chunky keys: a face over a hard bottom edge that presses down into it. Only
+   transform animates; the edge shadow switches instantly. */
+.sv-key{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;min-width:48px;padding:8px 16px;
+  box-sizing:border-box;border:2px solid var(--sv-ink);border-radius:12px;background:var(--sv-face);color:var(--sv-ink);
+  font:700 16px/1.1 var(--sans,system-ui);letter-spacing:0;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  box-shadow:0 4px 0 var(--sv-edge);transition:transform 90ms ease-out;user-select:none}
+.sv-key:active:not(:disabled){transform:translateY(4px);box-shadow:0 0 0 var(--sv-edge)}
+.sv-key:focus-visible{outline:3px solid var(--sv-sky);outline-offset:3px}
+.sv-key:disabled{opacity:.4;cursor:not-allowed}
+.sv-key--go{--sv-edge:var(--sv-grass-edge);background:var(--sv-grass);color:#fff;text-shadow:0 2px 0 var(--sv-grass-edge);font-size:18px;min-height:54px;padding:10px 22px}
+.sv-key--gold{--sv-edge:var(--sv-gold-edge);background:var(--sv-gold)}
+.sv-key--quiet{min-height:44px;font-size:14px;padding:6px 14px}
+.sv-key--step{min-width:0;padding:6px 0;font-variant-numeric:tabular-nums;font-size:17px}
+.sv-key--x{min-height:40px;min-width:40px;padding:0;font-size:22px;border-radius:10px}
+@media (hover:hover){.sv-key:hover:not(:disabled){transform:translateY(-1px)}}
+.sv-chip{justify-self:start;min-height:36px;padding:4px 12px;border:2px solid var(--sv-ink);border-radius:999px;background:transparent;
+  color:var(--sv-ink);font:600 13px/1 var(--sans,system-ui);cursor:pointer;transition:transform 90ms ease-out}
+.sv-chip:active{transform:scale(.94)}
+
+/* Steppers: label, then -- - value + ++ on one row. The value keeps its width so
+   tapping never moves the buttons, and each new value bumps in. */
+.sv-stepper{display:grid;gap:6px;min-width:0}
+.sv-stepper__row{display:grid;grid-template-columns:48px 48px minmax(96px,1fr) 48px 48px;gap:6px;align-items:center}
+.sv-stepper__value{display:grid;justify-items:center;align-content:center;min-height:54px;padding:2px 4px;border:2px solid var(--sv-ink);
+  border-radius:12px;background:#fff;box-shadow:inset 0 -4px 0 #efe6d4;font:800 22px/1.05 var(--sans,system-ui);
+  font-variant-numeric:tabular-nums;color:var(--sv-ink);overflow:hidden;white-space:nowrap}
+.sv-stepper__value>span{display:block;animation:sv-bump 260ms var(--sv-spring)}
+.sv-stepper__value small{font:600 11px/1.2 var(--sans,system-ui);color:var(--ink-soft,#6f6256)}
+
+/* Segments become chunky tiles; the chosen one turns gold and springs. */
+.sv-page .cc-segmented{gap:6px;padding:0;border:0;background:none;box-shadow:none;overflow:visible}
+.sv-page .cc-segmented__item{min-height:48px;border:2px solid var(--sv-ink);border-radius:12px;background:var(--sv-face);color:var(--sv-ink);
+  font-family:var(--sans,system-ui);font-size:13px;font-weight:700;letter-spacing:0;text-transform:none;box-shadow:0 4px 0 var(--sv-edge);
+  transition:transform 90ms ease-out;margin-bottom:4px}
+.sv-page .cc-segmented__item:active{transform:translateY(4px);box-shadow:none}
+.sv-page .cc-segmented__item:has(>.sv-radio:checked){border-color:var(--sv-ink);background:var(--sv-gold);color:var(--sv-ink);
+  box-shadow:0 4px 0 var(--sv-gold-edge);animation:sv-pop 320ms var(--sv-spring)}
+.sv-page .cc-segmented__item{gap:6px}
+.cc-segmented.sv-methods{gap:8px}
+.sv-methods .cc-segmented__item{padding:8px 4px}
+.cc-segmented.sv-cuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+.sv-cuts .cc-segmented__item{display:grid;justify-items:center;align-content:center;gap:4px;padding:8px 4px;white-space:normal;text-align:center;line-height:1.15}
+.sv-cuts .sv-sprite{width:48px;height:auto}
+
+/* Doneness: a strip of meat colours under the slider, the chosen block lifted. */
+.sv-doneness{display:flex;gap:2px;height:14px;padding:2px;border:2px solid var(--sv-ink);border-radius:4px;background:var(--sv-ink)}
+.sv-doneness i{flex:1;transition:transform 160ms var(--sv-spring)}
+.sv-doneness i.is-on{transform:translateY(-5px) scaleY(1.5);outline:2px solid var(--sv-ink)}
+
+/* Sliders: a square gold thumb with an ink outline on a sunken track. */
+.sv-page .cc-range{accent-color:var(--sv-gold);-webkit-appearance:none;appearance:none;background:transparent}
+.sv-page .cc-range::-webkit-slider-runnable-track{height:10px;border:2px solid var(--sv-ink);border-radius:3px;background:#efe6d4;box-shadow:inset 0 2px 0 #d9ccb1}
+.sv-page .cc-range::-webkit-slider-thumb{width:28px;height:28px;margin-top:-11px;border:2px solid var(--sv-ink);border-radius:6px;background:var(--sv-gold);box-shadow:0 3px 0 var(--sv-gold-edge)}
+.sv-page .cc-range::-moz-range-track{height:8px;border:2px solid var(--sv-ink);border-radius:3px;background:#efe6d4}
+.sv-page .cc-range::-moz-range-thumb{width:24px;height:24px;border:2px solid var(--sv-ink);border-radius:6px;background:var(--sv-gold);box-shadow:0 3px 0 var(--sv-gold-edge)}
+
+/* Panels get a pixel outline and a hard shadow. */
+.sv-answer{position:relative;border:2px solid var(--sv-ink);border-radius:14px;box-shadow:0 6px 0 var(--sv-edge)}
+.sv-page .cc-accordion{border:2px solid var(--sv-ink);border-radius:12px;box-shadow:0 4px 0 var(--sv-edge)}
+.sv-page .cc-accordion summary::after{color:var(--sv-lava);font-weight:700}
+.sv-pixel__canvas{border:2px solid var(--sv-ink);box-sizing:border-box}
+
+.sv-when{position:relative}
+.sv-when__head{align-items:end}
+.sv-when__head .sv-stepper{flex:1 1 280px}
+.sv-when__start{flex:1 1 160px}
+.sv-when__logbtn{width:100%;min-height:56px;font-size:20px}
+.sv-ready{display:flex;align-items:center;gap:10px;margin:0;padding:10px 12px;border:2px solid var(--sv-ink);border-radius:12px;
+  background:var(--sv-grass);color:#fff;font-weight:800;font-size:17px;text-shadow:0 2px 0 var(--sv-grass-edge);
+  box-shadow:0 4px 0 var(--sv-grass-edge);animation:sv-pop 420ms var(--sv-spring) both}
+.sv-readings{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.sv-readings li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:4px 4px 4px 10px;
+  border:2px solid var(--sv-ink);border-radius:10px;background:var(--sv-face);font-variant-numeric:tabular-nums}
+.sv-calibrate__fit{position:relative}
+.sv-ruler__pic{display:block;width:100%;max-width:320px;height:auto;aspect-ratio:160/112;border:2px solid var(--sv-ink);border-radius:8px;background:#e7f2f7}
+
+/* A one-shot burst of pixel sparks from the middle of its container. */
+.sv-burst{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;z-index:2}
+.sv-burst i{position:absolute;width:10px;height:10px;margin:-5px;background:var(--c);outline:2px solid var(--sv-ink);opacity:0;
+  animation:sv-burst 720ms steps(8,end) both}
+
+@keyframes sv-pop{0%{transform:scale(.86)}60%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes sv-bump{0%{transform:translateY(6px) scale(.9);opacity:.4}100%{transform:none;opacity:1}}
+@keyframes sv-burst{0%{opacity:1;transform:translate(0,0) scale(1)}70%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.5)}}
+
+@media (max-width:380px){.sv-stepper__row{grid-template-columns:44px 44px minmax(80px,1fr) 44px 44px;gap:4px}}
+@media (prefers-reduced-motion:reduce){
+  .sv-page *,.sv-page *::before,.sv-page *::after{animation:none!important;transition:none!important}
+  .sv-burst{display:none}
+}
