@@ -33,6 +33,8 @@ const PROBE = {
   none: 'Halfway through the thickness, in the middle of the steak.',
 };
 const CALIBRATION_KEY = 'sousvide.calibration';
+const COOK_KEY = 'sousvide.cook';
+const LOG_KEY = 'sousvide.log';
 const DEFAULT_ALPHA = 1.2; // model.Physics.diffusivity, in 1e-7 m²/s
 const MM_PER_IN = 25.4;
 const G_PER_LB = 453.592;
@@ -53,8 +55,17 @@ export function parseLog(text) {
   return text.split('\n').map((line) => line.trim().split(/[\s,;]+/).map(Number))
     .filter((pair) => pair.length >= 2 && pair.every(Number.isFinite)).map(([min, f]) => [min, toC(f)]);
 }
-function savedCalibration() {
-  try { return JSON.parse(localStorage.getItem(CALIBRATION_KEY)) || null; } catch { return null; }
+// A cook runs for hours on a phone that locks and reloads, so the running cook, its
+// probe log and the fit survive a reload. Storage can be missing (private mode); the
+// page then still works until it closes.
+function load(key) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? null; } catch { return null; }
+}
+function save(key, value) {
+  try {
+    if (value == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch { /* private mode */ }
 }
 export const deltaF = (c) => c * 9 / 5;
 export const fmtF = (c) => `${Math.round(toF(c))}°F`;
@@ -107,6 +118,34 @@ export function restMinutes(trace, searS) {
   if (!finish.length) return 0;
   const peak = finish.reduce((a, b) => (b.core > a.core ? b : a));
   return Math.max(0, peak.min - bathEnd - searS / 60);
+}
+
+// The center and the crust `after` minutes into the rest (the sear's end), or null
+// past the end of the trace.
+export function restAt(trace, searS, after) {
+  const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
+  const at = bathEnd + searS / 60 + after;
+  return trace.find((p) => p.phase === 'finish' && p.min >= at - 0.5) ?? null;
+}
+
+// Cutting early is a choice a cook makes at the board: what they get if they cut
+// at SLICE_EARLY instead of waiting for the center to peak. Only worth saying when
+// the rest is long and the center still has a degree or more to climb.
+const SLICE_EARLY = 5;
+export function sliceEarly(trace, searS) {
+  const rest = restMinutes(trace, searS);
+  const early = restAt(trace, searS, SLICE_EARLY);
+  const end = restAt(trace, searS, rest);
+  if (rest < SLICE_EARLY * 2 || !early || !end || end.core - early.core < 0.5) return null;
+  return { min: SLICE_EARLY, core: early.core, crust: end.surface };
+}
+
+// Minutes of the day as a clock reads, '7:05 PM'. Pure arithmetic, so a schedule
+// renders the same every time without reading the current time.
+export function fmtClock(minOfDay) {
+  const m = ((Math.round(minOfDay) % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60);
+  return `${h % 12 || 12}:${String(m % 60).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
 // Peak temperature to meat colour: raw, rare, medium rare, medium, well, crust.
@@ -261,10 +300,13 @@ function steps(id, row, form, plan) {
   }
   // What a longer sear changes: the layer under the crust that goes past the target.
   const under = row.overcooked_mm > 0 ? `${fmtDepth(row.overcooked_mm)} a side cooks past ${doneness(target)}` : `nothing cooks past ${doneness(target)}`;
+  const early = sliceEarly(plan.trace[id], sear);
+  const sooner = early ? ` Cut it at ${early.min} min and the center is ${fmtF(early.core)}, ${doneness(early.core)}.` : '';
+  const crust = early ? ` A full rest leaves the crust about ${fmtF(early.crust)}.` : '';
   out.push(sear
-    ? { key: 'sear', label: 'Sear', value: `${sear} s a side`, note: `then rest ${rest} min. The center ends ${ends}.`,
-      more: `Under the crust, ${under}. A longer sear browns more and cooks that layer deeper.` }
-    : { key: 'sear', label: 'Rest', value: `${rest} min`, note: `The center ends ${ends}.` });
+    ? { key: 'sear', label: 'Sear', value: `${sear} s a side`, note: `then rest ${rest} min. The center ends ${ends}.${sooner}`,
+      more: `Under the crust, ${under}. A longer sear browns more and cooks that layer deeper.${crust}` }
+    : { key: 'sear', label: 'Rest', value: `${rest} min`, note: `The center ends ${ends}.${sooner}` });
   return out;
 }
 
@@ -289,25 +331,93 @@ function safety(id, row, target) {
   };
 }
 
-function Answer({ form, stale }) {
+// The cook's milestones, in minutes from the bag going in. Eating time adds both
+// sides of the sear and the rest the steps ask for.
+export function milestones(id, row, form, plan) {
+  const { target, sear } = form;
+  const pullAt = fmtF(row.pull_core_c);
+  const canWait = target >= SAFE_HOLD_C;
+  const rest = Math.max(1, Math.round(restMinutes(plan.trace[id], sear)));
+  const out = [{ key: 'in', at: 0, label: `Into the ${fmtF(row.bath_c)} bath` }];
+  if (id === 'hot_then_drop' && row.switch_minutes < row.minutes - 1) {
+    out.push({ key: 'cool', at: row.switch_minutes, label: `Cool the bath to ${fmtF(target)}` });
+  }
+  const holds = canWait && id !== 'hot_and_pull';
+  out.push({ key: 'out', at: row.minutes, label: holds ? `Ready at ${pullAt}, or any time after` : `Out at ${pullAt}, sear right away` });
+  out.push({ key: 'eat', at: row.minutes + (2 * sear) / 60 + rest, label: sear ? 'Sear, rest, eat' : 'Rest, eat' });
+  return out;
+}
+
+// '19:30' from a time input, as minutes of the day.
+const clockMinutes = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+
+// When each step happens: counted from now until the cook starts, or back from a
+// dinner time, or on the clock once the bag is in. Nothing here ticks; the clock
+// times come from the moment Start was pressed, and the thermometer decides.
+function Schedule({ id, row, form, plan, cook, readings, onStart, onEnd, onReading }) {
+  const [eatAt, setEatAt] = useState('');
+  const marks = milestones(id, row, form, plan);
+  const total = marks.at(-1).at;
+  const startMin = cook ? cook.startMin : eatAt ? clockMinutes(eatAt) - total : null;
+  const when = (m) => (startMin == null ? (m ? `+${fmtMinutes(m)}` : 'Now') : fmtClock(startMin + m));
+  const log = (e) => {
+    e.preventDefault();
+    const f = parseFloat(new FormData(e.currentTarget).get('f'));
+    if (Number.isFinite(f)) onReading(f);
+    e.currentTarget.reset();
+  };
+  return (
+    <section className="sv-when" aria-label="When">
+      <div className="sv-when__head">
+        {cook
+          ? <><span className="cc-label">Cooking since {fmtClock(cook.startMin)}</span>
+            <button type="button" className="cc-button cc-button--ghost cc-button--small" onClick={onEnd}>End cook</button></>
+          : <><label className="sv-when__eat"><span className="cc-label">Eat at</span>
+            <input className="cc-input" type="time" value={eatAt} onChange={(e) => setEatAt(e.target.value)} /></label>
+            <button type="button" className="cc-button cc-button--primary" onClick={() => onStart(id, row)}>Start cook</button></>}
+      </div>
+      <ol className="sv-when__list">
+        {marks.map((m) => <li key={m.key}><time>{when(m.at)}</time><span>{m.label}</span></li>)}
+      </ol>
+      {cook ? (
+        <form className="sv-when__log" onSubmit={log}>
+          <label className="cc-field sv-field"><span className="cc-label">Thermometer reads, °F</span>
+            <input className="cc-input" name="f" type="number" inputMode="decimal" step="0.1" required /></label>
+          <button type="submit" className="cc-button cc-button--secondary">Log</button>
+          <p className="cc-help">{readings
+            ? `${readings} reading${readings === 1 ? '' : 's'} so far, saved below in “Tune to your kitchen”.`
+            : 'Log one now, then every 10 minutes or so. The log tunes the planner to your kitchen.'}</p>
+        </form>
+      ) : <p className="cc-help">Estimates: the thermometer has the last word.</p>}
+    </section>
+  );
+}
+
+function Answer({ form, stale, cook, readings, onStart, onEnd, onReading }) {
   const p = use(planFor(queryOf(form)));
   const best = recommended(p);
   const [picked, setPicked] = useState(null);
-  const id = picked ?? best;
+  // A running cook keeps the method it started with.
+  const id = cook?.method ?? picked ?? best;
   const row = p[id];
   const strategy = STRATEGIES.find((s) => s.id === id);
   const safe = safety(id, row, form.target);
+  // Before the cook, the schedule follows the steps it times; during it, the clock
+  // and the thermometer log are what the cook needs first.
+  const schedule = <Schedule id={id} row={row} form={form} plan={p} cook={cook} readings={readings}
+    onStart={onStart} onEnd={onEnd} onReading={onReading} />;
   return (
     <section className={`sv-answer${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
-      <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={setPicked}
+      {!cook && <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={setPicked}
         items={STRATEGIES.map((s) => ({
           key: s.id, label: `${s.name}, ${fmtMinutes(p[s.id].minutes)}`,
           name: <><b>{fmtMinutes(p[s.id].minutes)}</b><span>{s.name}</span></>,
-        }))} />
+        }))} />}
       <header className="sv-answer__head">
         <h2 className="cc-h3">{strategy.name}</h2>
-        {id === best && <span className="cc-badge cc-badge--soft">Recommended</span>}
+        {id === best && !cook && <span className="cc-badge cc-badge--soft">Recommended</span>}
       </header>
+      {cook && schedule}
       <ol className="sv-steps">
         {steps(id, row, form, p).map((s) => (
           <li key={s.key} data-step={s.key}>
@@ -318,6 +428,7 @@ function Answer({ form, stale }) {
           </li>
         ))}
       </ol>
+      {!cook && schedule}
       <p className="sv-answer__trade">{tradeoff(id, row, form.target)}</p>
       {safe && (safe.ok
         ? <p className="cc-help sv-answer__safe">{safe.text}</p>
@@ -372,9 +483,7 @@ function Slice({ profile, label, note }) {
 // One cook's probe log, fitted to the model. The result replaces the planner's alpha (how
 // fast heat spreads through the meat) and, when the log pins it, the bath's h (how fast
 // the water hands heat to the bag) for this browser until it is cleared.
-function Calibrate({ steak, calibration, onChange }) {
-  const [log, setLog] = useState('');
-  const [bathF, setBathF] = useState('135');
+function Calibrate({ steak, calibration, onChange, log, setLog, bathF, setBathF }) {
   const [state, setState] = useState({ status: 'idle' });
   const readings = parseLog(log);
   const fit = async () => {
@@ -398,7 +507,7 @@ function Calibrate({ steak, calibration, onChange }) {
       <summary>Tune to your kitchen{calibration ? <span className="cc-badge cc-badge--soft">{faster(calibration.alpha)}</span> : null}</summary>
       <div className="cc-accordion__content sv-calibrate__body">
         <p className="cc-help">Log the thermometer every few minutes through one cook in a bath held at one temperature, with the
-          steak set above as you measured it. One reading per line: minutes since it went in, then °F.</p>
+          steak set above as you measured it. One reading per line: minutes since it went in, then °F. Start cook fills this in.</p>
         <div className="sv-measures">
           <Measure label="Bath °F" value={bathF} step="0.5" onChange={setBathF} />
         </div>
@@ -525,18 +634,34 @@ const startNote = (c) => (c <= 7 ? ' · fridge' : c >= 18 ? ' · room temp' : ''
 
 export default function SousVideApp() {
   const [form, setForm] = useState(() => formFor(CUTS[0], {
-    start: 5, target: 54.5, boost: 3, sear: 45, calibration: savedCalibration(),
+    start: 5, target: 54.5, boost: 3, sear: 45, calibration: load(CALIBRATION_KEY),
   }));
+  // The running cook ({ method, startedAt ms, startMin of the day, bath °F }) and its
+  // probe log, the same text the calibration fits.
+  const [cook, setCook] = useState(() => load(COOK_KEY));
+  const [log, setLogState] = useState(() => load(LOG_KEY) ?? '');
+  const [bathF, setBathF] = useState(() => cook?.bathF ?? '135');
+  const setLog = (text) => { setLogState(text); save(LOG_KEY, text || null); };
+  const startCook = (method, row) => {
+    const now = new Date();
+    const next = { method, startedAt: now.getTime(), startMin: now.getHours() * 60 + now.getMinutes(),
+      bathF: String(Math.round(toF(row.bath_c) * 2) / 2) };
+    setCook(next); save(COOK_KEY, next);
+    setBathF(next.bathF);
+    setLog(''); // a new cook is a new log
+  };
+  const endCook = () => { setCook(null); save(COOK_KEY, null); };
+  const addReading = (f) => {
+    const min = Math.round((Date.now() - cook.startedAt) / 6000) / 10;
+    setLog(`${log.trimEnd()}${log.trim() ? '\n' : ''}${min}, ${f}`);
+  };
   // The last plan stays on screen, dimmed, while the next one loads.
   const shown = useDeferredValue(form);
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
   const pickCut = (id) => setForm((f) => formFor(CUTS.find((c) => c.id === id), f));
   const calibrate = (next) => {
     setForm((f) => ({ ...f, calibration: next }));
-    try {
-      if (next) localStorage.setItem(CALIBRATION_KEY, JSON.stringify(next));
-      else localStorage.removeItem(CALIBRATION_KEY);
-    } catch { /* private mode: the fit still applies until the page closes */ }
+    save(CALIBRATION_KEY, next);
   };
   const { cut, target } = form;
   const slab = cut.shape === 'slab';
@@ -556,7 +681,8 @@ export default function SousVideApp() {
             </p>
             <PlanError query={query}>
               <Suspense fallback={loading}>
-                <Answer form={shown} stale={shown !== form} />
+                <Answer form={shown} stale={shown !== form} cook={cook} readings={parseLog(log).length}
+                  onStart={startCook} onEnd={endCook} onReading={addReading} />
               </Suspense>
             </PlanError>
           </div>
@@ -594,7 +720,8 @@ export default function SousVideApp() {
             <Details form={shown} stale={shown !== form} />
           </Suspense>
         </PlanError>
-        <Calibrate steak={steakParams(form)} calibration={form.calibration} onChange={calibrate} />
+        <Calibrate steak={steakParams(form)} calibration={form.calibration} onChange={calibrate}
+          log={log} setLog={setLog} bathF={bathF} setBathF={setBathF} />
       </main>
     </div>
   );

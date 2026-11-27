@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SousVideApp, {
-  doneness, fmtDepth, fmtF, fmtInches, fmtMinutes, forgetPlans, parseLog, recommended, shade,
+  doneness, fmtClock, fmtDepth, fmtF, fmtInches, fmtMinutes, forgetPlans, parseLog, recommended, shade, sliceEarly,
 } from './SousVideApp.jsx';
 
 vi.mock('../components/SiteHeader.jsx', () => ({ default: () => null }));
@@ -33,7 +33,7 @@ const PLAN = {
 const planned = (fetch) => fetch.mock.calls.filter(([url]) => url.includes('/plan?')).at(-1)[0];
 
 describe('Sous vide', () => {
-  afterEach(() => { vi.unstubAllGlobals(); forgetPlans(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); forgetPlans(); localStorage.clear(); });
 
   it('formats temperatures, thickness and durations for a US kitchen', () => {
     expect([fmtF(54.5), fmtInches(38), fmtMinutes(18.8), fmtMinutes(152)]).toEqual(['130°F', '1.5″', '19 min', '2 h 32']);
@@ -134,6 +134,47 @@ describe('Sous vide', () => {
     const long = { ...PLAN, hot_and_pull: { ...PLAN.hot_and_pull, bath_c: 53, minutes: 250, saved_minutes: 30 }, classic: row('classic', 53, 280) };
     expect(recommended({ ...long, classic: row('classic', 55, 200) })).toBe('classic');
     expect(recommended({ ...PLAN, hot_and_pull: { ...PLAN.hot_and_pull, saved_minutes: 5 }, classic: row('classic', 53, 300) })).toBe('hot_and_pull');
+  });
+
+  it('reads a schedule off the clock and says what cutting early gives up', () => {
+    expect([0, 1145, -30, 720].map(fmtClock)).toEqual(['12:00 AM', '7:05 PM', '11:30 PM', '12:00 PM']);
+    // A long rest: the center climbs from 51 to 54 over 15 min while the crust cools.
+    const long = [{ min: 0, phase: 'bath', core: 5, surface: 55 }, { min: 60, phase: 'bath', core: 51, surface: 57 },
+      ...Array.from({ length: 17 }, (_, i) => ({ min: 61 + i, phase: 'finish', core: Math.min(54, 51 + i * 0.2), surface: 80 - i * 2 }))];
+    expect(sliceEarly(long, 60)).toEqual({ min: 5, core: 52, crust: 50 });
+    expect(sliceEarly(trace(25), 45)).toBeNull(); // a 5 min rest leaves nothing to cut early
+  });
+
+  it('works back from dinner time, then runs the cook and logs the thermometer', async () => {
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
+    vi.stubGlobal('fetch', fetch);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 27, 18, 0));
+    await act(async () => { render(<SousVideApp />); });
+    let when = await screen.findByRole('region', { name: 'When' });
+    expect(within(when).getAllByRole('listitem').map((li) => li.textContent))
+      .toEqual(['NowInto the 136°F bath', '+19 minOut at 124°F, sear right away', '+25 minSear, rest, eat']);
+    fireEvent.change(within(when).getByLabelText('Eat at'), { target: { value: '19:30' } });
+    expect(within(when).getAllByRole('listitem').map((li) => li.querySelector('time').textContent))
+      .toEqual(['7:05 PM', '7:24 PM', '7:30 PM']);
+
+    fireEvent.click(within(when).getByRole('button', { name: 'Start cook' }));
+    when = screen.getByRole('region', { name: 'When' }); // it moves above the steps while cooking
+    expect(screen.getByRole('region', { name: 'What to do' }).querySelector('.sv-when + .sv-steps')).toBeTruthy();
+    expect(within(when).getByText('Cooking since 6:00 PM')).toBeTruthy();
+    expect(screen.queryByRole('radiogroup', { name: 'Method' })).toBeNull();
+    expect(screen.getByLabelText('Bath °F').value).toBe('135.5');
+    vi.setSystemTime(new Date(2026, 10, 27, 18, 12));
+    fireEvent.change(within(when).getByLabelText('Thermometer reads, °F'), { target: { value: '41' } });
+    fireEvent.click(within(when).getByRole('button', { name: 'Log' }));
+    expect(screen.getByLabelText('Readings').value).toBe('12, 41');
+    expect(within(when).getByText(/1 reading so far/)).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem('sousvide.cook'))).toMatchObject({ method: 'hot_and_pull', startMin: 1080 });
+
+    fireEvent.click(within(when).getByRole('button', { name: 'End cook' }));
+    expect(screen.getByRole('radiogroup', { name: 'Method' })).toBeTruthy();
+    expect(localStorage.getItem('sousvide.cook')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('sousvide.log'))).toBe('12, 41');
   });
 
   it('plans the bone-in ribeye from its thickness and weight, then from what the cook measures', async () => {

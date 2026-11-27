@@ -297,6 +297,18 @@ range is one. Depths are shown to the nearest sixteenth of an inch. The chart,
 the cut-open view, the replay, every hot bath, the sizing and calibration sit
 below the steak's controls.
 
+When the rest is long (10 minutes or more) and the center still climbs, the
+sear step says what cutting at 5 minutes gives instead, and how cool a full rest
+leaves the crust.
+
+**Schedule** lists the cook's milestones (into the bath, cooling the bath, out,
+eat) as offsets, or as clock times worked back from an "eat at" time. **Start
+cook** stamps the start once and shows clock times from it; nothing ticks, so
+the page holds no timer. While cooking, the schedule and a thermometer box sit
+above the steps, and each reading is logged as minutes since the start into the
+calibration log. The running cook and its log survive a reload in
+`localStorage` (`sousvide.cook`, `sousvide.log`).
+
 Sliders and typed measurements ask for a plan when they are let go or left,
 not on every tick or keystroke; each distinct plan is fetched once and cached
 in the page, and the previous plan stays on screen, dimmed, while the next one
