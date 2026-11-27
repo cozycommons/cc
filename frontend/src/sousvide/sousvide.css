@@ -1,14 +1,10 @@
 @import "../../../design/cozy-wabi/spacing.css";
 
 body:has(.sv-page){background:var(--paper,#f7f0e4);margin:0}
-.sv-page{min-height:100vh;box-sizing:border-box;padding:var(--cc-safe-top) var(--cc-safe-right) calc(48px + var(--cc-safe-bottom)) var(--cc-safe-left)}
-.sv-main{width:min(1120px,100%);box-sizing:border-box;margin:0 auto;padding:8px 16px 24px;display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
+.sv-page{min-height:100vh;box-sizing:border-box;padding:var(--cc-safe-top) var(--cc-safe-right) 0 var(--cc-safe-left)}
+.sv-main{width:min(1120px,100%);box-sizing:border-box;margin:0 auto;padding:8px 16px 0;display:grid;grid-template-columns:minmax(0,1fr);gap:18px;overflow-x:clip}
 .sv-main h1,.sv-main h2{margin:0}
 .sv-main .cc-h1{font-size:clamp(30px,5vw,56px)}
-.sv-top{display:grid;grid-template-columns:minmax(0,1fr);gap:22px;align-items:start}
-.sv-lead{display:grid;gap:12px;min-width:0}
-.sv-steak-line{margin:0;font-size:15px;line-height:1.4;color:var(--ink-soft,#6f6256)}
-.sv-steak-line a{color:var(--espresso,#2d2422);text-decoration:underline;text-underline-offset:3px}
 /* Segments are labels around visually hidden native radios; the cozy-wabi
    control marks its selected tab with aria-selected, so mirror that here. */
 label.cc-segmented__item{position:relative;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;cursor:pointer}
@@ -42,8 +38,8 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-when .cc-help{margin:0}
 .sv-answer__head+.sv-when{padding-top:0;padding-bottom:12px;border-top:0;border-bottom:1px solid var(--line,#e4d6bd)}
 .sv-steps__more{font-size:13px;line-height:1.4;color:var(--ink-soft,#6f6256)}
-.sv-controls{display:grid;gap:14px;min-width:0}
-.sv-controls__title{font-family:var(--serif,serif);font-weight:400;font-size:22px;letter-spacing:-.04em;color:var(--espresso,#2d2422)}
+.sv-form{display:grid;gap:14px;min-width:0}
+.sv-form__col{display:grid;gap:14px;align-content:start;min-width:0}
 .sv-field{display:grid;gap:6px;min-width:0}
 .sv-seg{display:flex;flex-wrap:wrap;width:100%;box-sizing:border-box}
 .sv-seg .cc-segmented__item{flex:1 1 auto;min-width:0}
@@ -61,7 +57,6 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .is-stale{opacity:.55}
 .sv-details .cc-accordion__content{display:grid;gap:10px;overflow-x:auto}
 @media (min-width:960px){
-  .sv-top{grid-template-columns:minmax(0,1.25fr) minmax(320px,1fr);gap:36px}
   .sv-steps b{font-size:30px}
   .sv-details{grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:36px}
   .sv-details>:not(.sv-section:nth-child(-n+2)){grid-column:1/-1}
@@ -213,3 +208,65 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-pixel__swatch--center{background:#69755a}
 .sv-pixel__swatch--crust{background:#6b412a}
 @media (max-width:600px){.sv-pixel__story{min-height:4.2em}}
+
+/* ---- Screens ----------------------------------------------------------------
+   One screen at a time, keyed on its name so each change mounts it fresh and
+   replays its entrance: forward slides in from the right, back from the left.
+   Only transform and opacity move, and the page clips the slide sideways, so
+   nothing reflows while it plays. The first screen of a visit just appears. */
+.sv-screen{display:grid;gap:18px;align-content:start;min-width:0;min-height:calc(100vh - 220px)}
+.sv-screen.is-fwd{animation:sv-in-fwd 320ms var(--sv-glide) both}
+.sv-screen.is-back{animation:sv-in-back 320ms var(--sv-glide) both}
+.sv-page{--sv-glide:cubic-bezier(.22,1.25,.4,1)}
+@keyframes sv-in-fwd{0%{opacity:0;transform:translateX(56px)}100%{opacity:1;transform:none}}
+@keyframes sv-in-back{0%{opacity:0;transform:translateX(-56px)}100%{opacity:1;transform:none}}
+.sv-screen__head{display:grid;gap:10px;justify-items:start}
+.sv-title:focus{outline:none}
+.sv-loading{display:flex;align-items:center;gap:10px;min-height:120px;justify-content:center}
+.sv-loading .sv-sprite{animation:sv-bob 900ms steps(2,end) infinite}
+@keyframes sv-bob{50%{transform:translateY(-4px)}}
+
+/* Progress: a chunky track whose grass fill springs to the current step. */
+.sv-progress{height:18px;box-sizing:border-box;border:2px solid var(--sv-ink);border-radius:999px;background:#efe6d4;
+  box-shadow:inset 0 3px 0 #d9ccb1;overflow:hidden}
+.sv-progress i{display:block;height:100%;border-radius:999px;background:var(--sv-grass);transform-origin:left center;
+  box-shadow:inset 0 -4px 0 var(--sv-grass-edge),inset 0 4px 0 rgba(255,255,255,.35);transition:transform 480ms var(--sv-spring)}
+
+/* The steak on a chip; tapping it goes back to edit. */
+.sv-summary{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-height:40px;padding:4px 6px 4px 8px;box-sizing:border-box;
+  border:2px solid var(--sv-ink);border-radius:999px;background:var(--sv-face);color:var(--sv-ink);box-shadow:0 3px 0 var(--sv-edge);
+  font:600 14px/1.2 var(--sans,system-ui);font-variant-numeric:tabular-nums;cursor:pointer;transition:transform 90ms ease-out}
+.sv-summary span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sv-summary b{padding:4px 10px;border-radius:999px;background:var(--sv-gold);font-size:12px}
+.sv-summary .sv-sprite{width:24px;height:auto}
+.sv-summary:active{transform:translateY(3px);box-shadow:none}
+.sv-summary:focus-visible{outline:3px solid var(--sv-sky);outline-offset:3px}
+
+/* Back and Next: chunky keys in a bar that sticks to the bottom of a phone. */
+.sv-nav{display:flex;gap:10px;justify-content:flex-end;padding:14px 0 calc(18px + var(--cc-safe-bottom,0px));margin-top:8px;
+  border-top:2px solid var(--line,#e4d6bd);background:var(--paper,#f7f0e4)}
+.sv-nav .sv-key{min-height:54px;font-size:18px}
+.sv-nav__back{margin-right:auto;min-width:112px}
+.sv-nav__next{flex:0 1 280px}
+.sv-nav__more{flex:0 1 220px}
+@media (max-width:720px){
+  .sv-nav{position:sticky;bottom:0;z-index:3;margin:0 -16px;padding-left:16px;padding-right:16px}
+  .sv-nav__next,.sv-nav__more{flex:1 1 auto}
+}
+
+.sv-more summary{min-height:48px}
+.sv-when.is-cooking .sv-when__list li{grid-template-columns:6.2em minmax(0,1fr);font-size:17px}
+.sv-when.is-cooking .sv-when__list time{font:800 22px/1.15 var(--sans,system-ui);color:var(--sv-ink)}
+
+@media (min-width:960px){
+  .sv-form--steak{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);column-gap:36px}
+  .sv-form--cook{max-width:640px}
+  /* The plan: steps on the left, its schedule beside them. While cooking, the
+     schedule and thermometer lead on the left and the steps sit beside. */
+  .sv-answer{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);column-gap:36px;align-items:start}
+  .sv-answer>*{grid-column:1}
+  .sv-answer>.sv-field,.sv-answer>.sv-answer__head{grid-column:1/-1}
+  .sv-answer:not(.is-cooking)>.sv-when{grid-column:2;grid-row:3/span 4;padding-top:0;border-top:0}
+  .sv-answer.is-cooking>.sv-when{grid-row:2/span 4;padding-bottom:0;border-bottom:0}
+  .sv-answer.is-cooking>:not(.sv-when):not(.sv-answer__head){grid-column:2}
+}
