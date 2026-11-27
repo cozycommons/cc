@@ -333,11 +333,19 @@ in the page, and the previous plan stays on screen, dimmed, while the next one
 loads (`use()`, Suspense and `useDeferredValue`, no fetching effects or timers).
 
 **Replay** draws the cook as pixel art from the plan's `trace`: the bag in the
-bath, the pan and the board, with a cross-section coloured by each layer's peak
-temperature, the bone, and a thermometer against the target. It runs at about
-12 frames a second only while playing and on screen, and never autoplays.
-Between trace readings it interpolates linearly through core, middle and
-surface, so it is a picture of the plan, not a finer simulation.
+bath, the pan and the board, and a cut through the steak drawn from the
+solver's own temperatures at nine depths (each point's `layers`), linear
+between depths and between readings. The cut is coloured by each layer's peak,
+the colour cooked meat keeps, with the bone; beside it a bar per layer shows how
+hot that layer is now against a dotted target line, so the heat creeping in, the
+sear's thin hot band and the rest's crossover (crust cooling while the center
+climbs) are visible. Thermometers show the center against the target and the
+crust (the surface), and a caption says in plain words what is happening,
+including the sear step's cut-at-5-minutes tradeoff once the rest gets there.
+The replay gives the bath 55 % of its 16 s, the sear 15 % and the rest the
+remainder, and its slider follows the same timeline, so a 45 s sear is not
+lost in a two-hour cook. It runs at about 12 frames a second only while playing
+and on screen, and never autoplays.
 
 ## API
 
@@ -357,7 +365,9 @@ surface, so it is a picture of the plan, not a finer simulation.
 It returns `classic`, `hot_and_pull` and `hot_then_drop` (minutes, bath,
 `pull_core_c`, core peak and its `core_peak_range_c` across the sear spread, mm
 past target, gray band, minutes saved), `sweep` (hot and pull at 0, 1, 2, 3, 5,
-8 and 10 °C over), `trace` (core, middle and surface by minute), `profile`
+8 and 10 °C over), `trace` (core, middle, surface and nine `layers` by minute, every 5 s
+through the sear, ending the bath at the pull), `layer_rho` (where the layers
+sit, 0 at the center to 1 at the surface), `profile`
 (peak temperature by depth), `steak` (the sides used and whether they were
 measured or sized from the weight) and `thickness_only_minutes` (the classic
 time an infinite slab would give). Inputs are rounded to 1 mm of thickness,
