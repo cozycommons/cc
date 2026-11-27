@@ -626,6 +626,52 @@ function Details({ form, stale }) {
   );
 }
 
+// Things most kitchens have, held against the steak's side, for a cook without a
+// ruler. `spread` is how much the thing itself varies; a quarter or a card does not.
+export const RULERS = [
+  { key: 'quarter', name: 'Quarters', one: 'quarter', many: 'quarters', mm: 24.26, spread: 0, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
+    how: 'Hold quarters on edge against the steak’s side, one above the other. How many tall is it?' },
+  { key: 'card', name: 'Card', one: 'card', many: 'card', mm: 53.98, spread: 0, counts: [0.5, 0.75, 1, 1.25, 1.5],
+    how: 'Stand a credit card on its long edge beside the steak. How much of the card’s height is it?' },
+  { key: 'finger', name: 'Fingers', one: 'finger', many: 'fingers', mm: 19, spread: 0.15, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
+    how: 'Lay fingers flat against its side, like measuring a drink. How many fingers tall?' },
+];
+const PARTS = { 0.25: '¼', 0.5: '½', 0.75: '¾' };
+// 1.5 as '1½', 0.75 as '¾'.
+export const fmtCount = (n) => `${Math.floor(n) || ''}${PARTS[n % 1] ?? ''}`;
+// Cook time grows about as thickness squared, so a thickness off by x% is a time off by about 2x%.
+const TIME_PER_THICKNESS = 2;
+
+// Thickness without a ruler: pick a thing, then how many of it the steak is.
+// Each pick sets the thickness directly; the slider above shows the result.
+function RulerGuide({ mm, onChange }) {
+  const [key, setKey] = useState('quarter');
+  const ruler = RULERS.find((r) => r.key === key);
+  const picked = ruler.counts.find((n) => Math.round(n * ruler.mm) === mm);
+  const unit = (n) => (n === 1 ? ruler.one : ruler.many);
+  return (
+    <details className="cc-accordion sv-ruler">
+      <summary>No ruler? Use a quarter, a card or your fingers</summary>
+      <div className="cc-accordion__content sv-ruler__body">
+        <Segmented label="Measure with" items={RULERS.map((r) => ({ key: r.key, name: r.name }))} value={key} onChange={setKey} />
+        <p className="cc-help">{ruler.how}</p>
+        <Segmented label={`How many ${ruler.many}`} showLabel={false} className="sv-seg sv-ruler__counts" value={picked}
+          onChange={(n) => onChange(Math.round(n * ruler.mm))}
+          items={ruler.counts.map((n) => ({ key: n, name: fmtCount(n), label: `${fmtCount(n)} ${unit(n)}` }))} />
+        {picked != null && (
+          <p className="cc-help">
+            {fmtCount(picked)} {unit(picked)} is {fmtInches(mm)}.
+            {ruler.spread
+              ? ` Fingers differ by about ${Math.round(ruler.spread * 100)}%, so the cook time could be off by ${
+                Math.round(ruler.spread * TIME_PER_THICKNESS * 100)}%. Check one finger against a quarter once, or go by the thermometer.`
+              : ' Close enough: within about ⅛″.'}
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
+
 const formFor = (cut, rest) => ({
   ...rest, cut, mm: cut.mm, bone: cut.bone, lb: String(cut.lb), widthIn: '', lengthIn: '',
 });
@@ -696,6 +742,7 @@ export default function SousVideApp() {
             </label>
             <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
               shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
+            <RulerGuide mm={form.mm} onChange={set('mm')} />
             <div className="sv-measures">
               <Measure label="Weight, lb" value={form.lb} step="0.01" onChange={set('lb')} />
               {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={form.widthIn} step="0.1"

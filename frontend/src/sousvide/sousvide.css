@@ -52,6 +52,10 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-seg .cc-segmented__item{flex:1 1 auto;min-width:0}
 .sv-measures{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:10px;align-items:end}
 .sv-measures .cc-input{min-width:0;box-sizing:border-box}
+.sv-ruler__body{display:grid;gap:10px}
+.sv-ruler .cc-help{margin:0}
+.cc-accordion.sv-ruler summary{min-height:48px;font-size:18px;line-height:1.25;letter-spacing:-.02em}
+.sv-ruler__counts .cc-segmented__item{justify-content:center;font-family:var(--sans,system-ui);font-size:16px;letter-spacing:0;font-variant-numeric:tabular-nums}
 .sv-calibrate__body{display:grid;gap:12px}
 .sv-calibrate summary .cc-badge{margin-left:auto;margin-right:12px}
 .sv-calibrate .cc-textarea{box-sizing:border-box;font-variant-numeric:tabular-nums}

@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SousVideApp, {
-  doneness, fmtClock, fmtDepth, fmtF, fmtInches, fmtMinutes, forgetPlans, parseLog, recommended, shade, sliceEarly,
+  doneness, fmtClock, fmtCount, fmtDepth, fmtF, fmtInches, fmtMinutes, forgetPlans, parseLog, recommended, shade, sliceEarly,
 } from './SousVideApp.jsx';
 
 vi.mock('../components/SiteHeader.jsx', () => ({ default: () => null }));
@@ -175,6 +175,21 @@ describe('Sous vide', () => {
     expect(screen.getByRole('radiogroup', { name: 'Method' })).toBeTruthy();
     expect(localStorage.getItem('sousvide.cook')).toBeNull();
     expect(JSON.parse(localStorage.getItem('sousvide.log'))).toBe('12, 41');
+  });
+
+  it('measures thickness with quarters, a card or fingers', async () => {
+    expect([1, 1.5, 0.75, 2.5].map(fmtCount)).toEqual(['1', '1½', '¾', '2½']);
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => { render(<SousVideApp />); });
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: '2 quarters' })); });
+    await vi.waitFor(() => expect(planned(fetch)).toContain('thickness_mm=49&'));
+    expect(screen.getByText(/2 quarters is 1.93″\. Close enough/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'Fingers' }));
+    expect(screen.queryByText(/is 1.93″/)).toBeNull(); // 49 mm is no whole count of fingers
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: '3 fingers' })); });
+    await vi.waitFor(() => expect(planned(fetch)).toContain('thickness_mm=57&'));
+    expect(screen.getByText(/3 fingers is 2.24″\. Fingers differ by about 15%, so the cook time could be off by 30%/)).toBeTruthy();
   });
 
   it('plans the bone-in ribeye from its thickness and weight, then from what the cook measures', async () => {
