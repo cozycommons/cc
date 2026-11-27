@@ -127,7 +127,10 @@ export function storyAt({ trace, t, scene, row, target, sear, bathC, point, next
   if (scene === 'sear') {
     const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
     const hottest = Math.max(point.surface, ...trace.filter((p) => p.min > bathEnd && p.min <= bathEnd + sear / 60 + 1e-6).map((p) => p.surface));
-    return `Searing: the surface reaches ${fmtF(hottest)} for the crust, but only a thin layer gets that hot. The center, ${core}, hasn't felt it yet.`;
+    // The key under the canvas shows the surface now, so the caption names it too.
+    const now = fmtF(point.surface);
+    const peak = fmtF(hottest) === now ? '' : `, ${fmtF(hottest)} by the end of the sear`;
+    return `Searing: the surface is ${now}${peak}, but only a thin layer gets that hot. The center, ${core}, hasn't felt it yet.`;
   }
   const climbing = next.core > point.core + 0.02;
   const peak = trace.filter((p) => p.phase === 'finish').reduce((a, b) => (b.core > a.core ? b : a));

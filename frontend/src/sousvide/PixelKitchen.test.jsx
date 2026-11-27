@@ -73,7 +73,7 @@ describe('PixelKitchen', () => {
     expect(story(0)).toBe('Into the 136°F bath straight from the fridge, 41°F all the way through.');
     expect(story(30)).toBe('Heat creeps in from the outside. The edge is 133°F, the center 86°F.');
     expect(story(59)).toMatch(/^Nearly time to pull it/);
-    expect(story(60.6)).toBe("Searing: the surface reaches 266°F for the crust, but only a thin layer gets that hot. The center, 122°F, hasn't felt it yet.");
+    expect(story(60.6)).toBe("Searing: the surface is 255°F, 266°F by the end of the sear, but only a thin layer gets that hot. The center, 122°F, hasn't felt it yet.");
     expect(story(62)).toMatch(/^Resting: .* still climbing \(124°F\) while the crust cools \(140°F\)/);
     expect(story(67)).toBe('Cut now and the center is 127°F. Wait and it reaches 130°F, but the crust cools to 120°F.');
     expect(story(80)).toBe('Rested: the center topped out at 130°F and the crust has cooled to 117°F. Slice it.');
