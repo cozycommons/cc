@@ -313,13 +313,42 @@ When the rest is long (10 minutes or more) and the center still climbs, the
 sear step says what cutting at 5 minutes gives instead, and how cool a full rest
 leaves the crust.
 
+**No typing.** Every value on the page is set by touch: sliders, chips, and
+steppers with a coarse and a fine step either side of the value (weight ½ and
+0.05 lb; width and length ½ and 0.1″; the thermometer 5 and 1 °F; dinner 1 h and
+15 min). Width and length start unset and show the planner's own estimate from
+the weight (the same density and 1.3 aspect as `model.sized`); the first tap
+starts from it, and **From weight** unsets it again. **Don't know** unsets the
+weight, which sizes the steak by thickness alone. Each tap of a measurement asks
+for a plan, so several quick taps can fetch the plans in between.
+
 **Schedule** lists the cook's milestones (into the bath, cooling the bath, out,
-eat) as offsets, or as clock times worked back from an "eat at" time. **Start
-cook** stamps the start once and shows clock times from it; nothing ticks, so
-the page holds no timer. While cooking, the schedule and a thermometer box sit
-above the steps, and each reading is logged as minutes since the start into the
-calibration log. The running cook and its log survive a reload in
-`localStorage` (`sousvide.cook`, `sousvide.log`).
+eat) as offsets, or as clock times worked back from an "eat at" time. The eat-at
+stepper starts at the earliest dinner on a quarter hour (read when it is tapped)
+and never goes earlier. **Start cook** stamps the start once and shows clock
+times from it; nothing ticks, so the page holds no timer. While cooking, the
+schedule and a thermometer stepper sit above the steps. The stepper starts from
+the last reading, or the steak's starting temperature, and **Log** saves it as
+minutes since the start. Once a reading reaches the pull temperature, a banner
+says to take it out (or cool the bath). The running cook and its log survive a
+reload in `localStorage` (`sousvide.cook`, and `sousvide.log` as `{ bathF,
+readings: [[minutes, °F]] }`; an older text log is read once and kept).
+
+**Tune to your kitchen** fits that log: the readings are listed with a delete
+button each, and the bath is the one the cook started with. There is no free
+log or bath box; a cook that wants to calibrate logs one cook-along.
+
+**Look and motion.** The page departs from cozy-wabi on purpose, scoped to
+`.sv-page`: a vivid pixel palette (grass, gold, lava, sky) over the cozy paper,
+2 px ink outlines, and chunky keys whose hard bottom edge presses down. Cuts,
+methods, steps, the finger and the title are pixel sprites drawn as SVG
+paths built once at load; the No ruler? panel draws the steak's side to scale
+beside a standing finger or stacked fingers. A doneness strip under the slider
+shows each target's meat colour. Starting a cook, logging a reading, a finished
+fit and a replay that plays to the end of the rest set off a pixel burst. All
+motion is CSS on transform and opacity, started by a mount or a key change (no
+timers or effects), and is off under `prefers-reduced-motion`. Bursts are
+absolutely placed, and stepper values keep their width, so nothing shifts.
 
 **No ruler?** Under the thickness slider, a short tutorial measures with a
 finger, two ways: stand an index finger beside the steak and see which crease

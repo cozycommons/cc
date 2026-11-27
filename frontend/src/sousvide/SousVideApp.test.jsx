@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SousVideApp, {
-  doneness, fmtClock, fmtCount, fmtDepth, fmtF, fmtInches, fmtMinutes, forgetPlans, parseLog, recommended, shade, sliceEarly,
+  doneness, fmtClock, fmtCount, fmtDepth, fmtF, fmtInches, fmtMinutes, forgetPlans, readLog, recommended, shade, sizedIn, sliceEarly, stepValue,
 } from './SousVideApp.jsx';
 
 vi.mock('../components/SiteHeader.jsx', () => ({ default: () => null }));
@@ -46,9 +46,18 @@ describe('Sous vide', () => {
     expect(shade(300)).toBe('rgb(84,52,34)');
   });
 
-  it('names the doneness a target earns and reads a probe log in °F', () => {
+  it('names the doneness a target earns and reads an old text probe log in °F', () => {
     expect([52, 54.5, 60, 65].map(doneness)).toEqual(['rare', 'medium rare', 'medium', 'medium well']);
-    expect(parseLog('0, 41\n10 50\n\nnot a reading\n20;68')).toEqual([[0, 5], [10, 10], [20, 20]]);
+    expect(readLog('0, 41\n10 50\n\nnot a reading\n20;68')).toEqual([[0, 41], [10, 50], [20, 68]]);
+  });
+
+  it('steps on the fine grid inside its bounds, and sizes sides from the weight like the planner', () => {
+    expect([stepValue(2.94, 0.05, { min: 0.15, max: 11, fine: 0.05 }), stepValue(0.2, -0.5, { min: 0.15, max: 11, fine: 0.05 }),
+      stepValue(10.9, 0.5, { min: 0.15, max: 11, fine: 0.05 })]).toEqual([3, 0.15, 11]);
+    // model.sized gives this steak 138 x 180 mm (PLAN.steak).
+    const side = sizedIn({ cut: { shape: 'slab' }, mm: 51, lb: 2.94, widthIn: null, lengthIn: null });
+    expect([Math.round(side.width * 25.4), Math.round(side.length * 25.4)]).toEqual([138, 180]);
+    expect(Math.round(sizedIn({ cut: { shape: 'slab' }, mm: 51, lb: 2.94, widthIn: 5, lengthIn: null }).length * 25.4)).toBe(196);
   });
 
   it('leads with the recommended method as steps, and switches methods', async () => {
@@ -154,7 +163,10 @@ describe('Sous vide', () => {
     let when = await screen.findByRole('region', { name: 'When' });
     expect(within(when).getAllByRole('listitem').map((li) => li.textContent))
       .toEqual(['NowInto the 136°F bath', '+19 minOut at 124°F, sear right away', '+25 minSear, rest, eat']);
-    fireEvent.change(within(when).getByLabelText('Eat at'), { target: { value: '19:30' } });
+    // The first tap starts from the earliest dinner, 6:30 PM on the quarter hour, and can't go before it.
+    expect(within(when).getByRole('button', { name: 'Eat at −15' }).disabled).toBe(true);
+    fireEvent.click(within(when).getByRole('button', { name: 'Eat at +1 h' }));
+    expect(within(when).getByRole('group', { name: 'Eat at' }).querySelector('output').textContent).toBe('7:30 PM');
     expect(within(when).getAllByRole('listitem').map((li) => li.querySelector('time').textContent))
       .toEqual(['7:05 PM', '7:24 PM', '7:30 PM']);
 
@@ -163,18 +175,28 @@ describe('Sous vide', () => {
     expect(screen.getByRole('region', { name: 'What to do' }).querySelector('.sv-when + .sv-steps')).toBeTruthy();
     expect(within(when).getByText('Cooking since 6:00 PM')).toBeTruthy();
     expect(screen.queryByRole('radiogroup', { name: 'Method' })).toBeNull();
-    expect(screen.getByLabelText('Bath °F').value).toBe('135.5');
     vi.setSystemTime(new Date(2026, 10, 27, 18, 12));
-    fireEvent.change(within(when).getByLabelText('Thermometer reads, °F'), { target: { value: '41' } });
+    // The thermometer starts at the steak's 41°F; the next reading starts from the last.
     fireEvent.click(within(when).getByRole('button', { name: 'Log' }));
-    expect(screen.getByLabelText('Readings').value).toBe('12, 41');
     expect(within(when).getByText(/1 reading so far/)).toBeTruthy();
+    vi.setSystemTime(new Date(2026, 10, 27, 18, 19));
+    for (const step of ['+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+1', '+1', '+1']) {
+      fireEvent.click(within(when).getByRole('button', { name: `Thermometer reads, °F ${step}` }));
+    }
+    expect(within(when).queryByText(/Out at 124°F/, { selector: '.sv-ready' })).toBeNull();
+    fireEvent.click(within(when).getByRole('button', { name: 'Log' }));
+    expect(within(when).getByText('Out at 124°F, sear right away', { selector: '.sv-ready' })).toBeTruthy();
+    const readings = () => within(screen.getByRole('list', { name: 'Readings' })).getAllByRole('listitem').map((li) => li.textContent);
+    expect(readings()).toEqual(['41°F at 12 min×', '124°F at 19 min×']);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 41°F at 12 min' }));
+    expect(readings()).toEqual(['124°F at 19 min×']);
+    expect(JSON.parse(localStorage.getItem('sousvide.log'))).toEqual({ bathF: 135.5, readings: [[19, 124]] });
     expect(JSON.parse(localStorage.getItem('sousvide.cook'))).toMatchObject({ method: 'hot_and_pull', startMin: 1080 });
 
     fireEvent.click(within(when).getByRole('button', { name: 'End cook' }));
     expect(screen.getByRole('radiogroup', { name: 'Method' })).toBeTruthy();
     expect(localStorage.getItem('sousvide.cook')).toBeNull();
-    expect(JSON.parse(localStorage.getItem('sousvide.log'))).toBe('12, 41');
+    expect(JSON.parse(localStorage.getItem('sousvide.log'))).toEqual({ bathF: 135.5, readings: [[19, 124]] });
   });
 
   it('measures thickness with a finger: its creases or fingers stacked', async () => {
@@ -205,12 +227,13 @@ describe('Sous vide', () => {
     expect(screen.getByText(/Width and length from the weight: 5.43″ × 7.09″\. Thickness alone would say 1 h 13/).textContent)
       .toContain('next to the bone');
 
-    fireEvent.change(screen.getByLabelText('Width, in'), { target: { value: '5.5' } });
-    fireEvent.blur(screen.getByLabelText('Width, in'));
+    // Width starts at the planner's 5.4″ from the weight; one fine step makes it 5.5″.
+    expect(screen.getByRole('group', { name: 'Width, in' }).querySelector('output').textContent).toBe('≈5.4″from weight');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Width, in +.1' })); });
     await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Along an edge' })); });
     await vi.waitFor(() => expect(planned(fetch)).toContain('weight_g=1334&width_mm=140&bone=edge'));
 
-    await act(async () => { fireEvent.change(screen.getByLabelText('Cut'), { target: { value: 'roast' } }); });
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Tenderloin roast' })); });
     await vi.waitFor(() => expect(planned(fetch)).toBe(
       'https://api.test/sousvide/plan?thickness_mm=75&shape=cylinder&start_c=5&weight_g=1134&target_c=54.5&boost_c=3&sear_s=45'));
     expect(screen.queryByRole('radiogroup', { name: 'Bone' })).toBeNull();
@@ -220,9 +243,11 @@ describe('Sous vide', () => {
     const fit = { alpha: 1.44, h_bath: 95, h_fitted: false, h_identifiable: false, alpha_on_bound: false, rms_c: 0.3, default_rms_c: 3.7 };
     const fetch = vi.fn(async (url) => ({ ok: true, json: async () => (url.endsWith('/calibrate') ? fit : PLAN) }));
     vi.stubGlobal('fetch', fetch);
-    localStorage.clear();
+    // An earlier version's text log, taken during a cook in a 135.5°F bath.
+    localStorage.setItem('sousvide.log', JSON.stringify('0, 41\n20, 60\n40, 100\n60, 120'));
+    localStorage.setItem('sousvide.cook', JSON.stringify({ method: 'classic', startedAt: 0, startMin: 0, bathF: '135.5' }));
     await act(async () => { render(<SousVideApp />); });
-    fireEvent.change(screen.getByLabelText('Readings'), { target: { value: '0, 41\n20, 60\n40, 100\n60, 120' } });
+    expect(within(screen.getByRole('list', { name: 'Readings' })).getAllByRole('listitem')).toHaveLength(4);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Fit 4 readings' })); });
     expect((await screen.findByText(/Your steak heats 20% faster than the default/)).textContent)
       .toContain('Times now miss your readings by 0.5°F, against 6.7°F before. The log couldn’t tell');
@@ -232,7 +257,7 @@ describe('Sous vide', () => {
       thickness_mm: 51, weight_g: 1334, bone: 'middle', start_c: 5, fit_h: true, readings: [[0, 5], [20, expect.closeTo(15.56, 2)],
         [40, expect.closeTo(37.78, 2)], [60, expect.closeTo(48.89, 2)]],
     });
-    expect(JSON.parse(request.body).bath_c).toBeCloseTo(57.22, 2);
+    expect(JSON.parse(request.body).bath_c).toBeCloseTo(57.5, 2);
     await vi.waitFor(() => expect(planned(fetch)).toContain('&alpha=1.44'));
     expect(planned(fetch)).not.toContain('h_bath');
     expect(JSON.parse(localStorage.getItem('sousvide.calibration'))).toEqual({ alpha: 1.44 });

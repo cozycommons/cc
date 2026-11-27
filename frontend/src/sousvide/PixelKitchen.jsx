@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { STRATEGIES, Segmented, fmtF, fmtMinutes, shade, sliceEarly, toF } from './SousVideApp.jsx';
+import { Burst } from './Sprites.jsx';
 
 // A pixel-art replay of one cook from the plan's trace: the bag in the bath, the
 // pan, the board, and a cross-section cut through the steak. The cut is coloured
@@ -389,6 +390,8 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
   const [paused, setPaused] = useState(0);
   const [run, setRun] = useState(null);
   const [shownPlan, setShownPlan] = useState(plan);
+  // Whether the last replay played through to the end.
+  const [finished, setFinished] = useState(false);
   const trace = plan.trace[strategy];
   const end = trace.at(-1).min;
   const row = plan[strategy];
@@ -400,8 +403,8 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
 
   // Adjust state during render rather than in effects: a new plan rewinds, and
   // the replay stops at the end or once it leaves the screen.
-  if (plan !== shownPlan) { setShownPlan(plan); setRun(null); setPaused(0); }
-  else if (run && (f >= 1 || !onScreen)) { setRun(null); setPaused(f); }
+  if (plan !== shownPlan) { setShownPlan(plan); setRun(null); setPaused(0); setFinished(false); }
+  else if (run && (f >= 1 || !onScreen)) { setRun(null); setPaused(f); setFinished(f >= 1); }
 
   const marbling = useMemo(() => {
     const r = rng(cut.id.length * 7919 + cut.mm);
@@ -434,8 +437,9 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
     });
   }, [canvas, scene, point, t, tick, marbling, fatCap, bone, done, trace, rhos, bathC, target, bathEnd, sear]);
 
-  const pick = useCallback((id) => { setStrategy(id); setRun(null); setPaused(0); }, []);
+  const pick = useCallback((id) => { setStrategy(id); setRun(null); setPaused(0); setFinished(false); }, []);
   const toggle = () => {
+    setFinished(false);
     if (run) { setRun(null); setPaused(f); return; }
     setRun({ from: f >= 1 ? 0 : f, at: performance.now() });
   };
@@ -444,15 +448,19 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
       <h2 className="cc-h3">Replay</h2>
       <Segmented label="Method to replay" showLabel={false} items={STRATEGIES.map((s) => ({ key: s.id, name: s.name }))}
         value={strategy} onChange={pick} />
-      <canvas ref={setCanvas} width={W} height={H} className="sv-pixel__canvas" role="img"
-        aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, center ${fmtF(point.core)}, crust ${fmtF(point.surface)}`} />
+      <div className="sv-pixel__stage">
+        <canvas ref={setCanvas} width={W} height={H} className="sv-pixel__canvas" role="img"
+          aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, center ${fmtF(point.core)}, crust ${fmtF(point.surface)}`} />
+        {/* The rest is over: a burst when a replay reaches the end, not when the slider is dragged there. */}
+        {!run && finished && f >= 1 && <Burst />}
+      </div>
       <p className="sv-pixel__story">{story}</p>
       <div className="sv-pixel__bar">
-        <button type="button" className="cc-button sv-pixel__play" onClick={toggle}>
+        <button type="button" className="sv-key sv-key--gold sv-pixel__play" onClick={toggle}>
           {run ? 'Pause' : f >= 1 ? 'Replay' : 'Play'}
         </button>
         <input className="cc-range" type="range" aria-label="Time" aria-valuetext={fmtMinutes(t)} min={0} max={1} step={0.0025} value={f}
-          onChange={(e) => { setRun(null); setPaused(Number(e.target.value)); }} />
+          onChange={(e) => { setRun(null); setFinished(false); setPaused(Number(e.target.value)); }} />
         <output className="sv-pixel__readout">{fmtMinutes(t)}</output>
       </div>
       <p className="sv-pixel__key">
