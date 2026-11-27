@@ -7,7 +7,7 @@ tcp:
   routers:
     commons-apps:
       entryPoints: [https]
-      rule: 'HostSNIRegexp(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?\.cozycommons\.dev$`) && !HostSNI(`admin.cozycommons.dev`) && !HostSNI(`api.cozycommons.dev`) && !HostSNI(`auth.cozycommons.dev`) && !HostSNI(`www.cozycommons.dev`) && !HostSNI(`mail.cozycommons.dev`) && !HostSNI(`smtp.cozycommons.dev`) && !HostSNI(`ftp.cozycommons.dev`) && !HostSNI(`proxy.cozycommons.dev`) && !HostSNI(`status.cozycommons.dev`) && !HostSNI(`static.cozycommons.dev`) && !HostSNI(`assets.cozycommons.dev`) && !HostSNI(`mcp.cozycommons.dev`) && !HostSNI(`localhost.cozycommons.dev`) && !HostSNI(`default.cozycommons.dev`)'
+      rule: 'HostSNIRegexp(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?\.cozycommons\.dev$`) && !HostSNI(`admin.cozycommons.dev`) && !HostSNI(`api.cozycommons.dev`) && !HostSNI(`auth.cozycommons.dev`) && !HostSNI(`chat.cozycommons.dev`) && !HostSNI(`www.cozycommons.dev`) && !HostSNI(`mail.cozycommons.dev`) && !HostSNI(`smtp.cozycommons.dev`) && !HostSNI(`ftp.cozycommons.dev`) && !HostSNI(`proxy.cozycommons.dev`) && !HostSNI(`status.cozycommons.dev`) && !HostSNI(`static.cozycommons.dev`) && !HostSNI(`assets.cozycommons.dev`) && !HostSNI(`mcp.cozycommons.dev`) && !HostSNI(`localhost.cozycommons.dev`) && !HostSNI(`default.cozycommons.dev`)'
       service: commons-apps
       tls:
         passthrough: true

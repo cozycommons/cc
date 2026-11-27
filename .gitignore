@@ -4,6 +4,7 @@ backend/.env.local
 frontend/.env.local
 frontend/public/config.json
 frontend/dist/
+frontend/dist-chat/
 node_modules/
 __pycache__/
 *.py[cod]

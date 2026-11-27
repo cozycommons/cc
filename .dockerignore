@@ -4,7 +4,9 @@
 artifacts
 backend/.venv
 frontend/node_modules
+board/node_modules
 frontend/dist
+frontend/dist-chat
 node_modules
 
 # Coolify builds from the repository root; exclude local credentials from images.

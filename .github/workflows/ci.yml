@@ -24,6 +24,7 @@ jobs:
       compute: ${{ steps.select.outputs.compute }}
       bikes: ${{ steps.select.outputs.bikes }}
       apps: ${{ steps.select.outputs.apps }}
+      board: ${{ steps.select.outputs.board }}
       crowdset: ${{ steps.select.outputs.crowdset }}
       crowdset-container: ${{ steps.select.outputs.crowdset-container }}
       frontend_files: ${{ steps.select.outputs.frontend_files }}
@@ -101,6 +102,42 @@ jobs:
           min-severity: medium
           advanced-security: false
           online-audits: false
+
+  board:
+    needs: changes
+    if: needs.changes.outputs.board == 'true'
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: board/package-lock.json
+      - run: npm ci --prefix board --ignore-scripts
+      - run: npm test --prefix board
+      - run: docker build --tag cozy-board-ci -f board/Dockerfile .
+      - name: Verify the Board container opens a persistent volume
+        run: |
+          set -euo pipefail
+          container=$(docker run --detach --mount type=volume,destination=/data \
+            --env BOARD_ORIGIN=http://127.0.0.1:4100 \
+            --env SUPABASE_URL=http://127.0.0.1:54321 \
+            --env SUPABASE_PUBLISHABLE_KEY=synthetic \
+            --env COMMONS_API_ORIGIN=http://127.0.0.1:8000 cozy-board-ci)
+          trap 'docker rm --force --volumes "$container" >/dev/null 2>&1 || true' EXIT
+          for i in {1..15}; do
+            test "$(docker inspect --format '{{.State.Running}}' "$container")" = true || break
+            if docker exec "$container" node -e 'fetch("http://127.0.0.1:4100/healthz").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$container"
+          exit 1
 
   compute:
     needs: changes
@@ -508,7 +545,7 @@ jobs:
           CI_NEEDS: ${{ toJSON(needs) }}
 
   backend:
-    needs: [changes, backend-tests, trips, crowdset, crowdset-container, compute, bikes, apps, supply-chain]
+    needs: [changes, backend-tests, trips, crowdset, crowdset-container, compute, bikes, apps, board, supply-chain]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

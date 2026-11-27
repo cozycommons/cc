@@ -12,7 +12,7 @@ import subprocess
 FRONTEND_PROJECTS = ("bikes", "crowdset", "dice", "design", "trips", "floor-planner", "vital")
 BACKEND_PROJECTS = ("beli", "bikes", "commons", "dice", "espn", "floor_planner", "partiful", "resy", "trips", "vital")
 INTEGRATIONS = {"beli", "espn", "partiful", "resy"}
-JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute", "bikes", "apps")
+JOBS = ("frontend-tests", "backend-tests", "trips", "crowdset", "crowdset-container", "compute", "bikes", "apps", "board")
 SHARED_BACKEND_INPUTS = {
     "package.json", "package-lock.json", "scripts/bootstrap-dice-test-db.sh",
     "scripts/reset-local-dice-db.sh", "scripts/supabase-test-scaffold.sql",
@@ -33,6 +33,7 @@ def select(paths, test_files):
     compute = False
     bikes = False
     apps = False
+    board = False
 
     for path in paths:
         if path.endswith(".md") or path.startswith(("docs/", ".agents/")) or path in {"LICENSE", ".gitignore"}:
@@ -53,11 +54,21 @@ def select(paths, test_files):
         elif path.startswith("infra/apps/") or path == "scripts/apps-dev.sh":
             # Only the Apps runtime builds these images or runs this script.
             apps = True
+        elif path.startswith("board/"):
+            board = True
         elif path.startswith("frontend/"):
+            if path.startswith(("frontend/src/chat/", "frontend/src/components/ui/")) or path in {
+                "frontend/package.json", "frontend/package-lock.json", "frontend/chat.html", "frontend/vite.chat.config.js",
+                "frontend/postcss.config.js", "frontend/src/lib/utils.js",
+                "frontend/src/design/commons-theme.css", "frontend/src/design/shadcn-theme.css",
+            }:
+                board = True
             project = next((p for p in FRONTEND_PROJECTS if path.startswith((f"frontend/src/{p}/", f"frontend/public/{p}/"))), None)
             frontend.update({project} if project else FRONTEND_PROJECTS)
         elif path.startswith("design/"):
             frontend.update(FRONTEND_PROJECTS)
+            if path.startswith("design/cozy-wabi/"):
+                board = True
         elif path.startswith("backend/ig_logger/"):
             backend.add("beli")
         elif path.startswith("backend/tests/test_") and backend_test_project(path):
@@ -101,12 +112,12 @@ def select(paths, test_files):
             else:
                 frontend.update(FRONTEND_PROJECTS)
                 backend.update(BACKEND_PROJECTS)
-                compute = bikes = apps = True
+                compute = bikes = apps = board = True
         else:
             # Shared checks cover unmapped infrastructure; media tests need a runtime input.
             frontend.update(FRONTEND_PROJECTS)
             backend.update(BACKEND_PROJECTS)
-            compute = bikes = apps = True
+            compute = bikes = apps = board = True
 
     frontend_tests = sorted(
         path.removeprefix("frontend/") for path in test_files
@@ -133,6 +144,7 @@ def select(paths, test_files):
         "compute": compute,
         "bikes": bikes,
         "apps": apps,
+        "board": board,
         # Both deployed frontend images compile the whole shared Vite application.
         "crowdset-container": crowdset or bool(frontend),
         "frontend_files": frontend_tests,

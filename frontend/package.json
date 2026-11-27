@@ -13,8 +13,10 @@
     "radix-ui": "1.8.1",
     "react": "~19.0.0",
     "react-dom": "~19.0.0",
+    "react-markdown": "10.1.0",
     "react-router-dom": "^7.18.0",
     "recharts": "~3.1.2",
+    "remark-gfm": "4.0.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "~3.3.1",
     "three": "0.186.1",
@@ -27,7 +29,8 @@
     "build:check": "npm run build && node scripts/check-bundle-size.js",
     "preview": "vite preview",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:chat": "vite build --config vite.chat.config.js"
   },
   "browserslist": {
     "production": [

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./design/shadcn-theme.css";
+@source not "./chat";
 /* The design gallery and admin patterns load these utilities on demand. */
 @source not "./design/{DesignIndex,DesignForm,DataShowcase,Foundations}.jsx";
 @source not "./design/system/DataPatterns.jsx";
