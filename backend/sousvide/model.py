@@ -524,7 +524,7 @@ def trace(steak: Steak, target_c: float, cook: Cook, finish: Finish, every_s: fl
 
     Each point has the core, middle and surface, and `layers`: the temperature at
     each LAYER_NODES depth, centre first, to 0.1 C. Points come every every_s,
-    and every SEAR_EVERY_S through the sear.
+    and every SEAR_EVERY_S through the sear; the last bath point is the pull.
     """
     body = Body(steak)
     points: list[dict] = []
@@ -532,10 +532,10 @@ def trace(steak: Steak, target_c: float, cook: Cook, finish: Finish, every_s: fl
     mid = NODES // 2
     sear_end = cook.minutes * 60 + finish.sear_s
 
-    def record(dt: float, b: Body, phase: str) -> None:
+    def record(dt: float, b: Body, phase: str, now: bool = False) -> None:
         clock[0] += dt
         every = SEAR_EVERY_S if phase == 'finish' and clock[0] <= sear_end + 1e-9 else every_s
-        if clock[0] - clock[1] >= every - 1e-9:
+        if now or clock[0] - clock[1] >= every - 1e-9:
             clock[1] = clock[0]
             points.append({'min': round(clock[0] / 60, 2), 'phase': phase,
                            'core': round(b.T[0], 2), 'mid': round(b.T[mid], 2), 'surface': round(b.T[-1], 2),
@@ -546,7 +546,7 @@ def trace(steak: Steak, target_c: float, cook: Cook, finish: Finish, every_s: fl
         bath_c = cook.bath_c if cook.switch_minutes is None or t < cook.switch_minutes * 60 else target_c
         body.step(bath_c, steak.physics.h_bath, BATH_STEP_S, share=True)
         t += BATH_STEP_S
-        record(BATH_STEP_S, body, 'bath')
+        record(BATH_STEP_S, body, 'bath', now=t >= end - 1e-9)
     finish.run(body, lambda dt, b: record(dt, b, 'finish'))
     return points
 

@@ -137,6 +137,7 @@ def test_trace_layers_show_the_sear_band_and_the_rest_carrying_heat_inward():
     assert all(len(p['layers']) == len(model.LAYER_RHO) for p in points)
     assert all(abs(p['layers'][0] - p['core']) <= 0.06 and abs(p['layers'][-1] - p['surface']) <= 0.06 for p in points)
     bath_end = cook.minutes
+    assert [p for p in points if p['phase'] == 'bath'][-1]['min'] == pytest.approx(bath_end, abs=0.01)  # the pull
     sear = [p for p in points if p['phase'] == 'finish' and p['min'] <= bath_end + 0.75 + 1e-6]
     assert len(sear) == 9  # every 5 s through a 45 s sear
     hottest = max(sear, key=lambda p: p['surface'])
