@@ -341,9 +341,9 @@ log or bath box; a cook that wants to calibrate logs one cook-along.
 **Look and motion.** The page departs from cozy-wabi on purpose, scoped to
 `.sv-page`: a vivid pixel palette (grass, gold, lava, sky) over the cozy paper,
 2 px ink outlines, and chunky keys whose hard bottom edge presses down. Cuts,
-methods, steps, the ruler things and the title are pixel sprites drawn as SVG
+methods, steps, the finger and the title are pixel sprites drawn as SVG
 paths built once at load; the No ruler? panel draws the steak's side to scale
-beside the stacked quarters, card or fingers. A doneness strip under the slider
+beside a standing finger or stacked fingers. A doneness strip under the slider
 shows each target's meat colour. Starting a cook, logging a reading, a finished
 fit and a replay that plays to the end of the rest set off a pixel burst. All
 motion is CSS on transform and opacity, started by a mount or a key change (no
