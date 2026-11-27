@@ -2,6 +2,7 @@ import React, { Suspense, use, useDeferredValue, useId, useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import PixelKitchen from './PixelKitchen.jsx';
+import { Burst, Sprite, SpriteAt } from './Sprites.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './sousvide.css';
 
@@ -49,11 +50,20 @@ export const STRATEGIES = [
 
 export const toF = (c) => c * 9 / 5 + 32;
 export const toC = (f) => (f - 32) * 5 / 9;
-// A typed measurement, or null while the box is empty or mid-edit.
-const measured = (text) => { const v = parseFloat(text); return Number.isFinite(v) && v > 0 ? v : null; };
-export function parseLog(text) {
+// A measurement, or null when it is unknown.
+const measured = (v) => (Number.isFinite(v) && v > 0 ? v : null);
+// The probe log as earlier versions stored it, one "minutes, °F" line per reading,
+// as [minutes, °F] pairs.
+export function readLog(text) {
   return text.split('\n').map((line) => line.trim().split(/[\s,;]+/).map(Number))
-    .filter((pair) => pair.length >= 2 && pair.every(Number.isFinite)).map(([min, f]) => [min, toC(f)]);
+    .filter((pair) => pair.length >= 2 && pair.every(Number.isFinite)).map(([min, f]) => [min, f]);
+}
+// The saved log: the bath it was taken in and its readings. A log from before the
+// bath was saved with it takes the running cook's bath, if any.
+function loadLog() {
+  const saved = load(LOG_KEY);
+  if (typeof saved === 'string') return { bathF: load(COOK_KEY)?.bathF ?? null, readings: readLog(saved) };
+  return saved?.readings ? saved : { bathF: null, readings: [] };
 }
 // A cook runs for hours on a phone that locks and reloads, so the running cook, its
 // probe log and the fit survive a reload. Storage can be missing (private mode); the
@@ -234,7 +244,7 @@ export function Segmented({ label, items, value, onChange, showLabel = true, cla
 // The label follows the thumb while it moves; the plan is only asked for once
 // the thumb is let go (pointer, touch or key), since each plan costs the API
 // about half a second.
-function Range({ label, value, shown, min, max, step, onChange }) {
+function Range({ label, value, shown, min, max, step, onChange, below }) {
   const [draft, setDraft] = useState(null);
   const commit = () => {
     if (draft != null) onChange(draft);
@@ -246,25 +256,56 @@ function Range({ label, value, shown, min, max, step, onChange }) {
       <input className="cc-range" type="range" aria-label={label} min={min} max={max} step={step} value={draft ?? value}
         onChange={(e) => setDraft(Number(e.target.value))}
         onPointerUp={commit} onKeyUp={commit} onTouchEnd={commit} onBlur={commit} />
+      {below?.(draft ?? value)}
     </label>
   );
 }
 
-// Like Range: typing edits a draft, and the value is committed on blur or Enter,
-// so a half-typed "2." never asks the API for a plan.
-function Measure({ label, value, placeholder, step, onChange }) {
-  const [draft, setDraft] = useState(null);
-  const commit = () => {
-    if (draft != null && draft !== value) onChange(draft);
-    setDraft(null);
-  };
+// A number set by tapping, never typed: a coarse and a fine step either side of the
+// value. `steps` is [coarse, fine] with their button text; the caller decides what a
+// step does, so a stepper can count degrees, inches or minutes of the day. The value
+// is keyed so each change replays a small bump (CSS only).
+const fmtStep = (n) => ({ 0.25: '¼', 0.5: '½' }[n] ?? String(n));
+export function Stepper({ label, shown, note, steps, onStep, canStep = () => true, children }) {
+  const button = (d, text) => (
+    <button type="button" className="sv-key sv-key--step" aria-label={`${label} ${text}`} disabled={!canStep(d)}
+      onClick={() => onStep(d)}>{text}</button>
+  );
+  const [coarse, fine] = steps;
   return (
-    <label className="cc-field sv-field">
+    <div className="sv-stepper" role="group" aria-label={label}>
       <span className="cc-label">{label}</span>
-      <input className="cc-input" type="number" inputMode="decimal" min="0" step={step} value={draft ?? value}
-        placeholder={placeholder} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
-        onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
-    </label>
+      <div className="sv-stepper__row">
+        {button(-coarse.d, `−${coarse.text ?? fmtStep(coarse.d)}`)}
+        {button(-fine.d, `−${fine.text ?? fmtStep(fine.d)}`)}
+        <output className="sv-stepper__value" aria-live="polite"><span key={shown}>{shown}</span>
+          {note && <small>{note}</small>}</output>
+        {button(fine.d, `+${fine.text ?? fmtStep(fine.d)}`)}
+        {button(coarse.d, `+${coarse.text ?? fmtStep(coarse.d)}`)}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// value + d on the fine step's grid, inside [min, max].
+export function stepValue(value, d, { min, max, fine }) {
+  const next = Math.round((value + d) / fine) * fine;
+  return Number(Math.min(max, Math.max(min, next)).toFixed(3));
+}
+
+// A measurement in a stepper. Unknown (null) shows `empty`, and the first tap starts
+// from `base`, the value the planner would assume; `clear` returns it to unknown.
+function Measure({ label, value, base, empty, unit, steps, min, max, clear, onChange }) {
+  const fine = steps[1].d;
+  const from = value ?? Math.round(base / fine) * fine;
+  return (
+    <Stepper label={label} steps={steps} shown={value == null ? empty : `${value}${unit}`}
+      note={value == null ? clear.empty : null}
+      canStep={(d) => (d < 0 ? from > min : from < max)}
+      onStep={(d) => onChange(stepValue(from, d, { min, max, fine }))}>
+      {value != null && <button type="button" className="sv-chip" onClick={() => onChange(null)}>{clear.label}</button>}
+    </Stepper>
   );
 }
 
@@ -348,52 +389,76 @@ export function milestones(id, row, form, plan) {
   return out;
 }
 
-// '19:30' from a time input, as minutes of the day.
-const clockMinutes = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+// The earliest dinner a cook taking `total` minutes allows if it starts now, on a
+// quarter hour. Read when a stepper is tapped, never during render.
+const earliestEat = (total) => {
+  const now = new Date();
+  return Math.ceil((now.getHours() * 60 + now.getMinutes() + total) / 15) * 15;
+};
+const EAT_STEPS = [{ d: 60, text: '1 h' }, { d: 15, text: '15' }];
+const READING_STEPS = [{ d: 5 }, { d: 1 }];
 
 // When each step happens: counted from now until the cook starts, or back from a
 // dinner time, or on the clock once the bag is in. Nothing here ticks; the clock
 // times come from the moment Start was pressed, and the thermometer decides.
-function Schedule({ id, row, form, plan, cook, readings, onStart, onEnd, onReading }) {
-  const [eatAt, setEatAt] = useState('');
+function Schedule({ id, row, form, plan, cook, readings, party, onStart, onEnd, onReading }) {
+  // Dinner as minutes of the day, or null for "start now".
+  const [eatAt, setEatAt] = useState(null);
+  // The thermometer stepper starts from the last reading, or the steak's start.
+  const [reading, setReading] = useState(null);
   const marks = milestones(id, row, form, plan);
   const total = marks.at(-1).at;
-  const startMin = cook ? cook.startMin : eatAt ? clockMinutes(eatAt) - total : null;
+  const startMin = cook ? cook.startMin : eatAt != null ? eatAt - total : null;
   const when = (m) => (startMin == null ? (m ? `+${fmtMinutes(m)}` : 'Now') : fmtClock(startMin + m));
-  const log = (e) => {
-    e.preventDefault();
-    const f = parseFloat(new FormData(e.currentTarget).get('f'));
-    if (Number.isFinite(f)) onReading(f);
-    e.currentTarget.reset();
+  const last = readings.at(-1)?.[1];
+  const shownF = reading ?? last ?? Math.round(toF(form.start));
+  const stepEat = (d) => {
+    const earliest = earliestEat(total);
+    setEatAt((e) => Math.max(earliest, e == null ? earliest + Math.max(0, d) : e + d));
   };
+  const log = () => { onReading(shownF); setReading(null); };
+  // The thermometer has reached the pull (or cool) mark: the cook's big moment.
+  const ready = cook && last != null && last >= Math.round(toF(row.pull_core_c));
   return (
     <section className="sv-when" aria-label="When">
       <div className="sv-when__head">
         {cook
           ? <><span className="cc-label">Cooking since {fmtClock(cook.startMin)}</span>
-            <button type="button" className="cc-button cc-button--ghost cc-button--small" onClick={onEnd}>End cook</button></>
-          : <><label className="sv-when__eat"><span className="cc-label">Eat at</span>
-            <input className="cc-input" type="time" value={eatAt} onChange={(e) => setEatAt(e.target.value)} /></label>
-            <button type="button" className="cc-button cc-button--primary" onClick={() => onStart(id, row)}>Start cook</button></>}
+            <button type="button" className="sv-key sv-key--quiet" onClick={onEnd}>End cook</button></>
+          : <>
+            <Stepper label="Eat at" steps={EAT_STEPS} shown={eatAt == null ? 'ASAP' : fmtClock(eatAt)}
+              canStep={(d) => d > 0 || eatAt != null} onStep={stepEat}>
+              {eatAt != null && <button type="button" className="sv-chip" onClick={() => setEatAt(null)}>As soon as I can</button>}
+            </Stepper>
+            <button type="button" className="sv-key sv-key--go sv-when__start" onClick={() => onStart(id, row)}>
+              <Sprite name="flame" scale={2} />Start cook</button></>}
       </div>
       <ol className="sv-when__list">
         {marks.map((m) => <li key={m.key}><time>{when(m.at)}</time><span>{m.label}</span></li>)}
       </ol>
       {cook ? (
-        <form className="sv-when__log" onSubmit={log}>
-          <label className="cc-field sv-field"><span className="cc-label">Thermometer reads, °F</span>
-            <input className="cc-input" name="f" type="number" inputMode="decimal" step="0.1" required /></label>
-          <button type="submit" className="cc-button cc-button--secondary">Log</button>
-          <p className="cc-help">{readings
-            ? `${readings} reading${readings === 1 ? '' : 's'} so far, saved below in “Tune to your kitchen”.`
+        <div className="sv-when__log">
+          <Stepper label="Thermometer reads, °F" steps={READING_STEPS} shown={`${shownF}°F`}
+            canStep={(d) => (d < 0 ? shownF > 32 : shownF < 212)}
+            onStep={(d) => setReading(stepValue(shownF, d, { min: 32, max: 212, fine: 1 }))} />
+          <button type="button" className="sv-key sv-key--gold sv-when__logbtn" onClick={log}>
+            <Sprite name="thermo" scale={2} />Log</button>
+          {ready && <p className="sv-ready" key={`ready-${readings.length}`}><Sprite name="star" scale={3} />
+            {marks.find((m) => m.key === 'out')?.label ?? `Cool the bath to ${fmtF(form.target)}`}</p>}
+          <p className="cc-help">{readings.length
+            ? `${readings.length} reading${readings.length === 1 ? '' : 's'} so far, saved below in “Tune to your kitchen”.`
             : 'Log one now, then every 10 minutes or so. The log tunes the planner to your kitchen.'}</p>
-        </form>
+        </div>
       ) : <p className="cc-help">Estimates: the thermometer has the last word.</p>}
+      {party > 0 && <Burst key={party} />}
     </section>
   );
 }
 
-function Answer({ form, stale, cook, readings, onStart, onEnd, onReading }) {
+const METHOD_ICON = { classic: 'pot', hot_and_pull: 'flame', hot_then_drop: 'ice' };
+const STEP_ICON = { bath: 'pot', probe: 'thermo', cool: 'ice', out: 'ribeye', sear: 'flame' };
+
+function Answer({ form, stale, cook, readings, party, onStart, onEnd, onReading }) {
   const p = use(planFor(queryOf(form)));
   const best = recommended(p);
   const [picked, setPicked] = useState(null);
@@ -404,14 +469,14 @@ function Answer({ form, stale, cook, readings, onStart, onEnd, onReading }) {
   const safe = safety(id, row, form.target);
   // Before the cook, the schedule follows the steps it times; during it, the clock
   // and the thermometer log are what the cook needs first.
-  const schedule = <Schedule id={id} row={row} form={form} plan={p} cook={cook} readings={readings}
+  const schedule = <Schedule id={id} row={row} form={form} plan={p} cook={cook} readings={readings} party={party}
     onStart={onStart} onEnd={onEnd} onReading={onReading} />;
   return (
     <section className={`sv-answer${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
       {!cook && <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={setPicked}
         items={STRATEGIES.map((s) => ({
           key: s.id, label: `${s.name}, ${fmtMinutes(p[s.id].minutes)}`,
-          name: <><b>{fmtMinutes(p[s.id].minutes)}</b><span>{s.name}</span></>,
+          name: <><Sprite name={METHOD_ICON[s.id]} scale={2} /><b>{fmtMinutes(p[s.id].minutes)}</b><span>{s.name}</span></>,
         }))} />}
       <header className="sv-answer__head">
         <h2 className="cc-h3">{strategy.name}</h2>
@@ -421,6 +486,7 @@ function Answer({ form, stale, cook, readings, onStart, onEnd, onReading }) {
       <ol className="sv-steps">
         {steps(id, row, form, p).map((s) => (
           <li key={s.key} data-step={s.key}>
+            <Sprite name={STEP_ICON[s.key]} scale={2} className="sv-steps__icon" />
             <span className="cc-label">{s.label}</span>
             {s.value && <b>{s.value}</b>}
             {s.note && <span className="sv-steps__note">{s.note}</span>}
@@ -483,15 +549,16 @@ function Slice({ profile, label, note }) {
 // One cook's probe log, fitted to the model. The result replaces the planner's alpha (how
 // fast heat spreads through the meat) and, when the log pins it, the bath's h (how fast
 // the water hands heat to the bag) for this browser until it is cleared.
-function Calibrate({ steak, calibration, onChange, log, setLog, bathF, setBathF }) {
+// The log is the cook-along's readings, taken in the bath the cook started with.
+function Calibrate({ steak, calibration, onChange, log, onDelete }) {
   const [state, setState] = useState({ status: 'idle' });
-  const readings = parseLog(log);
+  const { bathF, readings } = log;
   const fit = async () => {
     setState({ status: 'loading' });
     try {
       const response = await fetch(`${getUrl()}/sousvide/calibrate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...steak, bath_c: toC(Number(bathF)), readings, fit_h: true }),
+        body: JSON.stringify({ ...steak, bath_c: toC(Number(bathF)), readings: readings.map(([min, f]) => [min, toC(f)]), fit_h: true }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(typeof body?.detail === 'string' ? body.detail : 'Could not fit that log.');
@@ -506,24 +573,31 @@ function Calibrate({ steak, calibration, onChange, log, setLog, bathF, setBathF 
     <details className="cc-accordion sv-calibrate">
       <summary>Tune to your kitchen{calibration ? <span className="cc-badge cc-badge--soft">{faster(calibration.alpha)}</span> : null}</summary>
       <div className="cc-accordion__content sv-calibrate__body">
-        <p className="cc-help">Log the thermometer every few minutes through one cook in a bath held at one temperature, with the
-          steak set above as you measured it. One reading per line: minutes since it went in, then °F. Start cook fills this in.</p>
-        <div className="sv-measures">
-          <Measure label="Bath °F" value={bathF} step="0.5" onChange={setBathF} />
-        </div>
-        <label className="cc-field sv-field">
-          <span className="cc-label">Readings</span>
-          <textarea className="cc-textarea" rows={6} value={log} placeholder={'0, 41\n10, 48\n20, 71'} onChange={(e) => setLog(e.target.value)} />
-        </label>
+        <p className="cc-help">Start a cook and log the thermometer every few minutes through it, in a bath held at one
+          temperature, with the steak set above as you measured it. Three readings or more fit the planner to your kitchen.</p>
+        {readings.length ? (
+          <ol className="sv-readings" aria-label="Readings">
+            {readings.map(([min, f], i) => (
+              <li key={`${i}-${min}`}>
+                <Sprite name="thermo" scale={2} />
+                <span><b>{f}°F</b> at {fmtMinutes(min)}</span>
+                <button type="button" className="sv-key sv-key--x" aria-label={`Delete ${f}°F at ${fmtMinutes(min)}`}
+                  onClick={() => onDelete(i)}>×</button>
+              </li>
+            ))}
+          </ol>
+        ) : <p className="cc-caption">No readings yet.</p>}
+        {bathF != null && readings.length > 0 && <p className="cc-caption">Bath {bathF}°F, from the cook.</p>}
         <div className="cc-button-row">
-          <button type="button" className="cc-button cc-button--primary" disabled={readings.length < 3 || state.status === 'loading'} onClick={fit}>
+          <button type="button" className="sv-key sv-key--go" disabled={readings.length < 3 || bathF == null || state.status === 'loading'} onClick={fit}>
             Fit {readings.length} readings</button>
-          {calibration && <button type="button" className="cc-button cc-button--ghost" onClick={() => { onChange(null); setState({ status: 'idle' }); }}>
+          {calibration && <button type="button" className="sv-key sv-key--quiet" onClick={() => { onChange(null); setState({ status: 'idle' }); }}>
             Back to defaults</button>}
         </div>
         {state.status === 'error' && <p className="cc-notice cc-notice--error" role="alert">{state.message}</p>}
         {f && (
-          <div role="status">
+          <div role="status" className="sv-calibrate__fit">
+            <Burst />
             <p className="cc-help">
               Your steak {faster(f.alpha)} than the default. Times now miss your readings
               by {deltaF(f.rms_c).toFixed(1)}°F, against {deltaF(f.default_rms_c).toFixed(1)}°F before.
@@ -629,11 +703,11 @@ function Details({ form, stale }) {
 // Things most kitchens have, held against the steak's side, for a cook without a
 // ruler. `spread` is how much the thing itself varies; a quarter or a card does not.
 export const RULERS = [
-  { key: 'quarter', name: 'Quarters', one: 'quarter', many: 'quarters', mm: 24.26, spread: 0, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
+  { key: 'quarter', sprite: 'quarter', name: 'Quarters', one: 'quarter', many: 'quarters', mm: 24.26, spread: 0, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
     how: 'Hold quarters on edge against the steak’s side, one above the other. How many tall is it?' },
-  { key: 'card', name: 'Card', one: 'card', many: 'card', mm: 53.98, spread: 0, counts: [0.5, 0.75, 1, 1.25, 1.5],
+  { key: 'card', sprite: 'card', name: 'Card', one: 'card', many: 'card', mm: 53.98, spread: 0, counts: [0.5, 0.75, 1, 1.25, 1.5],
     how: 'Stand a credit card on its long edge beside the steak. How much of the card’s height is it?' },
-  { key: 'finger', name: 'Fingers', one: 'finger', many: 'fingers', mm: 19, spread: 0.15, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
+  { key: 'finger', sprite: 'finger', name: 'Fingers', one: 'finger', many: 'fingers', mm: 19, spread: 0.15, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
     how: 'Lay fingers flat against its side, like measuring a drink. How many fingers tall?' },
 ];
 const PARTS = { 0.25: '¼', 0.5: '½', 0.75: '¾' };
@@ -641,6 +715,33 @@ const PARTS = { 0.25: '¼', 0.5: '½', 0.75: '¾' };
 export const fmtCount = (n) => `${Math.floor(n) || ''}${PARTS[n % 1] ?? ''}`;
 // Cook time grows about as thickness squared, so a thickness off by x% is a time off by about 2x%.
 const TIME_PER_THICKNESS = 2;
+
+// The steak's side on the board, with the things stacked beside it up past its top
+// and a line across at its thickness: the picture of what the cook is checking. One
+// unit is a millimetre, so it is to scale; a card stands on its long edge.
+const SIDE_H = 112;
+function RulerPicture({ mm, ruler }) {
+  const n = Math.min(Math.ceil(mm / ruler.mm - 0.05), 5);
+  const base = SIDE_H - 6;
+  const top = base - mm;
+  const itemW = ruler.key === 'card' ? 44 : ruler.key === 'finger' ? 40 : ruler.mm;
+  return (
+    <svg className="sv-ruler__pic" viewBox={`0 0 160 ${SIDE_H}`} shapeRendering="crispEdges" role="img"
+      aria-label={`A ${fmtInches(mm)} steak beside ${fmtCount(Math.round((mm / ruler.mm) * 4) / 4)} ${ruler.many}`}>
+      <rect x="0" y={base} width="160" height="6" fill="#8b5a2b" />
+      <rect x="0" y={base + 5} width="160" height="1" fill="#5e3c1c" />
+      <rect x="8" y={top} width="72" height={mm} fill="#2b1d1a" />
+      <rect x="10" y={top + 2} width="68" height={mm - 4} fill="#c4344a" />
+      <rect x="10" y={top + 2} width="68" height="3" fill="#7a3f1f" />
+      <rect x="10" y={base - 5} width="68" height="3" fill="#7a3f1f" />
+      <rect x="62" y={top + 2} width="16" height={mm - 4} fill="#f6e6cc" />
+      {Array.from({ length: n }, (_, i) => (
+        <SpriteAt key={i} name={ruler.sprite} x={92} y={base - (i + 1) * ruler.mm} w={itemW} h={ruler.mm} />
+      ))}
+      <rect x="2" y={top - 1} width="156" height="2" fill="#ffc531" />
+    </svg>
+  );
+}
 
 // Thickness without a ruler: pick a thing, then how many of it the steak is.
 // Each pick sets the thickness directly; the slider above shows the result.
@@ -653,8 +754,10 @@ function RulerGuide({ mm, onChange }) {
     <details className="cc-accordion sv-ruler">
       <summary>No ruler? Use a quarter, a card or your fingers</summary>
       <div className="cc-accordion__content sv-ruler__body">
-        <Segmented label="Measure with" items={RULERS.map((r) => ({ key: r.key, name: r.name }))} value={key} onChange={setKey} />
+        <Segmented label="Measure with" items={RULERS.map((r) => ({ key: r.key, label: r.name, name: <><Sprite name={r.sprite} scale={2} />{r.name}</> }))}
+          value={key} onChange={setKey} />
         <p className="cc-help">{ruler.how}</p>
+        <RulerPicture mm={mm} ruler={ruler} />
         <Segmented label={`How many ${ruler.many}`} showLabel={false} className="sv-seg sv-ruler__counts" value={picked}
           onChange={(n) => onChange(Math.round(n * ruler.mm))}
           items={ruler.counts.map((n) => ({ key: n, name: fmtCount(n), label: `${fmtCount(n)} ${unit(n)}` }))} />
@@ -673,8 +776,40 @@ function RulerGuide({ mm, onChange }) {
 }
 
 const formFor = (cut, rest) => ({
-  ...rest, cut, mm: cut.mm, bone: cut.bone, lb: String(cut.lb), widthIn: '', lengthIn: '',
+  ...rest, cut, mm: cut.mm, bone: cut.bone, lb: cut.lb, widthIn: null, lengthIn: null,
 });
+
+// model.sized, in inches: the sides nobody measured, filled in from the weight, so a
+// side's stepper starts where the planner already is.
+const MEAT_DENSITY = 1050; // kg/m³, model.MEAT_DENSITY
+const PLAN_ASPECT = 1.3; // model.PLAN_ASPECT
+export function sizedIn({ cut, mm, lb, widthIn, lengthIn }) {
+  const width = widthIn && widthIn * MM_PER_IN;
+  const length = lengthIn && lengthIn * MM_PER_IN;
+  const out = (w, l) => ({ width: w && w / MM_PER_IN, length: l && l / MM_PER_IN });
+  if (!lb) return out(width, length);
+  const volume = (lb * G_PER_LB) / 1000 / MEAT_DENSITY * 1e9;
+  if (cut.shape === 'cylinder') return out(null, length || volume / (Math.PI * (mm / 2) ** 2));
+  const area = volume / mm;
+  if (cut.shape === 'puck') return out(width || (4 * area / Math.PI) ** 0.5, null);
+  if (width || length) return out(width || area / length, length || area / width);
+  const w = (area / PLAN_ASPECT) ** 0.5;
+  return out(w, w * PLAN_ASPECT);
+}
+
+// The targets from rare to well done as blocks of meat colour, the chosen one lifted.
+function DonenessStrip({ c }) {
+  const blocks = Array.from({ length: 20 }, (_, i) => 49 + i);
+  const at = Math.round(c);
+  return (
+    <span className="sv-doneness" aria-hidden="true">
+      {blocks.map((b) => <i key={b} className={b === at ? 'is-on' : undefined} style={{ background: shade(b + 0.5) }} />)}
+    </span>
+  );
+}
+
+const WEIGHT_STEPS = [{ d: 0.5 }, { d: 0.05, text: '.05' }];
+const SIDE_STEPS = [{ d: 0.5 }, { d: 0.1, text: '.1' }];
 
 const startNote = (c) => (c <= 7 ? ' · fridge' : c >= 18 ? ' · room temp' : '');
 
@@ -685,22 +820,25 @@ export default function SousVideApp() {
   // The running cook ({ method, startedAt ms, startMin of the day, bath °F }) and its
   // probe log, the same text the calibration fits.
   const [cook, setCook] = useState(() => load(COOK_KEY));
-  const [log, setLogState] = useState(() => load(LOG_KEY) ?? '');
-  const [bathF, setBathF] = useState(() => cook?.bathF ?? '135');
-  const setLog = (text) => { setLogState(text); save(LOG_KEY, text || null); };
+  const [log, setLogState] = useState(loadLog);
+  // Counts the cook's milestones (start, each reading); each one replays a burst.
+  const [party, setParty] = useState(0);
+  const setLog = (next) => { setLogState(next); save(LOG_KEY, next.readings.length ? next : null); };
   const startCook = (method, row) => {
     const now = new Date();
     const next = { method, startedAt: now.getTime(), startMin: now.getHours() * 60 + now.getMinutes(),
-      bathF: String(Math.round(toF(row.bath_c) * 2) / 2) };
+      bathF: Math.round(toF(row.bath_c) * 2) / 2 };
     setCook(next); save(COOK_KEY, next);
-    setBathF(next.bathF);
-    setLog(''); // a new cook is a new log
+    setLog({ bathF: next.bathF, readings: [] }); // a new cook is a new log
+    setParty((n) => n + 1);
   };
   const endCook = () => { setCook(null); save(COOK_KEY, null); };
   const addReading = (f) => {
     const min = Math.round((Date.now() - cook.startedAt) / 6000) / 10;
-    setLog(`${log.trimEnd()}${log.trim() ? '\n' : ''}${min}, ${f}`);
+    setLog({ bathF: log.bathF ?? Number(cook.bathF), readings: [...log.readings, [min, f]] });
+    setParty((n) => n + 1);
   };
+  const deleteReading = (i) => setLog({ ...log, readings: log.readings.filter((_, k) => k !== i) });
   // The last plan stays on screen, dimmed, while the next one loads.
   const shown = useDeferredValue(form);
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
@@ -712,6 +850,8 @@ export default function SousVideApp() {
   const { cut, target } = form;
   const slab = cut.shape === 'slab';
   const lb = measured(form.lb);
+  const sides = sizedIn(form);
+  const fromWeight = lb ? { empty: 'from weight', label: 'From weight' } : { empty: 'unknown', label: 'Unknown' };
   const query = queryOf(shown);
   const loading = <p className="cc-caption" aria-busy="true">Working out the heat…</p>;
   return (
@@ -720,42 +860,41 @@ export default function SousVideApp() {
       <main className="sv-main">
         <div className="sv-top">
           <div className="sv-lead">
-            <h1 className="cc-h1">Sous vide steak</h1>
+            <h1 className="cc-h1 sv-title"><Sprite key={cut.id} name={cut.id} scale={4} className="sv-title__cut" />Sous vide steak</h1>
             <p className="sv-steak-line">
               {cut.name}, {fmtInches(form.mm)}{lb ? `, ${lb} lb` : ''}, {fmtF(form.start)} to {fmtF(target)} {doneness(target)}
               {' '}<a className="cc-inline-link" href="#steak">Change</a>
             </p>
             <PlanError query={query}>
               <Suspense fallback={loading}>
-                <Answer form={shown} stale={shown !== form} cook={cook} readings={parseLog(log).length}
+                <Answer form={shown} stale={shown !== form} cook={cook} readings={log.readings} party={party}
                   onStart={startCook} onEnd={endCook} onReading={addReading} />
               </Suspense>
             </PlanError>
           </div>
           <section className="sv-controls" id="steak" aria-label="Steak">
             <h2 className="sv-controls__title">Your steak</h2>
-            <label className="cc-field sv-field">
-              <span className="cc-label">Cut</span>
-              <select className="cc-select" value={cut.id} onChange={(e) => pickCut(e.target.value)}>
-                {CUTS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </label>
+            <Segmented label="Cut" className="sv-cuts" value={cut.id} onChange={pickCut}
+              items={CUTS.map((c) => ({ key: c.id, label: c.name, name: <><Sprite name={c.id} scale={3} /><span>{c.name}</span></> }))} />
             <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
               shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
             <RulerGuide mm={form.mm} onChange={set('mm')} />
             <div className="sv-measures">
-              <Measure label="Weight, lb" value={form.lb} step="0.01" onChange={set('lb')} />
-              {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={form.widthIn} step="0.1"
-                placeholder="from weight" onChange={set('widthIn')} />}
-              {cut.shape !== 'puck' && <Measure label="Length, in" value={form.lengthIn} step="0.1" placeholder="from weight"
-                onChange={set('lengthIn')} />}
+              <Measure label="Weight, lb" value={form.lb} base={cut.lb} unit=" lb" empty="unknown" steps={WEIGHT_STEPS}
+                min={0.15} max={11} clear={{ empty: 'sized by thickness', label: 'Don’t know' }} onChange={set('lb')} />
+              {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={form.widthIn}
+                base={sides.width ?? cut.mm / MM_PER_IN * 3} unit="″" steps={SIDE_STEPS} min={0.8} max={15}
+                empty={sides.width ? `≈${sides.width.toFixed(1)}″` : 'unknown'} clear={fromWeight} onChange={set('widthIn')} />}
+              {cut.shape !== 'puck' && <Measure label="Length, in" value={form.lengthIn}
+                base={sides.length ?? cut.mm / MM_PER_IN * 4} unit="″" steps={SIDE_STEPS} min={0.8} max={23}
+                empty={sides.length ? `≈${sides.length.toFixed(1)}″` : 'unknown'} clear={fromWeight} onChange={set('lengthIn')} />}
             </div>
             {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
             <Range label="Starts at" value={form.start} min={0} max={30} step={0.5}
               shown={(c) => `${fmtF(c)}${startNote(c)}`} onChange={set('start')} />
             <h2 className="sv-controls__title">Your cook</h2>
             <Range label="Doneness" value={target} min={49} max={68} step={0.5}
-              shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} />
+              shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} below={(c) => <DonenessStrip c={c} />} />
             <Range label="Hot bath, for the faster methods" value={form.boost} min={0} max={10} step={0.5}
               shown={(b) => `${fmtF(target + b)} · +${Math.round(toF(target + b)) - Math.round(toF(target))}°F`} onChange={set('boost')} />
             <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
@@ -768,7 +907,7 @@ export default function SousVideApp() {
           </Suspense>
         </PlanError>
         <Calibrate steak={steakParams(form)} calibration={form.calibration} onChange={calibrate}
-          log={log} setLog={setLog} bathF={bathF} setBathF={setBathF} />
+          log={log} onDelete={deleteReading} />
       </main>
     </div>
   );
