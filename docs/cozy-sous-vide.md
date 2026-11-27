@@ -305,9 +305,37 @@ for a steak that has to wait. The page states the 4 h rule only where it
 applies and makes no other food-safety claim: the model checks bath time and
 temperature, not pasteurization. The center's finish is shown as the range
 between a weaker and a stronger sear, named by doneness only when the whole
-range is one. Depths are shown to the nearest sixteenth of an inch. The chart,
-the cut-open view, the replay, every hot bath, the sizing and calibration sit
-below the steak's controls.
+range is one. Depths are shown to the nearest sixteenth of an inch.
+
+**Screens.** The page is a flow, one screen at a time:
+
+1. **Your steak** (`#steak`): cut, thickness with the No ruler? guide, weight,
+   bone and starting temperature; width and length sit behind **More**.
+2. **Your cook** (`#cook`): doneness with its strip, the hot bath and the sear.
+3. **The plan** (`#plan`): the method tabs, the steps, the schedule with Eat at,
+   and Start cook.
+4. **Cooking** (`#cooking`): the schedule as clock times, the thermometer and
+   Log, the pull banner, End cook, and the steps.
+5. **Learn** (`#learn`): the chart, the cut-open view, the replay, every hot
+   bath, the sizing and Tune to your kitchen.
+
+The screen lives in the URL hash, read with `useSyncExternalStore`, so the
+phone's back button and browser history move between screens. Next pushes a
+history entry and the page's Back walks history back; when the entry before
+is not this flow (a link straight to `#plan`), Back replaces the entry
+instead of leaving the page. A running cook owns the plan screen and an empty
+hash, so a reload during a cook opens on Cooking; Start and End cook replace
+the history entry rather than adding one. The steak, the cook and Learn stay
+reachable mid-cook. A progress bar tracks steps 1 to 4, and later screens show
+the steak on a chip ("2″ bone-in ribeye, 2.94 lb · 130°F") that jumps back to
+edit it. Back and Next stick to the bottom of a phone; a laptop puts the
+steak's controls, and the plan's steps and schedule, in two columns. The steak
+and cook settings are kept in `localStorage` (`sousvide.steak`), so a reload
+keeps them.
+
+The plan is asked for as soon as the steak and cook settle, on the first two
+screens, and the cached promise records its result, so by the time the plan
+screen shows, `use()` reads it without suspending.
 
 When the rest is long (10 minutes or more) and the center still climbs, the
 sear step says what cutting at 5 minutes gives instead, and how cool a full rest
@@ -327,7 +355,7 @@ eat) as offsets, or as clock times worked back from an "eat at" time. The eat-at
 stepper starts at the earliest dinner on a quarter hour (read when it is tapped)
 and never goes earlier. **Start cook** stamps the start once and shows clock
 times from it; nothing ticks, so the page holds no timer. While cooking, the
-schedule and a thermometer stepper sit above the steps. The stepper starts from
+schedule, in large clock times, and a thermometer stepper sit above the steps. The stepper starts from
 the last reading, or the steak's starting temperature, and **Log** saves it as
 minutes since the start. Once a reading reaches the pull temperature, a banner
 says to take it out (or cool the bath). The running cook and its log survive a
@@ -345,12 +373,16 @@ methods, steps, the finger and the title are pixel sprites drawn as SVG
 paths built once at load; the No ruler? panel draws the steak's side to scale
 beside a standing finger or stacked fingers. A doneness strip under the slider
 shows each target's meat colour. Starting a cook, logging a reading, a finished
-fit and a replay that plays to the end of the rest set off a pixel burst. All
-motion is CSS on transform and opacity, started by a mount or a key change (no
-timers or effects), and is off under `prefers-reduced-motion`. Bursts are
-absolutely placed, and stepper values keep their width, so nothing shifts.
+fit and a replay that plays to the end of the rest set off a pixel burst. Each
+screen is keyed on its name and slides in on mount: from the right going
+forward, from the left going back (the direction is kept in state, adjusted
+during render), and not at all on the first screen of a visit; the progress
+fill springs to its step. All motion is CSS on transform and opacity, started
+by a mount or a key change (no timers or effects), and is off under
+`prefers-reduced-motion`. Bursts are absolutely placed, the slide is clipped
+sideways, and stepper values keep their width, so nothing shifts.
 
-**No ruler?** Under the thickness slider, a short tutorial measures with a
+**No ruler?** On the steak screen, under the thickness slider, a short tutorial measures with a
 finger, two ways: stand an index finger beside the steak and see which crease
 its top reaches (taken as 23 mm to the first crease, 46 mm to the second), or
 lay fingers flat and count them (19 mm each). A drawing shows the steak at the
