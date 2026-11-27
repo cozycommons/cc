@@ -2,7 +2,7 @@ import React, { Suspense, use, useDeferredValue, useId, useState } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import PixelKitchen from './PixelKitchen.jsx';
-import { Burst, Sprite, SpriteAt } from './Sprites.jsx';
+import { Burst, Sprite } from './Sprites.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './sousvide.css';
 
@@ -700,76 +700,114 @@ function Details({ form, stale }) {
   );
 }
 
-// Things most kitchens have, held against the steak's side, for a cook without a
-// ruler. `spread` is how much the thing itself varies; a quarter or a card does not.
-export const RULERS = [
-  { key: 'quarter', sprite: 'quarter', name: 'Quarters', one: 'quarter', many: 'quarters', mm: 24.26, spread: 0, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
-    how: 'Hold quarters on edge against the steak’s side, one above the other. How many tall is it?' },
-  { key: 'card', sprite: 'card', name: 'Card', one: 'card', many: 'card', mm: 53.98, spread: 0, counts: [0.5, 0.75, 1, 1.25, 1.5],
-    how: 'Stand a credit card on its long edge beside the steak. How much of the card’s height is it?' },
-  { key: 'finger', sprite: 'finger', name: 'Fingers', one: 'finger', many: 'fingers', mm: 19, spread: 0.15, counts: [1, 1.5, 2, 2.5, 3, 3.5, 4],
-    how: 'Lay fingers flat against its side, like measuring a drink. How many fingers tall?' },
-];
+// Measuring with a finger, for a cook without a ruler. An adult index finger is
+// about 23 mm from the tip to its first crease, 46 mm to the second and 19 mm wide
+// laid flat; hands differ by about 15 %.
+const FINGER_MM = 19;
+const CREASE_MM = 23;
+const FINGER_SPREAD = 0.15;
+// Cook time grows about as thickness squared, so a thickness off by x% is a time off by about 2x%.
+const TIME_PER_THICKNESS = 2;
 const PARTS = { 0.25: '¼', 0.5: '½', 0.75: '¾' };
 // 1.5 as '1½', 0.75 as '¾'.
 export const fmtCount = (n) => `${Math.floor(n) || ''}${PARTS[n % 1] ?? ''}`;
-// Cook time grows about as thickness squared, so a thickness off by x% is a time off by about 2x%.
-const TIME_PER_THICKNESS = 2;
 
-// The steak's side on the board, with the things stacked beside it up past its top
-// and a line across at its thickness: the picture of what the cook is checking. One
-// unit is a millimetre, so it is to scale; a card stands on its long edge.
+export const FINGER_WAYS = [
+  {
+    key: 'crease', name: 'Creases',
+    steps: ['Lay the steak flat on the board.', 'Stand your index finger up beside it, fingertip on the board.',
+      'Where does the top of the steak reach on your finger?'],
+    marks: [
+      { key: 'half', name: '½', where: 'halfway to the first crease', mm: Math.round(CREASE_MM / 2) },
+      { key: 'first', name: '1st', where: 'the first crease', mm: CREASE_MM },
+      { key: 'between', name: '1½', where: 'between the creases', mm: Math.round(CREASE_MM * 1.5) },
+      { key: 'second', name: '2nd', where: 'the second crease', mm: CREASE_MM * 2 },
+      { key: 'past', name: '2½', where: 'past the second crease', mm: Math.round(CREASE_MM * 2.5) },
+    ],
+  },
+  {
+    key: 'stack', name: 'Stacked',
+    steps: ['Lay the steak flat on the board.', 'Lay fingers flat against its side, one above the other, the bottom one on the board.',
+      'How many fingers tall is it?'],
+    marks: [1, 1.5, 2, 2.5, 3, 3.5].map((n) => ({
+      key: String(n), name: fmtCount(n), where: `${fmtCount(n)} finger${n === 1 ? '' : 's'} tall`, mm: Math.round(FINGER_MM * n),
+    })),
+  },
+];
+
+// The steak's side on the board with a finger beside it, one unit to the millimetre,
+// so the picture is to scale and shows the thickness picked: a finger standing with
+// its creases marked, or fingers laid flat and stacked. A gold line marks the top.
 const SIDE_H = 112;
-function RulerPicture({ mm, ruler }) {
-  const n = Math.min(Math.ceil(mm / ruler.mm - 0.05), 5);
+function FingerPicture({ way, mm }) {
   const base = SIDE_H - 6;
-  const top = base - mm;
-  const itemW = ruler.key === 'card' ? 44 : ruler.key === 'finger' ? 40 : ruler.mm;
+  const tall = Math.min(Math.max(mm, 8), 90);
+  const top = base - tall;
+  const ink = '#2b1d1a';
+  const skin = '#f0b98d';
+  const shadow = '#c98a63';
+  const fingers = Math.min(Math.ceil(tall / FINGER_MM - 0.05), 5);
   return (
     <svg className="sv-ruler__pic" viewBox={`0 0 160 ${SIDE_H}`} shapeRendering="crispEdges" role="img"
-      aria-label={`A ${fmtInches(mm)} steak beside ${fmtCount(Math.round((mm / ruler.mm) * 4) / 4)} ${ruler.many}`}>
+      aria-label={way.key === 'crease' ? 'An index finger standing beside the steak, its two creases marked' : 'Fingers laid flat and stacked beside the steak'}>
       <rect x="0" y={base} width="160" height="6" fill="#8b5a2b" />
       <rect x="0" y={base + 5} width="160" height="1" fill="#5e3c1c" />
-      <rect x="8" y={top} width="72" height={mm} fill="#2b1d1a" />
-      <rect x="10" y={top + 2} width="68" height={mm - 4} fill="#c4344a" />
+      <rect x="8" y={top} width="72" height={tall} fill={ink} />
+      <rect x="10" y={top + 2} width="68" height={tall - 4} fill="#c4344a" />
       <rect x="10" y={top + 2} width="68" height="3" fill="#7a3f1f" />
       <rect x="10" y={base - 5} width="68" height="3" fill="#7a3f1f" />
-      <rect x="62" y={top + 2} width="16" height={mm - 4} fill="#f6e6cc" />
-      {Array.from({ length: n }, (_, i) => (
-        <SpriteAt key={i} name={ruler.sprite} x={92} y={base - (i + 1) * ruler.mm} w={itemW} h={ruler.mm} />
-      ))}
-      <rect x="2" y={top - 1} width="156" height="2" fill="#ffc531" />
+      <rect x="2" y={top - 1} width={way.key === 'crease' ? 114 : 156} height="2" fill="#ffc531" />
+      {way.key === 'crease' ? (
+        <g>
+          <rect x="94" y={base - 88} width="22" height="88" fill={ink} />
+          <rect x="96" y={base - 86} width="18" height="86" fill={skin} />
+          <rect x="110" y={base - 86} width="4" height="86" fill={shadow} />
+          {[1, 2].map((n) => (
+            <g key={n}>
+              <rect x="96" y={base - n * CREASE_MM - 1} width="18" height="2" fill="#8a4f33" />
+              <text x="121" y={base - n * CREASE_MM + 4} className="sv-ruler__note">{n === 1 ? '1st' : '2nd'}</text>
+            </g>
+          ))}
+        </g>
+      ) : (
+        Array.from({ length: fingers }, (_, i) => {
+          const y = base - (i + 1) * FINGER_MM;
+          return (
+            <g key={i}>
+              <rect x="86" y={y} width="66" height={FINGER_MM} fill={ink} />
+              <rect x="88" y={y + 2} width="62" height={FINGER_MM - 4} fill={skin} />
+              <rect x="88" y={y + FINGER_MM - 6} width="62" height="4" fill={shadow} />
+              <rect x="140" y={y + 4} width="8" height="7" fill="#f8dccb" />
+            </g>
+          );
+        })
+      )}
     </svg>
   );
 }
 
-// Thickness without a ruler: pick a thing, then how many of it the steak is.
-// Each pick sets the thickness directly; the slider above shows the result.
+// Thickness without a ruler: a finger's creases or fingers stacked. Each pick
+// sets the thickness directly; the slider above shows the result.
 function RulerGuide({ mm, onChange }) {
-  const [key, setKey] = useState('quarter');
-  const ruler = RULERS.find((r) => r.key === key);
-  const picked = ruler.counts.find((n) => Math.round(n * ruler.mm) === mm);
-  const unit = (n) => (n === 1 ? ruler.one : ruler.many);
+  const [key, setKey] = useState('crease');
+  const way = FINGER_WAYS.find((w) => w.key === key);
+  const picked = way.marks.find((m) => m.mm === mm);
   return (
     <details className="cc-accordion sv-ruler">
-      <summary>No ruler? Use a quarter, a card or your fingers</summary>
+      <summary>No ruler? Measure with your finger</summary>
       <div className="cc-accordion__content sv-ruler__body">
-        <Segmented label="Measure with" items={RULERS.map((r) => ({ key: r.key, label: r.name, name: <><Sprite name={r.sprite} scale={2} />{r.name}</> }))}
-          value={key} onChange={setKey} />
-        <p className="cc-help">{ruler.how}</p>
-        <RulerPicture mm={mm} ruler={ruler} />
-        <Segmented label={`How many ${ruler.many}`} showLabel={false} className="sv-seg sv-ruler__counts" value={picked}
-          onChange={(n) => onChange(Math.round(n * ruler.mm))}
-          items={ruler.counts.map((n) => ({ key: n, name: fmtCount(n), label: `${fmtCount(n)} ${unit(n)}` }))} />
-        {picked != null && (
-          <p className="cc-help">
-            {fmtCount(picked)} {unit(picked)} is {fmtInches(mm)}.
-            {ruler.spread
-              ? ` Fingers differ by about ${Math.round(ruler.spread * 100)}%, so the cook time could be off by ${
-                Math.round(ruler.spread * TIME_PER_THICKNESS * 100)}%. Check one finger against a quarter once, or go by the thermometer.`
-              : ' Close enough: within about ⅛″.'}
-          </p>
-        )}
+        <Segmented label="How" showLabel={false} value={key} onChange={setKey}
+          items={FINGER_WAYS.map((w) => ({ key: w.key, label: w.name, name: <><Sprite name="finger" scale={2} />{w.name}</> }))} />
+        <FingerPicture way={way} mm={mm} />
+        <ol className="sv-ruler__steps">{way.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+        <Segmented label={key === 'crease' ? 'Where it reaches' : 'How many fingers'} showLabel={false}
+          className="sv-seg sv-ruler__counts" value={picked?.key} onChange={(k) => onChange(way.marks.find((m) => m.key === k).mm)}
+          items={way.marks.map((m) => ({ key: m.key, name: m.name, label: m.where }))} />
+        <p className="cc-help">
+          {picked ? `Up to ${picked.where.replace(/ tall$/, '')}: about ${fmtInches(mm)}. ` : 'Tap where it reaches. '}
+          Fingers differ by about {Math.round(FINGER_SPREAD * 100)}%, about {Math.round(FINGER_SPREAD * TIME_PER_THICKNESS * 100)}% on
+          cook time: close enough to plan, and the thermometer has the last word.
+        </p>
       </div>
     </details>
   );

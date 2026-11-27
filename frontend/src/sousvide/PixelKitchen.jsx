@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { STRATEGIES, Segmented, fmtMinutes, shade, toF } from './SousVideApp.jsx';
+import { STRATEGIES, Segmented, fmtF, fmtMinutes, shade, sliceEarly, toF } from './SousVideApp.jsx';
 import { Burst } from './Sprites.jsx';
 
 // A pixel-art replay of one cook from the plan's trace: the bag in the bath, the
-// pan, the board, and a cross-section that fills in as each layer peaks. The
-// canvas is drawn at W x H and scaled up with image-rendering: pixelated.
+// pan, the board, and a cross-section cut through the steak. The cut is coloured
+// by each layer's peak, the colour meat keeps once cooked; beside it, a bar per
+// layer shows how hot that layer is right now against the target. Both come from
+// the solver's per-layer temperatures (trace points' `layers`, at the plan's
+// `layer_rho`). The canvas is drawn at W x H and scaled up with image-rendering:
+// pixelated.
 export const W = 200;
 export const H = 112;
-const PLAY_MS = 14000; // a whole cook, any length, replays in this long
+const PLAY_MS = 16000; // a whole cook, any length, replays in this long
 const FRAME_MS = 83; // about 12 fps
 
 const C = {
@@ -15,7 +19,7 @@ const C = {
   ink: '#3d2f29', soft: '#6f6256', paper: '#f2eadb', butter: '#f0c477', amber: '#d39155',
   clay: '#b76845', moss: '#69755a', mossDark: '#465243', steel: '#9aa3a2', steelDark: '#6e7b7e',
   water: '#8fb3b6', waterDeep: '#6f9599', foam: '#d9ebe8', iron: '#2d2422', ironHi: '#4a3d39',
-  board: '#c99b6d', boardDark: '#a77b52', fat: '#f3e4cf', bone: '#efe6d2', marrow: '#c98f7a', cat: '#8a6f5a', catDark: '#5e4a3c',
+  board: '#c99b6d', sear: '#8b3a2a', boardDark: '#a77b52', fat: '#f3e4cf', bone: '#efe6d2', marrow: '#c98f7a', cat: '#8a6f5a', catDark: '#5e4a3c',
 };
 
 // 3x5 digits for the circulator and the clock.
@@ -25,12 +29,20 @@ const GLYPHS = {
   8: '111101111101111', 9: '111101111001111', F: '111100110100100', ':': '0',
 };
 
-// Temperature at fractional radius rho (0 centre, 1 surface) from the trace's
-// core, middle (about half way out) and surface readings.
-export function tempAt(point, rho) {
-  return rho <= 0.5
-    ? point.core + (point.mid - point.core) * (rho / 0.5)
-    : point.mid + (point.surface - point.mid) * ((rho - 0.5) / 0.5);
+// Temperature at fractional radius rho (0 centre, 1 surface): linear between the
+// solver's layers at `rhos` when the point has them, otherwise between the core,
+// middle (about half way out) and surface readings.
+export function tempAt(point, rho, rhos) {
+  const { layers } = point;
+  if (!layers || !rhos) {
+    return rho <= 0.5
+      ? point.core + (point.mid - point.core) * (rho / 0.5)
+      : point.mid + (point.surface - point.mid) * ((rho - 0.5) / 0.5);
+  }
+  let i = 1;
+  while (i < rhos.length - 1 && rhos[i] < rho) i += 1;
+  const f = Math.max(0, Math.min(1, (rho - rhos[i - 1]) / (rhos[i] - rhos[i - 1])));
+  return layers[i - 1] + (layers[i] - layers[i - 1]) * f;
 }
 
 // The trace point at minute t, linearly between readings.
@@ -41,20 +53,51 @@ export function pointAt(trace, t) {
     const b = trace[i];
     if (t <= b.min) {
       const f = (t - a.min) / (b.min - a.min || 1);
-      const mix = (k) => a[k] + (b[k] - a[k]) * f;
-      return { min: t, phase: b.phase, core: mix('core'), mid: mix('mid'), surface: mix('surface') };
+      const mix = (x, y) => x + (y - x) * f;
+      const out = { min: t, phase: b.phase, core: mix(a.core, b.core), mid: mix(a.mid, b.mid), surface: mix(a.surface, b.surface) };
+      if (a.layers && b.layers) out.layers = a.layers.map((x, k) => mix(x, b.layers[k]));
+      return out;
     }
   }
   return trace.at(-1);
 }
 
+// Temperature at each of n radii, centre first.
+export const liveAt = (point, n, rhos) => Array.from({ length: n }, (_, i) => tempAt(point, i / (n - 1), rhos));
+
 // Peak temperature so far at each of n radii, centre first.
-export function peaksAt(trace, t, n) {
+export function peaksAt(trace, t, n, rhos) {
   const peaks = Array(n).fill(-Infinity);
-  const visit = (p) => { for (let i = 0; i < n; i += 1) peaks[i] = Math.max(peaks[i], tempAt(p, i / (n - 1))); };
+  const visit = (p) => { for (let i = 0; i < n; i += 1) peaks[i] = Math.max(peaks[i], tempAt(p, i / (n - 1), rhos)); };
   for (const p of trace) { if (p.min > t) break; visit(p); }
   visit(pointAt(trace, t));
   return peaks;
+}
+
+// Shares of the replay for the bath and the sear; the rest gets what is left. A
+// 45 s sear is under 1 % of a cook, so at its true pace it would flash past in a
+// frame; the replay (and its slider) slows down for the sear and the rest.
+const SHARES = { bath: 0.55, sear: 0.15 };
+
+// The replay's timeline: [fraction of the replay, cook minute] knots at the
+// bath's start, its end, the sear's end and the rest's end.
+export function timeline(trace, searS) {
+  const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
+  const end = trace.at(-1).min;
+  const searEnd = Math.min(end, bathEnd + searS / 60);
+  const sear = searEnd > bathEnd ? SHARES.sear : 0;
+  const bath = end > searEnd ? SHARES.bath : 1 - sear;
+  return [[0, 0], [bath, bathEnd], [bath + sear, searEnd], [1, end]];
+}
+
+// The cook minute at replay fraction f.
+export function minuteAt(knots, f) {
+  for (let i = 1; i < knots.length; i += 1) {
+    const [fa, ta] = knots[i - 1];
+    const [fb, tb] = knots[i];
+    if (f <= fb && fb > fa) return ta + (tb - ta) * Math.max(0, (f - fa) / (fb - fa));
+  }
+  return knots.at(-1)[1];
 }
 
 // Where the cook is at minute t: in the bath, searing, or resting.
@@ -63,6 +106,54 @@ export function sceneAt(trace, t, searS) {
   if (t <= bathEnd) return 'bath';
   return t - bathEnd <= searS / 60 ? 'sear' : 'rest';
 }
+
+// What is happening at minute t, in a first-time cook's words. `row` is the
+// method's plan row, `bathC` the bath right now, `next` the point a little later
+// (to tell a climbing center from a falling one).
+export function storyAt({ trace, t, scene, row, target, sear, bathC, point, next }) {
+  const core = fmtF(point.core);
+  if (scene === 'bath') {
+    if (t <= 0) return `Into the ${fmtF(bathC)} bath straight from the fridge, ${core} all the way through.`;
+    if (row.switch_minutes != null && t > row.switch_minutes) {
+      return `The bath is down to ${fmtF(target)}, so the outside stops climbing while the center catches up: ${core}.`;
+    }
+    const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
+    if (t >= bathEnd * 0.9) {
+      return row.bath_c > target
+        ? `Nearly time to pull it at ${core}. The sear and rest carry the center the last few degrees.`
+        : `The center has nearly caught up with the bath: ${core}.`;
+    }
+    return `Heat creeps in from the outside. The edge is ${fmtF(point.surface)}, the center ${core}.`;
+  }
+  if (scene === 'sear') {
+    const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
+    const hottest = Math.max(point.surface, ...trace.filter((p) => p.min > bathEnd && p.min <= bathEnd + sear / 60 + 1e-6).map((p) => p.surface));
+    // The key under the canvas shows the surface now, so the caption names it too.
+    const now = fmtF(point.surface);
+    const peak = fmtF(hottest) === now ? '' : `, ${fmtF(hottest)} by the end of the sear`;
+    return `Searing: the surface is ${now}${peak}, but only a thin layer gets that hot. The center, ${core}, hasn't felt it yet.`;
+  }
+  const climbing = next.core > point.core + 0.02;
+  const peak = trace.filter((p) => p.phase === 'finish').reduce((a, b) => (b.core > a.core ? b : a));
+  if (!climbing) return `Rested: the center topped out at ${fmtF(peak.core)} and the crust has cooled to ${fmtF(point.surface)}. Slice it.`;
+  const early = sliceEarly(trace, sear);
+  const rested = t - trace.filter((p) => p.phase === 'bath').at(-1).min - sear / 60;
+  if (early && rested >= early.min) {
+    return `Cut now and the center is ${core}. Wait and it reaches ${fmtF(peak.core)}, but the crust cools to ${fmtF(early.crust)}.`;
+  }
+  return `Resting: heat under the crust keeps moving in, so the center is still climbing (${core}) while the crust cools (${fmtF(point.surface)}).`;
+}
+
+// The colour of a layer's bar: cool below the target, butter at it, clay past it.
+export function barColor(c, targetC) {
+  if (c < targetC - 2) return C.water;
+  if (c <= targetC + 2) return C.butter;
+  return c > targetC + BAR_OVER_C ? C.sear : C.clay;
+}
+// The bars' scale: from BAR_UNDER_C below the target, where the bath starts
+// to show, to BAR_OVER_C past it, where only the sear reaches.
+const BAR_UNDER_C = 20;
+const BAR_OVER_C = 10;
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -139,6 +230,7 @@ function drawSteak(px, x, y, w, h, peaks, { crust = 0, marbling, fatCap, grain =
 
 export function drawKitchen({ px, text }, frame) {
   const { scene, point, peaks, bathF, t, tick, marbling, fatCap, coreF, targetF, crust, hot, bone = 'none' } = frame;
+  const { live = peaks, crustF = coreF, targetC = ((targetF - 32) * 5) / 9, done = false } = frame;
   // Wall tiles, a shelf with a plant, the counter.
   px(0, 0, W, H, C.wall);
   for (let y = 0; y < 78; y += 8) for (let x = (y / 8) % 2 ? 4 : 0; x < W; x += 8) px(x, y, 4, 4, C.tile);
@@ -200,19 +292,32 @@ export function drawKitchen({ px, text }, frame) {
     px(44 + Math.round(Math.sin(wy / 2) * 2), wy, 1, 2, C.paper);
   }
 
-  // Cross-section card: the steak cut open, edge to edge.
-  px(100, 26, 92, 46, C.paper);
-  px(100, 26, 92, 1, C.edge); px(100, 71, 92, 1, C.edge);
-  drawSteak(px, 106, 38, 80, 26, peaks, { crust, marbling, fatCap, bone, grain: 2 });
-  // Thermometer: core against the target notch.
+  // Cross-section card: the steak cut open, edge to edge, coloured by each
+  // layer's peak, and beside it a bar per row for how hot that layer is now.
+  px(100, 24, 92, 48, C.paper);
+  px(100, 24, 92, 1, C.edge); px(100, 71, 92, 1, C.edge);
+  const sy = 40, sh = 26;
+  drawSteak(px, 104, sy, 56, sh, peaks, { crust, marbling, fatCap, bone, grain: 2 });
+  const bx = 164, bw = 24, n = live.length;
+  const barX = (c) => Math.round(bw * Math.max(0, Math.min(1, (c - targetC + BAR_UNDER_C) / (BAR_UNDER_C + BAR_OVER_C))));
+  px(bx, sy, bw, sh, C.tile);
+  for (let row = 0; row < sh; row += 1) {
+    const c = live[Math.min(n - 1, Math.round(Math.abs((row + 0.5) / sh * 2 - 1) * (n - 1)))];
+    px(bx, sy + row, barX(c), 1, barColor(c, targetC));
+  }
+  for (let y = sy - 1; y < sy + sh + 1; y += 2) px(bx + barX(targetC), y, 1, 1, C.ink); // the target
+  // Thermometers: the center against the target notch, and the crust.
   const lo = 40, hi = 160;
   const level = (f) => Math.max(0, Math.min(1, (f - lo) / (hi - lo)));
-  const mercury = coreF > targetF + 3 ? C.clay : C.moss;
-  px(104, 28, 6, 6, C.tile); px(105, 27, 4, 8, C.tile);
-  px(105, 29, 4, 4, mercury); px(106, 28, 2, 6, mercury);
-  px(110, 29, 74, 4, C.tile);
-  px(110, 30, Math.round(73 * level(coreF)), 2, mercury);
-  px(110 + Math.round(73 * level(targetF)), 28, 1, 6, C.ink);
+  const gauge = (y, f, color) => {
+    px(104, y + 1, 4, 3, C.tile); px(105, y, 2, 5, C.tile);
+    px(105, y + 1, 2, 3, color);
+    px(109, y + 1, 79, 3, C.tile);
+    px(109, y + 2, Math.round(78 * level(f)), 1, color);
+  };
+  gauge(27, coreF, coreF > targetF + 3 ? C.clay : C.moss);
+  gauge(33, crustF, '#6b412a');
+  px(109 + Math.round(78 * level(targetF)), 27, 1, 5, C.ink);
 
   // Clock: elapsed time in the cook.
   const minutes = Math.floor(t);
@@ -225,7 +330,15 @@ export function drawKitchen({ px, text }, frame) {
   px(cx + 12, cy, 8, 8, C.cat);
   px(cx + 12, cy - 2, 2, 2, C.cat); px(cx + 18, cy - 2, 2, 2, C.cat);
   px(cx - 4, cy + 9, 5, 2, C.catDark);
-  if (awake) { px(cx + 14, cy + 3, 1, 2, C.butter); px(cx + 17, cy + 3, 1, 2, C.butter); }
+  if (awake) {
+    // Eyes on the pan while it sizzles, then on the board; a heart once it's ready.
+    const look = scene === 'sear' ? 0 : -1;
+    px(cx + 14 + look, cy + 3, 1, 2, C.butter); px(cx + 17 + look, cy + 3, 1, 2, C.butter);
+    if (done) {
+      const hy = cy - 7 - Math.round(Math.sin(tick / 400));
+      px(cx + 20, hy, 2, 1, C.clay); px(cx + 23, hy, 2, 1, C.clay); px(cx + 20, hy + 1, 5, 1, C.clay); px(cx + 21, hy + 2, 3, 1, C.clay); px(cx + 22, hy + 3, 1, 1, C.clay);
+    }
+  }
   else {
     px(cx + 14, cy + 4, 2, 1, C.ink); px(cx + 17, cy + 4, 2, 1, C.ink);
     const z = (tick / 700) % 1;
@@ -273,7 +386,7 @@ function useOnScreen(el) {
 export default function PixelKitchen({ plan, target, sear, cut }) {
   const [canvas, setCanvas] = useState(null);
   const [strategy, setStrategy] = useState('hot_and_pull');
-  // Paused at `paused` minutes, or playing since `run.at` (ms) from `run.from` minutes.
+  // Paused at fraction `paused` of the replay, or playing since `run.at` (ms) from fraction `run.from`.
   const [paused, setPaused] = useState(0);
   const [run, setRun] = useState(null);
   const [shownPlan, setShownPlan] = useState(plan);
@@ -282,14 +395,16 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
   const trace = plan.trace[strategy];
   const end = trace.at(-1).min;
   const row = plan[strategy];
+  const knots = timeline(trace, sear);
   const onScreen = useOnScreen(canvas);
   const now = useSyncExternalStore(run ? subscribeFrames : still, readFrame, noFrame);
-  const t = run ? Math.min(end, run.from + (Math.max(0, now - run.at) / PLAY_MS) * end) : paused;
+  const f = run ? Math.min(1, run.from + Math.max(0, now - run.at) / PLAY_MS) : paused;
+  const t = minuteAt(knots, f);
 
   // Adjust state during render rather than in effects: a new plan rewinds, and
   // the replay stops at the end or once it leaves the screen.
   if (plan !== shownPlan) { setShownPlan(plan); setRun(null); setPaused(0); setFinished(false); }
-  else if (run && (t >= end || !onScreen)) { setRun(null); setPaused(t); setFinished(t >= end); }
+  else if (run && (f >= 1 || !onScreen)) { setRun(null); setPaused(f); setFinished(f >= 1); }
 
   const marbling = useMemo(() => {
     const r = rng(cut.id.length * 7919 + cut.mm);
@@ -297,13 +412,17 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
     return Array.from({ length: count }, () => [Math.floor(r() * 40), Math.floor(r() * 13)]);
   }, [cut.id, cut.mm]);
 
+  const rhos = plan.layer_rho;
   const point = pointAt(trace, t);
+  const next = pointAt(trace, Math.min(end, t + 0.5));
   const scene = sceneAt(trace, t, sear);
   const bathEnd = trace.filter((p) => p.phase === 'bath').at(-1).min;
   const bathC = row.switch_minutes != null && t > row.switch_minutes ? target : row.bath_c;
   const tick = run ? now : 0;
   const fatCap = cut.id.startsWith('ribeye') || cut.id === 'strip';
   const bone = cut.bone ?? 'none';
+  const story = storyAt({ trace, t, scene, row, target, sear, bathC, point, next });
+  const done = scene === 'rest' && next.core <= point.core + 0.02;
 
   // The canvas is outside React, so drawing it is an effect: one frame per
   // render, and renders only happen on a change or a frame tick.
@@ -311,18 +430,18 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
     const ctx = canvas?.getContext?.('2d');
     if (!ctx) return;
     drawKitchen(painter(ctx), {
-      scene, point, t, tick, marbling, fatCap, bone, peaks: peaksAt(trace, t, 24),
-      bathF: toF(bathC), coreF: toF(point.core), targetF: toF(target),
+      scene, point, t, tick, marbling, fatCap, bone, done, peaks: peaksAt(trace, t, 24, rhos), live: liveAt(point, 24, rhos),
+      bathF: toF(bathC), coreF: toF(point.core), crustF: toF(point.surface), targetF: toF(target), targetC: target,
       crust: scene === 'bath' ? 0 : Math.min(1, ((t - bathEnd) * 60) / Math.max(sear, 1)),
       hot: bathC > target,
     });
-  }, [canvas, scene, point, t, tick, marbling, fatCap, bone, trace, bathC, target, bathEnd, sear]);
+  }, [canvas, scene, point, t, tick, marbling, fatCap, bone, done, trace, rhos, bathC, target, bathEnd, sear]);
 
   const pick = useCallback((id) => { setStrategy(id); setRun(null); setPaused(0); setFinished(false); }, []);
   const toggle = () => {
     setFinished(false);
-    if (run) { setRun(null); setPaused(t); return; }
-    setRun({ from: t >= end ? 0 : t, at: performance.now() });
+    if (run) { setRun(null); setPaused(f); return; }
+    setRun({ from: f >= 1 ? 0 : f, at: performance.now() });
   };
   return (
     <section className="sv-section sv-pixel" aria-label="Replay">
@@ -331,18 +450,24 @@ export default function PixelKitchen({ plan, target, sear, cut }) {
         value={strategy} onChange={pick} />
       <div className="sv-pixel__stage">
         <canvas ref={setCanvas} width={W} height={H} className="sv-pixel__canvas" role="img"
-          aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, center ${Math.round(toF(point.core))}°F`} />
+          aria-label={`${scene === 'bath' ? 'In the bath' : scene === 'sear' ? 'Searing' : 'Resting'} at ${fmtMinutes(t)}, center ${fmtF(point.core)}, crust ${fmtF(point.surface)}`} />
         {/* The rest is over: a burst when a replay reaches the end, not when the slider is dragged there. */}
-        {!run && finished && t >= end && <Burst />}
+        {!run && finished && f >= 1 && <Burst />}
       </div>
+      <p className="sv-pixel__story">{story}</p>
       <div className="sv-pixel__bar">
         <button type="button" className="sv-key sv-key--gold sv-pixel__play" onClick={toggle}>
-          {run ? 'Pause' : t >= end ? 'Replay' : 'Play'}
+          {run ? 'Pause' : f >= 1 ? 'Replay' : 'Play'}
         </button>
-        <input className="cc-range" type="range" aria-label="Time" min={0} max={end} step={end / 400} value={t}
+        <input className="cc-range" type="range" aria-label="Time" aria-valuetext={fmtMinutes(t)} min={0} max={1} step={0.0025} value={f}
           onChange={(e) => { setRun(null); setFinished(false); setPaused(Number(e.target.value)); }} />
-        <output className="sv-pixel__readout">{fmtMinutes(t)} · {Math.round(toF(point.core))}°F</output>
+        <output className="sv-pixel__readout">{fmtMinutes(t)}</output>
       </div>
+      <p className="sv-pixel__key">
+        <span><i className="sv-pixel__swatch sv-pixel__swatch--center" />Center {fmtF(point.core)}</span>
+        <span><i className="sv-pixel__swatch sv-pixel__swatch--crust" />Crust {fmtF(point.surface)}</span>
+        <span>The cut shows the color each layer has cooked to; the bars beside it, how hot each layer is now, with the dotted line at your target.</span>
+      </p>
     </section>
   );
 }

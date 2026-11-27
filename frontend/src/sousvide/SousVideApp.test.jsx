@@ -199,19 +199,22 @@ describe('Sous vide', () => {
     expect(JSON.parse(localStorage.getItem('sousvide.log'))).toEqual({ bathF: 135.5, readings: [[19, 124]] });
   });
 
-  it('measures thickness with quarters, a card or fingers', async () => {
+  it('measures thickness with a finger: its creases or fingers stacked', async () => {
     expect([1, 1.5, 0.75, 2.5].map(fmtCount)).toEqual(['1', '1½', '¾', '2½']);
     const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
     vi.stubGlobal('fetch', fetch);
     await act(async () => { render(<SousVideApp />); });
-    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: '2 quarters' })); });
-    await vi.waitFor(() => expect(planned(fetch)).toContain('thickness_mm=49&'));
-    expect(screen.getByText(/2 quarters is 1.93″\. Close enough/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('radio', { name: 'Fingers' }));
-    expect(screen.queryByText(/is 1.93″/)).toBeNull(); // 49 mm is no whole count of fingers
-    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: '3 fingers' })); });
+    expect(screen.getByText('No ruler? Measure with your finger')).toBeTruthy();
+    expect(screen.getByText('Stand your index finger up beside it, fingertip on the board.')).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'the second crease' })); });
+    await vi.waitFor(() => expect(planned(fetch)).toContain('thickness_mm=46&'));
+    expect(screen.getByText(/Up to the second crease: about 1.81″\. Fingers differ by about 15%, about 30% on/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'Stacked' }));
+    expect(screen.getByText(/^Tap where it reaches/)).toBeTruthy(); // 46 mm is no whole count of fingers
+    await act(async () => { fireEvent.click(screen.getByRole('radio', { name: '3 fingers tall' })); });
     await vi.waitFor(() => expect(planned(fetch)).toContain('thickness_mm=57&'));
-    expect(screen.getByText(/3 fingers is 2.24″\. Fingers differ by about 15%, so the cook time could be off by 30%/)).toBeTruthy();
+    expect(screen.getByText(/Up to 3 fingers: about 2.24″/)).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: 'Quarters' })).toBeNull();
   });
 
   it('plans the bone-in ribeye from its thickness and weight, then from what the cook measures', async () => {

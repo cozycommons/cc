@@ -50,8 +50,11 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-measures{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
 .sv-ruler__body{display:grid;gap:10px}
 .sv-ruler .cc-help{margin:0}
+.sv-ruler__art{display:block;width:100%;max-width:320px;height:auto}
+.sv-ruler__note{font:11px var(--mono,monospace);fill:var(--ink-soft,#6f6256)}
+.sv-ruler__steps{margin:0;padding-left:22px;list-style:decimal;display:grid;gap:2px;font-size:15px;line-height:1.4}
 .cc-accordion.sv-ruler summary{min-height:48px;font-size:18px;line-height:1.25;letter-spacing:-.02em}
-.sv-ruler__counts .cc-segmented__item{justify-content:center;font-family:var(--sans,system-ui);font-size:16px;letter-spacing:0;font-variant-numeric:tabular-nums}
+.sv-ruler__counts .cc-segmented__item{justify-content:center;text-transform:none;font-family:var(--sans,system-ui);font-size:16px;letter-spacing:0;font-variant-numeric:tabular-nums}
 .sv-calibrate__body{display:grid;gap:12px}
 .sv-calibrate summary .cc-badge{margin-left:auto;margin-right:12px}
 .sv-details{display:grid;gap:22px;transition:opacity var(--ease,180ms ease)}
@@ -89,6 +92,7 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-table th{font-weight:600;color:var(--ink-soft,#6f6256)}
 .sv-table tr.is-chosen td{font-weight:700;color:var(--clay,#b76845)}
 .sv-pixel__canvas{display:block;width:100%;max-width:800px;height:auto;aspect-ratio:200/112;image-rendering:pixelated;image-rendering:crisp-edges;border-radius:var(--radius-small,8px);box-shadow:var(--paper-shadow,none);background:#e7dcc5}
+.sv-pixel>.sv-field{max-width:800px}
 .sv-pixel__bar{display:flex;align-items:center;gap:12px;max-width:800px}
 .sv-pixel__bar .cc-range{flex:1;min-width:0}
 .sv-pixel__play{min-width:96px}
@@ -201,3 +205,11 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
   .sv-page *,.sv-page *::before,.sv-page *::after{animation:none!important;transition:none!important}
   .sv-burst{display:none}
 }
+/* Replay: room for two lines of story so the controls don't jump while it plays. */
+.sv-pixel__story{margin:0;max-width:800px;min-height:2.8em;line-height:1.4;color:var(--ink,#3d2f29)}
+.sv-pixel__key{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;max-width:800px;font-size:13px;color:var(--ink-soft,#6f6256);font-variant-numeric:tabular-nums}
+.sv-pixel__key span:last-child{flex-basis:100%}
+.sv-pixel__swatch{display:inline-block;width:10px;height:10px;margin-right:6px;border-radius:2px;vertical-align:-1px}
+.sv-pixel__swatch--center{background:#69755a}
+.sv-pixel__swatch--crust{background:#6b412a}
+@media (max-width:600px){.sv-pixel__story{min-height:4.2em}}

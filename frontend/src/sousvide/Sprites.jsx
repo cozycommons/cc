@@ -147,27 +147,6 @@ const ART = {
     'oyyyyyyo....',
     '.oooooo.....',
   ],
-  quarter: [
-    '..oooooo..',
-    '.osssssso.',
-    'oswsssssdo',
-    'oswsssssdo',
-    'osssssssdo',
-    'osssssssdo',
-    'osssssssdo',
-    '.osssssdo.',
-    '..oooooo..',
-  ],
-  card: [
-    'oooooooooooooo',
-    'ollllllllllllo',
-    'oyyolllllllllo',
-    'oyyolllllllllo',
-    'ollllllllllllo',
-    'olwwlwwwlwwllo',
-    'ollllllllllllo',
-    'oooooooooooooo',
-  ],
   finger: [
     '..ooooooooooo.',
     '.onnnnnnnnnnto',
@@ -210,16 +189,6 @@ export function Sprite({ name, scale = 3, className = '' }) {
   return (
     <svg className={`sv-sprite ${className}`} viewBox={`0 0 ${s.w} ${s.h}`} width={s.w * scale} height={s.h * scale}
       shapeRendering="crispEdges" aria-hidden="true" focusable="false">
-      {s.parts.map(([fill, d]) => <path key={fill} fill={fill} d={d} />)}
-    </svg>
-  );
-}
-
-// The same sprite placed inside a larger SVG drawing, stretched to w x h.
-export function SpriteAt({ name, x, y, w, h }) {
-  const s = SPRITES[name];
-  return (
-    <svg x={x} y={y} width={w} height={h} viewBox={`0 0 ${s.w} ${s.h}`} preserveAspectRatio="none" shapeRendering="crispEdges">
       {s.parts.map(([fill, d]) => <path key={fill} fill={fill} d={d} />)}
     </svg>
   );
