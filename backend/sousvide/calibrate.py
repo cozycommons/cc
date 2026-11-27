@@ -36,9 +36,10 @@ H_RANGE = (20.0, 2000.0)
 H_SE_LIMIT = 0.15
 """h counts as identified when its standard error is under this fraction of its value."""
 
-H_PLAUSIBLE = (60.0, 300.0)
+H_PLAUSIBLE = (100.0, 1500.0)
 """What a bagged steak in a circulating bath can plausibly see, W/(m^2 K), around the planner's
-95. An assumption, not a measurement. A two-parameter fit that leaves it is bending h to absorb
+400: the measured bath cooks in experiments/results/validation.md fit 400 to 1000. An assumption,
+not a measurement. A two-parameter fit that leaves it is bending h to absorb
 something else, usually the probe's position."""
 
 Readings = list[tuple[float, float]]  # (minutes since the steak went in, core C)

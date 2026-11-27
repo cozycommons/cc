@@ -20,6 +20,14 @@ A probe log from one cook then fits the model's constants to their kitchen.
 The page opens on a bone-in ribeye, 51 mm (2″) thick, 1.33 kg (2.94 lb), the
 rib through its middle, from 5 °C to 54.5 °C (130 °F).
 
+**The tables in this section and under "What the experiments found" were
+computed at the earlier bath h of 95 W/m²·K and have not been rerun.** At the
+shipped h of 400 the planner gives this steak 2 h 34 classic and 1 h 16 for
+hot, then pull at +3 °C (pull at 50.3 °C, center peaks at 54.0 °C), against
+3 h 10 and 1 h 37 before. The pull and peak temperatures barely moved; the
+times did. At +3 °C the bath now leaves 1 mm past target under the face before
+the sear, against none at h 95.
+
 **Size.** 1.33 kg at 1050 kg/m³ is 1,267 cm³. At 51 mm thick that is 248 cm² of
 footprint, taken as 180 × 140 mm.
 
@@ -104,7 +112,7 @@ A plan for the canonical steak costs 0.5 s of CPU, a 38 mm slab 0.3 s and a
 | --- | --- | --- |
 | Meat diffusivity α | 1.2e-7 m²/s | Literature pass: 1.07e-7 to 1.44e-7 for marbled ribeye lean |
 | Meat conductivity k | 0.46 W/m·K | Literature pass: 0.37 to 0.51 |
-| Bath h | 95 W/m²·K | Baldwin's value for a bagged steak in a circulating bath |
+| Bath h | 400 W/m²·K | Measured bath cooks fit 400 to 1000 (`experiments/results/validation.md`); was Baldwin's 95, which ran 40 to 126 % long on all five |
 | Air h, air temperature | 10 W/m²·K, 22 °C | First-version values, uncited |
 | Sear | h 400 toward 100 °C | First-version guess: a wet surface boils, holding the meat under the crust near 100 °C |
 | Meat density | 1050 kg/m³ | Relayed with the canonical case |
@@ -252,6 +260,10 @@ predictable choice.
 
 ### Calibrating from a probe log
 
+The synthetic study below was run at the earlier default h of 95. The fit
+now holds h at the shipped 400 when the log cannot pin it, and accepts a
+fitted h between 100 and 1500 W/m²·K.
+
 `POST /sousvide/calibrate` fits α by least squares to (minute, core °C)
 readings from one cook in a bath held at one temperature, running the same
 solver on the steak as measured. With k and h fixed, α only rescales time, so
@@ -276,7 +288,7 @@ to 0.5 % (the defaults were 21 % long), a 38 mm boneless steak to 3 % and a
 anything else, so placement matters more than sample rate.
 
 h is fitted too only when the log pins it: its standard error must be under
-15 % and it must lie between 60 and 300 W/m²·K. Before those guards a
+15 % and it must lie between 60 and 300 W/m²·K (now 100 and 1500). Before those guards a
 two-parameter fit on a log with 0.5 °C noise or a tip 5 mm off settled
 confidently on pairs like α 2.2e-7 with h 32. In practice h needs a logging
 probe (a reading a minute) with about 0.1 °C repeatability.

@@ -42,8 +42,9 @@ def test_cook_time_grows_nearly_with_the_square_of_thickness_and_cylinders_are_f
     def minutes(steak):
         return model.classic(steak, 55, Finish(0)).minutes
     thin, thick = minutes(Steak(20)), minutes(Steak(40))
-    # Baldwin's tables put a 1 inch (25 mm) steak from the fridge at roughly 1 to 1.5 h.
-    assert 60 <= minutes(Steak(25)) <= 95
+    # Baldwin's tables (h 95) put a 1 inch steak from the fridge at 1 to 1.5 h; the measured
+    # cooks in experiments/results/validation.md heat faster, and h 400 gives about 50 min.
+    assert 40 <= minutes(Steak(25)) <= 65
     # Conduction alone gives 4x; the bag's surface resistance matters more for thin steaks.
     assert 2.7 <= thick / thin < 4
     assert minutes(Steak(40, 'cylinder')) < 0.7 * thick
@@ -133,8 +134,9 @@ def test_width_shortens_the_cook_and_a_bone_changes_it_by_where_it_sits():
         return model.classic(Steak(51, **measured), 54.5, Finish(0)).minutes
     slab, boneless = minutes(), minutes(width_mm=140, length_mm=180)
     middle = minutes(width_mm=140, length_mm=180, bone='middle', bone_mm=28)
-    # experiments/ribeye.py: 248 min as a slab, 215 as a box, 192 with the rib through the middle.
-    assert slab == pytest.approx(248, abs=2) and boneless == pytest.approx(215, abs=2) and middle == pytest.approx(192, abs=2)
+    # At h 400: 194 min as a slab, 173 as a box, 155 with the rib through the middle
+    # (experiments/ribeye.py found 248, 215 and 192 at the earlier h 95).
+    assert slab == pytest.approx(194, abs=2) and boneless == pytest.approx(173, abs=2) and middle == pytest.approx(155, abs=2)
     assert minutes(width_mm=140, length_mm=180, bone='edge') == boneless
     assert minutes(width_mm=100) > minutes(width_mm=100, length_mm=100) > model.classic(
         Steak(51, 'puck', width_mm=100), 54.5, Finish(0)).minutes
@@ -211,7 +213,7 @@ def test_plan_uses_the_measured_steak(client):
     measured = client.get('/sousvide/plan', params={**ribeye, 'width_mm': 140, 'length_mm': 180}).json()
     assert measured['steak']['sized_by'] == 'measured'
     assert measured['classic']['minutes'] == pytest.approx(body['classic']['minutes'], rel=0.02)
-    faster = client.get('/sousvide/plan', params={**ribeye, 'alpha': 1.44, 'h_bath': 150}).json()
+    faster = client.get('/sousvide/plan', params={**ribeye, 'alpha': 1.44, 'h_bath': 1000}).json()
     assert faster['classic']['minutes'] < 0.85 * body['classic']['minutes']
     assert client.get('/sousvide/plan', params={**ribeye, 'width_mm': 25, 'length_mm': 180}).status_code == 422
 

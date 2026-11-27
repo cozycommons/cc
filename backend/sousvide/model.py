@@ -61,9 +61,12 @@ class Physics:
     ribeye lean (beef fat alone: 0.9e-7 to 1.2e-7); 1.2e-7 sits inside it. Cook time scales as
     1/alpha, so that range is +12 % to -17 % on time. The constant a probe log fits (calibrate.py)."""
 
-    h_bath: float = 95.0
+    h_bath: float = 400.0
     """Surface heat transfer coefficient of a bagged steak in a circulating bath, W/(m^2 K).
-    The value Baldwin uses for his tables. Depends on the circulator and the bag's contact."""
+    Was Baldwin's 95, which ran 40 to 126 % long against all five measured bath cooks in
+    experiments/results/validation.md; those fit 400 to 1000. 400 is the low end: those were
+    lean cuts at 60 to 80 C, and a low h errs toward a longer cook, not an underdone one.
+    Depends on the circulator and the bag's contact."""
 
     h_air: float = 10.0
     """Still air around a resting steak, W/(m^2 K). First-version value, a textbook
