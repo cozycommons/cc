@@ -510,26 +510,43 @@ def hot_then_drop(steak: Steak, target_c: float, boost_c: float, finish: Finish)
     return finished('hot_then_drop', target_c + boost_c, states, ready, finish, switch=lo)
 
 
+# The depths trace() reports in each point's `layers`, as nodes of the reported
+# line: spread through the middle and packed toward the surface, where the sear's
+# hot band is a millimetre or two thick. LAYER_RHO is each as a fraction of the
+# way from the centre (0) to the surface (1).
+LAYER_NODES = (0, 13, 22, 29, 33, 36, 37, 38, NODES - 1)
+LAYER_RHO = tuple(round(i / (NODES - 1), 3) for i in LAYER_NODES)
+SEAR_EVERY_S = 5.0  # the sear lasts under a minute, so trace() samples it more often
+
+
 def trace(steak: Steak, target_c: float, cook: Cook, finish: Finish, every_s: float = 60.0) -> list[dict]:
-    """Core, middle and surface temperatures through the bath and finish, for charts."""
+    """Temperatures through the bath and finish, for the chart and the replay.
+
+    Each point has the core, middle and surface, and `layers`: the temperature at
+    each LAYER_NODES depth, centre first, to 0.1 C. Points come every every_s,
+    and every SEAR_EVERY_S through the sear; the last bath point is the pull.
+    """
     body = Body(steak)
     points: list[dict] = []
     clock = [0.0, -every_s]
     mid = NODES // 2
+    sear_end = cook.minutes * 60 + finish.sear_s
 
-    def record(dt: float, b: Body, phase: str) -> None:
+    def record(dt: float, b: Body, phase: str, now: bool = False) -> None:
         clock[0] += dt
-        if clock[0] - clock[1] >= every_s - 1e-9:
+        every = SEAR_EVERY_S if phase == 'finish' and clock[0] <= sear_end + 1e-9 else every_s
+        if now or clock[0] - clock[1] >= every - 1e-9:
             clock[1] = clock[0]
             points.append({'min': round(clock[0] / 60, 2), 'phase': phase,
-                           'core': round(b.T[0], 2), 'mid': round(b.T[mid], 2), 'surface': round(b.T[-1], 2)})
+                           'core': round(b.T[0], 2), 'mid': round(b.T[mid], 2), 'surface': round(b.T[-1], 2),
+                           'layers': [round(b.T[i], 1) for i in LAYER_NODES]})
     record(0.0, body, 'bath')
     t, end = 0.0, cook.minutes * 60
     while t < end - 1e-9:
         bath_c = cook.bath_c if cook.switch_minutes is None or t < cook.switch_minutes * 60 else target_c
         body.step(bath_c, steak.physics.h_bath, BATH_STEP_S, share=True)
         t += BATH_STEP_S
-        record(BATH_STEP_S, body, 'bath')
+        record(BATH_STEP_S, body, 'bath', now=t >= end - 1e-9)
     finish.run(body, lambda dt, b: record(dt, b, 'finish'))
     return points
 
@@ -581,6 +598,7 @@ def _plan(steak: Steak, target_c: float, boost_c: float, finish: Finish) -> dict
         **{name: {**row(cook), 'core_peak_range_c': sear_range(cook)} for name, cook in cooks.items()},
         'sweep': [row(c) for c in sweep],
         'trace': {name: trace(steak, target_c, cook, finish) for name, cook in cooks.items()},
+        'layer_rho': list(LAYER_RHO),
         'profile': {name: profile(cook.finished) for name, cook in cooks.items()},
         'warnings': warnings,
         # What the same cook would take if only the thickness were known.

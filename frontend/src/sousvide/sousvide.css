@@ -94,7 +94,16 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-table th{font-weight:600;color:var(--ink-soft,#6f6256)}
 .sv-table tr.is-chosen td{font-weight:700;color:var(--clay,#b76845)}
 .sv-pixel__canvas{display:block;width:100%;max-width:800px;height:auto;aspect-ratio:200/112;image-rendering:pixelated;image-rendering:crisp-edges;border-radius:var(--radius-small,8px);box-shadow:var(--paper-shadow,none);background:#e7dcc5}
+.sv-pixel>.sv-field{max-width:800px}
 .sv-pixel__bar{display:flex;align-items:center;gap:12px;max-width:800px}
 .sv-pixel__bar .cc-range{flex:1;min-width:0}
 .sv-pixel__play{min-width:84px}
 .sv-pixel__readout{font-family:var(--mono,monospace);font-size:13px;color:var(--ink-soft,#6f6256);white-space:nowrap;font-variant-numeric:tabular-nums}
+/* Replay: room for two lines of story so the controls don't jump while it plays. */
+.sv-pixel__story{margin:0;max-width:800px;min-height:2.8em;line-height:1.4;color:var(--ink,#3d2f29)}
+.sv-pixel__key{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;max-width:800px;font-size:13px;color:var(--ink-soft,#6f6256);font-variant-numeric:tabular-nums}
+.sv-pixel__key span:last-child{flex-basis:100%}
+.sv-pixel__swatch{display:inline-block;width:10px;height:10px;margin-right:6px;border-radius:2px;vertical-align:-1px}
+.sv-pixel__swatch--center{background:#69755a}
+.sv-pixel__swatch--crust{background:#6b412a}
+@media (max-width:600px){.sv-pixel__story{min-height:4.2em}}
