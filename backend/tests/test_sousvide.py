@@ -129,6 +129,24 @@ def test_the_finish_shortcut_matches_stepping_the_sear_and_rest_directly():
     assert fast == pytest.approx(top, abs=1e-6)
 
 
+def test_trace_layers_show_the_sear_band_and_the_rest_carrying_heat_inward():
+    steak, target = Steak(thickness_mm=50), 54.5
+    finish = Finish(45)
+    cook = model.hot_and_pull(steak, target, 3.0, finish)
+    points = model.trace(steak, target, cook, finish)
+    assert all(len(p['layers']) == len(model.LAYER_RHO) for p in points)
+    assert all(abs(p['layers'][0] - p['core']) <= 0.06 and abs(p['layers'][-1] - p['surface']) <= 0.06 for p in points)
+    bath_end = cook.minutes
+    sear = [p for p in points if p['phase'] == 'finish' and p['min'] <= bath_end + 0.75 + 1e-6]
+    assert len(sear) == 9  # every 5 s through a 45 s sear
+    hottest = max(sear, key=lambda p: p['surface'])
+    assert hottest['layers'][-1] > 80 and hottest['layers'][-5] < target + 8  # a thin hot band
+    assert hottest['layers'][0] == pytest.approx(sear[0]['layers'][0], abs=0.2)  # the center has not felt it
+    rest = [p for p in points if p['phase'] == 'finish' and p['min'] > bath_end + 0.75]
+    five = next(p for p in rest if p['min'] >= bath_end + 0.75 + 5)
+    assert five['core'] > rest[0]['core'] and five['surface'] < rest[0]['surface']
+
+
 def test_width_shortens_the_cook_and_a_bone_changes_it_by_where_it_sits():
     def minutes(**measured):
         return model.classic(Steak(51, **measured), 54.5, Finish(0)).minutes
@@ -195,7 +213,8 @@ def test_plan_compares_classic_with_both_shortcuts(client):
     assert body['hot_and_pull']['saved_minutes'] > 0
     assert [row['bath_c'] for row in body['sweep']] == [57, 58, 59, 60, 61, 62, 65, 67]
     assert set(body['trace']) == set(body['profile']) == {'classic', 'hot_and_pull', 'hot_then_drop'}
-    assert body['trace']['classic'][0] == {'min': 0, 'phase': 'bath', 'core': 5, 'mid': 5, 'surface': 5}
+    assert body['trace']['classic'][0] == {'min': 0, 'phase': 'bath', 'core': 5, 'mid': 5, 'surface': 5, 'layers': [5] * 9}
+    assert body['layer_rho'][0] == 0 and body['layer_rho'][-1] == 1
     assert body['warnings'] == []
     assert body['steak'] == {'width_mm': None, 'length_mm': None, 'heated_width_mm': None, 'bone': 'none', 'sized_by': 'thickness'}
     assert body['thickness_only_minutes'] == body['classic']['minutes']
