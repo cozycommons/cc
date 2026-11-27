@@ -1,4 +1,4 @@
-import React, { Suspense, use, useDeferredValue, useId, useState } from 'react';
+import React, { Suspense, use, useDeferredValue, useId, useState, useSyncExternalStore } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import PixelKitchen from './PixelKitchen.jsx';
@@ -198,7 +198,10 @@ export function planFor(query) {
       }
       return body;
     });
-    promise.catch(() => failed.add(query));
+    // Recording the result on the promise lets use() read a settled plan without
+    // suspending, so a screen whose plan was fetched ahead of it shows at once.
+    promise.then((value) => { promise.status = 'fulfilled'; promise.value = value; },
+      (reason) => { promise.status = 'rejected'; promise.reason = reason; failed.add(query); });
     plans.set(query, promise);
     if (plans.size > PLAN_CACHE) plans.delete(plans.keys().next().value);
   }
@@ -216,8 +219,7 @@ class PlanError extends React.Component {
   }
   render() {
     if (!this.state.error) return this.props.children;
-    // The answer shows the error; the details below it just step aside.
-    return this.props.quiet ? null : <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>;
+    return <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>;
   }
 }
 
@@ -401,9 +403,8 @@ const READING_STEPS = [{ d: 5 }, { d: 1 }];
 // When each step happens: counted from now until the cook starts, or back from a
 // dinner time, or on the clock once the bag is in. Nothing here ticks; the clock
 // times come from the moment Start was pressed, and the thermometer decides.
-function Schedule({ id, row, form, plan, cook, readings, party, onStart, onEnd, onReading }) {
-  // Dinner as minutes of the day, or null for "start now".
-  const [eatAt, setEatAt] = useState(null);
+// `eatAt` is dinner as minutes of the day, or null for "start now".
+function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, onStart, onEnd, onReading }) {
   // The thermometer stepper starts from the last reading, or the steak's start.
   const [reading, setReading] = useState(null);
   const marks = milestones(id, row, form, plan);
@@ -414,13 +415,13 @@ function Schedule({ id, row, form, plan, cook, readings, party, onStart, onEnd, 
   const shownF = reading ?? last ?? Math.round(toF(form.start));
   const stepEat = (d) => {
     const earliest = earliestEat(total);
-    setEatAt((e) => Math.max(earliest, e == null ? earliest + Math.max(0, d) : e + d));
+    onEatAt(Math.max(earliest, eatAt == null ? earliest + Math.max(0, d) : eatAt + d));
   };
   const log = () => { onReading(shownF); setReading(null); };
   // The thermometer has reached the pull (or cool) mark: the cook's big moment.
   const ready = cook && last != null && last >= Math.round(toF(row.pull_core_c));
   return (
-    <section className="sv-when" aria-label="When">
+    <section className={`sv-when${cook ? ' is-cooking' : ''}`} aria-label="When">
       <div className="sv-when__head">
         {cook
           ? <><span className="cc-label">Cooking since {fmtClock(cook.startMin)}</span>
@@ -428,7 +429,7 @@ function Schedule({ id, row, form, plan, cook, readings, party, onStart, onEnd, 
           : <>
             <Stepper label="Eat at" steps={EAT_STEPS} shown={eatAt == null ? 'ASAP' : fmtClock(eatAt)}
               canStep={(d) => d > 0 || eatAt != null} onStep={stepEat}>
-              {eatAt != null && <button type="button" className="sv-chip" onClick={() => setEatAt(null)}>As soon as I can</button>}
+              {eatAt != null && <button type="button" className="sv-chip" onClick={() => onEatAt(null)}>As soon as I can</button>}
             </Stepper>
             <button type="button" className="sv-key sv-key--go sv-when__start" onClick={() => onStart(id, row)}>
               <Sprite name="flame" scale={2} />Start cook</button></>}
@@ -446,7 +447,7 @@ function Schedule({ id, row, form, plan, cook, readings, party, onStart, onEnd, 
           {ready && <p className="sv-ready" key={`ready-${readings.length}`}><Sprite name="star" scale={3} />
             {marks.find((m) => m.key === 'out')?.label ?? `Cool the bath to ${fmtF(form.target)}`}</p>}
           <p className="cc-help">{readings.length
-            ? `${readings.length} reading${readings.length === 1 ? '' : 's'} so far, saved below in “Tune to your kitchen”.`
+            ? `${readings.length} reading${readings.length === 1 ? '' : 's'} so far, saved in Learn, under “Tune to your kitchen”.`
             : 'Log one now, then every 10 minutes or so. The log tunes the planner to your kitchen.'}</p>
         </div>
       ) : <p className="cc-help">Estimates: the thermometer has the last word.</p>}
@@ -458,10 +459,11 @@ function Schedule({ id, row, form, plan, cook, readings, party, onStart, onEnd, 
 const METHOD_ICON = { classic: 'pot', hot_and_pull: 'flame', hot_then_drop: 'ice' };
 const STEP_ICON = { bath: 'pot', probe: 'thermo', cool: 'ice', out: 'ribeye', sear: 'flame' };
 
-function Answer({ form, stale, cook, readings, party, onStart, onEnd, onReading }) {
+// The plan screen, or the cooking screen once a cook runs. The picked method and
+// dinner time live in the page, so they survive a trip to another screen.
+function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onEatAt, onStart, onEnd, onReading }) {
   const p = use(planFor(queryOf(form)));
   const best = recommended(p);
-  const [picked, setPicked] = useState(null);
   // A running cook keeps the method it started with.
   const id = cook?.method ?? picked ?? best;
   const row = p[id];
@@ -470,10 +472,10 @@ function Answer({ form, stale, cook, readings, party, onStart, onEnd, onReading 
   // Before the cook, the schedule follows the steps it times; during it, the clock
   // and the thermometer log are what the cook needs first.
   const schedule = <Schedule id={id} row={row} form={form} plan={p} cook={cook} readings={readings} party={party}
-    onStart={onStart} onEnd={onEnd} onReading={onReading} />;
+    eatAt={eatAt} onEatAt={onEatAt} onStart={onStart} onEnd={onEnd} onReading={onReading} />;
   return (
-    <section className={`sv-answer${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
-      {!cook && <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={setPicked}
+    <section className={`sv-answer${cook ? ' is-cooking' : ''}${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
+      {!cook && <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={onPick}
         items={STRATEGIES.map((s) => ({
           key: s.id, label: `${s.name}, ${fmtMinutes(p[s.id].minutes)}`,
           name: <><Sprite name={METHOD_ICON[s.id]} scale={2} /><b>{fmtMinutes(p[s.id].minutes)}</b><span>{s.name}</span></>,
@@ -574,7 +576,7 @@ function Calibrate({ steak, calibration, onChange, log, onDelete }) {
       <summary>Tune to your kitchen{calibration ? <span className="cc-badge cc-badge--soft">{faster(calibration.alpha)}</span> : null}</summary>
       <div className="cc-accordion__content sv-calibrate__body">
         <p className="cc-help">Start a cook and log the thermometer every few minutes through it, in a bath held at one
-          temperature, with the steak set above as you measured it. Three readings or more fit the planner to your kitchen.</p>
+          temperature, with the steak set as you measured it. Three readings or more fit the planner to your kitchen.</p>
         {readings.length ? (
           <ol className="sv-readings" aria-label="Readings">
             {readings.map(([min, f], i) => (
@@ -851,16 +853,102 @@ const SIDE_STEPS = [{ d: 0.5 }, { d: 0.1, text: '.1' }];
 
 const startNote = (c) => (c <= 7 ? ' · fridge' : c >= 18 ? ' · room temp' : '');
 
+// The page is a flow of screens, and the screen lives in the URL hash so the
+// phone's back button and browser history move between them. A step forward
+// pushes a history entry and marks it, so Back can return through history when
+// the entry before is this flow, and replaces the entry when it is not (a link
+// straight to #plan). pushState fires no event, so the flow tells its own
+// subscribers; the browser's back and forward arrive as popstate or hashchange.
+export const SCREENS = ['steak', 'cook', 'plan', 'cooking', 'learn'];
+const hashListeners = new Set();
+function subscribeHash(onChange) {
+  hashListeners.add(onChange);
+  window.addEventListener('popstate', onChange);
+  window.addEventListener('hashchange', onChange);
+  return () => {
+    hashListeners.delete(onChange);
+    window.removeEventListener('popstate', onChange);
+    window.removeEventListener('hashchange', onChange);
+  };
+}
+const readHash = () => window.location.hash.slice(1);
+const noHash = () => '';
+export function go(screen, { replace = false } = {}) {
+  const state = window.history.state;
+  window.history[replace ? 'replaceState' : 'pushState']({ ...state, svFlow: replace ? Boolean(state?.svFlow) : true }, '', `#${screen}`);
+  if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+  hashListeners.forEach((notify) => notify());
+}
+function goBack(fallback) {
+  if (window.history.state?.svFlow) window.history.back();
+  else go(fallback, { replace: true });
+}
+
+// Which screen a hash shows. A running cook owns the plan screen (and an empty
+// hash, so a reload lands on it); the steak, the cook and Learn stay reachable
+// mid-cook. Without a cook, #cooking shows the plan.
+export function screenFor(hash, cooking) {
+  const screen = SCREENS.includes(hash) ? hash : null;
+  if (cooking) return !screen || screen === 'plan' ? 'cooking' : screen;
+  if (screen === 'cooking') return 'plan';
+  return screen ?? 'steak';
+}
+// The progress bar's steps; Learn sits on the step it was opened from.
+const PROGRESS = ['steak', 'cook', 'plan', 'cooking'];
+const ORDER = Object.fromEntries(SCREENS.map((s, i) => [s, i]));
+const HEADINGS = { steak: 'Your steak', cook: 'Your cook', plan: 'The plan', cooking: 'Cooking', learn: 'Learn' };
+
+// Moves focus to a new screen's heading, for keyboards and screen readers. It is
+// one function for the page's life, so React calls it once per mounted heading.
+const focusHeading = (el) => el?.focus({ preventScroll: true });
+
+// The steak, its cook and the plan's two choices are remembered across a reload,
+// since the cook runs for hours on a phone that locks.
+const FORM_KEY = 'sousvide.steak';
+function loadForm() {
+  const saved = load(FORM_KEY);
+  const cut = CUTS.find((c) => c.id === saved?.cut) ?? CUTS[0];
+  const base = formFor(cut, { start: 5, target: 54.5, boost: 3, sear: 45 });
+  const pick = (key, ok) => (ok(saved?.[key]) ? { [key]: saved[key] } : {});
+  const num = (v) => typeof v === 'number' && Number.isFinite(v);
+  const numOrNull = (v) => v === null || num(v);
+  return {
+    ...base,
+    ...['mm', 'start', 'target', 'boost', 'sear'].reduce((o, k) => ({ ...o, ...pick(k, num) }), {}),
+    ...['lb', 'widthIn', 'lengthIn'].reduce((o, k) => ({ ...o, ...pick(k, numOrNull) }), {}),
+    ...pick('bone', (v) => BONES.some((b) => b.key === v)),
+    calibration: load(CALIBRATION_KEY),
+  };
+}
+const saveForm = ({ cut, calibration, ...rest }) => save(FORM_KEY, { ...rest, cut: cut.id });
+
+// "2″ bone-in ribeye, 2.94 lb · 130°F": the steak and its target, on one chip.
+export function summary(form) {
+  const lb = measured(form.lb);
+  const name = form.cut.name[0].toLowerCase() + form.cut.name.slice(1);
+  return `${fmtDepth(form.mm)} ${name}${lb ? `, ${lb} lb` : ''} · ${fmtF(form.target)}`;
+}
+
 export default function SousVideApp() {
-  const [form, setForm] = useState(() => formFor(CUTS[0], {
-    start: 5, target: 54.5, boost: 3, sear: 45, calibration: load(CALIBRATION_KEY),
-  }));
+  const [form, setFormState] = useState(loadForm);
   // The running cook ({ method, startedAt ms, startMin of the day, bath °F }) and its
   // probe log, the same text the calibration fits.
   const [cook, setCook] = useState(() => load(COOK_KEY));
   const [log, setLogState] = useState(loadLog);
   // Counts the cook's milestones (start, each reading); each one replays a burst.
   const [party, setParty] = useState(0);
+  // The plan screen's method tab and dinner time.
+  const [picked, setPicked] = useState(null);
+  const [eatAt, setEatAt] = useState(null);
+  const hash = useSyncExternalStore(subscribeHash, readHash, noHash);
+  const screen = screenFor(hash, cook != null);
+  // Which way the last screen change went, kept during render: forward slides in
+  // from the right, back from the left, and the first screen just appears.
+  const [trail, setTrail] = useState({ screen, dir: 'none' });
+  if (trail.screen !== screen) setTrail({ screen, dir: ORDER[screen] > ORDER[trail.screen] ? 'fwd' : 'back' });
+  const dir = trail.screen === screen ? trail.dir : 'none';
+
+  const setForm = (next) => { setFormState(next); saveForm(next); };
   const setLog = (next) => { setLogState(next); save(LOG_KEY, next.readings.length ? next : null); };
   const startCook = (method, row) => {
     const now = new Date();
@@ -869,8 +957,10 @@ export default function SousVideApp() {
     setCook(next); save(COOK_KEY, next);
     setLog({ bathF: next.bathF, readings: [] }); // a new cook is a new log
     setParty((n) => n + 1);
+    // The cook takes the plan's place in history, so Back never returns to a plan already started.
+    go('cooking', { replace: true });
   };
-  const endCook = () => { setCook(null); save(COOK_KEY, null); };
+  const endCook = () => { setCook(null); save(COOK_KEY, null); go('plan', { replace: true }); };
   const addReading = (f) => {
     const min = Math.round((Date.now() - cook.startedAt) / 6000) / 10;
     setLog({ bathF: log.bathF ?? Number(cook.bathF), readings: [...log.readings, [min, f]] });
@@ -879,47 +969,55 @@ export default function SousVideApp() {
   const deleteReading = (i) => setLog({ ...log, readings: log.readings.filter((_, k) => k !== i) });
   // The last plan stays on screen, dimmed, while the next one loads.
   const shown = useDeferredValue(form);
-  const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
-  const pickCut = (id) => setForm((f) => formFor(CUTS.find((c) => c.id === id), f));
+  const set = (key) => (value) => setForm({ ...form, [key]: value });
+  const pickCut = (id) => setForm(formFor(CUTS.find((c) => c.id === id), form));
   const calibrate = (next) => {
-    setForm((f) => ({ ...f, calibration: next }));
+    setFormState({ ...form, calibration: next });
     save(CALIBRATION_KEY, next);
   };
+  const query = queryOf(shown);
+  // Ask for the plan as soon as the steak and cook settle, so it is in flight or
+  // cached by the time the plan screen shows. planFor shares one request per plan.
+  planFor(queryOf(form));
+
   const { cut, target } = form;
   const slab = cut.shape === 'slab';
   const lb = measured(form.lb);
   const sides = sizedIn(form);
   const fromWeight = lb ? { empty: 'from weight', label: 'From weight' } : { empty: 'unknown', label: 'Unknown' };
-  const query = queryOf(shown);
-  const loading = <p className="cc-caption" aria-busy="true">Working out the heat…</p>;
-  return (
-    <div className="sv-page">
-      <SiteHeader product="Sous vide" to="/sousvide" icon="🥩" onSignIn={null} />
-      <main className="sv-main">
-        <div className="sv-top">
-          <div className="sv-lead">
-            <h1 className="cc-h1 sv-title"><Sprite key={cut.id} name={cut.id} scale={4} className="sv-title__cut" />Sous vide steak</h1>
-            <p className="sv-steak-line">
-              {cut.name}, {fmtInches(form.mm)}{lb ? `, ${lb} lb` : ''}, {fmtF(form.start)} to {fmtF(target)} {doneness(target)}
-              {' '}<a className="cc-inline-link" href="#steak">Change</a>
-            </p>
-            <PlanError query={query}>
-              <Suspense fallback={loading}>
-                <Answer form={shown} stale={shown !== form} cook={cook} readings={log.readings} party={party}
-                  onStart={startCook} onEnd={endCook} onReading={addReading} />
-              </Suspense>
-            </PlanError>
-          </div>
-          <section className="sv-controls" id="steak" aria-label="Steak">
-            <h2 className="sv-controls__title">Your steak</h2>
-            <Segmented label="Cut" className="sv-cuts" value={cut.id} onChange={pickCut}
-              items={CUTS.map((c) => ({ key: c.id, label: c.name, name: <><Sprite name={c.id} scale={3} /><span>{c.name}</span></> }))} />
-            <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
-              shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
-            <RulerGuide mm={form.mm} onChange={set('mm')} />
-            <div className="sv-measures">
-              <Measure label="Weight, lb" value={form.lb} base={cut.lb} unit=" lb" empty="unknown" steps={WEIGHT_STEPS}
-                min={0.15} max={11} clear={{ empty: 'sized by thickness', label: 'Don’t know' }} onChange={set('lb')} />
+  const loading = <p className="cc-caption sv-loading" aria-busy="true"><Sprite name="pot" scale={3} />Working out the heat…</p>;
+  const answer = (
+    <PlanError query={query}>
+      <Suspense fallback={loading}>
+        <Answer form={shown} stale={shown !== form} cook={cook} readings={log.readings} party={party}
+          picked={picked} onPick={setPicked} eatAt={eatAt} onEatAt={setEatAt}
+          onStart={startCook} onEnd={endCook} onReading={addReading} />
+      </Suspense>
+    </PlanError>
+  );
+  const step = PROGRESS.indexOf(screen === 'learn' ? (cook ? 'cooking' : 'plan') : screen) + 1;
+  const toPlan = cook ? 'cooking' : 'plan';
+
+  const body = {
+    steak: (
+      <section className="sv-form sv-form--steak" aria-label="Steak">
+        <div className="sv-form__col">
+          <Segmented label="Cut" className="sv-cuts" value={cut.id} onChange={pickCut}
+            items={CUTS.map((c) => ({ key: c.id, label: c.name, name: <><Sprite name={c.id} scale={3} /><span>{c.name}</span></> }))} />
+          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
+            shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
+          <RulerGuide mm={form.mm} onChange={set('mm')} />
+        </div>
+        <div className="sv-form__col">
+          <Measure label="Weight, lb" value={form.lb} base={cut.lb} unit=" lb" empty="unknown" steps={WEIGHT_STEPS}
+            min={0.15} max={11} clear={{ empty: 'sized by thickness', label: 'Don’t know' }} onChange={set('lb')} />
+          {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
+          <Range label="Starts at" value={form.start} min={0} max={30} step={0.5}
+            shown={(c) => `${fmtF(c)}${startNote(c)}`} onChange={set('start')} />
+          <details className="cc-accordion sv-more">
+            <summary>More: width and length</summary>
+            <div className="cc-accordion__content sv-measures">
+              <p className="cc-help">Optional. The weight already sizes the steak; a ruler across the top sharpens it.</p>
               {cut.shape !== 'cylinder' && <Measure label={slab ? 'Width, in' : 'Diameter, in'} value={form.widthIn}
                 base={sides.width ?? cut.mm / MM_PER_IN * 3} unit="″" steps={SIDE_STEPS} min={0.8} max={15}
                 empty={sides.width ? `≈${sides.width.toFixed(1)}″` : 'unknown'} clear={fromWeight} onChange={set('widthIn')} />}
@@ -927,25 +1025,74 @@ export default function SousVideApp() {
                 base={sides.length ?? cut.mm / MM_PER_IN * 4} unit="″" steps={SIDE_STEPS} min={0.8} max={23}
                 empty={sides.length ? `≈${sides.length.toFixed(1)}″` : 'unknown'} clear={fromWeight} onChange={set('lengthIn')} />}
             </div>
-            {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
-            <Range label="Starts at" value={form.start} min={0} max={30} step={0.5}
-              shown={(c) => `${fmtF(c)}${startNote(c)}`} onChange={set('start')} />
-            <h2 className="sv-controls__title">Your cook</h2>
-            <Range label="Doneness" value={target} min={49} max={68} step={0.5}
-              shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} below={(c) => <DonenessStrip c={c} />} />
-            <Range label="Hot bath, for the faster methods" value={form.boost} min={0} max={10} step={0.5}
-              shown={(b) => `${fmtF(target + b)} · +${Math.round(toF(target + b)) - Math.round(toF(target))}°F`} onChange={set('boost')} />
-            <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
-              shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
-          </section>
+          </details>
         </div>
-        <PlanError query={query} quiet>
-          <Suspense fallback={null}>
+      </section>
+    ),
+    cook: (
+      <section className="sv-form sv-form--cook" aria-label="Cook">
+        <Range label="Doneness" value={target} min={49} max={68} step={0.5}
+          shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} below={(c) => <DonenessStrip c={c} />} />
+        <Range label="Hot bath, for the faster methods" value={form.boost} min={0} max={10} step={0.5}
+          shown={(b) => `${fmtF(target + b)} · +${Math.round(toF(target + b)) - Math.round(toF(target))}°F`} onChange={set('boost')} />
+        <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
+          shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
+      </section>
+    ),
+    plan: answer,
+    cooking: answer,
+    learn: (
+      <>
+        <PlanError query={query}>
+          <Suspense fallback={loading}>
             <Details form={shown} stale={shown !== form} />
           </Suspense>
         </PlanError>
         <Calibrate steak={steakParams(form)} calibration={form.calibration} onChange={calibrate}
           log={log} onDelete={deleteReading} />
+      </>
+    ),
+  }[screen];
+
+  // Each screen's way back and way on, in the sticky bar at the bottom.
+  const nav = {
+    steak: { next: cook ? { label: 'Back to the cook', to: 'cooking' } : { label: 'Next', to: 'cook' } },
+    cook: { back: 'steak', next: cook ? { label: 'Back to the cook', to: 'cooking' } : { label: 'See the plan', to: 'plan' } },
+    plan: { back: 'cook', next: { label: 'Learn more', to: 'learn', quiet: true } },
+    cooking: { next: { label: 'Learn and tune', to: 'learn', quiet: true } },
+    learn: { back: toPlan },
+  }[screen];
+
+  return (
+    <div className="sv-page">
+      <SiteHeader product="Sous vide" to="/sousvide" icon="🥩" onSignIn={null} />
+      <main className="sv-main">
+        <div className="sv-progress" role="progressbar" aria-label="Progress" aria-valuemin={1} aria-valuemax={PROGRESS.length}
+          aria-valuenow={step} aria-valuetext={`${HEADINGS[PROGRESS[step - 1]]}, step ${step} of ${PROGRESS.length}`}>
+          <i style={{ transform: `scaleX(${step / PROGRESS.length})` }} />
+        </div>
+        <div key={screen} className={`sv-screen sv-screen--${screen} is-${dir}`}>
+          <header className="sv-screen__head">
+            <h1 className="cc-h1 sv-title" tabIndex={-1} ref={dir === 'none' ? undefined : focusHeading}>
+              {screen === 'steak' && <Sprite key={cut.id} name={cut.id} scale={4} className="sv-title__cut" />}
+              {HEADINGS[screen]}
+            </h1>
+            {screen !== 'steak' && (
+              <button type="button" className="sv-summary" aria-label={`${summary(form)}. Change the steak`}
+                onClick={() => go('steak')}>
+                <Sprite name={cut.id} scale={2} /><span>{summary(form)}</span><b aria-hidden="true">Edit</b>
+              </button>
+            )}
+          </header>
+          {body}
+        </div>
+        <nav className="sv-nav" aria-label="Screens">
+          {nav.back && <button type="button" className="sv-key sv-nav__back" onClick={() => goBack(nav.back)}>Back</button>}
+          {nav.next && (
+            <button type="button" className={`sv-key ${nav.next.quiet ? 'sv-nav__more' : 'sv-key--go sv-nav__next'}`}
+              onClick={() => go(nav.next.to)}>{nav.next.label}</button>
+          )}
+        </nav>
       </main>
     </div>
   );
