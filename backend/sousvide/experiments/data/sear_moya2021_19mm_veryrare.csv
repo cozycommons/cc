@@ -1,0 +1,13 @@
+# source: Moya J, Lorente-Bailo S, Salvador ML, Ferrer-Mairal A, Martinez MA, Calvo B, Grasa J (2021). Development and validation of a computational model for steak double-sided pan cooking. J. Food Eng., 2021. https://www.sciencedirect.com/science/article/pii/S0260877421000236 . Accepted manuscript read: https://zaguan.unizar.es/record/110768/files/texto_completo.pdf
+# how: digitized figure (Fig. 6a (read at a lower zoom, +/- 2 C), red T_exp,center curve, read by eye off a 300 dpi render of the blurry embedded raster; est. +/- 1.5 C, +/- 10 s). The curve is the mean of 6 pieces; the paper's own band is +/- 2 to 3 C. End value in the text: 30 +/- 3 C at 180 s (abstract).
+# cut: beef longissimus dorsi (Asturiana de los Valles heifer), piece cut parallel to the grain   thickness_mm: 19   width_mm: 26   length_mm: 81   bone: none
+# start_c: 20   bath_c: none (no bath; pan from raw)
+# phase notes: non-stick pan held at 215 +/- 3 C (infrared camera) on induction, no fat stated. One face down for 120 s, turned once, other face down for 60 s. No rest measured. Air 25 C (measured). Type T thermocouple, 1.5 mm, at the centre, position good to +/- 1 mm.
+# schedule: sear 2.000 a; sear 1.000 b
+# air_c: 25   pan_c: 215
+min,phase,core_c
+0.000,sear,20.0
+0.833,sear,20.0
+1.667,sear,22.5
+2.500,sear,27.0
+3.000,sear,30.0

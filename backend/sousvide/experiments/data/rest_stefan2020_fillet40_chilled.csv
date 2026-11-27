@@ -1,0 +1,9 @@
+# source: van Gaal S (2020). The use of chilling after cooking steak sous-vide. Stefan's Gourmet Blog, 12 Sep 2020. https://stefangourmet.com/2020/09/12/the-use-of-chilling-after-cooking-steak-sous-vide/
+# how: table (single thermometer reading quoted in the post text, whole degrees C; thermometer type and tip placement not stated)
+# cut: beef tenderloin (fillet mignon)   shape: puck   thickness_mm: 40 ("approximately 4 cm")   weight_g: unknown (150 assumed)   bone: none
+# start_c: unknown (5 assumed: cooked 2 h at 52 C then "chilled fully"; plausible 3 to 8, and far higher if the chill was short)   bath_c: none at the sear
+# phase notes: seared 1 minute per side in clarified butter over high heat, wrapped in foil and rested 5 minutes, then read.
+# schedule: sear 1 a; sear 1 b; rest 5
+# air_c: unknown (22 assumed)   pan_c: unknown
+min,phase,core_c
+7.0,rest,41

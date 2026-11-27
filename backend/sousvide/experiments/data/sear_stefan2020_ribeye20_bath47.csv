@@ -1,0 +1,10 @@
+# source: van Gaal S (2020). The use of chilling after cooking steak sous-vide. Stefan's Gourmet Blog, 12 Sep 2020. https://stefangourmet.com/2020/09/12/the-use-of-chilling-after-cooking-steak-sous-vide/
+# how: table (single thermometer reading quoted in the post text, whole degrees C; thermometer type and tip placement not stated)
+# cut: ribeye   thickness_mm: 20 ("approximately 2 cm")   weight_g: unknown (150 assumed, "about 150 grams")   bone: none
+# start_c: unknown (5 assumed)   bath_c: 47
+# phase notes: bath at 47 C (time not stated; 2 h assumed as in the other cooks), then clarified butter in a "very hot" frying pan (temperature not measured), 1 minute per side, turned once. No rest. The post does not say how long after the sear the core was read; the row is placed 0.5 min after the pan (plausible range 0 to 3 min).
+# schedule: bath 120 47; sear 1 a; sear 1 b; rest 3
+# air_c: unknown (22 assumed)   pan_c: unknown
+# reading_time: unknown
+min,phase,core_c
+122.5,rest,60

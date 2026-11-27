@@ -1,0 +1,60 @@
+# source: Sarah Anne DeVane (2023), Sous Vide Cookery and Hold Times Compared to Clam Shell Cooking on the Impact of Beef Objective Tenderness, University of Georgia, Fig. 1 (SV30). https://openscholar.uga.edu/record/3010
+# how: digitized figure (PyMuPDF gray SV30 polyline vertices; +/-0.2 C, +/-0.1 min; origin uncertain by 1 min)
+# cut: beef longissimus lumborum   thickness_mm: 25.4   width_mm: unknown   length_mm: unknown   bone: none
+# start_c: 19.7   bath_c: 72.5
+# phase notes: First plotted reading (axis minute 1) used as immersion baseline. Truncated before final drop. Thickness is frozen cut target.
+min,phase,core_c
+0,bath,19.7
+1,bath,22.5
+2,bath,26.5
+3,bath,32.3
+4,bath,38.1
+5,bath,43.4
+6,bath,47.8
+7,bath,51.7
+8,bath,54.8
+9,bath,57.3
+10,bath,59.6
+11,bath,61.4
+12,bath,63.0
+13,bath,64.2
+14,bath,65.4
+15,bath,66.4
+16,bath,67.2
+17,bath,67.8
+18,bath,68.4
+19,bath,68.9
+20,bath,69.3
+21,bath,69.7
+22,bath,70.1
+23,bath,70.3
+24,bath,70.6
+25,bath,70.8
+26,bath,70.9
+27,bath,71.2
+28,bath,71.3
+29,bath,71.4
+30,bath,71.4
+31,bath,71.5
+32,bath,71.6
+33,bath,71.7
+34,bath,71.7
+35,bath,71.8
+36,bath,71.8
+37,bath,71.8
+38,bath,71.9
+39,bath,71.9
+40,bath,71.9
+41,bath,72.1
+42,bath,72.1
+43,bath,72.1
+44,bath,72.1
+45,bath,72.1
+46,bath,72.1
+47,bath,72.1
+48,bath,72.1
+49,bath,72.1
+50,bath,72.1
+51,bath,72.1
+52,bath,72.1
+53,bath,72.1

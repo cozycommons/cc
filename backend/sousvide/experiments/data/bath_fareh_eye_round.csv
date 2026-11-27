@@ -1,0 +1,33 @@
+# source: Aden Fareh (2018), The Characterisation of Key Processes in Sous Vide Meat Cooking, Massey University, Fig. 4-1. https://mro.massey.ac.nz/server/api/core/bitstreams/362d38be-a407-4f4c-81b0-c4d3ade5ced0/content
+# how: digitized figure (PyMuPDF vector stroke intersections; +/-0.4 C, +/-0.4 min; immersion alignment additional uncertainty)
+# cut: beef semitendinosus   thickness_mm: 60   width_mm: 60   length_mm: 100   bone: none
+# start_c: 4.1   bath_c: 60
+# phase notes: Stirred bath initially 64 C. Zero assigned to first bath reading (figure minute 7); actual insertion not marked. Bath values between dashes interpolated from adjacent marks. End of recorded heating segment only.
+min,phase,core_c,bath_c
+0,bath,4.1,63.9
+1,bath,4.1,63.5
+2,bath,4.6,62.9
+3,bath,5.1,61.7
+5,bath,7.1,60.9
+10,bath,13.6,60.0
+15,bath,21.2,60.0
+20,bath,28.2,60.0
+25,bath,34.2,60.0
+30,bath,39.6,60.0
+35,bath,43.6,60.0
+40,bath,46.6,60.0
+45,bath,49.6,60.0
+50,bath,51.6,59.8
+55,bath,53.1,60.2
+60,bath,54.6,59.9
+65,bath,55.6,59.5
+70,bath,56.5,59.6
+75,bath,57.5,59.9
+80,bath,58.0,60.0
+85,bath,58.5,60.0
+90,bath,58.5,60.0
+95,bath,59.0,60.0
+100,bath,59.0,60.0
+105,bath,59.5,60.0
+110,bath,59.5,60.0
+115,bath,59.5,60.0
