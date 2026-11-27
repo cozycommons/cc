@@ -321,11 +321,12 @@ above the steps, and each reading is logged as minutes since the start into the
 calibration log. The running cook and its log survive a reload in
 `localStorage` (`sousvide.cook`, `sousvide.log`).
 
-**No ruler?** Under the thickness slider, the cook can measure against quarters
-on edge (24.26 mm), the short side of a credit card standing up (53.98 mm) or
-finger widths (taken as 19 mm), counted in halves or quarters. Coins and cards
-are exact; fingers vary by about 15 %, which the page states as about 30 % on
-cook time (time goes roughly as thickness squared).
+**No ruler?** Under the thickness slider, a short tutorial measures with a
+finger, two ways: stand an index finger beside the steak and see which crease
+its top reaches (taken as 23 mm to the first crease, 46 mm to the second), or
+lay fingers flat and count them (19 mm each). A drawing shows the steak at the
+thickness picked. Fingers vary by about 15 %, which the page states as about
+30 % on cook time (time goes roughly as thickness squared).
 
 Sliders and typed measurements ask for a plan when they are let go or left,
 not on every tick or keystroke; each distinct plan is fetched once and cached

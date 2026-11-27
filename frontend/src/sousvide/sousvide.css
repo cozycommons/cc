@@ -54,8 +54,11 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-measures .cc-input{min-width:0;box-sizing:border-box}
 .sv-ruler__body{display:grid;gap:10px}
 .sv-ruler .cc-help{margin:0}
+.sv-ruler__art{display:block;width:100%;max-width:320px;height:auto}
+.sv-ruler__note{font:11px var(--mono,monospace);fill:var(--ink-soft,#6f6256)}
+.sv-ruler__steps{margin:0;padding-left:22px;list-style:decimal;display:grid;gap:2px;font-size:15px;line-height:1.4}
 .cc-accordion.sv-ruler summary{min-height:48px;font-size:18px;line-height:1.25;letter-spacing:-.02em}
-.sv-ruler__counts .cc-segmented__item{justify-content:center;font-family:var(--sans,system-ui);font-size:16px;letter-spacing:0;font-variant-numeric:tabular-nums}
+.sv-ruler__counts .cc-segmented__item{justify-content:center;text-transform:none;font-family:var(--sans,system-ui);font-size:16px;letter-spacing:0;font-variant-numeric:tabular-nums}
 .sv-calibrate__body{display:grid;gap:12px}
 .sv-calibrate summary .cc-badge{margin-left:auto;margin-right:12px}
 .sv-calibrate .cc-textarea{box-sizing:border-box;font-variant-numeric:tabular-nums}
