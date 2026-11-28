@@ -40,6 +40,7 @@ addEventListener('message', async event => {
     }
     player.config = {publicPath: base + '/player/', autoplay: 'on', splashScreen: false,
       contextMenu: 'off', openUrlMode: 'deny', urlRewriteRules: rules,
+      ...(launch.frame_rate ? {frameRate: launch.frame_rate} : {}),
       allowScriptAccess: true, unmuteOverlay: 'hidden', volume: settings.sound ? 1 : 0};
     // Names are imported from the legacy page into the private package.
     for (const [name, kind] of Object.entries(launch.callbacks)) {

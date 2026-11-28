@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 DEFAULTS = {"das_ms": 200, "arr_ms": 35, "keys": {"left": "KeyJ", "right": "KeyL", "soft": "KeyK"},
-            "sound": True, "opponent_level": 0}
+            "sound": True, "opponent_level": 0, "frame_rate": 60}
 DEFAULT_XML = "<UserSettings><CurDas>9001</CurDas><CurArr>9007</CurArr></UserSettings>"
 
 class Store:
@@ -44,7 +44,7 @@ class Store:
             db.execute("INSERT OR IGNORE INTO profiles VALUES (?, ?, ?)",
                        (user_id, json.dumps(DEFAULTS), DEFAULT_XML))
             row = db.execute("SELECT * FROM profiles WHERE user_id=?", (user_id,)).fetchone()
-        return {"settings": json.loads(row["settings"]), "legacy_settings": row["legacy_settings"]}
+        return {"settings": {**DEFAULTS, **json.loads(row["settings"])}, "legacy_settings": row["legacy_settings"]}
 
     def save_profile(self, user_id: str, settings: dict, legacy_settings: str | None = None):
         previous = self.profile(user_id)

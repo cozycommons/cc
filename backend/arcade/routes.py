@@ -42,6 +42,7 @@ class Settings(BaseModel):
     arr_ms: Literal[50, 35, 17, 7, 0] = 35
     keys: dict[str, str] = Field(default_factory=lambda: {"left": "KeyJ", "right": "KeyL", "soft": "KeyK"})
     sound: bool = True
+    frame_rate: Literal[0, 60, 100, 144, 240] = 60
     opponent_level: int = Field(default=0, ge=0, le=21)
 
 @router.get("/profile")
@@ -73,8 +74,12 @@ def controls_for(xml: str) -> dict[str, int]:
 
 @router.post("/sessions")
 def launch(user=Depends(current_user), state=Depends(store), bundle=Depends(package)):
+    settings = state.profile(str(user.id))["settings"]
+    frame_rate = settings["frame_rate"]
+    if frame_rate not in bundle.manifest.get("frame_rates", [0]):
+        raise HTTPException(409, "Install the timing-corrected game package for this frame rate")
     session = state.launch(str(user.id))
-    return {"id": session["id"], "session": wire.encrypt(session["token"], bundle.manifest["wire_key"].encode()),
+    return {"id": session["id"], "frame_rate": frame_rate, "session": wire.encrypt(session["token"], bundle.manifest["wire_key"].encode()),
             "entry": bundle.manifest["entry"], "origins": bundle.manifest["origins"],
             "callbacks": bundle.manifest["callbacks"],
             "controls": controls_for(state.profile(str(user.id))["legacy_settings"])}

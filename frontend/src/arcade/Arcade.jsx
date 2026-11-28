@@ -82,6 +82,7 @@ export default function Arcade() {
         <section className="arcade-settings" aria-label="Game settings">
           <label>DAS <select value={settings.das_ms} onChange={e => update('das_ms', Number(e.target.value))}>{[280,200,150,133,120].map(ms => <option key={ms} value={ms}>{ms} ms</option>)}</select></label>
           <label>ARR <select value={settings.arr_ms} onChange={e => update('arr_ms', Number(e.target.value))}>{[50,35,17,7,0].map(ms => <option key={ms} value={ms}>{ms} ms</option>)}</select></label>
+          <label>Frame rate <select value={settings.frame_rate} onChange={e => update('frame_rate', Number(e.target.value))}>{[0,60,100,144,240].map(rate => <option key={rate} value={rate}>{rate ? rate + ' fps' : 'Game default'}</option>)}</select></label>
           <label>Keyboard <select value={Object.keys(settings.keys).length ? 'compact' : 'arrows'} onChange={e => update('keys', e.target.value === 'compact' ? {left:'KeyJ',right:'KeyL',soft:'KeyK'} : {})}><option value="compact">HHKB · J / K / L</option><option value="arrows">Arrow keys</option></select></label>
           <label><input type="checkbox" checked={settings.sound} onChange={e => update('sound', e.target.checked)}/>Sound</label>
           <button onClick={save}>Save settings</button>{saved && <span role="status">Saved</span>}
