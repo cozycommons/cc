@@ -16,7 +16,7 @@ from commons_roles import user_role
 from .package import Package
 from .store import Store
 from .package_store import PackageStore, MAX_UPLOAD
-from . import wire
+from . import controls, wire
 
 router = APIRouter()
 
@@ -45,7 +45,8 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     das_ms: Literal[280, 200, 150, 133, 120] = 200
     arr_ms: Literal[50, 35, 17, 7, 0] = 35
-    keys: dict[str, str] = Field(default_factory=lambda: {"left": "KeyJ", "right": "KeyL", "soft": "KeyK"})
+    # Per game id: {"keys": {action: code}, "pad": {action: button}}; checked by controls.validate.
+    controls: dict[str, dict] = Field(default_factory=dict)
     sound: bool = True
     frame_rate: Literal[0, 60, 100, 144, 240] = 60
     opponent_level: int = Field(default=0, ge=0, le=21)
@@ -56,12 +57,17 @@ def get_profile(user=Depends(current_user), state=Depends(store)):
 
 @router.put("/profile")
 def save_profile(payload: Settings, user=Depends(current_user), state=Depends(store)):
-    actions = {"left", "right", "soft", "hard", "cw", "ccw", "hold"}
-    if (not payload.keys.keys() <= actions or len(set(payload.keys.values())) != len(payload.keys)
-            or any(not key.isascii() or not key.isalnum() or len(key) > 24 for key in payload.keys.values())):
-        raise HTTPException(400, "Choose a distinct keyboard key for each action")
+    problem = controls.validate(payload.controls)
+    if problem:
+        raise HTTPException(400, problem)
     state.save_profile(str(user.id), payload.model_dump())
     return payload
+
+@router.get("/controls")
+def get_controls(user=Depends(current_user), state=Depends(store)):
+    profile = state.profile(str(user.id))
+    return controls.describe(controls_for(profile["legacy_settings"]),
+                             controls.binding_for(profile["settings"], controls.SPRINT))
 
 @router.get("/runs")
 def get_runs(user=Depends(current_user), state=Depends(store)):
@@ -79,7 +85,8 @@ def controls_for(xml: str) -> dict[str, int]:
 
 @router.post("/sessions")
 def launch(user=Depends(current_user), state=Depends(store), bundle=Depends(package)):
-    settings = state.profile(str(user.id))["settings"]
+    profile = state.profile(str(user.id))
+    settings = profile["settings"]
     frame_rate = settings["frame_rate"]
     if frame_rate not in bundle.manifest.get("frame_rates", [0]):
         raise HTTPException(409, "Install the timing-corrected game package for this frame rate")
@@ -87,7 +94,8 @@ def launch(user=Depends(current_user), state=Depends(store), bundle=Depends(pack
     return {"id": session["id"], "frame_rate": frame_rate, "session": wire.encrypt(session["token"], bundle.manifest["wire_key"].encode()),
             "entry": bundle.manifest["entry"], "origins": bundle.manifest["origins"],
             "callbacks": bundle.manifest["callbacks"],
-            "controls": controls_for(state.profile(str(user.id))["legacy_settings"])}
+            "input": controls.resolve(controls_for(profile["legacy_settings"]),
+                                      controls.binding_for(settings, controls.SPRINT))}
 
 @router.get("/player/{name}")
 def player_file(name: str, bundle=Depends(package)):

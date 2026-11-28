@@ -7,9 +7,19 @@ from uuid import uuid4
 from postgrest.exceptions import APIError
 from supabase import Client
 
-DEFAULTS = {"das_ms": 200, "arr_ms": 35, "keys": {"left": "KeyJ", "right": "KeyL", "soft": "KeyK"},
+from .controls import DEFAULT_PAD, SPRINT
+
+# `controls` holds bindings per game id; a game without one uses controls.default_binding().
+DEFAULTS = {"das_ms": 200, "arr_ms": 35, "controls": {},
             "sound": True, "opponent_level": 0, "frame_rate": 60}
 DEFAULT_XML = "<UserSettings><CurDas>9001</CurDas><CurArr>9007</CurArr></UserSettings>"
+
+def upgrade(settings: dict) -> dict:
+    """Profiles saved before per-game controls kept Sprint's extra keys in `keys`."""
+    keys = settings.pop("keys", None)
+    if keys is not None and SPRINT not in settings["controls"]:
+        settings["controls"] = {**settings["controls"], SPRINT: {"keys": keys, "pad": dict(DEFAULT_PAD)}}
+    return settings
 
 class Store:
     def __init__(self, client: Client):
@@ -28,7 +38,7 @@ class Store:
                     raise
             rows = read()
         row = rows[0]
-        return {"settings": {**DEFAULTS, **row["settings"]}, "legacy_settings": row["legacy_settings"]}
+        return {"settings": upgrade({**DEFAULTS, **row["settings"]}), "legacy_settings": row["legacy_settings"]}
 
     def save_profile(self, user_id: str, settings: dict, legacy_settings: str | None = None):
         self.profile(user_id)

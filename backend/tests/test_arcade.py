@@ -72,7 +72,69 @@ def test_profile_api_requires_sign_in_and_scopes_to_caller(tmp_path):
     assert client.get("/arcade/profile").json()["arr_ms"] == 35
     assert client.get("/arcade/runs").json() == []
     assert client.put("/arcade/profile", json={**profile, "das_ms": 1}).status_code == 422
-    assert client.put("/arcade/profile", json={**profile, "keys":{"left":"KeyJ","right":"KeyJ"}}).status_code == 400
+    duplicate = {"sprint": {"keys": {"left": "KeyJ", "right": "KeyJ"}, "pad": {}}}
+    assert client.put("/arcade/profile", json={**profile, "controls": duplicate}).status_code == 400
+
+
+@pytest.mark.parametrize("controls", [
+    {"sprint": {"keys": {"left": "KeyJ", "right": "KeyJ"}}},
+    {"sprint": {"pad": {"left": 0, "right": 0}}},
+    {"sprint": {"keys": {"jump": "KeyJ"}}},
+    {"sprint": {"pad": {"left": 32}}},
+    {"sprint": {"pad": {"left": True}}},
+    {"sprint": {"keys": {"left": "Key J"}}},
+    {"Bad Game": {"keys": {}}},
+    {"sprint": {"keys": {}, "macros": {}}},
+])
+def test_malformed_bindings_are_rejected(controls):
+    from arcade.controls import validate
+    assert validate(controls)
+
+
+def test_bindings_are_stored_per_user_per_game():
+    app = FastAPI()
+    app.include_router(router, prefix="/arcade")
+    state = Profiles()
+    app.dependency_overrides[store] = lambda: state
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id="alice")
+    client = TestClient(app)
+    assert client.get("/arcade/controls").json()["binding"]["keys"] == {"left": "KeyJ", "right": "KeyL", "soft": "KeyK"}
+    wasd = {"keys": {"left": "KeyA", "right": "KeyD"}, "pad": {"left": 14, "hard": 0}}
+    other = {"keys": {"fire": "Space"}, "pad": {}}
+    profile = client.get("/arcade/profile").json()
+    saved = client.put("/arcade/profile", json={**profile, "controls": {"sprint": wasd, "another-game": other}})
+    assert saved.status_code == 200
+    described = client.get("/arcade/controls").json()
+    assert described["binding"] == wasd
+    assert [action["game_key"] for action in described["actions"]][:2] == ["ArrowLeft", "ArrowRight"]
+    assert state.profile("alice")["settings"]["controls"]["another-game"] == other
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id="bob")
+    assert client.get("/arcade/controls").json()["binding"]["keys"]["left"] == "KeyJ"
+
+
+def test_profiles_saved_with_sprint_extra_keys_keep_them():
+    from arcade.store import upgrade
+    settings = upgrade({**DEFAULTS, "keys": {}})
+    assert "keys" not in settings
+    assert settings["controls"]["sprint"]["keys"] == {}
+    assert settings["controls"]["sprint"]["pad"]["left"] == 14
+    kept = {"sprint": {"keys": {"left": "KeyA"}, "pad": {}}}
+    assert upgrade({**DEFAULTS, "keys": {"left": "KeyJ"}, "controls": kept})["controls"] == kept
+
+
+def test_launch_resolves_bindings_to_the_games_own_keys():
+    from arcade.controls import resolve
+    game = {"left": 65, "right": 68, "hard": 32, "soft": 83, "cw": 88, "ccw": 90, "hold": 16}
+    resolved = resolve(game, {"keys": {"left": "KeyJ", "right": "KeyD", "hold": "ArrowUp"},
+                              "pad": {"left": 14, "hold": 4, "unknown": 3}})
+    assert resolved["targets"]["left"] == {"code": "KeyA", "key": "a", "key_code": 65}
+    assert resolved["targets"]["hard"] == {"code": "Space", "key": " ", "key_code": 32}
+    assert resolved["targets"]["hold"]["key"] == "Shift"
+    # D is already the game's own right key, so the extra binding is dropped.
+    assert resolved["keys"] == {"KeyJ": "left", "ArrowUp": "hold"}
+    assert resolved["buttons"] == {"14": "left", "4": "hold"}
+    arrows = resolve({"left": 37}, {"keys": {}, "pad": {}})["targets"]["left"]
+    assert arrows == {"code": "ArrowLeft", "key": "ArrowLeft", "key_code": 37}
 
 
 def test_frame_has_own_csp_without_general_eval_permission():
@@ -120,7 +182,10 @@ def test_launch_requires_corrected_package_before_overriding_frame_rate(tmp_path
         launch(user, state, bundle)
     assert error.value.status_code == 409
     bundle.manifest["frame_rates"].append(60)
-    assert launch(user, state, bundle)["frame_rate"] == 60
+    launched = launch(user, state, bundle)
+    assert launched["frame_rate"] == 60
+    assert launched["input"]["keys"] == {"KeyJ": "left", "KeyL": "right", "KeyK": "soft"}
+    assert launched["input"]["targets"]["soft"]["code"] == "ArrowDown"
 
 
 def test_completion_signal_follows_a_successfully_saved_record():
