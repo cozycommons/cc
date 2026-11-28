@@ -22,7 +22,9 @@ export default function Arcade() {
   const frame = useRef(null);
 
   const api = getUrl().replace(/\/$/, '');
-  const frameOrigin = new URL(api, location.href).origin;
+  // The server names the separate player origin when one is configured.
+  const frameSource = launch?.frame || api + '/arcade/frame';
+  const frameOrigin = new URL(frameSource, location.href).origin;
 
   async function request(path, method = 'GET', body) {
     const {data} = await supabase.auth.getSession();
@@ -125,7 +127,7 @@ export default function Arcade() {
         {controls && <Controls actions={controls.actions} binding={controls.binding} onChange={rebind}/>}
         <p>Settings and controls apply to the next game.</p>
         {launch && <div className="arcade-stage">
-          <iframe key={launch.id} ref={frame} src={api + '/arcade/frame'} title="Sprint game" sandbox="allow-scripts allow-same-origin" allow="autoplay; gamepad" />
+          <iframe key={launch.id} ref={frame} src={frameSource} title="Sprint game" sandbox="allow-scripts allow-same-origin" allow="autoplay; gamepad" />
           {finished && <section className="arcade-finish" aria-label="Run finished">
             <div><h2>Run finished</h2><button ref={replay} className="arcade-replay" onClick={play} disabled={launching}>{launching ? 'Starting…' : 'Play again'}</button></div>
           </section>}

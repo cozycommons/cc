@@ -120,3 +120,17 @@ it('creates only one restart while a session request is pending',async()=>{
  await waitFor(()=>expect(screen.queryByRole('region',{name:'Run finished'})).not.toBeInTheDocument());
  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/sessions'))).toHaveLength(2);
 });
+it('embeds the separate player origin the server names and trusts only its messages',async()=>{
+ const base=fetch.getMockImplementation();
+ fetch.mockImplementation(async(url,options={})=>url.endsWith('/sessions')
+  ?{ok:true,json:async()=>({id:'launch-1',trusted:false,frame:'https://play.example.test/arcade/frame'})}
+  :base(url,options));
+ render(<Arcade/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Play'}));
+ const frame=await screen.findByTitle('Sprint game');
+ expect(frame.src).toBe('https://play.example.test/arcade/frame');
+ result(frame.contentWindow,'http://localhost:8000');
+ expect(screen.queryByRole('button',{name:'Play again'})).not.toBeInTheDocument();
+ result(frame.contentWindow,'https://play.example.test');
+ expect(await screen.findByRole('button',{name:'Play again'})).toBeInTheDocument();
+});
