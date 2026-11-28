@@ -20,3 +20,7 @@ artifacts/
 .apps-dev/
 
 .cache/dependency-age/
+
+# Private arcade packages and verification artifacts
+/.local/
+/.venv/

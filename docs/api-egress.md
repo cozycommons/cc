@@ -57,7 +57,10 @@ traffic (`backend/crowdset/r2.py:118`, `backend/crowdset/hosting.py:39`,
 `backend/compute/client.py:17`) are excluded. The GPU updater's GitHub origins
 (`backend/crowdset/gpu_updater.py:213`, `:229`) are also outside this API.
 Browser navigation, OAuth callback URLs, image URLs returned to clients, and
-Origin/Referer strings are not API egress. Build-time apt/PyPI traffic happens
+Origin/Referer strings are not API egress. The loopback frontend origins in
+`backend/arcade/routes.py` are player-frame parent allowlist entries used in CSP
+and postMessage checks. They do not initiate API connections and are exempted
+only for that file in the source inventory. Build-time apt/PyPI traffic happens
 before credentials exist and is outside the runtime network policy.
 
 ## Boundary and residual risk

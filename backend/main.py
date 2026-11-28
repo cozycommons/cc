@@ -30,6 +30,7 @@ from cc_mcp.server import create_agent_app
 from cc_mcp.registry import PROVIDERS as cc_mcp_providers
 from cc_mcp.mount import mount_agent_app
 from commons_account.routes import router as account_router
+from arcade.routes import router as arcade_router
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -117,6 +118,7 @@ async def private_admin_responses(request, call_next):
     response = await call_next(request)
     if (request.url.path == '/admin' or request.url.path.startswith('/admin/')
             or request.url.path == '/floor-planner' or request.url.path.startswith('/floor-planner/')
+            or request.url.path.startswith('/arcade/')
             or request.url.path == '/account' or request.url.path.startswith('/account/')
             or request.url.path in {'/mcp', '/authorize', '/token', '/register', '/revoke', '/consent', '/auth/callback'}):
         response.headers['Cache-Control'] = 'private, no-store'
@@ -147,6 +149,7 @@ def root():
 
 
 app.include_router(health_router)
+app.include_router(arcade_router, prefix="/arcade")
 from venmo.routes import router as venmo_router
 app.state.venmo_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.include_router(venmo_router, prefix="/venmo")
