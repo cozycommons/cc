@@ -292,3 +292,12 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 .sv-meat{display:block;width:36px;height:14px;border:2px solid var(--sv-ink);border-radius:3px;image-rendering:pixelated}
 .sv-stepper__row--fine{grid-template-columns:minmax(48px,64px) minmax(80px,1fr) minmax(48px,64px)}
 .sv-help{margin:-10px 0 0}
+/* A connected thermometer: its reading big, in place of the stepper and Log. */
+.sv-probe{display:grid;gap:8px}
+.sv-probe__connect{width:100%;min-height:48px;font-size:16px}
+.sv-probe.is-live{grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px;padding:10px 12px;
+  border:2px solid var(--sv-ink);border-radius:12px;background:var(--sv-face);box-shadow:0 4px 0 var(--sv-edge)}
+.sv-probe.is-live>span{display:grid;gap:1px;min-width:0}
+.sv-probe.is-live b{font:800 32px/1.05 var(--sans,system-ui);font-variant-numeric:tabular-nums;animation:sv-bump 260ms var(--sv-spring)}
+.sv-probe.is-live small{font:600 12px/1.2 var(--sans,system-ui);color:var(--ink-soft,#6f6256)}
+.sv-probe.is-live>.sv-key{grid-column:1/-1}
