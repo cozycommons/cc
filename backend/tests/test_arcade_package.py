@@ -45,3 +45,35 @@ def test_importer_copies_overrides_and_records_timing_support(tmp_path, use_over
     stored = manifest["assets"][manifest["entry"]]["file"]
     assert (destination / "files" / stored).read_bytes() == (
         b"timing corrected movie" if use_override else b"original movie")
+
+def package_bytes(*, bad_path=False):
+    import io
+    import tarfile
+    movie = b"game"
+    digest = hashlib.sha256(movie).hexdigest()
+    manifest = {"entry":"main/movie.swf", "wire_key":"test-package-key", "origins":{},
+                "callbacks":{}, "frame_rates":[0,60],
+                "assets":{"main/movie.swf":{"file":digest,"content_type":"application/x-shockwave-flash"}}}
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, content in [("manifest.json", json.dumps(manifest).encode()),
+                              ("player/ruffle.js",b"player"),
+                              ("files/"+digest,movie)]:
+            info = tarfile.TarInfo("../../escaped" if bad_path else name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+    return buffer.getvalue()
+
+
+def test_package_validation_rejects_paths_outside_cache(tmp_path):
+    from arcade.package_store import unpack
+    with pytest.raises(ValueError, match="path"):
+        unpack(package_bytes(bad_path=True), tmp_path / "cache")
+    assert not (tmp_path / "escaped").exists()
+
+
+def test_package_validation_checks_movie_before_install(tmp_path):
+    from arcade.package_store import unpack
+    destination = tmp_path / "cache"
+    bundle = unpack(package_bytes(), destination)
+    assert bundle.file("main/movie.swf")[0].read_bytes() == b"game"

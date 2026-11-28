@@ -397,3 +397,6 @@ SELECT public.commons_profiles_readiness();
 
 -- 0088: catch-up plus a temporary reverse sync from Dice and Auth into commons_profiles.
 -- commons_profiles_readiness() above now attests the sync triggers and their recursion guard.
+
+-- 0095: Arcade player state is server-only and part of the shared release.
+SELECT public.arcade_readiness();

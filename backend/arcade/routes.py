@@ -1,5 +1,6 @@
 """Commons profile APIs plus an isolated legacy movie protocol."""
 import os
+import tarfile
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote
@@ -7,30 +8,34 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
 from commons_account.routes import current_user
+from commons_roles import user_role
 from .package import Package
 from .store import Store
+from .package_store import PackageStore, MAX_UPLOAD
 from . import wire
 
 router = APIRouter()
 
-@lru_cache(maxsize=4)
-def open_store(path: str) -> Store:
-    return Store(Path(path))
+def store(request: Request) -> Store:
+    # Use the existing uncached Commons client, including its normal server credentials.
+    return Store(request.app.state.mcp_supabase)
 
-def store() -> Store:
-    path = os.environ.get("ARCADE_STATE_PATH")
-    if not path:
-        raise HTTPException(503, "Arcade storage is not configured")
-    return open_store(path)
+def package_store(request: Request) -> PackageStore:
+    return request.app.state.arcade_packages
 
-def package() -> Package:
+def package(request: Request) -> Package:
+    # A local package is still supported for offline development.
     path = os.environ.get("ARCADE_PACKAGE_PATH")
-    if not path or not (Path(path) / "manifest.json").is_file():
-        raise HTTPException(503, "The game package is not installed")
-    return load_package(path)
+    if path and (Path(path) / "manifest.json").is_file():
+        return load_package(path)
+    bundle = package_store(request).current()
+    if bundle is None:
+        raise HTTPException(503, "A Commons admin needs to install the game package")
+    return bundle
 
 @lru_cache(maxsize=4)
 def load_package(path: str) -> Package:
@@ -107,6 +112,9 @@ async def game_api(request: Request, state=Depends(store), bundle=Depends(packag
         body.extend(chunk)
         if len(body) > 4 * 1024 * 1024:
             raise HTTPException(413)
+    return await run_in_threadpool(game_reply, bytes(body), state, bundle)
+
+def game_reply(body: bytes, state: Store, bundle: Package) -> Response:
     key = bundle.manifest["wire_key"].encode()
     try:
         root = wire.decode(bytes(body), key)
@@ -145,3 +153,27 @@ def frame_script(request: Request):
 @router.get("/frame.css")
 def frame_style():
     return FileResponse(Path(__file__).with_name("frame.css"), media_type="text/css")
+
+def require_package_admin(request: Request, user=Depends(current_user)):
+    if not getattr(user, "email_confirmed_at", None) or user_role(request.app.state.mcp_supabase, user.id) != "admin":
+        raise HTTPException(403, "Only a Commons admin can install game packages")
+    return user
+
+@router.get("/package")
+def package_status(request: Request, user=Depends(current_user)):
+    local = os.environ.get("ARCADE_PACKAGE_PATH")
+    return {"installed": bool(local and (Path(local) / "manifest.json").is_file()) or package_store(request).installed(),
+            "can_install": user_role(request.app.state.mcp_supabase, user.id) == "admin"}
+
+@router.post("/package")
+async def install_package(request: Request, user=Depends(require_package_admin)):
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > MAX_UPLOAD:
+            raise HTTPException(413, "Game package exceeds 40 MB")
+    try:
+        await run_in_threadpool(package_store(request).install, bytes(content), str(user.id))
+    except (ValueError, tarfile.TarError, KeyError, TypeError):
+        raise HTTPException(400, "Invalid or damaged game package") from None
+    return {"installed": True}

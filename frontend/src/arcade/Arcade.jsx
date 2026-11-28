@@ -11,6 +11,8 @@ export default function Arcade() {
   const [error, setError] = useState('');
   const [launch, setLaunch] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [bundle, setBundle] = useState(null);
+  const [installing, setInstalling] = useState(false);
   const frame = useRef(null);
 
   const api = getUrl().replace(/\/$/, '');
@@ -34,7 +36,7 @@ export default function Arcade() {
     supabase.auth.getSession().then(({data}) => setSession(data.session));
     const {data: {subscription}} = supabase.auth.onAuthStateChange((_event, value) => {
       setSession(previous => {
-        if (previous?.user.id !== value?.user.id) {setLaunch(null); setSettings(null); setRuns([]);}
+        if (previous?.user.id !== value?.user.id) {setLaunch(null); setSettings(null); setRuns([]); setBundle(null);}
         return value;
       });
     });
@@ -43,8 +45,8 @@ export default function Arcade() {
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
-    Promise.all([request('profile'), request('runs')]).then(([profile, history]) => {
-      if (!cancelled) {setSettings(profile); setRuns(history);}
+    Promise.all([request('profile'), request('runs'), request('package')]).then(([profile, history, installed]) => {
+      if (!cancelled) {setSettings(profile); setRuns(history); setBundle(installed);}
     }).catch(err => {if (!cancelled) setError(err.message);});
     return () => {cancelled = true;};
   }, [session?.user.id]);
@@ -73,12 +75,27 @@ export default function Arcade() {
     try {await request('profile', 'PUT', settings); setSaved(true);}
     catch (err) {setError(err.message);}
   }
+  async function install(file) {
+    if (!file) return;
+    setInstalling(true); setError('');
+    try {
+      const {data} = await supabase.auth.getSession();
+      const response = await fetch(api + '/arcade/package', {method:'POST',
+        headers:{Authorization:'Bearer ' + data.session.access_token, 'Content-Type':'application/gzip'}, body:file});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || 'Unable to install the game package.');
+      setBundle(await request('package'));
+    } catch (err) {setError(err.message);}
+    finally {setInstalling(false);}
+  }
   function update(name, value) {setSettings(previous => ({...previous, [name]: value})); setSaved(false);}
   return <main className="arcade">
     <header><a href="/">Cozy Commons</a><h1>Arcade</h1><p>Sprint · Clear 40 lines</p></header>
     {error && <p role="alert">{error}</p>}
     {!session ? <button onClick={() => supabase?.auth.signInWithOAuth({provider: 'google', options: {redirectTo: location.href}})}>Sign in to play</button> :
       settings && <>
+        {bundle && !bundle.installed && <p role="status">The game package has not been installed.</p>}
+        {bundle?.can_install && <label>Install game package <input type="file" accept=".tar.gz,application/gzip" disabled={installing} onChange={event => install(event.target.files[0])}/>{installing && <span role="status">Installing…</span>}</label>}
         <section className="arcade-settings" aria-label="Game settings">
           <label>DAS <select value={settings.das_ms} onChange={e => update('das_ms', Number(e.target.value))}>{[280,200,150,133,120].map(ms => <option key={ms} value={ms}>{ms} ms</option>)}</select></label>
           <label>ARR <select value={settings.arr_ms} onChange={e => update('arr_ms', Number(e.target.value))}>{[50,35,17,7,0].map(ms => <option key={ms} value={ms}>{ms} ms</option>)}</select></label>
@@ -86,7 +103,7 @@ export default function Arcade() {
           <label>Keyboard <select value={Object.keys(settings.keys).length ? 'compact' : 'arrows'} onChange={e => update('keys', e.target.value === 'compact' ? {left:'KeyJ',right:'KeyL',soft:'KeyK'} : {})}><option value="compact">HHKB · J / K / L</option><option value="arrows">Arrow keys</option></select></label>
           <label><input type="checkbox" checked={settings.sound} onChange={e => update('sound', e.target.checked)}/>Sound</label>
           <button onClick={save}>Save settings</button>{saved && <span role="status">Saved</span>}
-          <button onClick={play}>{launch ? 'New game' : 'Play'}</button>
+          <button onClick={play} disabled={!bundle?.installed || installing}>{launch ? 'New game' : 'Play'}</button>
         </section>
         <p>Z / X rotate · C hold · Space hard drop. Settings apply to the next game.</p>
         {launch && <iframe key={launch.id} ref={frame} src={api + '/arcade/frame'} title="Sprint game" sandbox="allow-scripts allow-same-origin" allow="autoplay" />}
