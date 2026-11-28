@@ -17,8 +17,10 @@ from .package import Package
 from .store import Store
 from .package_store import PackageStore, MAX_UPLOAD
 from . import wire
+from .rooms import router as rooms_router
 
 router = APIRouter()
+router.include_router(rooms_router)
 
 def store(request: Request) -> Store:
     # Use the existing uncached Commons client, including its normal server credentials.

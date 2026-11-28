@@ -32,6 +32,7 @@ from cc_mcp.mount import mount_agent_app
 from commons_account.routes import router as account_router
 from arcade.routes import router as arcade_router
 from arcade.package_store import PackageStore
+from arcade.rooms import RoomHub
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
 from service_health import router as health_router
@@ -177,6 +178,8 @@ app.mount("/telemetry/mcp", maple_mcp.streamable_http_app())
 
 app.state.mcp_supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 app.state.arcade_packages = PackageStore(app.state.mcp_supabase)
+# Live rooms stay off until configured; the relay assumes this single API process.
+app.state.arcade_rooms = RoomHub() if os.environ.get("ARCADE_ROOMS") == "on" else None
 cc_mcp_app = create_agent_app(app.state.mcp_supabase, providers=cc_mcp_providers)
 # None when agent access is unconfigured; the account connection routes then return 503.
 app.state.cc_mcp_oauth = getattr(cc_mcp_app.state, 'cc_mcp_oauth', None)
