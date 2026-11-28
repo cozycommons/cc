@@ -12,6 +12,7 @@ def main():
     parser.add_argument("archive", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--wire-key-file", required=True, type=Path)
+    parser.add_argument("--overrides", type=Path, help="Locally built replacement files, keyed by archive host/path")
     parser.add_argument("--ruffle", required=True, type=Path)
     args = parser.parse_args()
     if not 4 <= len(args.wire_key_file.read_text().strip().encode()) <= 56:
@@ -39,6 +40,7 @@ def main():
     movie = match.group(1)
     assets = {}
     origins = {}
+    replaced = set()
     destination.mkdir(parents=True)
     (destination / "files").mkdir()
     for key, entry in index.items():
@@ -53,6 +55,14 @@ def main():
         alias = origins.setdefault(host, "main" if host == origin else f"source{len(origins)}")
         logical = alias + "/" + path.split("?", 1)[0]
         blob = source / "files" / entry["file"]
+        if args.overrides:
+            override_root = args.overrides.resolve()
+            candidate = (override_root / key.split("?", 1)[0]).resolve()
+            if not candidate.is_relative_to(override_root):
+                parser.error("override path escaped its directory")
+            if candidate.is_file():
+                blob = candidate
+                replaced.add(logical)
         digest = hashlib.sha256(blob.read_bytes()).hexdigest()
         target = destination / "files" / digest
         if not target.exists():
@@ -63,7 +73,8 @@ def main():
     if movie_key not in assets:
         parser.error("movie missing from archive")
     shutil.copytree(args.ruffle, destination / "player")
-    manifest = {"version": 1, "entry": movie_key, "origins": origins, "assets": assets,
+    manifest = {"version": 2, "entry": movie_key,
+                "frame_rates": [0, 60, 100, 144, 240] if movie_key in replaced else [0], "origins": origins, "assets": assets,
                 "wire_key": args.wire_key_file.read_text().strip(),
                 "callbacks": {name: ("result" if "ShowResults" in name else "error" if "ShowHome" in name else "ignore")
                               for name in re.findall(r"function (js_[A-Za-z0-9_]+)\(", html)},

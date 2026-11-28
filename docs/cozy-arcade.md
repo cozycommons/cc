@@ -33,7 +33,8 @@ random six-hour game capability, not the Commons bearer or user id. Its hash
 is stored server-side. The capability travels in request bodies, never URLs.
 Private responses are no-store. Saved records omit session tokens and IP fields.
 
-Settings start at DAS 200 ms and ARR 35 ms. HHKB extras use J/L for movement and
+Settings start at DAS 200 ms, ARR 35 ms, and 60 fps. Profiles may choose the
+movie's native rate (0), 60, 100, 144 or 240 fps. HHKB extras use J/L for movement and
 K for soft drop. Arrows and Z/X/C remain available. In-game custom controls are
 preserved by the adapter. Sound and handling apply on the next launch.
 `opponent_level` is stored per profile for the later Battle integration, but
@@ -54,12 +55,17 @@ key is supplied from a local file, not embedded in the public repository.
 
 ```sh
 python3 scripts/import-arcade-package.py /path/to/archive /path/to/arcade-package \
-  --wire-key-file /path/to/private-wire-key --ruffle /path/to/self-hosted-player
+  --wire-key-file /path/to/private-wire-key --ruffle /path/to/self-hosted-player \
+  --overrides /path/to/locally-patched-files
 export ARCADE_PACKAGE_PATH=/path/to/arcade-package
 export ARCADE_STATE_PATH=/path/to/persistent-volume/arcade.sqlite
 ```
 
-The destination must be new. The package is self-contained: `manifest.json`,
+The destination must be new. The optional override directory uses the archive's
+host/path layout. Its replacement movie is copied into the content-addressed
+package. Packages without a replacement movie advertise only the native frame
+rate; the server rejects faster choices instead of speeding up the countdown.
+Use the existing timing-corrected local builds for the 60 fps default. The package is self-contained: `manifest.json`,
 content-addressed files and a vendored player. Copying that directory and the
 server database moves Arcade without the source archive, Windows, or WSL.
 No original game assets, private keys, account records or packages belong in Git.
@@ -72,8 +78,27 @@ persistent state directory owned by the backend app user. Existing Commons
 `VITE_API_URL`, sign-in, and `CORS_EXTRA_ORIGINS` settings still apply. Set the
 frontend origin in `CORS_EXTRA_ORIGINS` so the frame accepts its launch message.
 
-No hosted resources, persistent volumes, or production deployments are created
-by this change.
+For the existing hosted backend, use these container paths:
+
+```dotenv
+ARCADE_PACKAGE_PATH=/opt/arcade/package
+ARCADE_STATE_PATH=/var/lib/arcade/state.sqlite
+```
+
+Mount the imported package read-only at `/opt/arcade/package`, and a separate
+persistent writable directory at `/var/lib/arcade`. The state directory must
+belong to the app user's actual uid/gid in the deployed backend image. Do not
+assume a uid, put state in an ephemeral container layer, or change the backend's
+existing mounts, runtime secrets, scheduled tasks or release command.
+
+Install the package before setting these environment variables and redeploying
+the existing backend through Coolify. Verify `/arcade/player/ruffle.js` returns
+200, then use a real Commons sign-in to save handling, launch Sprint, finish a
+run and reload history. Restart through Coolify and confirm the same settings
+and run remain. Retain the previous package and state backup for rollback.
+
+These instructions prepare a deployment. They do not provision volumes or
+change live hosting themselves.
 
 ## Verification and remaining work
 

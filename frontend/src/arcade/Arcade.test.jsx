@@ -2,7 +2,7 @@ import React from 'react';
 import {render,screen,fireEvent,waitFor,cleanup} from '@testing-library/react';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import Arcade from './Arcade';
-const shared=vi.hoisted(()=>({session:{user:{id:'alice'},access_token:'test-access'},settings:{das_ms:200,arr_ms:35,keys:{left:'KeyJ',right:'KeyL',soft:'KeyK'},sound:true,opponent_level:0}}));
+const shared=vi.hoisted(()=>({session:{user:{id:'alice'},access_token:'test-access'},settings:{das_ms:200,arr_ms:35,keys:{left:'KeyJ',right:'KeyL',soft:'KeyK'},sound:true,opponent_level:0,frame_rate:60}}));
 vi.mock('../contexts/SupabaseContext',()=>({useSupabase:()=>({supabase:{
  auth:{getSession:async()=>({data:{session:shared.session}}),
  onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}), signInWithOAuth:vi.fn()}
@@ -22,6 +22,7 @@ it('loads server settings and saves the selected handling values',async()=>{
  render(<Arcade/>);
  const das=await screen.findByLabelText('DAS');
  expect(das.value).toBe('200');
+ expect(screen.getByLabelText('Frame rate').value).toBe('60');
  fireEvent.change(das,{target:{value:'150'}});
  fireEvent.click(screen.getByRole('button',{name:'Save settings'}));
  await screen.findByText('Saved');

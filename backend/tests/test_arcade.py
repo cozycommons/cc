@@ -125,3 +125,29 @@ def test_saved_custom_controls_drive_the_extra_key_targets():
     assert controls_for(custom)["left"] == 65
     assert controls_for(custom)["right"] == 68
     assert controls_for("<UserSettings/>")["left"] == 37
+
+
+def test_old_profile_receives_frame_rate_default_without_losing_handling(tmp_path):
+    import json
+    state = Store(tmp_path / "state.sqlite")
+    state.profile("alice")
+    with state.connect() as db:
+        db.execute("UPDATE profiles SET settings=? WHERE user_id=?",
+                   (json.dumps({"das_ms": 150, "arr_ms": 17}), "alice"))
+    settings = state.profile("alice")["settings"]
+    assert settings["frame_rate"] == 60
+    assert (settings["das_ms"], settings["arr_ms"]) == (150, 17)
+
+
+def test_launch_requires_corrected_package_before_overriding_frame_rate(tmp_path):
+    from arcade.routes import launch
+    from fastapi import HTTPException
+    state = Store(tmp_path / "state.sqlite")
+    user = SimpleNamespace(id="alice")
+    bundle = SimpleNamespace(manifest={"wire_key": "test-package-key", "entry": "game",
+                                      "origins": {}, "callbacks": {}, "frame_rates": [0]})
+    with pytest.raises(HTTPException) as error:
+        launch(user, state, bundle)
+    assert error.value.status_code == 409
+    bundle.manifest["frame_rates"].append(60)
+    assert launch(user, state, bundle)["frame_rate"] == 60
