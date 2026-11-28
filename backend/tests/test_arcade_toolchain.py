@@ -4,6 +4,7 @@ The last tests run the real sandbox image when it is built locally
 (docker build -t cc-arcade-toolchain:dev backend/arcade/toolchain) and skip
 otherwise. Every movie is synthetic; no original game file is involved.
 """
+import hashlib
 import io
 import os
 import shutil
@@ -11,6 +12,8 @@ import struct
 import subprocess
 import tarfile
 import threading
+import time
+import uuid
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -69,6 +72,8 @@ def test_output_parsing_rejects_escapes_links_and_excess():
         sandbox.unpack(tar_of(entry("big", bytes(11))), limits)
     with pytest.raises(sandbox.SandboxError, match="unreadable"):
         sandbox.unpack(b"not a tar" * 100, limits)
+    with pytest.raises(sandbox.SandboxError, match="duplicate"):
+        sandbox.unpack(tar_of(entry("a", b"1"), entry("./a", b"2")), limits)
 
 
 def test_container_runs_without_network_privileges_or_host_mounts():
@@ -76,7 +81,7 @@ def test_container_runs_without_network_privileges_or_host_mounts():
     joined = " ".join(command)
     for flag in ("--network none", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges",
                  "--user 65534:65534", "--memory 1536m", "--memory-swap 1536m", "--pids-limit 256",
-                 "--pull never", "--log-driver none", "noexec"):
+                 "--pull never", "--log-driver none", "noexec", "TOOLCHAIN_DEADLINE=300"):
         assert flag in joined
     assert not {"-v", "--volume", "--mount", "--privileged"} & set(command)
     assert command[-3:] == ["image:tag", "export", "script"]
@@ -87,9 +92,9 @@ def test_container_runs_without_network_privileges_or_host_mounts():
 class FakeToolchain:
     """Stands in for the container: movies are keys for their classes' source."""
 
-    def __init__(self, compile_imports=True):
+    def __init__(self, compile_imports=True, drop=None):
         self.movies = {swf.demo_movie(CLASSES): {GREETER: b"hello\n", FAREWELL: b"goodbye\n"}}
-        self.compile_imports = compile_imports
+        self.compile_imports, self.drop = compile_imports, drop
         self.imported = []
 
     def run(self, operation, arguments, files, limits):
@@ -99,7 +104,8 @@ class FakeToolchain:
         self.imported.append(sorted(set(files) - {"movie.swf"}))
         output = swf.demo_movie(CLASSES + [("Build", "n", str(len(self.movies)))])
         updates = {path: data for path, data in files.items() if path != "movie.swf"}
-        self.movies[output] = {**scripts, **(updates if self.compile_imports else {})}
+        rebuilt = {**scripts, **(updates if self.compile_imports else {})}
+        self.movies[output] = {path: data for path, data in rebuilt.items() if path != self.drop}
         return sandbox.Result({"movie.swf": output}, "")
 
 
@@ -127,6 +133,13 @@ def test_rebuild_refuses_silent_skips_and_new_classes(monkeypatch):
         jobs.rebuild(movie, {"scripts/../../etc/x.as": "x"})
 
 
+@pytest.mark.parametrize("drop", [GREETER, FAREWELL])
+def test_rebuild_refuses_a_movie_that_lost_a_class(monkeypatch, drop):
+    monkeypatch.setattr(sandbox, "run", FakeToolchain(drop=drop).run)
+    with pytest.raises(jobs.ToolchainError, match="different classes"):
+        jobs.rebuild(swf.demo_movie(CLASSES), {GREETER: "hello, commons\n"})
+
+
 def test_log_errors_ignore_progress_lines_naming_error_classes():
     log = "Exported script 4/9 Util.AppError, 00:00.1\nImporting Util/AppError.as\nSEVERE: Scope depth is unbalanced\n"
     assert jobs.problems(log) == ["SEVERE: Scope depth is unbalanced"]
@@ -138,6 +151,7 @@ def test_job_inputs_are_bounded_and_https_only():
     assert jobs.DecompileInput(movie_url="http://127.0.0.1:9/in", result_url="http://localhost:9/out")
     for bad in ({**base, "movie_url": "http://storage.example/in", "scripts": {GREETER: "x"}},
                 {**base, "movie_url": "file:///etc/passwd", "scripts": {GREETER: "x"}},
+                {**base, "movie_url": "https:///no-host", "scripts": {GREETER: "x"}},
                 {**base, "scripts": {"../x.as": "x"}},
                 {**base, "scripts": {"scripts/x.sh": "x"}},
                 {**base, "scripts": {GREETER: "x" * (jobs.MAX_SOURCE_BYTES + 1)}},
@@ -183,10 +197,16 @@ def test_real_toolchain_rejects_a_broken_class_without_output():
 
 
 class Storage(BaseHTTPRequestHandler):
-    """Signed-URL stand-in: GET /in serves the movie, PUT /out keeps the result."""
+    """Signed-URL stand-in: GET serves stored objects, PUT keeps one, /redirect bounces."""
     objects = {}
 
     def do_GET(self):
+        if self.path == "/redirect":
+            self.send_response(302)
+            self.send_header("Location", "/in")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         body = self.objects[self.path]
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
@@ -203,21 +223,55 @@ class Storage(BaseHTTPRequestHandler):
         pass
 
 
-@needs_image
-def test_jobs_move_data_only_through_signed_urls():
+@pytest.fixture
+def storage():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Storage)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    root = f"http://127.0.0.1:{server.server_address[1]}"
+    Storage.objects = {"/in": swf.demo_movie(CLASSES)}
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+def test_transfers_refuse_redirects(storage):
+    assert jobs.fetch(f"{storage}/in") == Storage.objects["/in"]
+    with pytest.raises(jobs.ToolchainError, match="redirected"):
+        jobs.fetch(f"{storage}/redirect")
+
+
+@needs_image
+def test_jobs_move_data_only_through_signed_urls(storage):
+    root = storage
+    out = jobs.run_decompile(jobs.DecompileInput(movie_url=f"{root}/in", result_url=f"{root}/parts"), None)
+    with tarfile.open(fileobj=io.BytesIO(Storage.objects["/parts"]), mode="r:gz") as archive:
+        greeter = archive.extractfile(GREETER).read().decode()
+    assert out.files == 2
+    edited = greeter.replace('"hello"', '"hi"')
+    rebuilt = jobs.run_rebuild(jobs.RebuildInput(movie_url=f"{root}/in", result_url=f"{root}/movie",
+                                                 scripts={GREETER: edited}), None)
+    assert rebuilt.compiled == [GREETER]
+    assert rebuilt.movie_sha256 == hashlib.sha256(Storage.objects["/in"]).hexdigest()
+    assert rebuilt.result_sha256 == hashlib.sha256(Storage.objects["/movie"]).hexdigest()
+    assert jobs.decompile(Storage.objects["/movie"])[GREETER] == edited.encode()
+
+
+@needs_image
+def test_container_ends_on_its_own_when_the_worker_is_killed():
+    """Compute SIGKILLs a handler at its deadline; the container must not outlive it."""
+    name = f"cc-arcade-toolchain-test-{uuid.uuid4().hex}"
+    image = os.environ.get("CC_ARCADE_TOOLCHAIN_IMAGE", sandbox.IMAGE)
+    command = sandbox.docker_command(name, "export", ["script"], sandbox.Limits(timeout_seconds=3), image)
+    # stdin stays open, so the operation would wait for input forever.
+    client = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        Storage.objects = {"/in": swf.demo_movie(CLASSES)}
-        out = jobs.run_decompile(jobs.DecompileInput(movie_url=f"{root}/in", result_url=f"{root}/parts"), None)
-        with tarfile.open(fileobj=io.BytesIO(Storage.objects["/parts"]), mode="r:gz") as archive:
-            greeter = archive.extractfile(GREETER).read().decode()
-        assert out.files == 2
-        edited = greeter.replace('"hello"', '"hi"')
-        rebuilt = jobs.run_rebuild(jobs.RebuildInput(movie_url=f"{root}/in", result_url=f"{root}/movie",
-                                                     scripts={GREETER: edited}), None)
-        assert rebuilt.compiled == [GREETER]
-        assert jobs.decompile(Storage.objects["/movie"])[GREETER] == edited.encode()
+        for _ in range(100):
+            if subprocess.run(["docker", "inspect", name], capture_output=True).returncode == 0:
+                break
+            time.sleep(0.1)
+        client.kill()  # SIGKILL: no cleanup code runs
+        client.wait()
+        deadline = time.monotonic() + 30
+        while subprocess.run(["docker", "inspect", name], capture_output=True).returncode == 0:
+            assert time.monotonic() < deadline, "container outlived its deadline"
+            time.sleep(0.5)
     finally:
-        server.shutdown()
+        subprocess.run(["docker", "rm", "--force", name], capture_output=True)

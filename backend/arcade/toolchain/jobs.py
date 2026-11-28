@@ -112,6 +112,11 @@ def rebuild(movie: bytes, sources: dict[str, str], limits: sandbox.Limits = sand
         raise ToolchainError("JPEXS produced no movie")
     _check(output)
     rebuilt = decompile(output, ("script",), limits)
+    if set(rebuilt) != set(original):
+        lost, added = sorted(set(original) - set(rebuilt)), sorted(set(rebuilt) - set(original))
+        raise ToolchainError(f"rebuilt movie has different classes (missing {lost}, new {added})")
+    # Text comparison: the classes decompile identically. That is the
+    # check available; it is not a byte-for-byte bytecode comparison.
     skipped = sorted(path for path in changed if rebuilt.get(path) == original[path])
     if skipped:
         raise ToolchainError(f"JPEXS did not compile: {', '.join(skipped)}")
@@ -134,9 +139,21 @@ def _allowed_url(url: str) -> str:
         loopback = ipaddress.ip_address(host).is_loopback
     except ValueError:
         loopback = host == "localhost"
+    if not host:
+        raise ValueError("transfer URLs need a host")
     if parts.scheme != "https" and not (parts.scheme == "http" and loopback):
         raise ValueError("transfer URLs must be HTTPS")
     return url
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """A signed URL names one object; following a redirect would skip the URL check."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ToolchainError(f"transfer URL redirected ({code})")
+
+
+_opener = urllib.request.build_opener(_NoRedirects)
 
 
 class Transfer(BaseModel):
@@ -179,7 +196,7 @@ class RebuildOutput(BaseModel):
 
 
 def fetch(url: str, limit: int = MAX_MOVIE_BYTES) -> bytes:
-    with urllib.request.urlopen(_allowed_url(url), timeout=60) as response:
+    with _opener.open(_allowed_url(url), timeout=60) as response:
         data = response.read(limit + 1)
     if len(data) > limit:
         raise ToolchainError(f"input is larger than {limit} bytes")
@@ -189,7 +206,7 @@ def fetch(url: str, limit: int = MAX_MOVIE_BYTES) -> bytes:
 def store(url: str, data: bytes, content_type: str) -> str:
     request = urllib.request.Request(_allowed_url(url), data=data, method="PUT",
                                      headers={"Content-Type": content_type, "x-upsert": "false"})
-    with urllib.request.urlopen(request, timeout=120):
+    with _opener.open(request, timeout=120):
         pass
     return hashlib.sha256(data).hexdigest()
 
@@ -216,15 +233,17 @@ def run_decompile(value: DecompileInput, workdir) -> DecompileOutput:
 
 
 def run_rebuild(value: RebuildInput, workdir) -> RebuildOutput:
-    built = rebuild(fetch(value.movie_url), value.scripts)
-    return RebuildOutput(movie_sha256=hashlib.sha256(built.movie).hexdigest(),
+    movie = fetch(value.movie_url)
+    built = rebuild(movie, value.scripts)
+    return RebuildOutput(movie_sha256=hashlib.sha256(movie).hexdigest(),
                          result_sha256=store(value.result_url, built.movie, "application/x-shockwave-flash"),
                          compiled=built.compiled, unchanged=built.unchanged)
 
 
 # Sandbox runs are bounded at 300 s each; a rebuild makes three of them.
-# The job deadline stays above that so the sandbox's own timeout (which
-# removes the container) fires before compute kills the handler.
+# If compute kills the handler first (its deadline, a lost heartbeat, or slow
+# transfers, whose timeouts are per socket operation), each container still
+# ends at its own deadline and the daemon removes it.
 JOBS = [
     Job(name="arcade.swf_decompile", version=1, handler=run_decompile,
         input=DecompileInput, output=DecompileOutput,
