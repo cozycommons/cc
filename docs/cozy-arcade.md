@@ -48,6 +48,8 @@ drop. In-game custom controls are preserved. Sound and handling apply on the
 next launch. `opponent_level` is stored for later Battle integration but does
 not affect Sprint. Earned ranks and Battle matchmaking are not implemented.
 
+When a run ends, the server marks its successful record response with `X-Arcade-Run: finished`. The isolated frame observes that acknowledgement and notifies Commons. This avoids Ruffle’s eval-based ExternalInterface callback, which the frame CSP blocks. A finished-run overlay keeps **Play again** beside the board and focuses it for keyboard activation. Restarting preserves profile settings, creates a fresh session and player frame, and prevents duplicate launch requests. A failed restart leaves the retry action available.
+
 The earlier SQLite store was never configured on the deployed backend. Local
 proof databases contain synthetic runs and are not production state. The local
 classic client's accounts and recordings are untouched.
@@ -125,6 +127,6 @@ The focused frontend build passes. A full local application build is blocked
 by the reused environment's missing `three` dependency. A clean dependency
 install encountered existing lockfile hash mismatches, which were not bypassed.
 
-Remaining work is importing the prepared private package through a real Commons
-admin account and verifying hosted play, then Battle and opponent-level selection. Do not claim those
-are already supported.
+The prepared private package was imported through a real Commons admin account on 2026-11-28. Hosted Sprint playback was observed in Chrome. Hosted run saving remains unverified. Battle and opponent-level selection remain unimplemented.
+
+Restart verification: a local Chromium run played the original Sprint movie to top-out, observed the server acknowledgement, focused Play again, restarted with Enter and loaded a new player session. This flow used synthetic authentication and an in-memory run store; database persistence is covered separately. The existing blocked blob-worker warning and two console 404 messages remain. No CSP permission was added.

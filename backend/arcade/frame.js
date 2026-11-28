@@ -2,6 +2,8 @@
 const status = document.querySelector('#status');
 const send = (type, extra = {}) => parent.postMessage({type, ...extra}, '*');
 let started = false;
+let finished = false;
+const finish = () => {if (!finished) {finished = true; send('arcade-result');}};
 addEventListener('message', async event => {
   if (event.source !== parent || event.origin === 'null' || started || event.data?.type !== 'arcade-launch') return;
   // Allowed embedding origins are supplied by the server, not by the message.
@@ -31,6 +33,14 @@ addEventListener('message', async event => {
     }
     const player = window.RufflePlayer.newest().createPlayer();
     const base = new URL('.', location.href).href.replace(/\/$/, '');
+    // Ruffle's ExternalInterface uses eval, which this frame deliberately disallows.
+    // Observe the successful record acknowledgement without reading protocol bodies.
+    const fetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const response = await fetch(...args);
+      if (response.ok && response.url === base + '/compat/api' && response.headers.get('X-Arcade-Run') === 'finished') finish();
+      return response;
+    };
     const rules = Object.entries(launch.origins).map(([origin, alias]) => [
       new RegExp('^https?://' + origin.replace(/[.*+?^$()|[\]\\]/g, '\\$&') + '/'),
       base + '/assets/' + alias + '/'
@@ -45,7 +55,7 @@ addEventListener('message', async event => {
     // Names are imported from the legacy page into the private package.
     for (const [name, kind] of Object.entries(launch.callbacks)) {
       window[name] = (...args) => {
-        if (kind === 'result') send('arcade-result');
+        if (kind === 'result') finish();
         if (kind === 'error') { status.textContent = 'The game could not continue.'; send('arcade-error'); }
       };
     }
