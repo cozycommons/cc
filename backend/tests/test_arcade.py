@@ -121,3 +121,28 @@ def test_launch_requires_corrected_package_before_overriding_frame_rate(tmp_path
     assert error.value.status_code == 409
     bundle.manifest["frame_rates"].append(60)
     assert launch(user, state, bundle)["frame_rate"] == 60
+
+
+def test_completion_signal_follows_a_successfully_saved_record():
+    from arcade.routes import game_reply
+    key = 'test-package-key'
+    bundle = SimpleNamespace(manifest={'wire_key': key})
+    state = Profiles()
+    issued = state.launch('alice')
+    state.saved = False
+    def save_run(session, metrics, record):
+        state.saved = True
+    state.save_run = save_run
+    body = f"xml=<CreateSprintGameRecordRQ><SessionId>{issued['token']}</SessionId><LinesCleared>0</LinesCleared></CreateSprintGameRecordRQ>".encode()
+    response = game_reply(body, state, bundle)
+    assert state.saved
+    assert response.headers['X-Arcade-Run'] == 'finished'
+    login = game_reply(f"xml=<LoginOpenWebRQ><SessionId>{issued['token']}</SessionId></LoginOpenWebRQ>".encode(), state, bundle)
+    assert 'X-Arcade-Run' not in login.headers
+    def fail_save(*args):
+        raise ValueError('Record unavailable')
+    state.save_run = fail_save
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as error:
+        game_reply(body, state, bundle)
+    assert error.value.status_code == 400

@@ -1,5 +1,5 @@
 import React from 'react';
-import {render,screen,fireEvent,waitFor,cleanup} from '@testing-library/react';
+import {render,screen,fireEvent,waitFor,cleanup,act} from '@testing-library/react';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import Arcade from './Arcade';
 const shared=vi.hoisted(()=>({session:{user:{id:'alice'},access_token:'test-access'},settings:{das_ms:200,arr_ms:35,keys:{left:'KeyJ',right:'KeyL',soft:'KeyK'},sound:true,opponent_level:0,frame_rate:60},bundle:{installed:true,can_install:false}}));
@@ -51,4 +51,57 @@ it('lets a Commons admin import a package before enabling play',async()=>{
  const call=fetch.mock.calls.find(([url,options])=>url.endsWith('/package')&&options.method==='POST');
  expect(call[1].body).toBe(file);
  expect(call[1].headers.Authorization).toBe('Bearer test-access');
+});
+
+function result(source, origin='http://localhost:8000') {
+ fireEvent(window,new MessageEvent('message',{origin,source,data:{type:'arcade-result'}}));
+}
+it('offers a focused replay action after the current game ends and replaces its frame',async()=>{
+ let launches=0;
+ fetch.mockImplementation(async(url,options={})=>({ok:true,json:async()=>{
+  if(url.endsWith('/runs'))return [];
+  if(url.endsWith('/package'))return shared.bundle;
+  if(url.endsWith('/sessions'))return {id:'launch-'+(++launches)};
+  if(options.method==='PUT')return JSON.parse(options.body);
+  return shared.settings;
+ }}));
+ render(<Arcade/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Play'}));
+ const first=await screen.findByTitle('Sprint game');
+ result(first.contentWindow,'https://untrusted.example');
+ result(window);
+ expect(screen.queryByRole('button',{name:'Play again'})).not.toBeInTheDocument();
+ result(first.contentWindow);
+ const replay=await screen.findByRole('button',{name:'Play again'});
+ expect(replay).toHaveFocus();
+ fireEvent.click(replay);
+ await waitFor(()=>expect(screen.queryByRole('region',{name:'Run finished'})).not.toBeInTheDocument());
+ expect(screen.getByTitle('Sprint game')).not.toBe(first);
+ expect(launches).toBe(2);
+ expect(fetch.mock.calls.filter(([url,options])=>url.endsWith('/profile')&&options.method==='PUT')).toHaveLength(2);
+});
+it('keeps the finished game available for retry when a restart fails',async()=>{
+ render(<Arcade/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Play'}));
+ result((await screen.findByTitle('Sprint game')).contentWindow);
+ const replay=await screen.findByRole('button',{name:'Play again'});
+ fetch.mockRejectedValueOnce(new Error('Connection lost'));
+ fireEvent.click(replay);
+ expect(await screen.findByRole('alert')).toHaveTextContent('Connection lost');
+ expect(replay).toBeEnabled();
+ expect(screen.getByRole('region',{name:'Run finished'})).toBeInTheDocument();
+});
+it('creates only one restart while a session request is pending',async()=>{
+ render(<Arcade/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Play'}));
+ result((await screen.findByTitle('Sprint game')).contentWindow);
+ const replay=await screen.findByRole('button',{name:'Play again'});
+ let resolveSave;
+ fetch.mockImplementationOnce(()=>new Promise(resolve=>{resolveSave=resolve;}));
+ fireEvent.click(replay); fireEvent.click(replay);
+ expect(replay).toBeDisabled();
+ await waitFor(()=>expect(fetch.mock.calls.filter(([,options])=>options.method==='PUT')).toHaveLength(2));
+ await act(async()=>resolveSave({ok:true,json:async()=>shared.settings}));
+ await waitFor(()=>expect(screen.queryByRole('region',{name:'Run finished'})).not.toBeInTheDocument());
+ expect(fetch.mock.calls.filter(([url])=>url.endsWith('/sessions'))).toHaveLength(2);
 });

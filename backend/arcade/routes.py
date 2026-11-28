@@ -129,7 +129,10 @@ def game_reply(body: bytes, state: Store, bundle: Package) -> Response:
         reply = wire.handle(root, session, state, key)
     except (ValueError, UnicodeError, IndexError, wire.ET.ParseError):
         raise HTTPException(400, "Invalid game request") from None
-    return Response(reply, media_type="text/xml", headers={"Cache-Control": "no-store"})
+    headers = {"Cache-Control": "no-store"}
+    if root.tag == "CreateSprintGameRecordRQ":
+        headers["X-Arcade-Run"] = "finished"
+    return Response(reply, media_type="text/xml", headers=headers)
 
 @router.get("/frame")
 def frame(request: Request):
