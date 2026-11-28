@@ -1,7 +1,7 @@
 import React, { Suspense, use, useDeferredValue, useId, useState, useSyncExternalStore } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
-import PixelKitchen from './PixelKitchen.jsx';
+import PixelKitchen, { pointAt } from './PixelKitchen.jsx';
 import { Burst, Sprite } from './Sprites.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './sousvide.css';
@@ -219,6 +219,7 @@ class PlanError extends React.Component {
   }
   render() {
     if (!this.state.error) return this.props.children;
+    if (this.props.fallback) return this.props.fallback;
     return <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>;
   }
 }
@@ -243,28 +244,8 @@ export function Segmented({ label, items, value, onChange, showLabel = true, cla
   );
 }
 
-// The label follows the thumb while it moves; the plan is only asked for once
-// the thumb is let go (pointer, touch or key), since each plan costs the API
-// about half a second.
-function Range({ label, value, shown, min, max, step, onChange, below }) {
-  const [draft, setDraft] = useState(null);
-  const commit = () => {
-    if (draft != null) onChange(draft);
-    setDraft(null);
-  };
-  return (
-    <label className="cc-range-field sv-field">
-      <span className="cc-label">{label} <output>{shown(draft ?? value)}</output></span>
-      <input className="cc-range" type="range" aria-label={label} min={min} max={max} step={step} value={draft ?? value}
-        onChange={(e) => setDraft(Number(e.target.value))}
-        onPointerUp={commit} onKeyUp={commit} onTouchEnd={commit} onBlur={commit} />
-      {below?.(draft ?? value)}
-    </label>
-  );
-}
-
 // A number set by tapping, never typed: a coarse and a fine step either side of the
-// value. `steps` is [coarse, fine] with their button text; the caller decides what a
+// value, or only the fine one. `steps` is [coarse, fine] or [fine], with their button text; the caller decides what a
 // step does, so a stepper can count degrees, inches or minutes of the day. The value
 // is keyed so each change replays a small bump (CSS only).
 const fmtStep = (n) => ({ 0.25: '¼', 0.5: '½' }[n] ?? String(n));
@@ -273,17 +254,17 @@ export function Stepper({ label, shown, note, steps, onStep, canStep = () => tru
     <button type="button" className="sv-key sv-key--step" aria-label={`${label} ${text}`} disabled={!canStep(d)}
       onClick={() => onStep(d)}>{text}</button>
   );
-  const [coarse, fine] = steps;
+  const [coarse, fine] = steps.length > 1 ? steps : [null, steps[0]];
   return (
     <div className="sv-stepper" role="group" aria-label={label}>
       <span className="cc-label">{label}</span>
-      <div className="sv-stepper__row">
-        {button(-coarse.d, `−${coarse.text ?? fmtStep(coarse.d)}`)}
+      <div className={`sv-stepper__row${coarse ? '' : ' sv-stepper__row--fine'}`}>
+        {coarse && button(-coarse.d, `−${coarse.text ?? fmtStep(coarse.d)}`)}
         {button(-fine.d, `−${fine.text ?? fmtStep(fine.d)}`)}
         <output className="sv-stepper__value" aria-live="polite"><span key={shown}>{shown}</span>
           {note && <small>{note}</small>}</output>
         {button(fine.d, `+${fine.text ?? fmtStep(fine.d)}`)}
-        {button(coarse.d, `+${coarse.text ?? fmtStep(coarse.d)}`)}
+        {coarse && button(coarse.d, `+${coarse.text ?? fmtStep(coarse.d)}`)}
       </div>
       {children}
     </div>
@@ -397,6 +378,45 @@ const earliestEat = (total) => {
   const now = new Date();
   return Math.ceil((now.getHours() * 60 + now.getMinutes() + total) / 15) * 15;
 };
+// The minute, read whenever the cooking screen renders and again whenever the page
+// comes back into view (the phone unlocks, the tab is picked again). Nothing ticks:
+// the moment that matters is the glance at the phone, and that is when it is read.
+function subscribeWake(onChange) {
+  document.addEventListener('visibilitychange', onChange);
+  window.addEventListener('pageshow', onChange);
+  window.addEventListener('focus', onChange);
+  return () => {
+    document.removeEventListener('visibilitychange', onChange);
+    window.removeEventListener('pageshow', onChange);
+    window.removeEventListener('focus', onChange);
+  };
+}
+const noWake = () => () => {};
+const readMinute = () => Math.floor(Date.now() / 60000);
+const noMinute = () => 0;
+
+// What the thermometer should read `elapsed` minutes in, so logging is a tap or two
+// instead of counting up from the fridge. After a reading, the model's rise since
+// then is added to it, so a steak running behind the model stays behind. The bath is
+// the part the thermometer follows; after the pull the guess stays at the pull.
+export function expectedF(trace, elapsed, last) {
+  const pull = trace.filter((p) => p.phase === 'bath').at(-1).min;
+  const core = (t) => toF(pointAt(trace, Math.min(Math.max(t, 0), pull)).core);
+  const f = last ? last[1] + core(elapsed) - core(last[0]) : core(elapsed);
+  return Math.min(212, Math.max(32, Math.round(f)));
+}
+
+// The moments a running cook has to act (cool the bath, take it out), as a calendar
+// file the API serves, so the phone's own calendar rings with the page closed.
+export function alarmUrl(cook, marks) {
+  const q = new URLSearchParams({ start: String(Math.round(cook.startedAt / 1000)) });
+  marks.filter((m) => m.key === 'cool' || m.key === 'out').forEach((m) => {
+    q.append('at', String(Math.round(m.at * 10) / 10));
+    q.append('what', m.label);
+  });
+  return `${getUrl()}/sousvide/alarm.ics?${q}`;
+}
+
 const EAT_STEPS = [{ d: 60, text: '1 h' }, { d: 15, text: '15' }];
 const READING_STEPS = [{ d: 5 }, { d: 1 }];
 
@@ -404,15 +424,18 @@ const READING_STEPS = [{ d: 5 }, { d: 1 }];
 // dinner time, or on the clock once the bag is in. Nothing here ticks; the clock
 // times come from the moment Start was pressed, and the thermometer decides.
 // `eatAt` is dinner as minutes of the day, or null for "start now".
-function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, onStart, onEnd, onReading }) {
-  // The thermometer stepper starts from the last reading, or the steak's start.
+function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, onEnd, onReading }) {
+  // The thermometer stepper starts from what the steak should read now.
   const [reading, setReading] = useState(null);
+  const minute = useSyncExternalStore(cook ? subscribeWake : noWake, readMinute, noMinute);
   const marks = milestones(id, row, form, plan);
   const total = marks.at(-1).at;
   const startMin = cook ? cook.startMin : eatAt != null ? eatAt - total : null;
   const when = (m) => (startMin == null ? (m ? `+${fmtMinutes(m)}` : 'Now') : fmtClock(startMin + m));
   const last = readings.at(-1)?.[1];
-  const shownF = reading ?? last ?? Math.round(toF(form.start));
+  const shownF = reading ?? (cook
+    ? expectedF(plan.trace[id], minute - cook.startedAt / 60000, readings.at(-1))
+    : Math.round(toF(form.start)));
   const stepEat = (d) => {
     const earliest = earliestEat(total);
     onEatAt(Math.max(earliest, eatAt == null ? earliest + Math.max(0, d) : eatAt + d));
@@ -430,13 +453,13 @@ function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, 
             <Stepper label="Eat at" steps={EAT_STEPS} shown={eatAt == null ? 'ASAP' : fmtClock(eatAt)}
               canStep={(d) => d > 0 || eatAt != null} onStep={stepEat}>
               {eatAt != null && <button type="button" className="sv-chip" onClick={() => onEatAt(null)}>As soon as I can</button>}
-            </Stepper>
-            <button type="button" className="sv-key sv-key--go sv-when__start" onClick={() => onStart(id, row)}>
-              <Sprite name="flame" scale={2} />Start cook</button></>}
+            </Stepper></>}
       </div>
       <ol className="sv-when__list">
         {marks.map((m) => <li key={m.key}><time>{when(m.at)}</time><span>{m.label}</span></li>)}
       </ol>
+      {cook && <a className="sv-key sv-key--quiet sv-when__alarm" href={alarmUrl(cook, marks)}>
+        <Sprite name="bell" scale={2} />Set alarms in my calendar</a>}
       {cook ? (
         <div className="sv-when__log">
           <Stepper label="Thermometer reads, °F" steps={READING_STEPS} shown={`${shownF}°F`}
@@ -459,9 +482,20 @@ function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, 
 const METHOD_ICON = { classic: 'pot', hot_and_pull: 'flame', hot_then_drop: 'ice' };
 const STEP_ICON = { bath: 'pot', probe: 'thermo', cool: 'ice', out: 'ribeye', sear: 'flame' };
 
+// Start cook, in the sticky bar under the plan so it stays in reach of a thumb. It
+// reads the same cached plan as the screen above it, so it starts the method shown.
+function StartCook({ form, picked, onStart }) {
+  const p = use(planFor(queryOf(form)));
+  const id = picked ?? recommended(p);
+  return (
+    <button type="button" className="sv-key sv-key--go sv-nav__next" onClick={() => onStart(id, p[id])}>
+      <Sprite name="flame" scale={2} />Start cook</button>
+  );
+}
+
 // The plan screen, or the cooking screen once a cook runs. The picked method and
 // dinner time live in the page, so they survive a trip to another screen.
-function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onEatAt, onStart, onEnd, onReading }) {
+function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onEatAt, onEnd, onReading }) {
   const p = use(planFor(queryOf(form)));
   const best = recommended(p);
   // A running cook keeps the method it started with.
@@ -471,8 +505,21 @@ function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onE
   const safe = safety(id, row, form.target);
   // Before the cook, the schedule follows the steps it times; during it, the clock
   // and the thermometer log are what the cook needs first.
+  const stepList = (
+    <ol className="sv-steps">
+      {steps(id, row, form, p).map((s) => (
+        <li key={s.key} data-step={s.key}>
+          <Sprite name={STEP_ICON[s.key]} scale={2} className="sv-steps__icon" />
+          <span className="cc-label">{s.label}</span>
+          {s.value && <b>{s.value}</b>}
+          {s.note && <span className="sv-steps__note">{s.note}</span>}
+          {s.more && <span className="sv-steps__more">{s.more}</span>}
+        </li>
+      ))}
+    </ol>
+  );
   const schedule = <Schedule id={id} row={row} form={form} plan={p} cook={cook} readings={readings} party={party}
-    eatAt={eatAt} onEatAt={onEatAt} onStart={onStart} onEnd={onEnd} onReading={onReading} />;
+    eatAt={eatAt} onEatAt={onEatAt} onEnd={onEnd} onReading={onReading} />;
   return (
     <section className={`sv-answer${cook ? ' is-cooking' : ''}${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
       {!cook && <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={onPick}
@@ -485,19 +532,13 @@ function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onE
         {id === best && !cook && <span className="cc-badge cc-badge--soft">Recommended</span>}
       </header>
       {cook && schedule}
-      <ol className="sv-steps">
-        {steps(id, row, form, p).map((s) => (
-          <li key={s.key} data-step={s.key}>
-            <Sprite name={STEP_ICON[s.key]} scale={2} className="sv-steps__icon" />
-            <span className="cc-label">{s.label}</span>
-            {s.value && <b>{s.value}</b>}
-            {s.note && <span className="sv-steps__note">{s.note}</span>}
-            {s.more && <span className="sv-steps__more">{s.more}</span>}
-          </li>
-        ))}
-      </ol>
-      {!cook && schedule}
-      <p className="sv-answer__trade">{tradeoff(id, row, form.target)}</p>
+      {cook ? (
+        // Mid-cook the clock and the thermometer are the screen; the steps stay a tap away.
+        <details className="cc-accordion sv-recipe">
+          <summary>The steps</summary>
+          <div className="cc-accordion__content">{stepList}</div>
+        </details>
+      ) : <>{stepList}{schedule}<p className="sv-answer__trade">{tradeoff(id, row, form.target)}</p></>}
       {safe && (safe.ok
         ? <p className="cc-help sv-answer__safe">{safe.text}</p>
         : <p className="cc-notice cc-notice--error" role="alert">{safe.text}</p>)}
@@ -520,7 +561,8 @@ function CoreChart({ trace, target }) {
         <line className="sv-target" x1={PAD.left} x2={W - PAD.right} y1={y(toF(target))} y2={y(toF(target))} />
         <text className="sv-axis" x={PAD.left - 4} y={y(toF(target)) + 4} textAnchor="end">{Math.round(toF(target))}</text>
         <text className="sv-axis" x={PAD.left - 4} y={y(lo) + 4} textAnchor="end">{Math.round(lo)}</text>
-        {ticks.map((m) => <text key={m} className="sv-axis" x={x(m)} y={H - 6} textAnchor="middle">{fmtMinutes(m)}</text>)}
+        {ticks.map((m, i) => <text key={m} className="sv-axis" x={x(m)} y={H - 6}
+          textAnchor={i === ticks.length - 1 ? 'end' : 'middle'}>{fmtMinutes(m)}</text>)}
         {STRATEGIES.map((s) => (
           <polyline key={s.id} className={`sv-line sv-line--${s.id}`}
             points={trace[s.id].map((p) => `${x(p.min).toFixed(1)},${y(toF(p.core)).toFixed(1)}`).join(' ')} />
@@ -848,10 +890,25 @@ function DonenessStrip({ c }) {
   );
 }
 
+// The cook screen's choices are taps, not drags: a slider is hard to land on a
+// phone. Each list holds the common picks; a saved value off the list shows with
+// no tile lit, and doneness also steps by about 1°F.
+const DONENESS_PICKS = [
+  { c: 51.5, name: 'Rare' }, { c: 54.5, name: 'Medium rare' }, { c: 57.5, name: 'Medium' },
+  { c: 63, name: 'Medium well' }, { c: 68.5, name: 'Well done' },
+];
+const TARGET_STEPS = [{ d: 0.5, text: '1°' }];
+const BOOSTS = [1.5, 3, 5, 7];
+const SEARS = [0, 30, 45, 60, 90, 120];
+const fmtSear = (s) => (!s ? 'None' : s < 60 ? `${s} s` : `${fmtCount(s / 60)} min`);
+const STARTS = [{ c: 5, name: 'Fridge' }, { c: 10, name: 'Cool' }, { c: 20, name: 'Room' }];
+const MM_PER_8TH = MM_PER_IN / 8;
+const THICK_STEPS = [{ d: MM_PER_IN / 2, text: '½″' }, { d: MM_PER_8TH, text: '⅛″' }];
+const tile = (name, sub) => <><b>{name}</b><small>{sub}</small></>;
+
 const WEIGHT_STEPS = [{ d: 0.5 }, { d: 0.05, text: '.05' }];
 const SIDE_STEPS = [{ d: 0.5 }, { d: 0.1, text: '.1' }];
 
-const startNote = (c) => (c <= 7 ? ' · fridge' : c >= 18 ? ' · room temp' : '');
 
 // The page is a flow of screens, and the screen lives in the URL hash so the
 // phone's back button and browser history move between them. A step forward
@@ -991,7 +1048,7 @@ export default function SousVideApp() {
       <Suspense fallback={loading}>
         <Answer form={shown} stale={shown !== form} cook={cook} readings={log.readings} party={party}
           picked={picked} onPick={setPicked} eatAt={eatAt} onEatAt={setEatAt}
-          onStart={startCook} onEnd={endCook} onReading={addReading} />
+          onEnd={endCook} onReading={addReading} />
       </Suspense>
     </PlanError>
   );
@@ -1004,16 +1061,18 @@ export default function SousVideApp() {
         <div className="sv-form__col">
           <Segmented label="Cut" className="sv-cuts" value={cut.id} onChange={pickCut}
             items={CUTS.map((c) => ({ key: c.id, label: c.name, name: <><Sprite name={c.id} scale={3} /><span>{c.name}</span></> }))} />
-          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
-            shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
+          <Stepper label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} steps={THICK_STEPS}
+            shown={fmtDepth(form.mm)} note={`${Math.round(form.mm)} mm`}
+            canStep={(d) => (d < 0 ? form.mm > 10 : form.mm < 100)}
+            onStep={(d) => set('mm')(stepValue(form.mm, d, { min: 10, max: 100, fine: MM_PER_8TH }))} />
           <RulerGuide mm={form.mm} onChange={set('mm')} />
         </div>
         <div className="sv-form__col">
           <Measure label="Weight, lb" value={form.lb} base={cut.lb} unit=" lb" empty="unknown" steps={WEIGHT_STEPS}
             min={0.15} max={11} clear={{ empty: 'sized by thickness', label: 'Don’t know' }} onChange={set('lb')} />
           {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
-          <Range label="Starts at" value={form.start} min={0} max={30} step={0.5}
-            shown={(c) => `${fmtF(c)}${startNote(c)}`} onChange={set('start')} />
+          <Segmented label="Starts at" className="sv-tiles sv-tiles--3" value={form.start} onChange={set('start')}
+            items={STARTS.map((s) => ({ key: s.c, label: `${s.name}, ${fmtF(s.c)}`, name: tile(s.name, fmtF(s.c)) }))} />
           <details className="cc-accordion sv-more">
             <summary>More: width and length</summary>
             <div className="cc-accordion__content sv-measures">
@@ -1031,15 +1090,27 @@ export default function SousVideApp() {
     ),
     cook: (
       <section className="sv-form sv-form--cook" aria-label="Cook">
-        <Range label="Doneness" value={target} min={49} max={68} step={0.5}
-          shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} below={(c) => <DonenessStrip c={c} />} />
-        <Range label="Hot bath, for the faster methods" value={form.boost} min={0} max={10} step={0.5}
-          shown={(b) => `${fmtF(target + b)} · +${Math.round(toF(target + b)) - Math.round(toF(target))}°F`} onChange={set('boost')} />
-        <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
-          shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
+        <Segmented label="Doneness" className="sv-tiles" value={target} onChange={set('target')}
+          items={DONENESS_PICKS.map((d) => ({ key: d.c, label: `${d.name}, ${fmtF(d.c)}`,
+            name: <><i className="sv-meat" style={{ background: shade(d.c + 0.5) }} />{tile(d.name, fmtF(d.c))}</> }))} />
+        <Stepper label="Exactly" steps={TARGET_STEPS} shown={fmtF(target)} note={doneness(target)}
+          canStep={(d) => (d < 0 ? target > 49 : target < 70)}
+          onStep={(d) => set('target')(stepValue(target, d, { min: 49, max: 70, fine: 0.5 }))}>
+          <DonenessStrip c={target} />
+        </Stepper>
+        <Segmented label="Hot bath, for the faster methods" className="sv-tiles sv-tiles--4" value={form.boost} onChange={set('boost')}
+          items={BOOSTS.map((b) => {
+            const up = `+${Math.round(toF(target + b)) - Math.round(toF(target))}°F`;
+            return { key: b, label: `${up}, ${fmtF(target + b)}`, name: tile(up, fmtF(target + b)) };
+          })} />
+        <p className="cc-help sv-help">Hot, then pull and Hot, then cool start the bath this much above your target.
+          Hotter is faster; Learn shows what each one does to the outside.</p>
+        <Segmented label="Sear, each side" className="sv-tiles sv-tiles--3" value={form.sear} onChange={set('sear')}
+          items={SEARS.map((v) => ({ key: v, label: fmtSear(v), name: <b>{fmtSear(v)}</b> }))} />
       </section>
     ),
-    plan: answer,
+    plan: <>{answer}
+      <button type="button" className="sv-key sv-key--quiet sv-learnmore" onClick={() => go('learn')}>Learn more: the chart, the cut and a replay</button></>,
     cooking: answer,
     learn: (
       <>
@@ -1058,7 +1129,7 @@ export default function SousVideApp() {
   const nav = {
     steak: { next: cook ? { label: 'Back to the cook', to: 'cooking' } : { label: 'Next', to: 'cook' } },
     cook: { back: 'steak', next: cook ? { label: 'Back to the cook', to: 'cooking' } : { label: 'See the plan', to: 'plan' } },
-    plan: { back: 'cook', next: { label: 'Learn more', to: 'learn', quiet: true } },
+    plan: { back: 'cook', start: true },
     cooking: { next: { label: 'Learn and tune', to: 'learn', quiet: true } },
     learn: { back: toPlan },
   }[screen];
@@ -1088,6 +1159,13 @@ export default function SousVideApp() {
         </div>
         <nav className="sv-nav" aria-label="Screens">
           {nav.back && <button type="button" className="sv-key sv-nav__back" onClick={() => goBack(nav.back)}>Back</button>}
+          {nav.start && (
+            <PlanError query={query} fallback={<button type="button" className="sv-key sv-key--go sv-nav__next" disabled>Start cook</button>}>
+              <Suspense fallback={<button type="button" className="sv-key sv-key--go sv-nav__next" disabled>Start cook</button>}>
+                <StartCook form={shown} picked={picked} onStart={startCook} />
+              </Suspense>
+            </PlanError>
+          )}
           {nav.next && (
             <button type="button" className={`sv-key ${nav.next.quiet ? 'sv-nav__more' : 'sv-key--go sv-nav__next'}`}
               onClick={() => go(nav.next.to)}>{nav.next.label}</button>

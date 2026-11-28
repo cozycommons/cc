@@ -5,10 +5,11 @@ heat-conduction solves, each along up to three axes), so inputs are rounded to
 steps a cook can actually measure and plans are cached per process.
 """
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from . import calibrate, model
@@ -100,3 +101,41 @@ def calibrate_from_log(log: ProbeLog):
                      log.bone, log.bone_mm, None, None)
     out = calibrate.fit(steak, log.bath_c, log.readings, log.fit_h)
     return {**out, 'alpha': round(out['alpha'] * 1e7, 3)}  # in 1e-7 m^2/s, the unit /plan takes
+
+
+def ics_text(text: str) -> str:
+    """Text as an iCalendar value: backslash, comma, semicolon and newline escaped (RFC 5545 3.3.11)."""
+    return text.replace('\\', '\\\\').replace(',', '\\,').replace(';', '\\;').replace('\n', '\\n')
+
+
+def ics_time(t: datetime) -> str:
+    return t.strftime('%Y%m%dT%H%M%SZ')
+
+
+@router.get('/alarm.ics')
+def alarm(
+    start: int = Query(ge=1_700_000_000, le=4_000_000_000, description='When the bag went in, unix seconds'),
+    at: list[float] = Query(min_length=1, max_length=4, description='Minutes after start, one per alarm'),
+    what: list[str] = Query(min_length=1, max_length=4),
+):
+    """A calendar file with an event, and an alarm 10 min before and at it, for each moment a cook must act.
+
+    The phone's own calendar rings, so the cook needs no open page and the page needs
+    no timer. Served rather than built in the page because iOS Safari adds events
+    from a text/calendar response but not from a downloaded data URL.
+    """
+    if len(at) != len(what) or any(not 0 <= m <= 24 * 60 for m in at) or any(len(w) > 120 for w in what):
+        raise HTTPException(422, 'Give one label of up to 120 characters for each time, within a day of the start.')
+    begin = datetime.fromtimestamp(start, timezone.utc)
+    lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Cozy Commons//Sous vide//EN', 'METHOD:PUBLISH']
+    for i, (minutes, label) in enumerate(zip(at, what)):
+        text = ics_text(label)
+        lines += ['BEGIN:VEVENT', f'UID:sousvide-{start}-{i}@cozycommons', f'DTSTAMP:{ics_time(begin)}',
+                  f'DTSTART:{ics_time(begin + timedelta(minutes=minutes))}', 'DURATION:PT10M', f'SUMMARY:{text}',
+                  'DESCRIPTION:Estimated. The thermometer has the last word.']
+        for trigger, note in (('-PT10M', f'10 min: {text}'), ('PT0M', text)):
+            lines += ['BEGIN:VALARM', 'ACTION:DISPLAY', f'TRIGGER:{trigger}', f'DESCRIPTION:{note}', 'END:VALARM']
+        lines.append('END:VEVENT')
+    lines.append('END:VCALENDAR')
+    return Response('\r\n'.join(lines) + '\r\n', media_type='text/calendar; charset=utf-8',
+                    headers={'Content-Disposition': 'inline; filename="sous-vide.ics"'})

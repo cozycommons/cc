@@ -155,6 +155,16 @@ const ART = {
     '.onnnnnnnnnnoo',
     '..ooooooooooo.',
   ],
+  bell: [
+    '...oo...',
+    '..oyyo..',
+    '.oyyyyo.',
+    '.oyyyyo.',
+    '.oyyyyo.',
+    'oyyyyyyo',
+    'oooooooo',
+    '...oo...',
+  ],
   star: [
     '...o...',
     '..oyo..',
