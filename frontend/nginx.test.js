@@ -53,12 +53,17 @@ describe('enforced CSP', () => {
   it('normalizes trailing separators without widening credential destinations', () => {
     expect(contentSecurityPolicies('https://api.example.test///', 'https://auth.example.test/')).toEqual(policies);
   });
-  it('blocks script injection, eval, frames, objects, forms and base changes', () => {
+  it('blocks script injection, eval, objects, forms and base changes', () => {
     for (const policy of Object.values(policies)) {
-      for (const directive of ["default-src 'self'", "script-src 'self'", "object-src 'none'", "frame-ancestors 'none'", "frame-src 'none'", "form-action 'none'", "base-uri 'none'"]) expect(policy).toContain(directive);
+      for (const directive of ["default-src 'self'", "script-src 'self'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'none'", "base-uri 'none'"]) expect(policy).toContain(directive);
       expect(policy).not.toContain('unsafe-eval');
       expect(policy).not.toMatch(/script-src[^;]*unsafe-inline/);
     }
+  });
+  it('permits only the Arcade player frame on general pages and no frames on credentials', () => {
+    const frameSources = policy => policy.match(/(?:^|; )frame-src ([^;]+)/)[1];
+    expect(frameSources(policies.general)).toBe('https://api.example.test/arcade/frame');
+    expect(frameSources(policies.credentials)).toBe("'none'");
   });
   it('allows both Google font artifact paths only on general pages', () => {
     expect(policies.general).toContain("font-src 'self' https://fonts.gstatic.com/s/ https://fonts.gstatic.com/l/font;");
