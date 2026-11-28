@@ -99,3 +99,17 @@ def test_ready_has_a_bounded_timeout(monkeypatch):
     response = _client(_Supabase()).get("/ready")
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "reason": "database_timeout"}
+
+
+def test_ready_requires_the_apps_caller_secret_with_the_manager_url(monkeypatch):
+    monkeypatch.setenv("APPS_MANAGER_URL", "https://apps.example.test")
+    monkeypatch.delenv("APPS_MANAGER_CALLER_SECRET", raising=False)
+    response = _client(_Supabase()).get("/ready")
+    assert response.status_code == 503
+    assert response.json()["reason"] == "apps_caller_secret_missing"
+    monkeypatch.setenv("APPS_MANAGER_CALLER_SECRET", "c" * 64)
+    assert _client(_Supabase()).get("/ready").status_code == 200
+    # Without the manager URL, Apps is off and needs no secret.
+    monkeypatch.delenv("APPS_MANAGER_URL")
+    monkeypatch.delenv("APPS_MANAGER_CALLER_SECRET")
+    assert _client(_Supabase()).get("/ready").status_code == 200
