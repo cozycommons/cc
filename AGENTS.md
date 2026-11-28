@@ -116,3 +116,9 @@ best-effort recommendation.
 
 Follow Jason's design preferences in `docs/crowdset/DESIGN.md`. That document also
 records the current Crowdset feature scope.
+
+The shared React design system uses shadcn/ui with Radix Nova and the Cozy Wabi
+theme. Follow the project's installed `shadcn`, `ui-sdk`, and
+`web-design-guidelines` skills
+when composing or reviewing shared UI. Run shadcn commands from `frontend/`
+so the CLI resolves its `components.json`. See `design/README.md`.

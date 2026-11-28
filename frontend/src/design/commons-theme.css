@@ -1,0 +1,175 @@
+@import "../../../design/cozy-wabi/tokens.css";
+
+/* Map the Cozy Wabi materials onto shadcn's semantic color roles. */
+.commons-theme {
+  color-scheme: light;
+  --radius: .5rem;
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper-light);
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --primary: var(--moss-dark);
+  --primary-foreground: var(--paper-light);
+  --secondary: var(--clay-light);
+  --secondary-foreground: var(--espresso);
+  --muted: #e2d5bc;
+  --muted-foreground: #635346;
+  --accent: #d8dec9;
+  --accent-foreground: #394535;
+  --destructive: #923b30;
+  --border: var(--line);
+  --input: #8a765e;
+  --ring: #854729;
+  --chart-1: var(--moss);
+  --chart-2: var(--clay);
+  --chart-3: var(--walnut);
+  --chart-4: var(--blue-dusk);
+  --chart-5: #93622f;
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --commons-primary-hover: #53624f;
+  --commons-heading: var(--espresso);
+  --commons-well: #eee3ce;
+  --commons-paper-shadow: var(--paper-shadow);
+  --commons-key-shadow: var(--key-shadow);
+  --commons-key-pressed: var(--key-shadow-pressed);
+  --commons-well-shadow: var(--inset-shadow);
+  --commons-lamplight: rgb(211 145 85 / 18%);
+  --commons-mosslight: rgb(70 82 67 / 10%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .commons-theme {
+    color-scheme: dark;
+    --background: var(--espresso);
+    --foreground: var(--paper-light);
+    --card: #372b25;
+    --muted: #43342c;
+    --muted-foreground: #cbb9a2;
+    --primary: #b5c39f;
+    --primary-foreground: #292f24;
+    --accent: #424d3c;
+    --accent-foreground: #e1e8d3;
+    --destructive: #f7a18e;
+    --border: rgb(242 234 219 / 24%);
+    --input: #9c846f;
+    --ring: var(--butter);
+    --chart-1: var(--primary);
+    --chart-2: var(--clay-light);
+    --chart-3: #cca587;
+    --chart-4: #a6bdc2;
+    --chart-5: var(--butter);
+    --commons-primary-hover: #c8d2b8;
+    --commons-heading: var(--paper-light);
+    --commons-well: #2e231f;
+    --commons-paper-shadow: 0 12px 25px rgb(21 15 12 / 25%), 0 2px 3px rgb(21 15 12 / 25%);
+    --commons-key-shadow: 0 3px 0 rgb(21 15 12 / 40%), inset 0 1px 0 rgb(255 242 216 / 26%);
+    --commons-key-pressed: inset 2px 3px 5px rgb(21 15 12 / 25%);
+    --commons-well-shadow: inset 2px 2px 5px rgb(21 15 12 / 38%);
+    --commons-lamplight: rgb(211 145 85 / 10%);
+    --commons-mosslight: rgb(181 195 159 / 7%);
+  }
+}
+
+.commons-theme,
+.commons-theme body,
+.commons-theme #root { overflow-x: clip; }
+
+.commons-theme body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--sans);
+}
+
+.commons-theme :where(h1, h2, h3, h4, [data-slot="card-title"], [data-slot="dialog-title"]) {
+  color: var(--commons-heading);
+  font-family: var(--serif);
+}
+
+.commons-theme :where(code, kbd) { font-family: var(--mono); }
+
+@layer base {
+  .commons-theme * { border-color: var(--border); }
+}
+
+.commons-theme :is(button, a, label) { touch-action: manipulation; }
+.commons-theme :is(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+/* The slot recipes keep Radix states and the shadcn focus and invalid rings. */
+.commons-theme :where(
+  [data-slot="card"], [data-slot="alert"], [data-slot="dialog-content"],
+  [data-slot="select-content"], [data-slot="input"], [data-slot="textarea"],
+  [data-slot="select-trigger"], button[data-variant][data-size], a[data-variant][data-size]
+) {
+  --commons-elevation: 0 0 transparent;
+  box-shadow:
+    var(--tw-inset-ring-shadow, 0 0 transparent),
+    var(--tw-inset-shadow, 0 0 transparent),
+    var(--tw-ring-offset-shadow, 0 0 transparent),
+    var(--tw-ring-shadow, 0 0 transparent),
+    var(--commons-elevation);
+}
+
+.commons-theme :where([data-slot="card"], [data-slot="alert"], [data-slot="dialog-content"]) {
+  border-radius: var(--radius-card);
+  --commons-elevation: var(--commons-paper-shadow);
+}
+
+.commons-theme :where([data-slot="select-content"], [data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) {
+  border-radius: var(--radius-small);
+}
+
+.commons-theme :where([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]):enabled {
+  background-color: var(--commons-well);
+  --commons-elevation: var(--commons-well-shadow);
+}
+
+.commons-theme :where(button, a)[data-variant][data-size] {
+  border-radius: var(--radius-button);
+}
+
+.commons-theme :where(button, a)[data-variant="outline"]:not(:focus-visible) {
+  border-color: var(--input);
+}
+
+.commons-theme :where(
+  button[data-variant][data-size="default"], a[data-variant][data-size="default"],
+  [data-slot="input"], [data-slot="select-trigger"][data-size="default"], [data-slot="tabs-trigger"]
+) {
+  min-block-size: 2.75rem;
+}
+
+.commons-theme [data-slot="tabs-list"] { min-block-size: 3.125rem; }
+.commons-theme [data-slot="tabs-trigger"]:not([data-state="active"]):not(:hover) { color: var(--muted-foreground); }
+
+.commons-theme :where(button, a)[data-size]:is([data-variant="default"], [data-variant="secondary"]):not(:disabled, [aria-disabled="true"]) {
+  --commons-elevation: var(--commons-key-shadow);
+}
+
+.commons-theme :where(button, a)[data-size]:is([data-variant="default"], [data-variant="secondary"]):not(:disabled, [aria-disabled="true"]):active {
+  --commons-elevation: var(--commons-key-pressed);
+}
+
+@media (hover: hover) {
+  .commons-theme :where(button, a)[data-size][data-variant="default"]:not(:disabled, [aria-disabled="true"]):hover {
+    background-color: var(--commons-primary-hover);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commons-theme :is([data-slot], [data-sonner-toast]) {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
