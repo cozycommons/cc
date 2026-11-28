@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # Sandbox image for untrusted SWF processing. It holds one fixed toolchain
 # (JPEXS on a minimal Java 21 runtime) and one entrypoint with a fixed set of
-# operations. It has no Commons code, credentials, package manager cache or
-# network clients. The host-side runner (sandbox.py) adds the runtime limits:
+# operations. It has no Commons code or credentials; the runner gives it no
+# network. The host-side runner (sandbox.py) adds the runtime limits:
 # no network, read-only root, no capabilities, non-root user, memory/CPU/pid
 # caps and a wall-clock kill.
 #

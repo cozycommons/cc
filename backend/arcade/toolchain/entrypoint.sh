@@ -15,7 +15,7 @@ set -eu
 if [ -z "${TOOLCHAIN_TIMED:-}" ]; then
   deadline="${TOOLCHAIN_DEADLINE:-300}"
   case "$deadline" in
-    ''|*[!0-9]*) echo "invalid deadline" >&2; exit 64 ;;
+    ''|0*|*[!0-9]*) echo "invalid deadline" >&2; exit 64 ;;
   esac
   # A background job's stdin is /dev/null, so hand it the real one on fd 3.
   exec 3<&0

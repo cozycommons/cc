@@ -144,9 +144,9 @@ def run(operation: str, arguments: list[str], files: dict[str, bytes], limits: L
             del tail[:-limits.max_log_bytes]
 
     def stop(reason: threading.Event) -> None:
+        # Killing the client unblocks the reads below; `finally` removes the container.
         reason.set()
         process.kill()
-        _remove(name)
 
     reader = threading.Thread(target=drain_log, daemon=True)
     timer = threading.Timer(limits.timeout_seconds, stop, (expired,))
