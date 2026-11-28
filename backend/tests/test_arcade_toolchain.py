@@ -255,23 +255,25 @@ def test_jobs_move_data_only_through_signed_urls(storage):
 
 
 @needs_image
-def test_container_ends_on_its_own_when_the_worker_is_killed():
-    """Compute SIGKILLs a handler at its deadline; the container must not outlive it."""
+def test_container_enforces_its_own_deadline():
+    """Compute may SIGKILL the handler, so the container must end without host help.
+
+    stdin is held open and never written, so the operation would wait forever:
+    only the entrypoint's deadline can end it. (Killing the docker client is
+    not a usable test: that closes stdin, and the operation then exits anyway.)
+    """
     name = f"cc-arcade-toolchain-test-{uuid.uuid4().hex}"
     image = os.environ.get("CC_ARCADE_TOOLCHAIN_IMAGE", sandbox.IMAGE)
     command = sandbox.docker_command(name, "export", ["script"], sandbox.Limits(timeout_seconds=3), image)
-    # stdin stays open, so the operation would wait for input forever.
     client = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        for _ in range(100):
-            if subprocess.run(["docker", "inspect", name], capture_output=True).returncode == 0:
-                break
-            time.sleep(0.1)
-        client.kill()  # SIGKILL: no cleanup code runs
-        client.wait()
-        deadline = time.monotonic() + 30
+        started = time.monotonic()
+        assert client.wait(timeout=30) == 137
+        assert time.monotonic() - started < 20
+        removed = time.monotonic() + 10
         while subprocess.run(["docker", "inspect", name], capture_output=True).returncode == 0:
-            assert time.monotonic() < deadline, "container outlived its deadline"
+            assert time.monotonic() < removed, "exited container was not removed"
             time.sleep(0.5)
     finally:
+        client.kill()
         subprocess.run(["docker", "rm", "--force", name], capture_output=True)
