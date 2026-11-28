@@ -281,3 +281,14 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
 @supports (overflow: clip) {
   html:has(.sv-page), html:has(.sv-page) body, html:has(.sv-page) #root { overflow-x: clip; }
 }
+/* Tap tiles for the cook's picks: a name and its number, the meat's color for doneness. */
+.cc-segmented.sv-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}
+.cc-segmented.sv-tiles--3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cc-segmented.sv-tiles--4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.sv-tiles .cc-segmented__item{display:grid;justify-items:center;align-content:center;gap:2px;min-height:58px;padding:6px 4px;
+  white-space:normal;text-align:center;line-height:1.15;text-transform:none;letter-spacing:0}
+.sv-tiles .cc-segmented__item b{font:800 15px/1.15 var(--sans,system-ui)}
+.sv-tiles .cc-segmented__item small{font:600 12px/1.2 var(--sans,system-ui);color:var(--ink-soft,#6f6256);font-variant-numeric:tabular-nums}
+.sv-meat{display:block;width:36px;height:14px;border:2px solid var(--sv-ink);border-radius:3px;image-rendering:pixelated}
+.sv-stepper__row--fine{grid-template-columns:minmax(48px,64px) minmax(80px,1fr) minmax(48px,64px)}
+.sv-help{margin:-10px 0 0}

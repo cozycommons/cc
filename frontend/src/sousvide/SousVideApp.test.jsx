@@ -40,12 +40,8 @@ async function toPlan() {
   await tap('See the plan');
   return screen.findByRole('region', { name: 'What to do' });
 }
-// Sets a slider and lets go of it, which commits the value.
-async function slide(name, value) {
-  const slider = screen.getByRole('slider', { name });
-  fireEvent.change(slider, { target: { value } });
-  await act(async () => { fireEvent.pointerUp(slider); });
-}
+// Taps a tile.
+const pick = (name) => act(async () => { fireEvent.click(screen.getByRole('radio', { name })); });
 // The browser's own back button, which jsdom delivers as a later popstate.
 const settle = () => new Promise((r) => { setTimeout(r, 30); });
 const browserBack = () => act(async () => { window.history.back(); await settle(); });
@@ -126,10 +122,10 @@ describe('Sous vide', () => {
       ...PLAN, classic: row('classic', 52, 300), hot_and_pull: row('hot_and_pull', 55, 200),
       hot_then_drop: row('hot_then_drop', 55, 250, { switch_minutes: 250 }),
     };
-    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => (url.includes('target_c=52&') ? rare : PLAN) })));
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => (url.includes('target_c=51.5&') ? rare : PLAN) })));
     await act(async () => { render(<SousVideApp />); });
     await tap('Next');
-    await slide('Doneness', '52');
+    await pick('Rare, 125°F');
     await tap('See the plan');
     const answer = await screen.findByRole('region', { name: 'What to do' });
     await vi.waitFor(() => expect(within(answer).getByRole('radio', { name: 'Hot, then cool, 4 h 10' })).toBeTruthy());
@@ -143,15 +139,15 @@ describe('Sous vide', () => {
 
   it('keeps an early cool-down below 130°F and says to sear right away', async () => {
     const rare = { ...PLAN, hot_then_drop: row('hot_then_drop', 60, 87, { switch_minutes: 73 }) };
-    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => (url.includes('target_c=52&') ? rare : PLAN) })));
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => (url.includes('target_c=51.5&') ? rare : PLAN) })));
     await act(async () => { render(<SousVideApp />); });
     await tap('Next');
-    await slide('Doneness', '52');
+    await pick('Rare, 125°F');
     await tap('See the plan');
     const answer = await screen.findByRole('region', { name: 'What to do' });
     await vi.waitFor(() => expect(within(answer).getByRole('radio', { name: 'Hot, then cool, 1 h 27' })).toBeTruthy());
     fireEvent.click(within(answer).getByRole('radio', { name: 'Hot, then cool, 1 h 27' }));
-    expect(answer.querySelector('[data-step="cool"]').textContent).toBe('Cool the bath to126°Fat 1 h 13. Ice works.');
+    expect(answer.querySelector('[data-step="cool"]').textContent).toBe('Cool the bath to125°Fat 1 h 13. Ice works.');
     expect(answer.querySelector('[data-step="out"]').textContent)
       .toBe('Take it out at124°Fon the thermometer, about 1 h 27 in. Below 130°F it can’t wait: sear right away.');
     expect(answer.textContent).not.toContain('skip cooling');
@@ -319,19 +315,23 @@ describe('Sous vide', () => {
     expect(localStorage.getItem('sousvide.calibration')).toBeNull();
   });
 
-  it('asks for a new plan only when a slider is let go', async () => {
+  it('sets the cook with taps: tiles for the common picks, a stepper for the exact doneness', async () => {
     const fetch = vi.fn(async () => ({ ok: true, json: async () => PLAN }));
     vi.stubGlobal('fetch', fetch);
     await act(async () => { render(<SousVideApp />); });
+    // Thickness steps by an eighth of an inch from the cut's 51 mm, onto the eighths.
+    await tap('Thickness +⅛″');
+    expect(planned(fetch)).toContain('thickness_mm=53.975&');
+    expect(screen.getByRole('group', { name: 'Thickness' }).querySelector('output').textContent).toBe('2 ⅛″54 mm');
+    await pick('Room, 68°F');
+    expect(planned(fetch)).toContain('start_c=20&');
     await tap('Next');
-    const slider = screen.getByRole('slider', { name: 'Hot bath, for the faster methods' });
-    fireEvent.change(slider, { target: { value: '4' } });
-    fireEvent.change(slider, { target: { value: '5' } });
-    expect(screen.getByText('139°F · +9°F')).toBeTruthy();
-    expect(fetch).toHaveBeenCalledTimes(1);
-    await act(async () => { fireEvent.pointerUp(slider); });
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch.mock.calls[1][0]).toContain('boost_c=5');
+    expect(screen.getByRole('radio', { name: 'Medium rare, 130°F' }).checked).toBe(true);
+    await tap('Exactly +1°');
+    expect(screen.getByRole('radio', { name: 'Medium rare, 130°F' }).checked).toBe(false);
+    expect(screen.getByRole('group', { name: 'Exactly' }).querySelector('output').textContent).toBe('131°Fmedium rare');
+    await pick('+9°F, 140°F');
+    expect(planned(fetch)).toContain('target_c=55&boost_c=5&');
   });
 
   it('names an out-of-range measurement instead of printing the field errors', async () => {
@@ -388,7 +388,7 @@ describe('Sous vide', () => {
     vi.stubGlobal('fetch', fetch);
     await act(async () => { render(<SousVideApp />); });
     await tap('Next');
-    await slide('Sear, each side', '60');
+    await pick('1 min');
     expect(planned(fetch)).toContain('sear_s=60');
     const calls = fetch.mock.calls.length;
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'See the plan' })); });
@@ -403,7 +403,7 @@ describe('Sous vide', () => {
     const { unmount } = await act(async () => render(<SousVideApp />));
     await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Filet' })); });
     await tap('Next');
-    await slide('Doneness', '57.5');
+    await pick('Medium, 136°F');
     unmount();
     await act(async () => { render(<SousVideApp />); });
     expect(heading()).toBe('Your cook');

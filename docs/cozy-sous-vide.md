@@ -309,9 +309,15 @@ range is one. Depths are shown to the nearest sixteenth of an inch.
 
 **Screens.** The page is a flow, one screen at a time:
 
-1. **Your steak** (`#steak`): cut, thickness with the No ruler? guide, weight,
-   bone and starting temperature; width and length sit behind **More**.
-2. **Your cook** (`#cook`): doneness with its strip, the hot bath and the sear.
+1. **Your steak** (`#steak`): cut, thickness in eighths of an inch with the No
+   ruler? guide, weight, bone and where it starts (fridge 41°F, cool 50°F, room
+   68°F); width and length sit behind **More**.
+2. **Your cook** (`#cook`): doneness as tiles (rare 125°F to well done 155°F)
+   with a ±1°F stepper and its strip, the hot bath (+3 to +13°F) and the sear
+   (none to 2 min), all tiles.
+
+Every control is a tap: tiles for the common picks and steppers for numbers,
+no sliders and no typing. A saved value off a tile's list shows with no tile lit.
 3. **The plan** (`#plan`): the method tabs, the steps and the schedule with Eat
    at. Start cook sits in the sticky bar.
 4. **Cooking** (`#cooking`): the schedule as clock times, Set alarms in my
@@ -355,10 +361,10 @@ When the rest is long (10 minutes or more) and the center still climbs, the
 sear step says what cutting at 5 minutes gives instead, and how cool a full rest
 leaves the crust.
 
-**No typing.** Every value on the page is set by touch: sliders, chips, and
-steppers with a coarse and a fine step either side of the value (weight ½ and
-0.05 lb; width and length ½ and 0.1″; the thermometer 5 and 1 °F; dinner 1 h and
-15 min). Width and length start unset and show the planner's own estimate from
+**No typing.** Every value on the page is set by touch: tiles, chips, and
+steppers with a coarse and a fine step either side of the value (thickness ½
+and ⅛″; weight ½ and 0.05 lb; width and length ½ and 0.1″; the thermometer 5 and
+1 °F; dinner 1 h and 15 min), or one fine step (doneness, about 1 °F). Width and length start unset and show the planner's own estimate from
 the weight (the same density and 1.3 aspect as `model.sized`); the first tap
 starts from it, and **From weight** unsets it again. **Don't know** unsets the
 weight, which sizes the steak by thickness alone. Each tap of a measurement asks
@@ -385,8 +391,8 @@ log or bath box; a cook that wants to calibrate logs one cook-along.
 2 px ink outlines, and chunky keys whose hard bottom edge presses down. Cuts,
 methods, steps, the finger and the title are pixel sprites drawn as SVG
 paths built once at load; the No ruler? panel draws the steak's side to scale
-beside a standing finger or stacked fingers. A doneness strip under the slider
-shows each target's meat colour. Starting a cook, logging a reading, a finished
+beside a standing finger or stacked fingers. A doneness strip under the doneness
+stepper shows each target's meat colour. Starting a cook, logging a reading, a finished
 fit and a replay that plays to the end of the rest set off a pixel burst. Each
 screen is keyed on its name and slides in on mount: from the right going
 forward, from the left going back (the direction is kept in state, adjusted
@@ -396,7 +402,7 @@ by a mount or a key change (no timers or effects), and is off under
 `prefers-reduced-motion`. Bursts are absolutely placed, the slide is clipped
 sideways, and stepper values keep their width, so nothing shifts.
 
-**No ruler?** On the steak screen, under the thickness slider, a short tutorial measures with a
+**No ruler?** On the steak screen, under the thickness stepper, a short tutorial measures with a
 finger, two ways: stand an index finger beside the steak and see which crease
 its top reaches (taken as 23 mm to the first crease, 46 mm to the second), or
 lay fingers flat and count them (19 mm each). A drawing shows the steak at the

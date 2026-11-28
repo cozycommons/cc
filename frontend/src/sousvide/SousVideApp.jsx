@@ -244,28 +244,8 @@ export function Segmented({ label, items, value, onChange, showLabel = true, cla
   );
 }
 
-// The label follows the thumb while it moves; the plan is only asked for once
-// the thumb is let go (pointer, touch or key), since each plan costs the API
-// about half a second.
-function Range({ label, value, shown, min, max, step, onChange, below }) {
-  const [draft, setDraft] = useState(null);
-  const commit = () => {
-    if (draft != null) onChange(draft);
-    setDraft(null);
-  };
-  return (
-    <label className="cc-range-field sv-field">
-      <span className="cc-label">{label} <output>{shown(draft ?? value)}</output></span>
-      <input className="cc-range" type="range" aria-label={label} min={min} max={max} step={step} value={draft ?? value}
-        onChange={(e) => setDraft(Number(e.target.value))}
-        onPointerUp={commit} onKeyUp={commit} onTouchEnd={commit} onBlur={commit} />
-      {below?.(draft ?? value)}
-    </label>
-  );
-}
-
 // A number set by tapping, never typed: a coarse and a fine step either side of the
-// value. `steps` is [coarse, fine] with their button text; the caller decides what a
+// value, or only the fine one. `steps` is [coarse, fine] or [fine], with their button text; the caller decides what a
 // step does, so a stepper can count degrees, inches or minutes of the day. The value
 // is keyed so each change replays a small bump (CSS only).
 const fmtStep = (n) => ({ 0.25: '¼', 0.5: '½' }[n] ?? String(n));
@@ -274,17 +254,17 @@ export function Stepper({ label, shown, note, steps, onStep, canStep = () => tru
     <button type="button" className="sv-key sv-key--step" aria-label={`${label} ${text}`} disabled={!canStep(d)}
       onClick={() => onStep(d)}>{text}</button>
   );
-  const [coarse, fine] = steps;
+  const [coarse, fine] = steps.length > 1 ? steps : [null, steps[0]];
   return (
     <div className="sv-stepper" role="group" aria-label={label}>
       <span className="cc-label">{label}</span>
-      <div className="sv-stepper__row">
-        {button(-coarse.d, `−${coarse.text ?? fmtStep(coarse.d)}`)}
+      <div className={`sv-stepper__row${coarse ? '' : ' sv-stepper__row--fine'}`}>
+        {coarse && button(-coarse.d, `−${coarse.text ?? fmtStep(coarse.d)}`)}
         {button(-fine.d, `−${fine.text ?? fmtStep(fine.d)}`)}
         <output className="sv-stepper__value" aria-live="polite"><span key={shown}>{shown}</span>
           {note && <small>{note}</small>}</output>
         {button(fine.d, `+${fine.text ?? fmtStep(fine.d)}`)}
-        {button(coarse.d, `+${coarse.text ?? fmtStep(coarse.d)}`)}
+        {coarse && button(coarse.d, `+${coarse.text ?? fmtStep(coarse.d)}`)}
       </div>
       {children}
     </div>
@@ -581,7 +561,8 @@ function CoreChart({ trace, target }) {
         <line className="sv-target" x1={PAD.left} x2={W - PAD.right} y1={y(toF(target))} y2={y(toF(target))} />
         <text className="sv-axis" x={PAD.left - 4} y={y(toF(target)) + 4} textAnchor="end">{Math.round(toF(target))}</text>
         <text className="sv-axis" x={PAD.left - 4} y={y(lo) + 4} textAnchor="end">{Math.round(lo)}</text>
-        {ticks.map((m) => <text key={m} className="sv-axis" x={x(m)} y={H - 6} textAnchor="middle">{fmtMinutes(m)}</text>)}
+        {ticks.map((m, i) => <text key={m} className="sv-axis" x={x(m)} y={H - 6}
+          textAnchor={i === ticks.length - 1 ? 'end' : 'middle'}>{fmtMinutes(m)}</text>)}
         {STRATEGIES.map((s) => (
           <polyline key={s.id} className={`sv-line sv-line--${s.id}`}
             points={trace[s.id].map((p) => `${x(p.min).toFixed(1)},${y(toF(p.core)).toFixed(1)}`).join(' ')} />
@@ -909,10 +890,25 @@ function DonenessStrip({ c }) {
   );
 }
 
+// The cook screen's choices are taps, not drags: a slider is hard to land on a
+// phone. Each list holds the common picks; a saved value off the list shows with
+// no tile lit, and doneness also steps by about 1°F.
+const DONENESS_PICKS = [
+  { c: 51.5, name: 'Rare' }, { c: 54.5, name: 'Medium rare' }, { c: 57.5, name: 'Medium' },
+  { c: 63, name: 'Medium well' }, { c: 68.5, name: 'Well done' },
+];
+const TARGET_STEPS = [{ d: 0.5, text: '1°' }];
+const BOOSTS = [1.5, 3, 5, 7];
+const SEARS = [0, 30, 45, 60, 90, 120];
+const fmtSear = (s) => (!s ? 'None' : s < 60 ? `${s} s` : `${fmtCount(s / 60)} min`);
+const STARTS = [{ c: 5, name: 'Fridge' }, { c: 10, name: 'Cool' }, { c: 20, name: 'Room' }];
+const MM_PER_8TH = MM_PER_IN / 8;
+const THICK_STEPS = [{ d: MM_PER_IN / 2, text: '½″' }, { d: MM_PER_8TH, text: '⅛″' }];
+const tile = (name, sub) => <><b>{name}</b><small>{sub}</small></>;
+
 const WEIGHT_STEPS = [{ d: 0.5 }, { d: 0.05, text: '.05' }];
 const SIDE_STEPS = [{ d: 0.5 }, { d: 0.1, text: '.1' }];
 
-const startNote = (c) => (c <= 7 ? ' · fridge' : c >= 18 ? ' · room temp' : '');
 
 // The page is a flow of screens, and the screen lives in the URL hash so the
 // phone's back button and browser history move between them. A step forward
@@ -1065,16 +1061,18 @@ export default function SousVideApp() {
         <div className="sv-form__col">
           <Segmented label="Cut" className="sv-cuts" value={cut.id} onChange={pickCut}
             items={CUTS.map((c) => ({ key: c.id, label: c.name, name: <><Sprite name={c.id} scale={3} /><span>{c.name}</span></> }))} />
-          <Range label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} value={form.mm} min={10} max={100} step={1}
-            shown={(mm) => `${fmtInches(mm)} · ${mm} mm`} onChange={set('mm')} />
+          <Stepper label={cut.shape === 'cylinder' ? 'Diameter' : 'Thickness'} steps={THICK_STEPS}
+            shown={fmtDepth(form.mm)} note={`${Math.round(form.mm)} mm`}
+            canStep={(d) => (d < 0 ? form.mm > 10 : form.mm < 100)}
+            onStep={(d) => set('mm')(stepValue(form.mm, d, { min: 10, max: 100, fine: MM_PER_8TH }))} />
           <RulerGuide mm={form.mm} onChange={set('mm')} />
         </div>
         <div className="sv-form__col">
           <Measure label="Weight, lb" value={form.lb} base={cut.lb} unit=" lb" empty="unknown" steps={WEIGHT_STEPS}
             min={0.15} max={11} clear={{ empty: 'sized by thickness', label: 'Don’t know' }} onChange={set('lb')} />
           {slab && <Segmented label="Bone" items={BONES} value={form.bone} onChange={set('bone')} />}
-          <Range label="Starts at" value={form.start} min={0} max={30} step={0.5}
-            shown={(c) => `${fmtF(c)}${startNote(c)}`} onChange={set('start')} />
+          <Segmented label="Starts at" className="sv-tiles sv-tiles--3" value={form.start} onChange={set('start')}
+            items={STARTS.map((s) => ({ key: s.c, label: `${s.name}, ${fmtF(s.c)}`, name: tile(s.name, fmtF(s.c)) }))} />
           <details className="cc-accordion sv-more">
             <summary>More: width and length</summary>
             <div className="cc-accordion__content sv-measures">
@@ -1092,12 +1090,23 @@ export default function SousVideApp() {
     ),
     cook: (
       <section className="sv-form sv-form--cook" aria-label="Cook">
-        <Range label="Doneness" value={target} min={49} max={68} step={0.5}
-          shown={(c) => `${fmtF(c)} · ${doneness(c)}`} onChange={set('target')} below={(c) => <DonenessStrip c={c} />} />
-        <Range label="Hot bath, for the faster methods" value={form.boost} min={0} max={10} step={0.5}
-          shown={(b) => `${fmtF(target + b)} · +${Math.round(toF(target + b)) - Math.round(toF(target))}°F`} onChange={set('boost')} />
-        <Range label="Sear, each side" value={form.sear} min={0} max={120} step={15}
-          shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
+        <Segmented label="Doneness" className="sv-tiles" value={target} onChange={set('target')}
+          items={DONENESS_PICKS.map((d) => ({ key: d.c, label: `${d.name}, ${fmtF(d.c)}`,
+            name: <><i className="sv-meat" style={{ background: shade(d.c + 0.5) }} />{tile(d.name, fmtF(d.c))}</> }))} />
+        <Stepper label="Exactly" steps={TARGET_STEPS} shown={fmtF(target)} note={doneness(target)}
+          canStep={(d) => (d < 0 ? target > 49 : target < 70)}
+          onStep={(d) => set('target')(stepValue(target, d, { min: 49, max: 70, fine: 0.5 }))}>
+          <DonenessStrip c={target} />
+        </Stepper>
+        <Segmented label="Hot bath, for the faster methods" className="sv-tiles sv-tiles--4" value={form.boost} onChange={set('boost')}
+          items={BOOSTS.map((b) => {
+            const up = `+${Math.round(toF(target + b)) - Math.round(toF(target))}°F`;
+            return { key: b, label: `${up}, ${fmtF(target + b)}`, name: tile(up, fmtF(target + b)) };
+          })} />
+        <p className="cc-help sv-help">Hot, then pull and Hot, then cool start the bath this much above your target.
+          Hotter is faster; Learn shows what each one does to the outside.</p>
+        <Segmented label="Sear, each side" className="sv-tiles sv-tiles--3" value={form.sear} onChange={set('sear')}
+          items={SEARS.map((v) => ({ key: v, label: fmtSear(v), name: <b>{fmtSear(v)}</b> }))} />
       </section>
     ),
     plan: <>{answer}
