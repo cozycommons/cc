@@ -3,6 +3,9 @@ import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
 import PixelKitchen, { pointAt } from './PixelKitchen.jsx';
 import { Burst, Sprite } from './Sprites.jsx';
+import {
+  bridgeHere, canBluetooth, connectBluetooth, connectBridge, disconnect, offProbe, readProbe, reconnectBluetooth, subscribeProbe,
+} from './probe.js';
 import '../../../design/cozy-wabi/components.css';
 import './sousvide.css';
 
@@ -77,6 +80,48 @@ function save(key, value) {
     else localStorage.setItem(key, JSON.stringify(value));
   } catch { /* private mode */ }
 }
+// The probe log is read through useSyncExternalStore from localStorage, so a tap on
+// Log and a reading from a connected thermometer (an event outside React) append to
+// the same log. Without storage (private mode) it lives in memory until the page closes.
+const EMPTY_LOG = { bathF: null, readings: [] };
+const logListeners = new Set();
+let logRaw;
+let logValue;
+function subscribeLog(onChange) {
+  logListeners.add(onChange);
+  window.addEventListener('storage', onChange); // another tab logged
+  return () => { logListeners.delete(onChange); window.removeEventListener('storage', onChange); };
+}
+function readLogStore() {
+  let raw;
+  try { raw = localStorage.getItem(LOG_KEY); } catch { return logValue ?? EMPTY_LOG; }
+  if (raw !== logRaw || logValue === undefined) { logRaw = raw; logValue = loadLog(); }
+  return logValue;
+}
+const noLog = () => EMPTY_LOG;
+function writeLog(next) {
+  const kept = next.readings.length ? next : null;
+  save(LOG_KEY, kept);
+  try { logRaw = localStorage.getItem(LOG_KEY); } catch { /* private mode */ }
+  logValue = kept ?? EMPTY_LOG;
+  logListeners.forEach((l) => l());
+}
+// One reading of the running cook, in °F, at the minute it is taken.
+function appendReading(f) {
+  const cook = load(COOK_KEY);
+  if (!cook) return;
+  const log = readLogStore();
+  const min = Math.round((Date.now() - cook.startedAt) / 6000) / 10;
+  writeLog({ bathF: log.bathF ?? Number(cook.bathF), readings: [...log.readings, [min, f]] });
+}
+// A connected thermometer reports about once a second; the log keeps one a minute,
+// plenty for the fit and inside its 600-reading limit for a ten-hour cook.
+function logLive(f) {
+  const cook = load(COOK_KEY);
+  const last = readLogStore().readings.at(-1);
+  if (cook && (!last || (Date.now() - cook.startedAt) / 60000 - last[0] >= 1)) appendReading(f);
+}
+
 export const deltaF = (c) => c * 9 / 5;
 export const fmtF = (c) => `${Math.round(toF(c))}°F`;
 // A temperature range in °F, or one value when both ends round to it.
@@ -420,6 +465,38 @@ export function alarmUrl(cook, marks) {
 const EAT_STEPS = [{ d: 60, text: '1 h' }, { d: 15, text: '15' }];
 const READING_STEPS = [{ d: 5 }, { d: 1 }];
 
+// A live thermometer: what it reads, or the ways to connect one here. Connected,
+// it logs a reading a minute and rings once at `pullF`.
+function Probe({ probe, pullF }) {
+  const cook = { pullF, onTemp: logLive };
+  if (probe.status === 'live' || (probe.status === 'lost' && probe.source === 'bridge')) {
+    return (
+      <div className="sv-probe is-live">
+        <Sprite name="thermo" scale={3} />
+        <span><span className="cc-label">{probe.source === 'bridge' ? 'Home thermometer' : 'Thermometer'}</span>
+          <b key={probe.f}>{probe.f == null ? '…' : `${probe.f.toFixed(1)}°F`}</b>
+          <small>{probe.message ?? `Rings at ${pullF}°F`}</small></span>
+        <button type="button" className="sv-key sv-key--quiet" onClick={disconnect}>Disconnect</button>
+      </div>
+    );
+  }
+  const ways = [
+    canBluetooth() && <button key="bt" type="button" className="sv-key sv-key--quiet sv-probe__connect"
+      onClick={() => (probe.status === 'lost' ? reconnectBluetooth() : connectBluetooth(cook))}>
+      <Sprite name="thermo" scale={2} />{probe.status === 'lost' ? 'Reconnect the thermometer' : 'Connect a Bluetooth thermometer'}</button>,
+    bridgeHere() && <button key="home" type="button" className="sv-key sv-key--quiet sv-probe__connect"
+      onClick={() => connectBridge(cook)}><Sprite name="thermo" scale={2} />Use the home thermometer</button>,
+  ].filter(Boolean);
+  return (
+    <div className="sv-probe">
+      {probe.status === 'connecting' ? <p className="cc-help" role="status">Connecting…</p> : ways}
+      {probe.message && <p className="cc-help" role="alert">{probe.message}</p>}
+      {!ways.length && <p className="cc-help">A Bluetooth thermometer (Inkbird iBBQ) can log by itself from Chrome on
+        Android or a laptop. Or tap in what yours reads.</p>}
+    </div>
+  );
+}
+
 // When each step happens: counted from now until the cook starts, or back from a
 // dinner time, or on the clock once the bag is in. Nothing here ticks; the clock
 // times come from the moment Start was pressed, and the thermometer decides.
@@ -433,6 +510,9 @@ function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, 
   const startMin = cook ? cook.startMin : eatAt != null ? eatAt - total : null;
   const when = (m) => (startMin == null ? (m ? `+${fmtMinutes(m)}` : 'Now') : fmtClock(startMin + m));
   const last = readings.at(-1)?.[1];
+  const probe = useSyncExternalStore(subscribeProbe, readProbe, offProbe);
+  const live = probe.status === 'live' ? probe.f : null;
+  const pullF = Math.round(toF(row.pull_core_c));
   const shownF = reading ?? (cook
     ? expectedF(plan.trace[id], minute - cook.startedAt / 60000, readings.at(-1))
     : Math.round(toF(form.start)));
@@ -442,7 +522,7 @@ function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, 
   };
   const log = () => { onReading(shownF); setReading(null); };
   // The thermometer has reached the pull (or cool) mark: the cook's big moment.
-  const ready = cook && last != null && last >= Math.round(toF(row.pull_core_c));
+  const ready = cook && Math.max(last ?? -Infinity, live ?? -Infinity) >= pullF;
   return (
     <section className={`sv-when${cook ? ' is-cooking' : ''}`} aria-label="When">
       <div className="sv-when__head">
@@ -462,16 +542,19 @@ function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, 
         <Sprite name="bell" scale={2} />Set alarms in my calendar</a>}
       {cook ? (
         <div className="sv-when__log">
-          <Stepper label="Thermometer reads, °F" steps={READING_STEPS} shown={`${shownF}°F`}
-            canStep={(d) => (d < 0 ? shownF > 32 : shownF < 212)}
-            onStep={(d) => setReading(stepValue(shownF, d, { min: 32, max: 212, fine: 1 }))} />
-          <button type="button" className="sv-key sv-key--gold sv-when__logbtn" onClick={log}>
-            <Sprite name="thermo" scale={2} />Log</button>
+          <Probe probe={probe} pullF={pullF} />
+          {live == null && <>
+            <Stepper label="Thermometer reads, °F" steps={READING_STEPS} shown={`${shownF}°F`}
+              canStep={(d) => (d < 0 ? shownF > 32 : shownF < 212)}
+              onStep={(d) => setReading(stepValue(shownF, d, { min: 32, max: 212, fine: 1 }))} />
+            <button type="button" className="sv-key sv-key--gold sv-when__logbtn" onClick={log}>
+              <Sprite name="thermo" scale={2} />Log</button></>}
           {ready && <p className="sv-ready" key={`ready-${readings.length}`}><Sprite name="star" scale={3} />
             {marks.find((m) => m.key === 'out')?.label ?? `Cool the bath to ${fmtF(form.target)}`}</p>}
           <p className="cc-help">{readings.length
             ? `${readings.length} reading${readings.length === 1 ? '' : 's'} so far, saved in Learn, under “Tune to your kitchen”.`
-            : 'Log one now, then every 10 minutes or so. The log tunes the planner to your kitchen.'}</p>
+            : live != null ? 'It logs a reading a minute. The log tunes the planner to your kitchen.'
+              : 'Log one now, then every 10 minutes or so. The log tunes the planner to your kitchen.'}</p>
         </div>
       ) : <p className="cc-help">Estimates: the thermometer has the last word.</p>}
       {party > 0 && <Burst key={party} />}
@@ -991,7 +1074,7 @@ export default function SousVideApp() {
   // The running cook ({ method, startedAt ms, startMin of the day, bath °F }) and its
   // probe log, the same text the calibration fits.
   const [cook, setCook] = useState(() => load(COOK_KEY));
-  const [log, setLogState] = useState(loadLog);
+  const log = useSyncExternalStore(subscribeLog, readLogStore, noLog);
   // Counts the cook's milestones (start, each reading); each one replays a burst.
   const [party, setParty] = useState(0);
   // The plan screen's method tab and dinner time.
@@ -1006,7 +1089,7 @@ export default function SousVideApp() {
   const dir = trail.screen === screen ? trail.dir : 'none';
 
   const setForm = (next) => { setFormState(next); saveForm(next); };
-  const setLog = (next) => { setLogState(next); save(LOG_KEY, next.readings.length ? next : null); };
+  const setLog = writeLog;
   const startCook = (method, row) => {
     const now = new Date();
     const next = { method, startedAt: now.getTime(), startMin: now.getHours() * 60 + now.getMinutes(),
@@ -1017,12 +1100,8 @@ export default function SousVideApp() {
     // The cook takes the plan's place in history, so Back never returns to a plan already started.
     go('cooking', { replace: true });
   };
-  const endCook = () => { setCook(null); save(COOK_KEY, null); go('plan', { replace: true }); };
-  const addReading = (f) => {
-    const min = Math.round((Date.now() - cook.startedAt) / 6000) / 10;
-    setLog({ bathF: log.bathF ?? Number(cook.bathF), readings: [...log.readings, [min, f]] });
-    setParty((n) => n + 1);
-  };
+  const endCook = () => { disconnect(); setCook(null); save(COOK_KEY, null); go('plan', { replace: true }); };
+  const addReading = (f) => { appendReading(f); setParty((n) => n + 1); };
   const deleteReading = (i) => setLog({ ...log, readings: log.readings.filter((_, k) => k !== i) });
   // The last plan stays on screen, dimmed, while the next one loads.
   const shown = useDeferredValue(form);

@@ -429,6 +429,66 @@ remainder, and its slider follows the same timeline, so a 45 s sear is not
 lost in a two-hour cook. It runs at about 12 frames a second only while playing
 and on screen, and never autoplays.
 
+## Thermometer
+
+A connected thermometer replaces the stepper and Log on the cooking screen: it
+shows the reading, logs one a minute into the same log (the fit's 600-reading
+limit covers ten hours), shows the pull banner and rings once, three beeps and a
+buzz, when it reaches the pull temperature. While connected the page holds a
+screen wake lock, because a phone that sleeps drops Bluetooth and the page. The
+readings arrive as events (`frontend/src/sousvide/probe.js`, an external store),
+so nothing polls. Two sources:
+
+- **Bluetooth, on the public site.** Web Bluetooth talks to the probe directly,
+  in Chrome on Android or a laptop; iPhone Safari has no Web Bluetooth. It
+  speaks iBBQ, the protocol of Inkbird's IBT-2X, IBT-4XS and IBT-6XS and many
+  rebadged probes: service `0xFFF0`, the fixed login bytes to `0xFFF2`, realtime
+  on through `0xFFF5`, then `0xFFF4` notifies a little-endian uint16 per socket
+  in tenths of °C (`0xFFF6` for an empty socket). The first plugged-in probe is
+  the steak's. Not yet tried against a real probe.
+- **A home bridge, self-hosted.** Devices on the home network (Wi-Fi probes,
+  circulators, anything Home Assistant can read) are out of the public site's
+  reach, so they go through a server at home that runs the same code.
+
+### Self-hosting
+
+`python -m sousvide.selfhost` serves the page, the planner and the bridge
+(`backend/sousvide/bridge.py`) on one port. It adds
+`<meta name="sousvide-bridge">` to the page it serves, which is how the page
+knows to offer **Use the home thermometer**; the public API never mounts the
+bridge.
+
+```sh
+cd frontend && VITE_API_URL=dice-sandbox:same-origin VITE_SUPABASE_URL=dice-sandbox:same-origin \
+  VITE_SUPABASE_ANON_KEY=selfhost npm run build
+cd backend && python -m sousvide.selfhost --dist ../frontend/dist   # 127.0.0.1:8790
+tailscale serve --bg 8790   # reach it from the tailnet over HTTPS
+```
+
+It reads `index.html` at start, so restart it after a rebuild. The bridge has no
+login: keep it on loopback behind `tailscale serve`, not open on the LAN.
+
+Anything that can read the probe posts `POST /sousvide/probe` with
+`{"f": <°F>, "probe": "<name>"}` (204; `f` within -40 to 572). The page listens
+on `GET /sousvide/probe/stream`, server-sent events that send the latest reading
+at once and each new one after, with a keepalive comment every 15 s. From Home
+Assistant, with a probe sensor already in °F:
+
+```yaml
+rest_command:
+  sousvide_probe:
+    url: https://<host>.<tailnet>.ts.net/sousvide/probe
+    method: post
+    content_type: application/json
+    payload: '{"f": {{ f }}}'
+automation:
+  - triggers: [{ trigger: state, entity_id: sensor.ibbq_probe_1_temperature }]
+    actions: [{ action: rest_command.sousvide_probe, data: { f: "{{ trigger.to_state.state }}" } }]
+```
+
+Controlling a circulator (setting the bath, dropping it for hot then cool) would
+go through the same server; it is not built, because it depends on the model.
+
 ## API
 
 `GET /sousvide/plan`

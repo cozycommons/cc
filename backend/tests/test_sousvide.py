@@ -207,6 +207,46 @@ def client():
     return TestClient(app)
 
 
+def test_the_bridge_streams_the_latest_reading_then_each_new_one():
+    import asyncio
+    from sousvide.bridge import Hub, Reading
+
+    async def run():
+        hub = Hub()
+        hub.publish(Reading(f=101.5))
+        queue = asyncio.Queue(maxsize=2)
+        events = hub.events(queue)
+        first = await anext(events)
+        for f in (110, 111, 112):  # the stalled listener keeps the newest two
+            hub.publish(Reading(f=f))
+        rest = [await anext(events), await anext(events)]
+        await events.aclose()
+        return first, rest, hub.listeners
+
+    first, rest, listeners = asyncio.run(run())
+    assert first.startswith('data: {"f": 101.5, "probe": "probe"')
+    assert ['"f": 111' in rest[0], '"f": 112' in rest[1]] == [True, True]
+    assert listeners == set()
+
+
+def test_self_host_serves_the_page_marked_as_bridged_and_takes_readings(tmp_path):
+    from fastapi.testclient import TestClient
+    from sousvide import bridge, routes, selfhost
+    (tmp_path / 'assets').mkdir()
+    (tmp_path / 'assets' / 'app.js').write_text('ok')
+    (tmp_path / 'index.html').write_text('<html><head><title>x</title></head><body></body></html>')
+    client = TestClient(selfhost.create_app(tmp_path))
+    assert selfhost.BRIDGE_META in client.get('/sousvide').text  # the SPA route gets the marked page
+    assert client.get('/assets/app.js').text == 'ok'
+    assert client.get('/../index.html').status_code in (200, 404)  # never a file outside dist
+    assert client.post('/sousvide/probe', json={'f': 118.4}).status_code == 204
+    assert bridge.hub.latest['f'] == 118.4
+    assert client.post('/sousvide/probe', json={'f': 9000}).status_code == 422
+    assert client.get('/sousvide/nope').status_code == 404
+    # The public API has no bridge.
+    assert all('/probe' not in r.path for r in routes.router.routes)
+
+
 def test_alarm_rings_before_and_at_each_moment_a_cook_must_act(client):
     res = client.get('/sousvide/alarm.ics', params={'start': 1_795_800_000, 'at': [76.5], 'what': ['Out at 123°F, sear; now']})
     assert res.headers['content-type'].startswith('text/calendar')

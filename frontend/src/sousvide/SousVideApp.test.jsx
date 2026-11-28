@@ -5,6 +5,7 @@ import SousVideApp, {
   CUTS, doneness, fmtClock, fmtCount, fmtDepth, fmtF, fmtInches, fmtMinutes, forgetPlans, readLog, recommended, screenFor, shade, sizedIn,
   sliceEarly, stepValue, summary,
 } from './SousVideApp.jsx';
+import { probeTemps } from './probe.js';
 
 vi.mock('../components/SiteHeader.jsx', () => ({ default: () => null }));
 vi.mock('../api.js', () => ({ getUrl: () => 'https://api.test' }));
@@ -236,6 +237,72 @@ describe('Sous vide', () => {
     expect(screen.getByRole('radiogroup', { name: 'Method' })).toBeTruthy();
     expect(localStorage.getItem('sousvide.cook')).toBeNull();
     expect(JSON.parse(localStorage.getItem('sousvide.log'))).toEqual({ bathF: 135.5, readings: [[19, 124]] });
+  });
+
+  it('logs a Bluetooth thermometer once a minute and rings once at the pull', async () => {
+    expect(probeTemps(new DataView(new Uint16Array([461, 0xfff6]).buffer))).toEqual([46.1, null]);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => PLAN })));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 27, 18, 0));
+    // A fake iBBQ probe: the page logs in, turns on live readings, then hears frames.
+    const writes = [];
+    const live = new EventTarget();
+    live.startNotifications = async () => {};
+    const char = (uuid) => (uuid === 0xfff4 ? live : { writeValue: async (v) => { writes.push([uuid, [...v]]); } });
+    const device = new EventTarget();
+    device.gatt = { connected: true, connect: async () => ({ getPrimaryService: async () => ({ getCharacteristic: async (u) => char(u) }) }),
+      disconnect: () => {} };
+    const requestDevice = vi.fn(async () => device);
+    vi.stubGlobal('navigator', { ...navigator, bluetooth: { requestDevice }, vibrate: vi.fn() });
+    const frame = (c) => act(() => {
+      live.value = new DataView(new Uint16Array([0xfff6, Math.round(c * 10)]).buffer); // probe 2 is the one plugged in
+      live.dispatchEvent(new Event('characteristicvaluechanged'));
+    });
+
+    await act(async () => { render(<SousVideApp />); });
+    await toPlan();
+    await tap('Start cook');
+    await tap('Connect a Bluetooth thermometer');
+    expect(requestDevice.mock.calls[0][0].filters).toEqual([{ namePrefix: 'iBBQ' }, { services: [0xfff0] }]);
+    expect(writes.map(([u]) => u)).toEqual([0xfff2, 0xfff5]);
+    vi.setSystemTime(new Date(2026, 10, 27, 18, 5));
+    frame(46.1);
+    const status = () => document.querySelector('.sv-probe').textContent;
+    expect(status()).toContain('115.0°F');
+    expect(screen.queryByRole('button', { name: 'Log' })).toBeNull(); // the probe logs instead
+    frame(46.5); // the same minute: shown, not logged
+    vi.setSystemTime(new Date(2026, 10, 27, 18, 6, 30));
+    frame(51.2); // 124.2°F: past the 124°F pull
+    expect(JSON.parse(localStorage.getItem('sousvide.log')).readings).toEqual([[5, 115], [6.5, 124.2]]);
+    expect(screen.getByText('Out at 124°F, sear right away', { selector: '.sv-ready' })).toBeTruthy();
+    frame(51.5);
+    expect(navigator.vibrate).toHaveBeenCalledTimes(1);
+    await tap('Disconnect');
+    expect(screen.getByRole('button', { name: 'Log' })).toBeTruthy();
+  });
+
+  it('listens to the home bridge when the self-hosted page says it has one', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => PLAN })));
+    const streams = [];
+    vi.stubGlobal('EventSource', class { constructor(url) { this.url = url; streams.push(this); } close() { this.closed = true; } });
+    const meta = Object.assign(document.createElement('meta'), { name: 'sousvide-bridge', content: '1' });
+    document.head.append(meta);
+    try {
+      await act(async () => { render(<SousVideApp />); });
+      await toPlan();
+      await tap('Start cook');
+      await tap('Use the home thermometer');
+      expect(streams[0].url).toBe('https://api.test/sousvide/probe/stream');
+      act(() => streams[0].onmessage({ data: JSON.stringify({ f: 101.3, probe: 'probe' }) }));
+      expect(document.querySelector('.sv-probe').textContent).toContain('Home thermometer101.3°F');
+      expect(JSON.parse(localStorage.getItem('sousvide.log')).readings).toHaveLength(1);
+      act(() => streams[0].onerror());
+      expect(document.querySelector('.sv-probe').textContent).toContain('Lost the home bridge');
+      await tap('End cook');
+      expect(streams[0].closed).toBe(true);
+    } finally {
+      meta.remove();
+    }
   });
 
   it('measures thickness with a finger: its creases or fingers stacked', async () => {
