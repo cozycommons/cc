@@ -24,8 +24,9 @@ NON_EGRESS = {
     'resy.com': {'resy/resy_client.py'},
     'fantasy.espn.com': {'espn/team_claims.py'},
     'venmo.com': {'venmo/links.py'},
-    'localhost': {'main.py', 'dice/notifications.py'},
-    '127.0.0.1': {'main.py', 'runtime_policy.py', 'trips/local.py'},
+    # Arcade lists browser parent origins for its frame, not outbound destinations.
+    'localhost': {'main.py', 'dice/notifications.py', 'arcade/routes.py'},
+    '127.0.0.1': {'main.py', 'runtime_policy.py', 'trips/local.py', 'arcade/routes.py'},
     's3.amazonaws.com': {'bikes/ingest.py'},
     'download.bbbike.org': {'bikes/basemap.py'},
     # bikes.model and bikes.weather_history download weather history offline; the API never imports the latter
