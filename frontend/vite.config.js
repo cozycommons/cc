@@ -100,7 +100,7 @@ export default defineConfig(({ mode }) => {
         // Sandboxes serve same-origin placeholders (Codespaces, trips-dev --built) and need no policy;
         // the Dockerfile's COPY of dist/nginx.conf still fails loudly if a real image build lands here.
         if (codespacesSandbox || supabaseUrl === DICE_SAME_ORIGIN) return;
-        const policies = contentSecurityPolicies(apiUrl || 'http://127.0.0.1:8000', supabaseUrl || 'http://127.0.0.1:54321', clientEnv('VITE_CSP_CROWDSET_UPLOAD_ORIGIN', ''));
+        const policies = contentSecurityPolicies(apiUrl || 'http://127.0.0.1:8000', supabaseUrl || 'http://127.0.0.1:54321', clientEnv('VITE_CSP_CROWDSET_UPLOAD_ORIGIN', ''), clientEnv('VITE_ARCADE_PLAYER_ORIGIN', ''));
         const template = fs.readFileSync(path.resolve(__dirname, 'nginx.conf'), 'utf8');
         this.emitFile({ type: 'asset', fileName: 'nginx.conf', source: template
           .replaceAll('${CSP_GENERAL}', policies.general).replaceAll('${CSP_CREDENTIALS}', policies.credentials) });
