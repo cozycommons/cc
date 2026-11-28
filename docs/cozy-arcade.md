@@ -220,6 +220,123 @@ The earlier "Arcade storage is not configured" error came from the removed
 SQLite configuration dependency. Game package installation is now available
 inside Commons rather than requiring server administration.
 
+## Rooms and relay
+
+`backend/arcade/rooms.py` is the first Arcade service games use for live play:
+small rooms joined by a challenge link and a bounded WebSocket relay between
+their members. The relay forwards opaque game bytes. It does not interpret
+moves, decide winners or record results; results and ratings are a separate
+contract that must not trust a single client's report.
+
+It is off by default. The socket refuses the handshake (HTTP 403) unless the API
+process starts with `ARCADE_ROOMS=on`. No migration, table or credential is
+involved: rooms are in-memory and end when their last member leaves or the
+process restarts.
+
+### Connection and identity
+
+Connect to `wss://<api>/arcade/rooms/socket`. The first text frame must be
+`{"t": "hello", "session": "<launch capability>"}` within 5 seconds. The
+capability is the six-hour per-launch token from `POST /arcade/sessions`, looked
+up by hash as the game API does. The movie never receives the Commons bearer,
+and room messages never carry user ids. A wrong or expired capability closes
+with 4401. The server replies `{"t": "hello", "limits": {...}}`.
+
+Room membership belongs to the launch session, not the socket. A new socket
+with the same capability that joins the same room resumes the membership.
+
+### Envelope
+
+Every frame is a JSON text object with a type `t`. Requests may carry an
+operation id `id` (a string of up to 64 characters), echoed on the reply and on
+any `error`. Game bytes travel base64-encoded in `data`.
+
+| Client sends | Effect |
+| --- | --- |
+| `room.create` `{capacity?: 2..4}` | Creates a room and joins it. |
+| `room.join` `{room, invite}` | Joins, or resumes an existing membership. |
+| `room.ready` `{ready?: bool}` | Marks ready (default `true`). |
+| `room.leave` | Leaves now. Pending messages for you are discarded. |
+| `room.state` | Asks for the current `room.state`. |
+| `room.send` `{seq, data}` | Reliable, ordered message to the other members. |
+| `room.send` `{snapshot, data}` | Replaceable state under a key such as `board`. |
+| `ack` `{from, seq}` | Cumulatively acknowledges reliable messages from `from`. |
+| `ping` | Keepalive; the reply is `pong`. |
+
+| Server sends | Meaning |
+| --- | --- |
+| `room.joined` `{room, invite, you, sent}` | Joined. `invite` is the challenge secret; `sent` is your last accepted `seq`. |
+| `room.state` `{room, capacity, match, you, members}` | Members with `id`, `ready`, `connected`, after every change. |
+| `room.start` `{match, seed}` | Every member was ready and connected. Same seed for all; ready flags reset. |
+| `room.message` `{from, seq, data}` | Reliable message from member `from`. |
+| `room.message` `{from, snapshot, data}` | Latest snapshot of `from` under that key. |
+| `ack` `{seq}` | The server accepted your reliable messages up to `seq`. |
+| `room.left`, `pong`, `error` `{code}` | Replies. Error codes include `not_found`, `room_full`, `not_member`, `already_in_room`, `seq_gap` (with `expected`), `payload_too_large`, `too_many_rooms`, `busy` and `bad_request`. |
+
+A challenge link carries the room id and invite. A wrong invite and a missing
+room return the same `not_found`. A socket is in at most one room, and only
+members can send, ready or read state, so traffic never crosses rooms.
+
+### Reliability
+
+Reliable messages use per-sender sequence numbers starting at 1. The server
+accepts only the next number. It acknowledges a duplicate (`seq` at or below
+the last accepted) again without relaying it twice, and answers a gap with
+`seq_gap`. A sender keeps unacknowledged messages and resends them after a
+reconnect, starting after the `sent` value in `room.joined`.
+
+The server keeps each reliable message for each recipient until that recipient
+acknowledges it. On resume, it replays all of them in order, so a recipient
+deduplicates by `(from, seq)`. Snapshots do not queue or retry: the server
+keeps only the latest per member and key (at most 8 keys), sends it to members
+online now and to a member that resumes. A game's move stream belongs in
+reliable messages; a periodic board preview would be a snapshot.
+
+### Reconnects and limits
+
+A dropped socket keeps its membership for 30 seconds with `connected: false`
+and `ready: false`; then the member leaves. A newer socket for the same
+membership closes the older one with 4409. A match starts only when the room is
+full and every member is ready and connected.
+
+| Limit | Value | When exceeded |
+| --- | --- | --- |
+| Frame | 8 KiB text, no binary frames | Close 4413 / 4400 |
+| Payload | 4 KiB decoded | `payload_too_large` |
+| Rate | 60 frames/s, burst 120, per socket | Close 4429 |
+| Idle | 120 s without a frame (send `ping` every 30 s) | Close 4408 |
+| Outgoing queue | 256 frames | Close 4503; messages stay pending for resume |
+| Unacknowledged messages | 1024 per recipient | The recipient leaves the room (4503) |
+| Sockets / memberships | 8 sockets and 4 rooms per user; 500 rooms per process | 4429 / `too_many_rooms` / `busy` |
+| Malformed or unknown frame | | Close 4400 |
+
+The capability is checked when the socket says hello, not again during a match.
+
+### Deployment path and scaling
+
+The API runs as one uvicorn process (`backend/release.py`), and the relay is
+correct only there: rooms, timers and queues live in that process's memory, so
+mutations need no locks. Horizontal scaling would need routing by room to one
+process, or room state and fan-out in a shared broker, plus resume across
+processes. A restart ends every room; clients see a closed socket and their room
+no longer exists.
+
+The repository's ingress (`deploy/api-egress/nginx.conf`) already forwards
+`Upgrade`/`Connection` over HTTP/1.1 with a one-hour read timeout, and the
+locked `uvicorn[standard]` includes WebSocket support. Not verified here: the
+Coolify proxy and the public CDN path to the API domain in production. Both
+usually pass WebSockets but may close idle connections, which the 30-second
+`ping` covers. The frame does not open sockets yet. Without
+`ARCADE_PLAYER_ORIGIN`, its `connect-src 'self'` covers a same-origin `wss:`
+connection. With a player origin configured, the socket answers only on the API
+host (the player-origin path policy is unchanged), so a frame-side bridge must
+either connect from the Commons page or have the socket path added to that
+policy deliberately.
+
+Bridges are separate work. The first is a small client in our own built games;
+unmodified games would later reach a relay channel through Ruffle's socket
+proxy.
+
 ## Verification and remaining work
 
 Focused backend tests cover route authentication, encoded movie sessions,
@@ -241,5 +358,7 @@ by the reused environment's missing `three` dependency. A clean dependency
 install encountered existing lockfile hash mismatches, which were not bypassed.
 
 The prepared private package was imported through a real Commons admin account on 2026-11-28. Hosted Sprint playback was observed in Chrome. Hosted run saving remains unverified. Battle and opponent-level selection remain unimplemented.
+
+Rooms and relay tests (`backend/tests/test_arcade_rooms.py`) run two or more clients per room through the real socket route: matches start together, reliable messages are ordered, acknowledged and deduplicated, snapshots replace, rooms are isolated, and frame, payload and rate limits, grace expiry, replacement and resume replay are enforced. Launch capabilities come from a test double; their database lookup is the existing `Store.session`.
 
 Restart verification: a local Chromium run played the original Sprint movie to top-out, observed the server acknowledgement, focused Play again, restarted with Enter and loaded a new player session. This flow used synthetic authentication and an in-memory run store; database persistence is covered separately. The existing blocked blob-worker warning and two console 404 messages remain. No CSP permission was added.
