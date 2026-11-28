@@ -2,6 +2,7 @@ import React from 'react';
 import CspBoundary from './CspBoundary.jsx';
 import { lazyWithRecovery } from './lazyWithRecovery.js';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+const Arcade = lazyWithRecovery(() => import('./arcade/Arcade.jsx'));
 const RouteAnalytics = React.lazy(() => import('./analytics/RouteAnalytics.jsx'));
 const SupabaseProvider = lazyWithRecovery(() => import('./contexts/LazySupabaseProvider.jsx'));
 // One shared import per chunk, used by both the route preload and the lazy
@@ -61,6 +62,7 @@ export default function App() {
       <CspBoundary>
         <React.Suspense fallback={null}><RouteAnalytics /></React.Suspense>
         <Routes>
+          <Route path="/arcade" element={<React.Suspense fallback={<p>Opening Arcade…</p>}><SupabaseProvider><Arcade /></SupabaseProvider></React.Suspense>} />
           <Route path="/admin/*" element={<React.Suspense fallback={<p>Loading…</p>}><Admin /></React.Suspense>} />
           <Route path="/" element={<React.Suspense fallback={null}><CozyWabiLanding /></React.Suspense>} />
           <Route path="/trips/*" element={<React.Suspense fallback={<TripsSplash />}><PreloadedSupabaseRoute load={loadTripsApp}><TripsApp /></PreloadedSupabaseRoute></React.Suspense>} />
