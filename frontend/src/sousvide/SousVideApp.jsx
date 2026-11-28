@@ -1,7 +1,7 @@
 import React, { Suspense, use, useDeferredValue, useId, useState, useSyncExternalStore } from 'react';
 import SiteHeader from '../components/SiteHeader.jsx';
 import { getUrl } from '../api.js';
-import PixelKitchen from './PixelKitchen.jsx';
+import PixelKitchen, { pointAt } from './PixelKitchen.jsx';
 import { Burst, Sprite } from './Sprites.jsx';
 import '../../../design/cozy-wabi/components.css';
 import './sousvide.css';
@@ -219,6 +219,7 @@ class PlanError extends React.Component {
   }
   render() {
     if (!this.state.error) return this.props.children;
+    if (this.props.fallback) return this.props.fallback;
     return <p className="cc-notice cc-notice--error" role="alert">{this.state.error.message}</p>;
   }
 }
@@ -397,6 +398,45 @@ const earliestEat = (total) => {
   const now = new Date();
   return Math.ceil((now.getHours() * 60 + now.getMinutes() + total) / 15) * 15;
 };
+// The minute, read whenever the cooking screen renders and again whenever the page
+// comes back into view (the phone unlocks, the tab is picked again). Nothing ticks:
+// the moment that matters is the glance at the phone, and that is when it is read.
+function subscribeWake(onChange) {
+  document.addEventListener('visibilitychange', onChange);
+  window.addEventListener('pageshow', onChange);
+  window.addEventListener('focus', onChange);
+  return () => {
+    document.removeEventListener('visibilitychange', onChange);
+    window.removeEventListener('pageshow', onChange);
+    window.removeEventListener('focus', onChange);
+  };
+}
+const noWake = () => () => {};
+const readMinute = () => Math.floor(Date.now() / 60000);
+const noMinute = () => 0;
+
+// What the thermometer should read `elapsed` minutes in, so logging is a tap or two
+// instead of counting up from the fridge. After a reading, the model's rise since
+// then is added to it, so a steak running behind the model stays behind. The bath is
+// the part the thermometer follows; after the pull the guess stays at the pull.
+export function expectedF(trace, elapsed, last) {
+  const pull = trace.filter((p) => p.phase === 'bath').at(-1).min;
+  const core = (t) => toF(pointAt(trace, Math.min(Math.max(t, 0), pull)).core);
+  const f = last ? last[1] + core(elapsed) - core(last[0]) : core(elapsed);
+  return Math.min(212, Math.max(32, Math.round(f)));
+}
+
+// The moments a running cook has to act (cool the bath, take it out), as a calendar
+// file the API serves, so the phone's own calendar rings with the page closed.
+export function alarmUrl(cook, marks) {
+  const q = new URLSearchParams({ start: String(Math.round(cook.startedAt / 1000)) });
+  marks.filter((m) => m.key === 'cool' || m.key === 'out').forEach((m) => {
+    q.append('at', String(Math.round(m.at * 10) / 10));
+    q.append('what', m.label);
+  });
+  return `${getUrl()}/sousvide/alarm.ics?${q}`;
+}
+
 const EAT_STEPS = [{ d: 60, text: '1 h' }, { d: 15, text: '15' }];
 const READING_STEPS = [{ d: 5 }, { d: 1 }];
 
@@ -404,15 +444,18 @@ const READING_STEPS = [{ d: 5 }, { d: 1 }];
 // dinner time, or on the clock once the bag is in. Nothing here ticks; the clock
 // times come from the moment Start was pressed, and the thermometer decides.
 // `eatAt` is dinner as minutes of the day, or null for "start now".
-function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, onStart, onEnd, onReading }) {
-  // The thermometer stepper starts from the last reading, or the steak's start.
+function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, onEnd, onReading }) {
+  // The thermometer stepper starts from what the steak should read now.
   const [reading, setReading] = useState(null);
+  const minute = useSyncExternalStore(cook ? subscribeWake : noWake, readMinute, noMinute);
   const marks = milestones(id, row, form, plan);
   const total = marks.at(-1).at;
   const startMin = cook ? cook.startMin : eatAt != null ? eatAt - total : null;
   const when = (m) => (startMin == null ? (m ? `+${fmtMinutes(m)}` : 'Now') : fmtClock(startMin + m));
   const last = readings.at(-1)?.[1];
-  const shownF = reading ?? last ?? Math.round(toF(form.start));
+  const shownF = reading ?? (cook
+    ? expectedF(plan.trace[id], minute - cook.startedAt / 60000, readings.at(-1))
+    : Math.round(toF(form.start)));
   const stepEat = (d) => {
     const earliest = earliestEat(total);
     onEatAt(Math.max(earliest, eatAt == null ? earliest + Math.max(0, d) : eatAt + d));
@@ -430,13 +473,13 @@ function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, 
             <Stepper label="Eat at" steps={EAT_STEPS} shown={eatAt == null ? 'ASAP' : fmtClock(eatAt)}
               canStep={(d) => d > 0 || eatAt != null} onStep={stepEat}>
               {eatAt != null && <button type="button" className="sv-chip" onClick={() => onEatAt(null)}>As soon as I can</button>}
-            </Stepper>
-            <button type="button" className="sv-key sv-key--go sv-when__start" onClick={() => onStart(id, row)}>
-              <Sprite name="flame" scale={2} />Start cook</button></>}
+            </Stepper></>}
       </div>
       <ol className="sv-when__list">
         {marks.map((m) => <li key={m.key}><time>{when(m.at)}</time><span>{m.label}</span></li>)}
       </ol>
+      {cook && <a className="sv-key sv-key--quiet sv-when__alarm" href={alarmUrl(cook, marks)}>
+        <Sprite name="bell" scale={2} />Set alarms in my calendar</a>}
       {cook ? (
         <div className="sv-when__log">
           <Stepper label="Thermometer reads, °F" steps={READING_STEPS} shown={`${shownF}°F`}
@@ -459,9 +502,20 @@ function Schedule({ id, row, form, plan, cook, readings, party, eatAt, onEatAt, 
 const METHOD_ICON = { classic: 'pot', hot_and_pull: 'flame', hot_then_drop: 'ice' };
 const STEP_ICON = { bath: 'pot', probe: 'thermo', cool: 'ice', out: 'ribeye', sear: 'flame' };
 
+// Start cook, in the sticky bar under the plan so it stays in reach of a thumb. It
+// reads the same cached plan as the screen above it, so it starts the method shown.
+function StartCook({ form, picked, onStart }) {
+  const p = use(planFor(queryOf(form)));
+  const id = picked ?? recommended(p);
+  return (
+    <button type="button" className="sv-key sv-key--go sv-nav__next" onClick={() => onStart(id, p[id])}>
+      <Sprite name="flame" scale={2} />Start cook</button>
+  );
+}
+
 // The plan screen, or the cooking screen once a cook runs. The picked method and
 // dinner time live in the page, so they survive a trip to another screen.
-function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onEatAt, onStart, onEnd, onReading }) {
+function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onEatAt, onEnd, onReading }) {
   const p = use(planFor(queryOf(form)));
   const best = recommended(p);
   // A running cook keeps the method it started with.
@@ -471,8 +525,21 @@ function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onE
   const safe = safety(id, row, form.target);
   // Before the cook, the schedule follows the steps it times; during it, the clock
   // and the thermometer log are what the cook needs first.
+  const stepList = (
+    <ol className="sv-steps">
+      {steps(id, row, form, p).map((s) => (
+        <li key={s.key} data-step={s.key}>
+          <Sprite name={STEP_ICON[s.key]} scale={2} className="sv-steps__icon" />
+          <span className="cc-label">{s.label}</span>
+          {s.value && <b>{s.value}</b>}
+          {s.note && <span className="sv-steps__note">{s.note}</span>}
+          {s.more && <span className="sv-steps__more">{s.more}</span>}
+        </li>
+      ))}
+    </ol>
+  );
   const schedule = <Schedule id={id} row={row} form={form} plan={p} cook={cook} readings={readings} party={party}
-    eatAt={eatAt} onEatAt={onEatAt} onStart={onStart} onEnd={onEnd} onReading={onReading} />;
+    eatAt={eatAt} onEatAt={onEatAt} onEnd={onEnd} onReading={onReading} />;
   return (
     <section className={`sv-answer${cook ? ' is-cooking' : ''}${stale ? ' is-stale' : ''}`} aria-label="What to do" aria-busy={stale}>
       {!cook && <Segmented label="Method" showLabel={false} className="sv-methods" value={id} onChange={onPick}
@@ -485,19 +552,13 @@ function Answer({ form, stale, cook, readings, party, picked, onPick, eatAt, onE
         {id === best && !cook && <span className="cc-badge cc-badge--soft">Recommended</span>}
       </header>
       {cook && schedule}
-      <ol className="sv-steps">
-        {steps(id, row, form, p).map((s) => (
-          <li key={s.key} data-step={s.key}>
-            <Sprite name={STEP_ICON[s.key]} scale={2} className="sv-steps__icon" />
-            <span className="cc-label">{s.label}</span>
-            {s.value && <b>{s.value}</b>}
-            {s.note && <span className="sv-steps__note">{s.note}</span>}
-            {s.more && <span className="sv-steps__more">{s.more}</span>}
-          </li>
-        ))}
-      </ol>
-      {!cook && schedule}
-      <p className="sv-answer__trade">{tradeoff(id, row, form.target)}</p>
+      {cook ? (
+        // Mid-cook the clock and the thermometer are the screen; the steps stay a tap away.
+        <details className="cc-accordion sv-recipe">
+          <summary>The steps</summary>
+          <div className="cc-accordion__content">{stepList}</div>
+        </details>
+      ) : <>{stepList}{schedule}<p className="sv-answer__trade">{tradeoff(id, row, form.target)}</p></>}
       {safe && (safe.ok
         ? <p className="cc-help sv-answer__safe">{safe.text}</p>
         : <p className="cc-notice cc-notice--error" role="alert">{safe.text}</p>)}
@@ -991,7 +1052,7 @@ export default function SousVideApp() {
       <Suspense fallback={loading}>
         <Answer form={shown} stale={shown !== form} cook={cook} readings={log.readings} party={party}
           picked={picked} onPick={setPicked} eatAt={eatAt} onEatAt={setEatAt}
-          onStart={startCook} onEnd={endCook} onReading={addReading} />
+          onEnd={endCook} onReading={addReading} />
       </Suspense>
     </PlanError>
   );
@@ -1039,7 +1100,8 @@ export default function SousVideApp() {
           shown={(v) => (v ? `${v} s` : 'none')} onChange={set('sear')} />
       </section>
     ),
-    plan: answer,
+    plan: <>{answer}
+      <button type="button" className="sv-key sv-key--quiet sv-learnmore" onClick={() => go('learn')}>Learn more: the chart, the cut and a replay</button></>,
     cooking: answer,
     learn: (
       <>
@@ -1058,7 +1120,7 @@ export default function SousVideApp() {
   const nav = {
     steak: { next: cook ? { label: 'Back to the cook', to: 'cooking' } : { label: 'Next', to: 'cook' } },
     cook: { back: 'steak', next: cook ? { label: 'Back to the cook', to: 'cooking' } : { label: 'See the plan', to: 'plan' } },
-    plan: { back: 'cook', next: { label: 'Learn more', to: 'learn', quiet: true } },
+    plan: { back: 'cook', start: true },
     cooking: { next: { label: 'Learn and tune', to: 'learn', quiet: true } },
     learn: { back: toPlan },
   }[screen];
@@ -1088,6 +1150,13 @@ export default function SousVideApp() {
         </div>
         <nav className="sv-nav" aria-label="Screens">
           {nav.back && <button type="button" className="sv-key sv-nav__back" onClick={() => goBack(nav.back)}>Back</button>}
+          {nav.start && (
+            <PlanError query={query} fallback={<button type="button" className="sv-key sv-key--go sv-nav__next" disabled>Start cook</button>}>
+              <Suspense fallback={<button type="button" className="sv-key sv-key--go sv-nav__next" disabled>Start cook</button>}>
+                <StartCook form={shown} picked={picked} onStart={startCook} />
+              </Suspense>
+            </PlanError>
+          )}
           {nav.next && (
             <button type="button" className={`sv-key ${nav.next.quiet ? 'sv-nav__more' : 'sv-key--go sv-nav__next'}`}
               onClick={() => go(nav.next.to)}>{nav.next.label}</button>

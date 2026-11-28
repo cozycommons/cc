@@ -207,6 +207,16 @@ def client():
     return TestClient(app)
 
 
+def test_alarm_rings_before_and_at_each_moment_a_cook_must_act(client):
+    res = client.get('/sousvide/alarm.ics', params={'start': 1_795_800_000, 'at': [76.5], 'what': ['Out at 123°F, sear; now']})
+    assert res.headers['content-type'].startswith('text/calendar')
+    body = res.text.split('\r\n')
+    assert 'DTSTART:20261127T183630Z' in body  # 17:20 UTC plus 76.5 min
+    assert 'SUMMARY:Out at 123°F\\, sear\\; now' in body
+    assert [line for line in body if line.startswith('TRIGGER')] == ['TRIGGER:-PT10M', 'TRIGGER:PT0M']
+    assert client.get('/sousvide/alarm.ics', params={'start': 1_795_800_000, 'at': [1, 2], 'what': ['x']}).status_code == 422
+
+
 def test_plan_compares_classic_with_both_shortcuts(client):
     body = client.get('/sousvide/plan', params={'thickness_mm': 20, 'target_c': 57, 'boost_c': 4}).json()
     assert body['classic']['bath_c'] == 57

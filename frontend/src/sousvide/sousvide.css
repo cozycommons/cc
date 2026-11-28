@@ -271,3 +271,13 @@ label.cc-segmented__item{position:relative;display:inline-flex;align-items:cente
   .sv-answer.is-cooking>.sv-when{grid-row:2/span 4;padding-bottom:0;border-bottom:0}
   .sv-answer.is-cooking>:not(.sv-when):not(.sv-answer__head){grid-column:2}
 }
+/* The cooking screen: the alarm under the clock, the steps folded below the log. */
+.sv-when__alarm{width:100%;min-height:48px;font-size:16px;text-decoration:none;color:var(--sv-ink)}
+.cc-accordion.sv-recipe summary{min-height:48px;font-size:18px;line-height:1.25;letter-spacing:-.02em}
+.sv-recipe .cc-accordion__content{padding-top:8px}
+.sv-learnmore{width:100%;margin-top:14px;min-height:48px;font-size:16px}
+/* The shared html/body/#root overflow-x:hidden makes #root a scroll container that never
+   scrolls, so the sticky bar stuck to it and scrolled away. Clip instead, as Trips does. */
+@supports (overflow: clip) {
+  html:has(.sv-page), html:has(.sv-page) body, html:has(.sv-page) #root { overflow-x: clip; }
+}

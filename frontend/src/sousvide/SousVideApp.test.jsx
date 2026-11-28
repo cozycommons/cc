@@ -193,29 +193,42 @@ describe('Sous vide', () => {
     expect(within(when).getAllByRole('listitem').map((li) => li.querySelector('time').textContent))
       .toEqual(['7:05 PM', '7:24 PM', '7:30 PM']);
 
-    // Starting the cook swaps the plan screen for the cooking screen in place.
-    await act(async () => { fireEvent.click(within(when).getByRole('button', { name: 'Start cook' })); });
+    // Start cook sits in the sticky bar; starting swaps the plan screen for the cooking screen in place.
+    expect(within(when).queryByRole('button', { name: 'Start cook' })).toBeNull();
+    await tap('Start cook');
     expect([heading(), window.location.hash]).toEqual(['Cooking', '#cooking']);
-    when = screen.getByRole('region', { name: 'When' }); // it moves above the steps while cooking
-    expect(screen.getByRole('region', { name: 'What to do' }).querySelector('.sv-when + .sv-steps')).toBeTruthy();
+    when = screen.getByRole('region', { name: 'When' }); // it moves above the steps, which fold away
+    expect(screen.getByRole('region', { name: 'What to do' }).querySelector('.sv-when + .sv-recipe .sv-steps')).toBeTruthy();
     expect(within(when).getByText('Cooking since 6:00 PM')).toBeTruthy();
     expect(screen.queryByRole('radiogroup', { name: 'Method' })).toBeNull();
-    vi.setSystemTime(new Date(2026, 10, 27, 18, 12));
-    // The thermometer starts at the steak's 41°F; the next reading starts from the last.
+    // The calendar alarm rings 10 min before and at the pull, 18.8 min in.
+    expect(within(when).getByRole('link', { name: 'Set alarms in my calendar' }).getAttribute('href'))
+      .toBe(`https://api.test/sousvide/alarm.ics?start=${new Date(2026, 10, 27, 18, 0).getTime() / 1000}`
+        + '&at=18.8&what=Out+at+124%C2%B0F%2C+sear+right+away');
+    // The thermometer starts at what the model expects when the phone is picked up:
+    // 41°F at the start, 101°F 12 min in.
+    const reads = () => within(when).getByRole('group', { name: 'Thermometer reads, °F' }).querySelector('output').textContent;
+    const wake = (minute) => act(() => {
+      vi.setSystemTime(new Date(2026, 10, 27, 18, minute));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(reads()).toBe('41°F');
+    wake(12);
+    expect(reads()).toBe('101°F');
     fireEvent.click(within(when).getByRole('button', { name: 'Log' }));
     expect(within(when).getByText(/1 reading so far/)).toBeTruthy();
-    vi.setSystemTime(new Date(2026, 10, 27, 18, 19));
-    for (const step of ['+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+5', '+1', '+1', '+1']) {
-      fireEvent.click(within(when).getByRole('button', { name: `Thermometer reads, °F ${step}` }));
-    }
+    // After a reading, the guess is that reading plus the model's rise since: 101 + 13.
+    wake(19);
+    expect(reads()).toBe('114°F');
+    for (const step of ['+5', '+5']) fireEvent.click(within(when).getByRole('button', { name: `Thermometer reads, °F ${step}` }));
     expect(within(when).queryByText(/Out at 124°F/, { selector: '.sv-ready' })).toBeNull();
     fireEvent.click(within(when).getByRole('button', { name: 'Log' }));
     expect(within(when).getByText('Out at 124°F, sear right away', { selector: '.sv-ready' })).toBeTruthy();
     // The readings are kept in Learn, under Tune to your kitchen.
     await tap('Learn and tune');
     const readings = () => within(screen.getByRole('list', { name: 'Readings' })).getAllByRole('listitem').map((li) => li.textContent);
-    expect(readings()).toEqual(['41°F at 12 min×', '124°F at 19 min×']);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete 41°F at 12 min' }));
+    expect(readings()).toEqual(['101°F at 12 min×', '124°F at 19 min×']);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 101°F at 12 min' }));
     expect(readings()).toEqual(['124°F at 19 min×']);
     expect(JSON.parse(localStorage.getItem('sousvide.log'))).toEqual({ bathF: 135.5, readings: [[19, 124]] });
     expect(JSON.parse(localStorage.getItem('sousvide.cook'))).toMatchObject({ method: 'hot_and_pull', startMin: 1080 });
@@ -254,7 +267,7 @@ describe('Sous vide', () => {
     await toPlan();
     expect(planned(fetch)).toBe('https://api.test/sousvide/plan?thickness_mm=51&shape=slab&start_c=5&weight_g=1334'
       + '&bone=middle&target_c=54.5&boost_c=3&sear_s=45');
-    await tap('Learn more');
+    await tap('Learn more: the chart, the cut and a replay');
     expect(screen.getByText(/Width and length from the weight: 5.43″ × 7.09″\. Thickness alone would say 1 h 13/).textContent)
       .toContain('next to the bone');
 

@@ -312,10 +312,11 @@ range is one. Depths are shown to the nearest sixteenth of an inch.
 1. **Your steak** (`#steak`): cut, thickness with the No ruler? guide, weight,
    bone and starting temperature; width and length sit behind **More**.
 2. **Your cook** (`#cook`): doneness with its strip, the hot bath and the sear.
-3. **The plan** (`#plan`): the method tabs, the steps, the schedule with Eat at,
-   and Start cook.
-4. **Cooking** (`#cooking`): the schedule as clock times, the thermometer and
-   Log, the pull banner, End cook, and the steps.
+3. **The plan** (`#plan`): the method tabs, the steps and the schedule with Eat
+   at. Start cook sits in the sticky bar.
+4. **Cooking** (`#cooking`): the schedule as clock times, Set alarms in my
+   calendar, the thermometer and Log, the pull banner and End cook. The steps
+   fold away under **The steps**.
 5. **Learn** (`#learn`): the chart, the cut-open view, the replay, every hot
    bath, the sizing and Tune to your kitchen.
 
@@ -332,6 +333,19 @@ edit it. Back and Next stick to the bottom of a phone; a laptop puts the
 steak's controls, and the plan's steps and schedule, in two columns. The steak
 and cook settings are kept in `localStorage` (`sousvide.steak`), so a reload
 keeps them.
+
+**During the cook nothing ticks.** The clock times come from when Start was
+pressed. The thermometer stepper starts at what the steak should read now:
+the model's center temperature, or after a reading, that reading plus the
+model's rise since, so a steak running behind the model stays behind and a
+log is a tap or two. "Now" is read when the screen renders and whenever the
+page comes back into view (`visibilitychange`, `pageshow`, `focus`), which is
+when a cook picks the phone up. The alarm is the phone's own calendar: **Set
+alarms in my calendar** opens `GET /sousvide/alarm.ics`, an event for each
+moment the cook must act (cool the bath, take it out) with alarms 10 minutes
+before and at it. It is served rather than built in the page because iOS
+Safari adds events from a `text/calendar` response, not from a downloaded data
+URL. The alarm times are the model's estimate; the thermometer decides.
 
 The plan is asked for as soon as the steak and cook settle, on the first two
 screens, and the cached promise records its result, so by the time the plan
@@ -437,6 +451,11 @@ time an infinite slab would give). Inputs are rounded to 1 mm of thickness,
 
 A cook below 54.4 °C (130 °F) longer than 4 hours returns a warning: C.
 perfringens can still grow there.
+
+`GET /sousvide/alarm.ics?start=<unix s>&at=<min>&what=<label>` repeats `at`
+and `what` in pairs (1 to 4, labels up to 120 characters, within a day of the
+start) and returns an iCalendar file: one event per pair, each with a display
+alarm 10 minutes before and at it.
 
 `POST /sousvide/calibrate` takes the same steak fields plus `bath_c`,
 `readings` (3 to 600 pairs of minutes and core °C, within 10 hours) and
