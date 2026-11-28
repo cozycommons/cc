@@ -15,6 +15,7 @@ from tests.migration_harness import REPO, checkout_release, disposable_migration
 PRE_PROFILE_RELEASE = "97a87f08eb018c54a83ea3d3a4e962ede869faaa"  # main at Dice 0086
 PROFILE_RELEASE = "9be51e076ade2c8c75d921a536536df567aaa82f"  # main at Dice 0087 (M4 PR 1)
 CONTRACT = (REPO / "backend/migrations/dice_schema_contract.sql").read_text()
+LATEST_DICE_VERSION = (REPO / "backend/migrations/DICE_SCHEMA_CONTRACT_VERSION").read_text().strip()
 COLUMNS = "display_name,avatar_url,venmo_username,venmo_owner_confirmed,venmo_confirmed_name"
 LONG_AVATAR = "https://example.test/" + "a" * 3000
 
@@ -116,7 +117,7 @@ def service(database, statement, *, check=True):
 
 def test_fresh_install_backfills_from_account_metadata(fresh_database):
     database, ids = fresh_database
-    assert database.sql("SELECT max(version) FROM public.dice_schema_migrations;").stdout.strip() == "88"
+    assert database.sql("SELECT max(version) FROM public.dice_schema_migrations;").stdout.strip() == LATEST_DICE_VERSION
     assert_backfill(database, ids)
     assert service(database, "SELECT public.dice_release_readiness();").stdout.strip().endswith("t")
     assert "Applying " not in database.release().stdout

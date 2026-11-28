@@ -9,37 +9,29 @@ from fastapi.testclient import TestClient
 
 from arcade import wire
 from arcade.routes import router, store, current_user, package
-from arcade.store import Store
+from arcade.store import DEFAULTS, DEFAULT_XML
 
 
-def test_profiles_and_runs_survive_reopen_without_crossing_owners(tmp_path):
-    state = Store(tmp_path / "arcade.sqlite")
-    alice = state.profile("alice")["settings"]
-    alice["das_ms"] = 150
-    state.save_profile("alice", alice)
-    a = state.launch("alice")
-    b = state.launch("bob")
-    a_session, b_session = state.session(a["token"]), state.session(b["token"])
-    first = state.start_run(a_session)
-    second = state.start_run(b_session)
-    state.save_run(a_session, {"Score": "100"})
-    reopened = Store(tmp_path / "arcade.sqlite")
-    assert reopened.profile("alice")["settings"]["das_ms"] == 150
-    assert reopened.profile("bob")["settings"]["das_ms"] == 200
-    assert reopened.runs("alice")[0]["id"] == first
-    assert reopened.runs("bob")[0]["id"] == second
-    assert reopened.runs("bob")[0]["metrics"] == {}
-    assert reopened.session("unissued") is None
+class Profiles:
+    """Only profile/session inputs for route tests; persistence is exercised against PostgREST."""
+    def __init__(self):
+        self.profiles = {}
 
+    def profile(self, user_id):
+        return self.profiles.setdefault(user_id, {"settings": dict(DEFAULTS), "legacy_settings": DEFAULT_XML})
 
-def test_two_tabs_have_separate_active_runs(tmp_path):
-    state = Store(tmp_path / "state.sqlite")
-    tabs = [state.session(state.launch("alice")["token"]) for _ in range(2)]
-    ids = [state.start_run(tab) for tab in tabs]
-    state.save_run(tabs[0], {"Score": "5"})
-    state.save_run(tabs[1], {"Score": "9"})
-    runs = {row["id"]: row["metrics"]["Score"] for row in state.runs("alice")}
-    assert runs == {ids[0]: "5", ids[1]: "9"}
+    def save_profile(self, user_id, settings, legacy_settings=None):
+        self.profiles[user_id] = {"settings": settings, "legacy_settings": legacy_settings or DEFAULT_XML}
+
+    def runs(self, user_id):
+        return []
+
+    def launch(self, user_id):
+        self.owner = user_id
+        return {"id": "test-launch", "token": "test+session/token"}
+
+    def session(self, token):
+        return {"user_id": self.owner} if token == "test+session/token" else None
 
 
 def test_wire_preserves_plus_and_strips_session_fields(tmp_path):
@@ -66,7 +58,7 @@ def test_unknown_operations_and_entity_expansion_rejected():
 def test_profile_api_requires_sign_in_and_scopes_to_caller(tmp_path):
     app = FastAPI()
     app.include_router(router, prefix="/arcade")
-    state = Store(tmp_path / "state.sqlite")
+    state = Profiles()
     app.dependency_overrides[store] = lambda: state
     client = TestClient(app)
     assert client.get("/arcade/profile").status_code == 401
@@ -83,16 +75,6 @@ def test_profile_api_requires_sign_in_and_scopes_to_caller(tmp_path):
     assert client.put("/arcade/profile", json={**profile, "keys":{"left":"KeyJ","right":"KeyJ"}}).status_code == 400
 
 
-def test_expired_game_cannot_write(tmp_path):
-    import hashlib
-    state = Store(tmp_path / "state.sqlite")
-    session = state.launch("alice")
-    with state.connect() as db:
-        db.execute("UPDATE sessions SET expires_at=0 WHERE token_hash=?",
-                   (hashlib.sha256(session["token"].encode()).hexdigest(),))
-    assert state.session(session["token"]) is None
-
-
 def test_frame_has_own_csp_without_general_eval_permission():
     app = FastAPI()
     app.include_router(router, prefix="/arcade")
@@ -107,7 +89,7 @@ def test_url_encoded_movie_session_is_authenticated(tmp_path):
     from urllib.parse import quote
     app = FastAPI()
     app.include_router(router, prefix="/arcade")
-    state = Store(tmp_path / "state.sqlite")
+    state = Profiles()
     key = "test-package-key"
     issued = state.launch("alice")
     carried = quote(wire.encrypt(issued["token"], key.encode()), safe="")
@@ -127,22 +109,10 @@ def test_saved_custom_controls_drive_the_extra_key_targets():
     assert controls_for("<UserSettings/>")["left"] == 37
 
 
-def test_old_profile_receives_frame_rate_default_without_losing_handling(tmp_path):
-    import json
-    state = Store(tmp_path / "state.sqlite")
-    state.profile("alice")
-    with state.connect() as db:
-        db.execute("UPDATE profiles SET settings=? WHERE user_id=?",
-                   (json.dumps({"das_ms": 150, "arr_ms": 17}), "alice"))
-    settings = state.profile("alice")["settings"]
-    assert settings["frame_rate"] == 60
-    assert (settings["das_ms"], settings["arr_ms"]) == (150, 17)
-
-
 def test_launch_requires_corrected_package_before_overriding_frame_rate(tmp_path):
     from arcade.routes import launch
     from fastapi import HTTPException
-    state = Store(tmp_path / "state.sqlite")
+    state = Profiles()
     user = SimpleNamespace(id="alice")
     bundle = SimpleNamespace(manifest={"wire_key": "test-package-key", "entry": "game",
                                       "origins": {}, "callbacks": {}, "frame_rates": [0]})

@@ -22,30 +22,35 @@ run history belong to Commons. The original movie remains the gameplay runtime.
 
 ## Server state and ownership
 
-`ARCADE_STATE_PATH` points to an SQLite database on a persistent server volume.
-It contains profiles keyed by authenticated Commons user id, expiring game
-sessions, and run summaries plus replay records. Each launch has its own active
-run, including two launches by the same account in separate tabs. Browser
-storage is not the authority for game settings or records.
+Arcade uses the existing Commons Supabase/Postgres database and uncached server
+client. Migration `0095_dice_arcade.sql` creates `arcade_profiles`,
+`arcade_sessions`, `arcade_runs`, and the atomic start/save functions.
+It follows the existing Commons-profile migrations in the shared release family.
+The ordinary `python -m release` startup applies it before serving the new code.
+There is no SQLite file, local database creation, new database credential, or
+`ARCADE_STATE_PATH` requirement.
 
-Profile and history APIs use existing Commons sign-in. The movie receives a
-random six-hour game capability, not the Commons bearer or user id. Its hash
-is stored server-side. The capability travels in request bodies, never URLs.
-Private responses are no-store. Saved records omit session tokens and IP fields.
+Profile and history APIs use existing Commons sign-in. Each database query
+filters by the caller's Commons id. Tables have RLS enabled and are revoked
+from public, anon and authenticated; only the backend service role may access
+them. The two run functions are security invoker and service-role only.
+The migration adds Arcade's schema attestation to release readiness.
 
-Settings start at DAS 200 ms, ARR 35 ms, and 60 fps. Profiles may choose the
-movie's native rate (0), 60, 100, 144 or 240 fps. HHKB extras use J/L for movement and
-K for soft drop. Arrows and Z/X/C remain available. In-game custom controls are
-preserved by the adapter. Sound and handling apply on the next launch.
-`opponent_level` is stored per profile for the later Battle integration, but
-does not affect Sprint. Earned ranks and Battle matchmaking are not implemented.
+Each game launch has its own six-hour capability and active run. Its hash is
+stored in the database. The movie does not receive the Commons bearer or real
+user id. Start/save functions lock the owning session and merge callback metrics
+atomically, including overlapping callbacks. Private responses are no-store.
+Saved records omit session tokens and IP fields.
 
-SQLite is deliberately project-owned server storage for this first slice.
-It is not the hosted Commons Postgres database. Use one persistent filesystem
-for the API process and its workers. Do not use independent ephemeral replicas.
-Back up the database using SQLite's backup API, along with the asset package.
-Moving state into shared Postgres is a later migration if replicated hosting
-requires it.
+Settings start at DAS 200 ms, ARR 35 ms and 60 fps. Profiles may choose native
+rate (0), 60, 100, 144 or 240 fps. HHKB extras use J/L for movement and K for soft
+drop. In-game custom controls are preserved. Sound and handling apply on the
+next launch. `opponent_level` is stored for later Battle integration but does
+not affect Sprint. Earned ranks and Battle matchmaking are not implemented.
+
+The earlier SQLite store was never configured on the deployed backend. Local
+proof databases contain synthetic runs and are not production state. The local
+classic client's accounts and recordings are untouched.
 
 ## Installing a private package
 
@@ -58,7 +63,6 @@ python3 scripts/import-arcade-package.py /path/to/archive /path/to/arcade-packag
   --wire-key-file /path/to/private-wire-key --ruffle /path/to/self-hosted-player \
   --overrides /path/to/locally-patched-files
 export ARCADE_PACKAGE_PATH=/path/to/arcade-package
-export ARCADE_STATE_PATH=/path/to/persistent-volume/arcade.sqlite
 ```
 
 The destination must be new. The optional override directory uses the archive's
@@ -66,60 +70,61 @@ host/path layout. Its replacement movie is copied into the content-addressed
 package. Packages without a replacement movie advertise only the native frame
 rate; the server rejects faster choices instead of speeding up the countdown.
 Use the existing timing-corrected local builds for the 60 fps default. The package is self-contained: `manifest.json`,
-content-addressed files and a vendored player. Copying that directory and the
-server database moves Arcade without the source archive, Windows, or WSL.
+content-addressed files and a vendored player. The package can move independently of the source archive, Windows or WSL.
+Player state stays in the Commons database.
 No original game assets, private keys, account records or packages belong in Git.
 Original authorship and distribution terms remain applicable after UI changes.
 A configured backend serves installed assets to browsers; installing a package
 is therefore a publication decision for that deployment.
 
-For containers, mount a read-only package at `ARCADE_PACKAGE_PATH` and a writable,
-persistent state directory owned by the backend app user. Existing Commons
-`VITE_API_URL`, sign-in, and `CORS_EXTRA_ORIGINS` settings still apply. Set the
-frontend origin in `CORS_EXTRA_ORIGINS` so the frame accepts its launch message.
+The code and database schema deploy through the existing merge webhook and
+release migrations. Migration `0096_dice_arcade_package.sql` creates the private
+`arcade-packages` Storage bucket and the active-package metadata table. Browser
+roles cannot directly access either.
 
-For the existing hosted backend, use these container paths:
+A verified Commons admin can use **Install game package** on `/arcade` to import
+the prepared `.tar.gz`. The server checks archive paths, expanded size, entry
+movie, player files and asset hashes before uploading it to private Storage.
+Only then does it activate the new package. Failed validation leaves the
+previous active package intact. Importing is an explicit admin action, not an
+automatic download from the original service.
 
-```dotenv
-ARCADE_PACKAGE_PATH=/opt/arcade/package
-ARCADE_STATE_PATH=/var/lib/arcade/state.sqlite
-```
+Package data survives redeploys in Supabase Storage. A worker downloads it into
+an owned temporary playback cache as needed, so no persistent host mount,
+Coolify variable, SSH access or new hosting credential is needed. The existing
+Commons service role and Storage client are reused. The active package is
+refreshed within five seconds. Each imported archive is limited to 40 MB
+compressed and 160 MB expanded.
 
-Mount the imported package read-only at `/opt/arcade/package`, and a separate
-persistent writable directory at `/var/lib/arcade`. The state directory must
-belong to the app user's actual uid/gid in the deployed backend image. Do not
-assume a uid, put state in an ephemeral container layer, or change the backend's
-existing mounts, runtime secrets, scheduled tasks or release command.
+`ARCADE_PACKAGE_PATH` remains an optional local-development override, not a
+hosting requirement. With neither an imported package nor a local override,
+the page shows an installation message and disables Play. Administrators see
+the import control; other users do not.
 
-Install the package before setting these environment variables and redeploying
-the existing backend through Coolify. Verify `/arcade/player/ruffle.js` returns
-200, then use a real Commons sign-in to save handling, launch Sprint, finish a
-run and reload history. Restart through Coolify and confirm the same settings
-and run remain. Retain the previous package and state backup for rollback.
-
-These instructions prepare a deployment. They do not provision volumes or
-change live hosting themselves.
+The earlier "Arcade storage is not configured" error came from the removed
+SQLite configuration dependency. Game package installation is now available
+inside Commons rather than requiring server administration.
 
 ## Verification and remaining work
 
-Focused backend tests cover independent profiles, concurrent tabs, persistence
-after reopening storage, authentication, encoded session capabilities, expired
-sessions, record redaction, and the frame CSP. Frontend tests cover server
-settings and saving before launch.
+Focused backend tests cover route authentication, encoded movie sessions,
+record redaction and frame policy. Real PostgreSQL/PostgREST tests exercise
+migration-created tables, profile persistence without a storage-path variable, per-user and per-tab isolation,
+overlapping callbacks, expired capabilities and denied cross-owner writes.
+The same database tests verify service-role access, blocked browser roles,
+private bucket creation and package metadata persistence. Package object
+upload/download calls use an in-memory Storage test double locally; the live
+Storage HTTP service is not part of the local harness.
 
-A local Chromium smoke run loaded the real movie through the neutral routes,
-played to top-out, and saved a signed-in record. All observed network requests
-stayed on the local API origin. Two unattributed console 404 messages remained;
-the movie loaded, played and saved its record successfully. The smoke harness substituted a synthetic Commons
-identity and did not exercise a live Google sign-in. Production authentication
-still uses the existing Commons dependency.
+The local browser smoke run uses a synthetic Commons identity with the real
+database adapter. It loads the corrected Sprint package, plays to top-out and
+persists the neutral run record through PostgREST. All observed game requests
+stay on the local API origin. A live Google sign-in is not part of that harness.
 
-The focused frontend build passed. A full local build is currently blocked by
-the reused checkout's missing `three` package. A clean full dependency install
-was blocked by existing Pillow/cffi lockfile hash mismatches. Verification reused
-existing environments, including cryptography 44 rather than the lockfile's 50.
-No lockfile or hash guard was changed.
+The focused frontend build passes. A full local application build is blocked
+by the reused environment's missing `three` dependency. A clean dependency
+install encountered existing lockfile hash mismatches, which were not bypassed.
 
-Next steps are a deployment with a separately supplied package and persistent
-volume, verification with real Commons sign-in on a second device, then Battle
-and opponent-level selection. Do not claim those are already supported.
+Remaining work is importing the prepared private package through a real Commons
+admin account and verifying hosted play, then Battle and opponent-level selection. Do not claim those
+are already supported.
