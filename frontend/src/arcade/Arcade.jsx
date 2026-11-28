@@ -1,12 +1,14 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {useSupabase} from '../contexts/SupabaseContext';
 import {getUrl} from '../api';
+import Controls from './Controls';
 import './arcade.css';
 
 export default function Arcade() {
   const {supabase} = useSupabase();
   const [session, setSession] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [controls, setControls] = useState(null);
   const [runs, setRuns] = useState([]);
   const [error, setError] = useState('');
   const [launch, setLaunch] = useState(null);
@@ -20,7 +22,9 @@ export default function Arcade() {
   const frame = useRef(null);
 
   const api = getUrl().replace(/\/$/, '');
-  const frameOrigin = new URL(api, location.href).origin;
+  // The server names the separate player origin when one is configured.
+  const frameSource = launch?.frame || api + '/arcade/frame';
+  const frameOrigin = new URL(frameSource, location.href).origin;
 
   async function request(path, method = 'GET', body) {
     const {data} = await supabase.auth.getSession();
@@ -40,7 +44,7 @@ export default function Arcade() {
     supabase.auth.getSession().then(({data}) => setSession(data.session));
     const {data: {subscription}} = supabase.auth.onAuthStateChange((_event, value) => {
       setSession(previous => {
-        if (previous?.user.id !== value?.user.id) {setLaunch(null); setSettings(null); setRuns([]); setBundle(null); setFinished(false);}
+        if (previous?.user.id !== value?.user.id) {setLaunch(null); setSettings(null); setControls(null); setRuns([]); setBundle(null); setFinished(false);}
         return value;
       });
     });
@@ -49,8 +53,8 @@ export default function Arcade() {
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
-    Promise.all([request('profile'), request('runs'), request('package')]).then(([profile, history, installed]) => {
-      if (!cancelled) {setSettings(profile); setRuns(history); setBundle(installed);}
+    Promise.all([request('profile'), request('runs'), request('package'), request('controls')]).then(([profile, history, installed, bindable]) => {
+      if (!cancelled) {setSettings(profile); setRuns(history); setBundle(installed); setControls(bindable);}
     }).catch(err => {if (!cancelled) setError(err.message);});
     return () => {cancelled = true;};
   }, [session?.user.id]);
@@ -101,6 +105,10 @@ export default function Arcade() {
     finally {setInstalling(false);}
   }
   function update(name, value) {setSettings(previous => ({...previous, [name]: value})); setSaved(false);}
+  function rebind(binding) {
+    setControls(previous => ({...previous, binding}));
+    setSettings(previous => ({...previous, controls: {...previous.controls, [controls.game]: binding}})); setSaved(false);
+  }
   return <main className="arcade">
     <header><a href="/">Cozy Commons</a><h1>Arcade</h1><p>Sprint · Clear 40 lines</p></header>
     {error && <p role="alert">{error}</p>}
@@ -112,14 +120,14 @@ export default function Arcade() {
           <label>DAS <select value={settings.das_ms} onChange={e => update('das_ms', Number(e.target.value))}>{[280,200,150,133,120].map(ms => <option key={ms} value={ms}>{ms} ms</option>)}</select></label>
           <label>ARR <select value={settings.arr_ms} onChange={e => update('arr_ms', Number(e.target.value))}>{[50,35,17,7,0].map(ms => <option key={ms} value={ms}>{ms} ms</option>)}</select></label>
           <label>Frame rate <select value={settings.frame_rate} onChange={e => update('frame_rate', Number(e.target.value))}>{[0,60,100,144,240].map(rate => <option key={rate} value={rate}>{rate ? rate + ' fps' : 'Game default'}</option>)}</select></label>
-          <label>Keyboard <select value={Object.keys(settings.keys).length ? 'compact' : 'arrows'} onChange={e => update('keys', e.target.value === 'compact' ? {left:'KeyJ',right:'KeyL',soft:'KeyK'} : {})}><option value="compact">HHKB · J / K / L</option><option value="arrows">Arrow keys</option></select></label>
           <label><input type="checkbox" checked={settings.sound} onChange={e => update('sound', e.target.checked)}/>Sound</label>
           <button onClick={save}>Save settings</button>{saved && <span role="status">Saved</span>}
           <button onClick={play} disabled={!bundle?.installed || installing || launching}>{launching ? 'Starting…' : launch ? 'New game' : 'Play'}</button>
         </section>
-        <p>Z / X rotate · C hold · Space hard drop. Settings apply to the next game.</p>
+        {controls && <Controls actions={controls.actions} binding={controls.binding} onChange={rebind}/>}
+        <p>Settings and controls apply to the next game.</p>
         {launch && <div className="arcade-stage">
-          <iframe key={launch.id} ref={frame} src={api + '/arcade/frame'} title="Sprint game" sandbox="allow-scripts allow-same-origin" allow="autoplay" />
+          <iframe key={launch.id} ref={frame} src={frameSource} title="Sprint game" sandbox="allow-scripts allow-same-origin" allow="autoplay; gamepad" />
           {finished && <section className="arcade-finish" aria-label="Run finished">
             <div><h2>Run finished</h2><button ref={replay} className="arcade-replay" onClick={play} disabled={launching}>{launching ? 'Starting…' : 'Play again'}</button></div>
           </section>}

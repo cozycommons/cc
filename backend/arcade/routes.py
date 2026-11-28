@@ -16,7 +16,8 @@ from commons_roles import user_role
 from .package import Package
 from .store import Store
 from .package_store import PackageStore, MAX_UPLOAD
-from . import wire
+from .origin import player_origin
+from . import controls, wire
 from .rooms import router as rooms_router
 
 router = APIRouter()
@@ -47,7 +48,8 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     das_ms: Literal[280, 200, 150, 133, 120] = 200
     arr_ms: Literal[50, 35, 17, 7, 0] = 35
-    keys: dict[str, str] = Field(default_factory=lambda: {"left": "KeyJ", "right": "KeyL", "soft": "KeyK"})
+    # Per game id: {"keys": {action: code}, "pad": {action: button}}; checked by controls.validate.
+    controls: dict[str, dict] = Field(default_factory=dict)
     sound: bool = True
     frame_rate: Literal[0, 60, 100, 144, 240] = 60
     opponent_level: int = Field(default=0, ge=0, le=21)
@@ -58,12 +60,17 @@ def get_profile(user=Depends(current_user), state=Depends(store)):
 
 @router.put("/profile")
 def save_profile(payload: Settings, user=Depends(current_user), state=Depends(store)):
-    actions = {"left", "right", "soft", "hard", "cw", "ccw", "hold"}
-    if (not payload.keys.keys() <= actions or len(set(payload.keys.values())) != len(payload.keys)
-            or any(not key.isascii() or not key.isalnum() or len(key) > 24 for key in payload.keys.values())):
-        raise HTTPException(400, "Choose a distinct keyboard key for each action")
+    problem = controls.validate(payload.controls)
+    if problem:
+        raise HTTPException(400, problem)
     state.save_profile(str(user.id), payload.model_dump())
     return payload
+
+@router.get("/controls")
+def get_controls(user=Depends(current_user), state=Depends(store)):
+    profile = state.profile(str(user.id))
+    return controls.describe(controls_for(profile["legacy_settings"]),
+                             controls.binding_for(profile["settings"], controls.SPRINT))
 
 @router.get("/runs")
 def get_runs(user=Depends(current_user), state=Depends(store)):
@@ -81,15 +88,22 @@ def controls_for(xml: str) -> dict[str, int]:
 
 @router.post("/sessions")
 def launch(user=Depends(current_user), state=Depends(store), bundle=Depends(package)):
-    settings = state.profile(str(user.id))["settings"]
+    profile = state.profile(str(user.id))
+    settings = profile["settings"]
     frame_rate = settings["frame_rate"]
     if frame_rate not in bundle.manifest.get("frame_rates", [0]):
         raise HTTPException(409, "Install the timing-corrected game package for this frame rate")
+    trusted = getattr(bundle, "trusted", False)
+    origin = player_origin()
+    if not trusted and not origin:
+        raise HTTPException(503, "Untrusted games need the separate player origin")
     session = state.launch(str(user.id))
-    return {"id": session["id"], "frame_rate": frame_rate, "session": wire.encrypt(session["token"], bundle.manifest["wire_key"].encode()),
+    return {"id": session["id"], "frame_rate": frame_rate, "trusted": trusted,
+            **({"frame": origin + "/arcade/frame"} if origin else {}), "session": wire.encrypt(session["token"], bundle.manifest["wire_key"].encode()),
             "entry": bundle.manifest["entry"], "origins": bundle.manifest["origins"],
             "callbacks": bundle.manifest["callbacks"],
-            "controls": controls_for(state.profile(str(user.id))["legacy_settings"])}
+            "input": controls.resolve(controls_for(profile["legacy_settings"]),
+                                      controls.binding_for(settings, controls.SPRINT))}
 
 @router.get("/player/{name}")
 def player_file(name: str, bundle=Depends(package)):
@@ -136,10 +150,17 @@ def game_reply(body: bytes, state: Store, bundle: Package) -> Response:
         headers["X-Arcade-Run"] = "finished"
     return Response(reply, media_type="text/xml", headers=headers)
 
+def frame_parents(request: Request) -> list[str]:
+    """Commons pages allowed to embed the frame and exchange messages with it."""
+    origins = ["http://localhost:8080", "http://127.0.0.1:8080"]
+    origins += [value.strip().rstrip("/") for value in os.environ.get("CORS_EXTRA_ORIGINS", "").split(",") if value.strip()]
+    # On the API origin the frame is embedded by itself in legacy setups; the
+    # player origin is never its own parent.
+    return origins if player_origin() else [str(request.base_url).rstrip("/"), *origins]
+
 @router.get("/frame")
 def frame(request: Request):
-    origins = [str(request.base_url).rstrip("/"), "http://localhost:8080", "http://127.0.0.1:8080"]
-    origins += [value.strip().rstrip("/") for value in os.environ.get("CORS_EXTRA_ORIGINS", "").split(",") if value.strip()]
+    origins = frame_parents(request)
     policy = ("default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
               "connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
               "object-src 'none'; base-uri 'none'; form-action 'none'; "
@@ -150,9 +171,7 @@ def frame(request: Request):
 @router.get("/frame.js")
 def frame_script(request: Request):
     import json
-    origins = [str(request.base_url).rstrip("/"), "http://localhost:8080", "http://127.0.0.1:8080"]
-    origins += [value.strip().rstrip("/") for value in os.environ.get("CORS_EXTRA_ORIGINS", "").split(",") if value.strip()]
-    script = Path(__file__).with_name("frame.js").read_text().replace("__PARENT_ORIGINS__", json.dumps(origins))
+    script = Path(__file__).with_name("frame.js").read_text().replace("__PARENT_ORIGINS__", json.dumps(frame_parents(request)))
     return Response(script, media_type="text/javascript", headers={"Cache-Control": "no-store"})
 
 @router.get("/frame.css")

@@ -1,36 +1,78 @@
 /* Movie compatibility is confined to this frame and its installed package. */
 const status = document.querySelector('#status');
-const send = (type, extra = {}) => parent.postMessage({type, ...extra}, '*');
+// Allowed embedding origins are supplied by the server, not by any message.
+const parents = __PARENT_ORIGINS__;
+// Until a Commons page launches the game, a message is delivered only if the
+// parent is one of the allowed origins; afterwards only to that page's origin.
+const ancestor = location.ancestorOrigins?.[0];
+let commons = parents.includes(ancestor) ? ancestor : null;
+const send = (type, extra = {}) => {for (const origin of commons ? [commons] : parents) parent.postMessage({type, ...extra}, origin);};
 let started = false;
 let finished = false;
+// Extra keys and gamepad buttons press the key the game already uses for that
+// action. The launch carries the resolved bindings (backend/arcade/controls.py).
+// Registered before Ruffle loads so the capture listener runs first.
+const bindInput = ({targets, keys, buttons}) => {
+  let gameTarget = null; // Ruffle listens inside its shadow root, not on the host.
+  const held = {}; // action -> number of extra inputs holding it
+  const deepestFocus = () => {
+    let element = document.activeElement;
+    while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+    return element || document.body;
+  };
+  const press = (type, action, repeat = false) => {
+    const target = targets[action];
+    if (!target) return;
+    if (!repeat) {
+      held[action] = Math.max(0, (held[action] || 0) + (type === 'keydown' ? 1 : -1));
+      // Another input still holds this action, or it was already down.
+      if (type === 'keyup' ? held[action] > 0 : held[action] > 1) return;
+    }
+    const event = new KeyboardEvent(type, {code: target.code, key: target.key, bubbles: true,
+      cancelable: true, composed: true, repeat});
+    // KeyboardEvent ignores keyCode/which in its init dictionary; Flash games read them.
+    for (const name of ['keyCode', 'which']) Object.defineProperty(event, name, {get: () => target.key_code});
+    (gameTarget?.isConnected ? gameTarget : deepestFocus()).dispatchEvent(event);
+  };
+  for (const type of ['keydown', 'keyup']) {
+    addEventListener(type, event => {
+      if (!event.isTrusted) return;
+      gameTarget = event.composedPath()[0];
+      const action = keys[event.code];
+      if (!action) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      press(type, action, event.repeat);
+    }, true);
+  }
+  if (!Object.keys(buttons).length || !navigator.getGamepads) return;
+  // The left stick doubles as the d-pad (standard buttons 12-15).
+  const stick = (pad, axis, sign) => sign * (pad.axes[axis] || 0) > 0.5;
+  const pressed = pad => button => pad.buttons[button]?.pressed ||
+    (button === 12 && stick(pad, 1, -1)) || (button === 13 && stick(pad, 1, 1)) ||
+    (button === 14 && stick(pad, 0, -1)) || (button === 15 && stick(pad, 0, 1));
+  const down = new Set(); // "pad:button" currently held
+  const poll = () => {
+    const now = new Set();
+    for (const pad of navigator.getGamepads()) {
+      if (!pad?.connected) continue;
+      const isDown = pressed(pad);
+      for (const button of Object.keys(buttons)) if (isDown(Number(button))) now.add(pad.index + ':' + button);
+    }
+    for (const id of now) if (!down.has(id)) press('keydown', buttons[id.split(':')[1]]);
+    for (const id of down) if (!now.has(id)) press('keyup', buttons[id.split(':')[1]]);
+    down.clear(); for (const id of now) down.add(id);
+    requestAnimationFrame(poll);
+  };
+  requestAnimationFrame(poll);
+};
 const finish = () => {if (!finished) {finished = true; send('arcade-result');}};
 addEventListener('message', async event => {
   if (event.source !== parent || event.origin === 'null' || started || event.data?.type !== 'arcade-launch') return;
-  // Allowed embedding origins are supplied by the server, not by the message.
-  if (!__PARENT_ORIGINS__.includes(event.origin)) return;
-  started = true;
+  if (!parents.includes(event.origin)) return;
+  started = true; commons = event.origin;
   const {launch, settings} = event.data;
   try {
-    const remaps = Object.fromEntries(Object.entries(settings.keys).map(([action, code]) => [code, action]));
-    const names = {8:'Backspace',9:'Tab',13:'Enter',16:'ShiftLeft',17:'ControlLeft',18:'AltLeft',
-      27:'Escape',32:'Space',37:'ArrowLeft',38:'ArrowUp',39:'ArrowRight',40:'ArrowDown',
-      186:'Semicolon',187:'Equal',188:'Comma',189:'Minus',190:'Period',191:'Slash',
-      192:'Backquote',219:'BracketLeft',220:'Backslash',221:'BracketRight',222:'Quote'};
-    const defaults = {left:37,right:39,soft:40,hard:32,cw:88,ccw:90,hold:67};
-    const targets = Object.fromEntries(Object.entries(launch.controls || defaults).map(([action, id]) => [
-      action, [names[id] || (id >= 65 && id <= 90 ? 'Key' + String.fromCharCode(id) :
-        id >= 48 && id <= 57 ? 'Digit' + String.fromCharCode(id) : 'Unidentified'), id]
-    ]));
-    for (const type of ['keydown', 'keyup']) {
-      addEventListener(type, event => {
-        if (!event.isTrusted || !remaps[event.code]) return;
-        const [code, keyCode] = targets[remaps[event.code]];
-        event.preventDefault(); event.stopImmediatePropagation();
-        const target = event.composedPath()[0];
-        target.dispatchEvent(new KeyboardEvent(type, {code, key: code.startsWith('Key') ? code.slice(3).toLowerCase() : code,
-          keyCode, which: keyCode, bubbles: true, composed: true, repeat: event.repeat}));
-      }, true);
-    }
+    bindInput(launch.input);
     const player = window.RufflePlayer.newest().createPlayer();
     const base = new URL('.', location.href).href.replace(/\/$/, '');
     // Ruffle's ExternalInterface uses eval, which this frame deliberately disallows.
@@ -48,12 +90,17 @@ addEventListener('message', async event => {
     for (const origin of Object.keys(launch.origins)) {
       rules.unshift([new RegExp('^https?://' + origin.replace(/[.*+?^$()|[\]\\]/g, '\\$&') + '/api(?:[?].*)?$'), base + '/compat/api']);
     }
+    // Untrusted movies get no ExternalInterface (Ruffle installs it only with script
+    // access and full networking) and no URL navigation. URLLoader, sockets and
+    // loads stay available, fenced by this frame's connect-src.
+    const trusted = launch.trusted === true;
     player.config = {publicPath: base + '/player/', autoplay: 'on', splashScreen: false,
       contextMenu: 'off', openUrlMode: 'deny', urlRewriteRules: rules,
       ...(launch.frame_rate ? {frameRate: launch.frame_rate} : {}),
-      allowScriptAccess: true, unmuteOverlay: 'hidden', volume: settings.sound ? 1 : 0};
+      allowScriptAccess: trusted, allowNetworking: trusted ? 'all' : 'internal',
+      unmuteOverlay: 'hidden', volume: settings.sound ? 1 : 0};
     // Names are imported from the legacy page into the private package.
-    for (const [name, kind] of Object.entries(launch.callbacks)) {
+    for (const [name, kind] of trusted ? Object.entries(launch.callbacks) : []) {
       window[name] = (...args) => {
         if (kind === 'result') finish();
         if (kind === 'error') { status.textContent = 'The game could not continue.'; send('arcade-error'); }

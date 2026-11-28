@@ -32,6 +32,7 @@ from cc_mcp.mount import mount_agent_app
 from commons_account.routes import router as account_router
 from arcade.routes import router as arcade_router
 from arcade.package_store import PackageStore
+from arcade.origin import PlayerOriginGuard, player_origin
 from arcade.rooms import RoomHub
 from runtime_policy import initialize_runtime_policy
 from request_telemetry import dice_live_request_tags
@@ -94,6 +95,8 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["ETag", "X-Accel-Buffering"],
 )
+# The Arcade player host answers only player routes, and carries no credentials.
+app.add_middleware(PlayerOriginGuard, origin=player_origin())
 
 cache_store = SupabaseTTLCacheStore(ttl_seconds=120)
 app.state.supabase: Client = CachedSupabaseClient(

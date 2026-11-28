@@ -64,6 +64,11 @@ describe('enforced CSP', () => {
     const frameSources = policy => policy.match(/(?:^|; )frame-src ([^;]+)/)[1];
     expect(frameSources(policies.general)).toBe('https://api.example.test/arcade/frame');
     expect(frameSources(policies.credentials)).toBe("'none'");
+    const separate = contentSecurityPolicies('https://api.example.test', 'https://auth.example.test', '', 'https://play.example.test/');
+    expect(frameSources(separate.general)).toBe('https://api.example.test/arcade/frame https://play.example.test/arcade/frame');
+    expect(frameSources(separate.credentials)).toBe("'none'");
+    expect(separate.general).not.toMatch(/connect-src[^;]*play\.example/);
+    expect(() => contentSecurityPolicies('https://api.example.test', 'https://auth.example.test', '', 'http://play.example.test')).toThrow();
   });
   it('allows both Google font artifact paths only on general pages', () => {
     expect(policies.general).toContain("font-src 'self' https://fonts.gstatic.com/s/ https://fonts.gstatic.com/l/font;");

@@ -16,9 +16,123 @@ run history belong to Commons. The original movie remains the gameplay runtime.
   are not loaded. Embedded movie artwork and text have not been rewritten.
 - A separate player frame permits WebAssembly and same-origin assets. It cannot
   navigate to external pages. Commons credential-page policy is unchanged.
-  The general page policy permits only the API's exact `/arcade/frame` path.
+  The general page policy permits only the exact `/arcade/frame` path on the API
+  and, when configured, on the player origin below.
 - Missing runtime configuration returns 503. Importing the backend does not
   create a database or require game assets.
+
+## Controls
+
+Profiles store bindings per game id in `settings.controls`:
+`{"sprint": {"keys": {action: code}, "pad": {action: button}}}`. Keys are DOM
+`code` values; buttons are indexes in the standard gamepad layout. A game with
+no saved binding uses J/L move and K soft drop plus a d-pad/face-button pad map.
+Profiles saved with the older Sprint-only `keys` field are read as Sprint's
+binding. Until games carry action metadata, Sprint's action names live in
+`backend/arcade/controls.py`, and the game's own keys come from its in-movie
+custom controls.
+
+`GET /arcade/controls` returns the actions, the game's own keys and the
+effective binding for the settings table (click-to-bind, presets Arrows, HHKB
+and WASD). A launch carries `input`, the binding resolved against the game's own
+keys. The player frame swallows a bound key in a capture listener and dispatches
+a synthetic key for the action's game key to Ruffle's focused element inside its
+shadow root, with `key`, `code`, `keyCode` and `which` set. It polls the Gamepad
+API each animation frame the same way; the left stick doubles as the d-pad. A
+bound key that is already one of the game's own keys is skipped, so the game's
+keys always work. Game handling such as Sprint DAS/ARR stays in the adapter.
+
+## Player origin
+
+Uploaded movies will run ActionScript that nobody at Commons reviewed. Ruffle
+removes Flash's memory-safety risk; the player origin removes the same-origin
+risk. `ARCADE_PLAYER_ORIGIN` (backend) names a host, such as
+`https://play.cozycommons.dev`, that serves the same backend but holds no
+Commons credentials. Unset, the frame stays on the API origin as before.
+
+When it is set (`backend/arcade/origin.py`):
+
+- The player host answers only the frame, its script and style, the vendored
+  player, package assets and the trusted compatibility API
+  (`/arcade/compat/api`, authenticated by the per-launch game capability). Every
+  other route is 404 there, and those player routes are 404 on the API host.
+- Requests on the player host lose `Cookie` and `Authorization` before routing,
+  and responses lose `Set-Cookie`. The Commons bearer never reaches the frame.
+- The launch response names the frame URL. The Commons page embeds it and
+  accepts messages only from that origin and that frame window. The frame
+  accepts `arcade-launch` only from the server-supplied Commons origins and
+  posts only to its verified parent origin, never `*`. The player origin is
+  never its own allowed parent.
+- Frame CSP: `default-src 'none'`, scripts and connections `'self'` only
+  (WebAssembly allowed, eval not), `frame-ancestors` the Commons frontends.
+  Commons page CSP: `frame-src` adds the player frame when the frontend is built
+  with `VITE_ARCADE_PLAYER_ORIGIN`.
+
+Packages are trusted (the admin-installed compatibility adapter) or untrusted.
+Untrusted games launch only when the player origin is configured. Their Ruffle
+config is `allowScriptAccess: false`, `allowNetworking: "internal"`,
+`openUrlMode: "deny"`, and they get no page callbacks. The trusted adapter
+keeps its legacy config, including the `X-Arcade-Run: finished` end-of-run
+acknowledgement. Every current package is admin-installed and trusted unless
+its manifest sets `"trusted": false`; owner uploads must be loaded untrusted
+regardless of their manifest.
+
+What the pinned Ruffle (nightly-2026-11-13, checked against its source) blocks:
+
+| Setting | Blocks | Still allowed |
+| --- | --- | --- |
+| `allowNetworking: "internal"` | `navigateToURL`, AVM1 `getURL` (all navigator opens), `fscommand`, and ExternalInterface in both directions: Ruffle installs the page interface only with script access and `"all"` networking | `URLLoader`, `Loader`, `Socket`/`XMLSocket`, `LoadVars`/`loadVariables`, `loadMovie`, `SharedObject`, `LocalConnection` |
+| `allowNetworking: "none"` | The above, plus AVM2 `URLLoader`, `Loader`, `Socket`, `Sound.load`, `SharedObject`, `LocalConnection` and AVM1 asset imports | AVM1 `LoadVars`, `loadVariables`, `loadMovie` and `XMLSocket` are not checked |
+| `allowScriptAccess: false` | ExternalInterface, `javascript:` URLs, and navigation of the current tab | |
+
+`"none"` is therefore no complete fence, and it would break games that load
+their own assets. The frame's `connect-src 'self'` is the network boundary:
+an untrusted movie can reach only the player origin, which serves nothing but
+assets and the game API. Multiplayer stays possible on that boundary: a relay
+WebSocket on the player origin (Ruffle's socket proxy) is `'self'`, and any
+other service must be added to the frame's `connect-src` explicitly.
+
+Untrusted games share one player origin, so they share its storage (Ruffle
+keeps `SharedObject` data in `localStorage`). Per-game isolation is a separate
+follow-up.
+
+The local proof (`backend/tests/arcade_hostile_movie.py` generates the
+synthetic movie and package) ran the Commons page and API on
+`127.0.0.1:8877` and the player on `localhost:8877`. Sprint played on the
+player origin to top-out, recorded its run and focused **Play again**. The
+hostile movie ran (its two permitted same-origin loads reached the server),
+its ExternalInterface and `javascript:` attempts had no effect, the top page
+title and URL did not change, its Commons API read was refused by the frame
+CSP before leaving the browser, and its Commons route on the player host got
+404. In the legacy control (no player origin, trusted config) the same read
+reached the API and returned 200.
+
+### Enabling it (deployment steps)
+
+Order matters: the frontend must allow the new frame before the backend moves
+it. Each step is safe to stop after, but until step 4 the new host serves the
+whole API like `api.cozycommons.dev`, so do steps 2 to 4 together.
+
+1. DNS (Cloudflare): add `play.cozycommons.dev` pointing at the same target as
+   `api.cozycommons.dev` (same record type and proxy status). Add no Workers,
+   page rules or cookies for it.
+2. Coolify, backend resource: add `https://play.cozycommons.dev` to its domains
+   (the same ingress service and port as the API domain) and let Coolify issue
+   the certificate. Do not set `ARCADE_PLAYER_ORIGIN` yet. Check
+   `curl -sI https://play.cozycommons.dev/arcade/frame` returns 200.
+3. Coolify, frontend resource: add the build variable
+   `VITE_ARCADE_PLAYER_ORIGIN=https://play.cozycommons.dev` and redeploy. The
+   page CSP now allows both frames; play still uses the API frame.
+4. Coolify, backend resource: add the runtime variable
+   `ARCADE_PLAYER_ORIGIN=https://play.cozycommons.dev` and redeploy. Check
+   `/arcade/frame` is 404 on `api.cozycommons.dev`, `/health` is 404 on
+   `play.cozycommons.dev`, and Sprint plays to its finished-run overlay.
+
+Rollback is removing `ARCADE_PLAYER_ORIGIN` from the backend. A sibling
+subdomain is same-site with Commons; Commons cookies are host-only today, so
+none reach it, and the server strips any that do. A separate registrable
+domain would also remove same-site treatment; consider it before opening
+uploads to the public.
 
 ## Server state and ownership
 
@@ -43,9 +157,8 @@ atomically, including overlapping callbacks. Private responses are no-store.
 Saved records omit session tokens and IP fields.
 
 Settings start at DAS 200 ms, ARR 35 ms and 60 fps. Profiles may choose native
-rate (0), 60, 100, 144 or 240 fps. HHKB extras use J/L for movement and K for soft
-drop. In-game custom controls are preserved. Sound and handling apply on the
-next launch. `opponent_level` is stored for later Battle integration but does
+rate (0), 60, 100, 144 or 240 fps. In-game custom controls are preserved. Sound
+and handling apply on the next launch. `opponent_level` is stored for later Battle integration but does
 not affect Sprint. Earned ranks and Battle matchmaking are not implemented.
 
 When a run ends, the server marks its successful record response with `X-Arcade-Run: finished`. The isolated frame observes that acknowledgement and notifies Commons. This avoids Ruffle’s eval-based ExternalInterface callback, which the frame CSP blocks. A finished-run overlay keeps **Play again** beside the board and focuses it for keyboard activation. Restarting preserves profile settings, creates a fresh session and player frame, and prevents duplicate launch requests. A failed restart leaves the retry action available.
@@ -213,8 +326,12 @@ The repository's ingress (`deploy/api-egress/nginx.conf`) already forwards
 locked `uvicorn[standard]` includes WebSocket support. Not verified here: the
 Coolify proxy and the public CDN path to the API domain in production. Both
 usually pass WebSockets but may close idle connections, which the 30-second
-`ping` covers. The player frame's `connect-src 'self'` covers a same-origin
-`wss:` connection in current browsers; the frame does not open sockets yet.
+`ping` covers. The frame does not open sockets yet. Without
+`ARCADE_PLAYER_ORIGIN`, its `connect-src 'self'` covers a same-origin `wss:`
+connection. With a player origin configured, the socket answers only on the API
+host (the player-origin path policy is unchanged), so a frame-side bridge must
+either connect from the Commons page or have the socket path added to that
+policy deliberately.
 
 Bridges are separate work. The first is a small client in our own built games;
 unmodified games would later reach a relay channel through Ruffle's socket
