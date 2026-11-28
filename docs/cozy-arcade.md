@@ -20,6 +20,27 @@ run history belong to Commons. The original movie remains the gameplay runtime.
 - Missing runtime configuration returns 503. Importing the backend does not
   create a database or require game assets.
 
+## Controls
+
+Profiles store bindings per game id in `settings.controls`:
+`{"sprint": {"keys": {action: code}, "pad": {action: button}}}`. Keys are DOM
+`code` values; buttons are indexes in the standard gamepad layout. A game with
+no saved binding uses J/L move and K soft drop plus a d-pad/face-button pad map.
+Profiles saved with the older Sprint-only `keys` field are read as Sprint's
+binding. Until games carry action metadata, Sprint's action names live in
+`backend/arcade/controls.py`, and the game's own keys come from its in-movie
+custom controls.
+
+`GET /arcade/controls` returns the actions, the game's own keys and the
+effective binding for the settings table (click-to-bind, presets Arrows, HHKB
+and WASD). A launch carries `input`, the binding resolved against the game's own
+keys. The player frame swallows a bound key in a capture listener and dispatches
+a synthetic key for the action's game key to Ruffle's focused element inside its
+shadow root, with `key`, `code`, `keyCode` and `which` set. It polls the Gamepad
+API each animation frame the same way; the left stick doubles as the d-pad. A
+bound key that is already one of the game's own keys is skipped, so the game's
+keys always work. Game handling such as Sprint DAS/ARR stays in the adapter.
+
 ## Server state and ownership
 
 Arcade uses the existing Commons Supabase/Postgres database and uncached server
@@ -43,9 +64,8 @@ atomically, including overlapping callbacks. Private responses are no-store.
 Saved records omit session tokens and IP fields.
 
 Settings start at DAS 200 ms, ARR 35 ms and 60 fps. Profiles may choose native
-rate (0), 60, 100, 144 or 240 fps. HHKB extras use J/L for movement and K for soft
-drop. In-game custom controls are preserved. Sound and handling apply on the
-next launch. `opponent_level` is stored for later Battle integration but does
+rate (0), 60, 100, 144 or 240 fps. In-game custom controls are preserved. Sound
+and handling apply on the next launch. `opponent_level` is stored for later Battle integration but does
 not affect Sprint. Earned ranks and Battle matchmaking are not implemented.
 
 When a run ends, the server marks its successful record response with `X-Arcade-Run: finished`. The isolated frame observes that acknowledgement and notifies Commons. This avoids Ruffle’s eval-based ExternalInterface callback, which the frame CSP blocks. A finished-run overlay keeps **Play again** beside the board and focuses it for keyboard activation. Restarting preserves profile settings, creates a fresh session and player frame, and prevents duplicate launch requests. A failed restart leaves the retry action available.
