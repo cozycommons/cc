@@ -176,7 +176,7 @@ def test_launch_requires_corrected_package_before_overriding_frame_rate(tmp_path
     from fastapi import HTTPException
     state = Profiles()
     user = SimpleNamespace(id="alice")
-    bundle = SimpleNamespace(manifest={"wire_key": "test-package-key", "entry": "game",
+    bundle = SimpleNamespace(trusted=True, manifest={"wire_key": "test-package-key", "entry": "game",
                                       "origins": {}, "callbacks": {}, "frame_rates": [0]})
     with pytest.raises(HTTPException) as error:
         launch(user, state, bundle)

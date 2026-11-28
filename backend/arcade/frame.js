@@ -1,6 +1,12 @@
 /* Movie compatibility is confined to this frame and its installed package. */
 const status = document.querySelector('#status');
-const send = (type, extra = {}) => parent.postMessage({type, ...extra}, '*');
+// Allowed embedding origins are supplied by the server, not by any message.
+const parents = __PARENT_ORIGINS__;
+// Until a Commons page launches the game, a message is delivered only if the
+// parent is one of the allowed origins; afterwards only to that page's origin.
+const ancestor = location.ancestorOrigins?.[0];
+let commons = parents.includes(ancestor) ? ancestor : null;
+const send = (type, extra = {}) => {for (const origin of commons ? [commons] : parents) parent.postMessage({type, ...extra}, origin);};
 let started = false;
 let finished = false;
 // Extra keys and gamepad buttons press the key the game already uses for that
@@ -62,9 +68,8 @@ const bindInput = ({targets, keys, buttons}) => {
 const finish = () => {if (!finished) {finished = true; send('arcade-result');}};
 addEventListener('message', async event => {
   if (event.source !== parent || event.origin === 'null' || started || event.data?.type !== 'arcade-launch') return;
-  // Allowed embedding origins are supplied by the server, not by the message.
-  if (!__PARENT_ORIGINS__.includes(event.origin)) return;
-  started = true;
+  if (!parents.includes(event.origin)) return;
+  started = true; commons = event.origin;
   const {launch, settings} = event.data;
   try {
     bindInput(launch.input);
@@ -85,12 +90,17 @@ addEventListener('message', async event => {
     for (const origin of Object.keys(launch.origins)) {
       rules.unshift([new RegExp('^https?://' + origin.replace(/[.*+?^$()|[\]\\]/g, '\\$&') + '/api(?:[?].*)?$'), base + '/compat/api']);
     }
+    // Untrusted movies get no ExternalInterface (Ruffle installs it only with script
+    // access and full networking) and no URL navigation. URLLoader, sockets and
+    // loads stay available, fenced by this frame's connect-src.
+    const trusted = launch.trusted === true;
     player.config = {publicPath: base + '/player/', autoplay: 'on', splashScreen: false,
       contextMenu: 'off', openUrlMode: 'deny', urlRewriteRules: rules,
       ...(launch.frame_rate ? {frameRate: launch.frame_rate} : {}),
-      allowScriptAccess: true, unmuteOverlay: 'hidden', volume: settings.sound ? 1 : 0};
+      allowScriptAccess: trusted, allowNetworking: trusted ? 'all' : 'internal',
+      unmuteOverlay: 'hidden', volume: settings.sound ? 1 : 0};
     // Names are imported from the legacy page into the private package.
-    for (const [name, kind] of Object.entries(launch.callbacks)) {
+    for (const [name, kind] of trusted ? Object.entries(launch.callbacks) : []) {
       window[name] = (...args) => {
         if (kind === 'result') finish();
         if (kind === 'error') { status.textContent = 'The game could not continue.'; send('arcade-error'); }

@@ -6,6 +6,9 @@ class Package:
     def __init__(self, root: Path):
         self.root = root.resolve()
         self.manifest = json.loads((self.root / "manifest.json").read_text())
+        # Only admin-installed and local packages exist, so they are trusted unless
+        # their manifest opts out. Owner uploads must be constructed untrusted.
+        self.trusted = self.manifest.get("trusted", True) is not False
 
     def file(self, key: str) -> tuple[Path, str] | None:
         entry = self.manifest["assets"].get(key)
