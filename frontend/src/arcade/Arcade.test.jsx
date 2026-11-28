@@ -121,13 +121,10 @@ it('creates only one restart while a session request is pending',async()=>{
  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/sessions'))).toHaveLength(2);
 });
 it('embeds the separate player origin the server names and trusts only its messages',async()=>{
- fetch.mockImplementation(async(url,options={})=>({ok:true,json:async()=>{
-  if(url.endsWith('/runs'))return [];
-  if(url.endsWith('/package'))return shared.bundle;
-  if(url.endsWith('/sessions'))return {id:'launch-1',trusted:false,frame:'https://play.example.test/arcade/frame'};
-  if(options.method==='PUT')return JSON.parse(options.body);
-  return shared.settings;
- }}));
+ const base=fetch.getMockImplementation();
+ fetch.mockImplementation(async(url,options={})=>url.endsWith('/sessions')
+  ?{ok:true,json:async()=>({id:'launch-1',trusted:false,frame:'https://play.example.test/arcade/frame'})}
+  :base(url,options));
  render(<Arcade/>);
  fireEvent.click(await screen.findByRole('button',{name:'Play'}));
  const frame=await screen.findByTitle('Sprint game');
